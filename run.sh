@@ -1,19 +1,15 @@
 #!/bin/bash
-set -e
+echo "🌑 Shadow Lands — запуск..."
 
-cd "$(dirname "$0")"
-
-# Activate venv
-if [ -d "venv" ]; then
-    source venv/bin/activate
+if [ ! -d "venv" ]; then
+    echo "Создаю виртуальное окружение..."
+    python3 -m venv venv
 fi
 
-# Create data dir
-mkdir -p data
+source venv/bin/activate
 
-echo "🌑 Shadow Lands — запуск единого сервера"
-echo "Админка будет доступна на http://localhost:8000"
-echo "Нажми Ctrl+C для остановки"
-echo ""
+echo "Устанавливаю зависимости..."
+pip install -q -r requirements.txt
 
+echo "Запускаю сервер..."
 python launch.py
