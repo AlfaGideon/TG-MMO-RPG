@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e
 
+cd "$(dirname "$0")"
+
 # Activate venv
 if [ -d "venv" ]; then
     source venv/bin/activate
@@ -9,19 +11,9 @@ fi
 # Create data dir
 mkdir -p data
 
-# Run bot in background
-echo "Starting bot..."
-python -m bot.main &
-BOT_PID=$!
+echo "🌑 Shadow Lands — запуск единого сервера"
+echo "Админка будет доступна на http://localhost:8000"
+echo "Нажми Ctrl+C для остановки"
+echo ""
 
-# Run admin panel in background
-echo "Starting admin panel on http://localhost:8000 ..."
-python -m admin.main &
-ADMIN_PID=$!
-
-echo "Bot PID: $BOT_PID"
-echo "Admin PID: $ADMIN_PID"
-echo "Press Ctrl+C to stop both"
-
-trap "kill $BOT_PID $ADMIN_PID; exit" INT TERM
-wait
+python launch.py

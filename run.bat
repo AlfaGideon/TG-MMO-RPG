@@ -1,12 +1,13 @@
 @echo off
+cd /d "%~dp0"
+
 if exist venv\Scripts\activate.bat call venv\Scripts\activate.bat
 if not exist data mkdir data
 
-echo Starting bot...
-start python -m bot.main
+echo 🌑 Shadow Lands — запуск единого сервера
+echo Админка будет доступна на http://localhost:8000
+echo Закрой это окно для остановки
+echo.
 
-echo Starting admin panel on http://localhost:8000 ...
-start python -m admin.main
-
-echo Both services started.
+python launch.py
 pause

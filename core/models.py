@@ -179,3 +179,12 @@ class ShopItem(Base):
     refresh_interval = Column(Integer, default=0)  # hours, 0 = never
 
     item = relationship("Item")
+
+
+class AppSetting(Base):
+    __tablename__ = "app_settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String(128), unique=True, nullable=False)
+    value = Column(Text, nullable=False, default="")
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

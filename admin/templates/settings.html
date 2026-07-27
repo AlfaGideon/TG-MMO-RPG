@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+
+{% block title %}Настройки — Shadow Lands{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>🤖 Управление ботом</h2>
+    <p style="color: var(--text-muted); margin-bottom: 1rem;">
+        Здесь ты управляешь Telegram-ботом. Введи токен от @BotFather, сохрани и запусти.
+    </p>
+
+    <div class="stat-box" style="margin-bottom: 1.5rem; text-align: left;">
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <span id="status-dot" style="width: 12px; height: 12px; border-radius: 50%; background: {{ 'var(--success)' if bot_running else 'var(--danger)' }}; display: inline-block;"></span>
+            <span id="status-text" style="font-weight: 600;">
+                {{ 'Бот работает' if bot_running else 'Бот остановлен' }}
+            </span>
+        </div>
+    </div>
+
+    <form action="/settings/save-token" method="post" style="margin-bottom: 1.5rem;">
+        <label style="display: block; margin-bottom: 0.5rem; font-size: 0.875rem; color: var(--text-muted);">
+            Telegram Bot Token
+        </label>
+        <div style="display: flex; gap: 0.75rem;">
+            <input
+                type="text"
+                name="bot_token"
+                class="search-box"
+                style="flex: 1; max-width: 600px;"
+                placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
+                value=""
+                required
+            >
+            <button type="submit" class="btn btn-primary">💾 Сохранить</button>
+        </div>
+        {% if token_masked %}
+        <p style="margin-top: 0.5rem; font-size: 0.8rem; color: var(--text-muted);">
+            Текущий токен: <code>{{ token_masked }}</code>
+        </p>
+        {% endif %}
+    </form>
+
+    <div style="display: flex; gap: 0.75rem;">
+        <button class="btn btn-primary" onclick="startBot()">▶️ Запустить бота</button>
+        <button class="btn btn-danger" onclick="stopBot()">⏹ Остановить бота</button>
+    </div>
+
+    <div id="msg" style="margin-top: 1rem; font-size: 0.9rem;"></div>
+</div>
+
+<div class="card">
+    <h2>📖 Как запустить</h2>
+    <ol style="padding-left: 1.25rem; color: var(--text-muted); line-height: 1.8;">
+        <li>Напиши <a href="https://t.me/BotFather" target="_blank" style="color: var(--accent);">@BotFather</a> в Telegram, создай нового бота и скопируй токен.</li>
+        <li>Вставь токен в поле выше и нажми <b>Сохранить</b>.</li>
+        <li>Нажми <b>Запустить бота</b>. Статус должен стать зелёным.</li>
+        <li>Открой своего бота в Telegram и нажми /start.</li>
+        <li><b>Важно:</b> пока работает эта программа на твоём ноутбуке — бот доступен всем. Не закрывай окно терминала.</li>
+    </ol>
+</div>
+
+<script>
+async function startBot() {
+    const msg = document.getElementById('msg');
+    msg.style.color = 'var(--text-muted)';
+    msg.textContent = 'Запускаю...';
+    try {
+        const r = await fetch('/api/bot/start', {method: 'POST'});
+        const data = await r.json();
+        if (data.success) {
+            msg.style.color = 'var(--success)';
+            msg.textContent = '✅ Бот запущен!';
+            updateStatus(true);
+        } else {
+            msg.style.color = 'var(--danger)';
+            msg.textContent = '❌ ' + (data.error || 'Ошибка запуска');
+        }
+    } catch (e) {
+        msg.style.color = 'var(--danger)';
+        msg.textContent = '❌ Ошибка сети: ' + e.message;
+    }
+}
+
+async function stopBot() {
+    const msg = document.getElementById('msg');
+    msg.style.color = 'var(--text-muted)';
+    msg.textContent = 'Останавливаю...';
+    try {
+        const r = await fetch('/api/bot/stop', {method: 'POST'});
+        const data = await r.json();
+        if (data.success) {
+            msg.style.color = 'var(--success)';
+            msg.textContent = '✅ Бот остановлен.';
+            updateStatus(false);
+        } else {
+            msg.style.color = 'var(--danger)';
+            msg.textContent = '❌ ' + (data.error || 'Ошибка остановки');
+        }
+    } catch (e) {
+        msg.style.color = 'var(--danger)';
+        msg.textContent = '❌ Ошибка сети: ' + e.message;
+    }
+}
+
+function updateStatus(running) {
+    const dot = document.getElementById('status-dot');
+    const txt = document.getElementById('status-text');
+    dot.style.background = running ? 'var(--success)' : 'var(--danger)';
+    txt.textContent = running ? 'Бот работает' : 'Бот остановлен';
+}
+
+// Poll status every 5s
+setInterval(async () => {
+    try {
+        const r = await fetch('/api/bot/status');
+        const data = await r.json();
+        updateStatus(data.running);
+    } catch (e) {}
+}, 5000);
+</script>
+{% endblock %}
