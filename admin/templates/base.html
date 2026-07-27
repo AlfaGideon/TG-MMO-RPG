@@ -14,6 +14,7 @@
             <a href="/players" class="{% if request.path == '/players' %}active{% endif %}">Игроки</a>
             <a href="/items" class="{% if request.path == '/items' %}active{% endif %}">Предметы</a>
             <a href="/battles" class="{% if request.path == '/battles' %}active{% endif %}">Бои</a>
+            <a href="/editor/locations" class="{% if request.path.startswith('/editor') %}active{% endif %}">🗺 Редактор</a>
             <a href="/settings" class="{% if request.path == '/settings' %}active{% endif %}">⚙️ Настройки</a>
         </nav>
     </header>

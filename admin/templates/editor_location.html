@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+
+{% block title %}{{ location.name }} — Редактор — Shadow Lands{% endblock %}
+
+{% block content %}
+<style>
+.cell-grid {
+    display: grid;
+    grid-template-columns: repeat(10, 1fr);
+    gap: 2px;
+    max-width: 600px;
+}
+.cell {
+    aspect-ratio: 1;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.65rem;
+    cursor: pointer;
+    text-decoration: none;
+    color: var(--text);
+    transition: transform 0.1s;
+    position: relative;
+}
+.cell:hover {
+    transform: scale(1.1);
+    z-index: 10;
+    border-color: var(--accent);
+}
+.cell-wall { background: #2a2a35; color: #666; }
+.cell-grass { background: #1a3a1a; }
+.cell-forest { background: #0d2b0d; }
+.cell-water { background: #0a1a3a; }
+.cell-road { background: #3a2a1a; }
+.cell-village { background: #3a2a0d; }
+.cell-cave { background: #1a1a2a; }
+.cell-mob::after { content: '👾'; position: absolute; top: 2px; right: 2px; font-size: 0.7rem; }
+.cell-npc::after { content: '💬'; position: absolute; top: 2px; right: 2px; font-size: 0.7rem; }
+.cell-chest::after { content: '📦'; position: absolute; bottom: 2px; left: 2px; font-size: 0.7rem; }
+.cell-player { box-shadow: 0 0 0 2px var(--success); }
+</style>
+
+<div class="card">
+    <div class="toolbar">
+        <h2>✏️ Редактирование: {{ location.name }}</h2>
+        <a href="/editor/locations" class="btn">◀️ Назад</a>
+    </div>
+
+    <form action="/editor/location/{{ location.id }}/save" method="post" style="margin-bottom: 1.5rem;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+            <div>
+                <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Название</label>
+                <input type="text" name="name" value="{{ location.name }}" class="search-box" style="max-width: 100%;" required>
+            </div>
+            <div>
+                <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Тип</label>
+                <select name="location_type" class="search-box" style="max-width: 100%;">
+                    <option value="safe" {% if location.location_type.value == 'safe' %}selected{% endif %}>Безопасная</option>
+                    <option value="dangerous" {% if location.location_type.value == 'dangerous' %}selected{% endif %}>Опасная</option>
+                    <option value="dungeon" {% if location.location_type.value == 'dungeon' %}selected{% endif %}>Подземелье</option>
+                    <option value="boss" {% if location.location_type.value == 'boss' %}selected{% endif %}>Босс</option>
+                </select>
+            </div>
+            <div>
+                <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Мин. уровень</label>
+                <input type="number" name="min_level" value="{{ location.min_level }}" class="search-box" style="max-width: 100%;" min="1">
+            </div>
+            <div>
+                <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Размер сетки</label>
+                <input type="number" name="grid_size" value="{{ location.grid_size }}" class="search-box" style="max-width: 100%;" min="5" max="20">
+            </div>
+        </div>
+        <div style="margin-bottom: 1rem;">
+            <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Описание локации</label>
+            <textarea name="description" class="search-box" style="max-width: 100%; width: 100%; min-height: 80px; resize: vertical;">{{ location.description }}</textarea>
+        </div>
+        <button type="submit" class="btn btn-primary">💾 Сохранить локацию</button>
+    </form>
+</div>
+
+<div class="card">
+    <h2>🗺 Сетка клеток</h2>
+    <p style="color: var(--text-muted); font-size: 0.8rem; margin-bottom: 1rem;">
+        Кликни на клетку чтобы отредактировать. Легенда: 🧱 стена | 🌿 трава | 🌲 лес | 💧 вода | 🛤 дорога | 🏘 деревня | 👾 враг | 💬 NPC | 📦 сундук
+    </p>
+    <div class="cell-grid">
+        {% for y in range(location.grid_size) %}
+            {% for x in range(location.grid_size) %}
+                {% set cell = cells_dict.get((x, y)) %}
+                {% if cell %}
+                    <a href="/editor/cell/{{ cell.id }}" class="cell cell-{{ cell.tile_type }} {% if not cell.is_passable %}cell-wall{% endif %} {% if cell.mob_id %}cell-mob{% endif %} {% if cell.has_npc %}cell-npc{% endif %} {% if cell.has_chest %}cell-chest{% endif %}">
+                        {{ x }},{{ y }}
+                    </a>
+                {% else %}
+                    <div class="cell cell-wall">—</div>
+                {% endif %}
+            {% endfor %}
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

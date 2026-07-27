@@ -1,12 +1,13 @@
 from aiogram import Router, F
-from aiogram.types import CallbackQuery, InputMediaPhoto
+from aiogram.types import CallbackQuery, FSInputFile
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from core.database import async_session
 from core.models import User, Character, Location, Cell
+from core.map_renderer import ensure_cell_image
 from bot.keyboards.inline import locations_keyboard, cell_movement_keyboard, main_menu_keyboard, back_to_main_keyboard
-from bot.utils.texts import location_text, cell_text, mini_map
+from bot.utils.texts import location_text, cell_text
 
 router = Router()
 
@@ -135,7 +136,7 @@ async def show_map(callback: CallbackQuery):
         result = await session.execute(
             select(Character)
             .where(Character.user_id == user.id)
-            .options(selectinload(Character.cell), selectinload(Character.party))
+            .options(selectinload(Character.cell))
         )
         character = result.scalar_one_or_none()
         if not character or not character.cell:
@@ -147,25 +148,49 @@ async def show_map(callback: CallbackQuery):
         )
         cells = result.scalars().all()
 
-        # Get party members on same location
-        party_members = []
-        if character.party_id:
-            from core.models import Character as CharModel
-            result = await session.execute(
-                select(CharModel)
-                .where(CharModel.party_id == character.party_id)
-                .where(CharModel.location_id == character.location_id)
-                .where(CharModel.id != character.id)
-                .options(selectinload(CharModel.cell))
-            )
-            party_members = result.scalars().all()
+        # Generate map-only image
+        from core.map_renderer import render_cell_image
+        map_path = f"data/cell_images/map_{character.location_id}.jpg"
+        render_cell_image(character.cell, cells, character.cell.x, character.cell.y, map_path)
 
-        map_text = mini_map(cells, character.cell.x, character.cell.y, party_members)
-        await callback.message.edit_text(
-            f"🗺 <b>Мини-карта</b>\n{map_text}\n\n"
-            f"🧙 — ты | 👾 — враг | 🌲 — проходимо | ⬛ — стена\n"
-            f"👥 — сопартиец",
+        text = f"🗺 <b>Мини-карта</b>\n\n📍 Ты здесь: [{character.cell.x},{character.cell.y}]\n🗺 {character.location.name}"
+        await callback.message.answer_photo(
+            photo=FSInputFile(map_path),
+            caption=text,
             reply_markup=back_to_main_keyboard(),
+            parse_mode="HTML",
+        )
+
+
+@router.callback_query(F.data == "talk_npc")
+async def talk_npc(callback: CallbackQuery):
+    async with async_session() as session:
+        result = await session.execute(
+            select(User).where(User.telegram_id == callback.from_user.id)
+        )
+        user = result.scalar_one_or_none()
+        result = await session.execute(
+            select(Character)
+            .where(Character.user_id == user.id)
+            .options(selectinload(Character.cell))
+        )
+        character = result.scalar_one_or_none()
+        if not character or not character.cell or not character.cell.has_npc:
+            await callback.answer("Здесь никого нет.", show_alert=True)
+            return
+
+        cell = character.cell
+        from aiogram.utils.keyboard import InlineKeyboardBuilder
+        builder = InlineKeyboardBuilder()
+
+        if cell.npc_type == "merchant":
+            builder.button(text="🛒 Торговать", callback_data="shop")
+        builder.button(text="◀️ Назад", callback_data="main_menu")
+        builder.adjust(1)
+
+        await callback.message.edit_text(
+            f"💬 <b>{cell.npc_name}</b>\n\n<i>{cell.npc_dialogue}</i>",
+            reply_markup=builder.as_markup(),
             parse_mode="HTML",
         )
 
@@ -193,41 +218,38 @@ async def show_cell(callback, character, location, session):
         neighbors[direction] = n is not None and n.is_passable
 
     has_mob = cell.mob_id is not None
+    has_npc = cell.has_npc
 
     text = cell_text(cell, location.name)
-    image_url = location.image_url or cell.image_url
 
-    # Check if message has photo — if so, edit media; otherwise send new
+    # Get all cells for minimap
+    result = await session.execute(
+        select(Cell).where(Cell.location_id == location.id)
+    )
+    cells = result.scalars().all()
+
+    # Generate cell image
+    img_path = ensure_cell_image(cell, cells, cell.x, cell.y)
+
+    # Build keyboard
+    kb = cell_movement_keyboard(
+        neighbors["north"], neighbors["south"],
+        neighbors["west"], neighbors["east"], has_mob
+    )
+
+    # Add NPC button
+    if has_npc:
+        from aiogram.types import InlineKeyboardButton
+        kb.inline_keyboard.insert(0, [InlineKeyboardButton(text=f"💬 {cell.npc_name}", callback_data="talk_npc")])
+
     try:
-        if callback.message.photo and image_url:
-            await callback.message.edit_media(
-                media=InputMediaPhoto(media=image_url, caption=text, parse_mode="HTML"),
-                reply_markup=cell_movement_keyboard(
-                    neighbors["north"], neighbors["south"],
-                    neighbors["west"], neighbors["east"], has_mob
-                ),
-            )
-            return
-        elif image_url:
-            await callback.message.delete()
-            await callback.message.answer_photo(
-                photo=image_url,
-                caption=text,
-                reply_markup=cell_movement_keyboard(
-                    neighbors["north"], neighbors["south"],
-                    neighbors["west"], neighbors["east"], has_mob
-                ),
-                parse_mode="HTML",
-            )
-            return
+        await callback.message.delete()
     except Exception:
         pass
 
-    await callback.message.edit_text(
-        text,
-        reply_markup=cell_movement_keyboard(
-            neighbors["north"], neighbors["south"],
-            neighbors["west"], neighbors["east"], has_mob
-        ),
+    await callback.message.answer_photo(
+        photo=FSInputFile(img_path),
+        caption=text,
+        reply_markup=kb,
         parse_mode="HTML",
     )

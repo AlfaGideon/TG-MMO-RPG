@@ -23,15 +23,6 @@ class User(Base):
     character = relationship("Character", back_populates="user", uselist=False)
 
 
-class AppSetting(Base):
-    __tablename__ = "app_settings"
-
-    id = Column(Integer, primary_key=True, index=True)
-    key = Column(String(128), unique=True, nullable=False)
-    value = Column(Text, nullable=False, default="")
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-
-
 class Party(Base):
     __tablename__ = "parties"
 
@@ -55,27 +46,22 @@ class Character(Base):
     experience = Column(Integer, default=0)
     gold = Column(Integer, default=50)
 
-    # Stats
     strength = Column(Integer, default=10)
     agility = Column(Integer, default=10)
     intelligence = Column(Integer, default=10)
     endurance = Column(Integer, default=10)
     luck = Column(Integer, default=10)
 
-    # Combat
     max_hp = Column(Integer, default=100)
     current_hp = Column(Integer, default=100)
     max_mp = Column(Integer, default=50)
     current_mp = Column(Integer, default=50)
 
-    # Location & Cell (open world grid)
     location_id = Column(Integer, ForeignKey("locations.id"), default=1)
     cell_id = Column(Integer, ForeignKey("cells.id"), nullable=True)
 
-    # Party
     party_id = Column(Integer, ForeignKey("parties.id"), nullable=True)
 
-    # Equipment
     weapon_id = Column(Integer, ForeignKey("items.id"), nullable=True)
     armor_id = Column(Integer, ForeignKey("items.id"), nullable=True)
     helmet_id = Column(Integer, ForeignKey("items.id"), nullable=True)
@@ -92,7 +78,7 @@ class Character(Base):
     party = relationship("Party", back_populates="members", foreign_keys=[party_id], overlaps="leader")
 
     def effective_stats(self):
-        stats = {
+        return {
             "strength": self.strength,
             "agility": self.agility,
             "intelligence": self.intelligence,
@@ -101,7 +87,6 @@ class Character(Base):
             "max_hp": self.max_hp,
             "max_mp": self.max_mp,
         }
-        return stats
 
 
 class Location(Base):
@@ -113,7 +98,7 @@ class Location(Base):
     location_type = Column(SQLEnum(LocationType), default=LocationType.SAFE)
     min_level = Column(Integer, default=1)
     image_url = Column(String(512), nullable=True)
-    grid_size = Column(Integer, default=10)  # 10x10
+    grid_size = Column(Integer, default=10)
 
     cells = relationship("Cell", back_populates="location", cascade="all, delete-orphan")
     mobs = relationship("Mob", back_populates="location")
@@ -130,7 +115,20 @@ class Cell(Base):
     description = Column(Text, default="")
     image_url = Column(String(512), nullable=True)
     is_passable = Column(Boolean, default=True)
+
+    # Tile type for visual generation
+    tile_type = Column(String(32), default="grass")  # grass, forest, water, wall, road, cave, village
+
+    # Interactive elements
     mob_id = Column(Integer, ForeignKey("mobs.id"), nullable=True)
+    has_npc = Column(Boolean, default=False)
+    npc_name = Column(String(128), nullable=True)
+    npc_dialogue = Column(Text, nullable=True)
+    npc_type = Column(String(32), nullable=True)  # merchant, quest_giver, storyteller
+    has_chest = Column(Boolean, default=False)
+    has_house = Column(Boolean, default=False)
+    has_campfire = Column(Boolean, default=False)
+    has_tree = Column(Boolean, default=False)
 
     location = relationship("Location", back_populates="cells")
     mob = relationship("Mob")
