@@ -11,6 +11,7 @@ import uvicorn
 from sqlalchemy import select
 
 from core.database import init_db, async_session
+from core.migrations import run_migrations
 from core.seed import seed_database
 from core.models import AppSetting
 from bot.runner import bot_runner
@@ -40,7 +41,7 @@ def main():
     os.makedirs("data", exist_ok=True)
 
     # Init DB synchronously before uvicorn starts
-    asyncio.run(init_db())
+    asyncio.run(run_migrations())
     asyncio.run(seed_database())
     asyncio.run(try_start_bot_from_db())
 

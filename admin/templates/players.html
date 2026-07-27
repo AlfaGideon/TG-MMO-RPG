@@ -20,7 +20,8 @@
                 <th>Золото</th>
                 <th>HP</th>
                 <th>Локация</th>
-                <th>Создан</th>
+                <th>VIP</th>
+                <th>Действия</th>
             </tr>
         </thead>
         <tbody>
@@ -35,7 +36,10 @@
                 <td>{{ p.gold }}</td>
                 <td>{{ p.current_hp }}/{{ p.max_hp }}</td>
                 <td>{{ p.location.name if p.location else '-' }}</td>
-                <td>{{ p.created_at.strftime('%Y-%m-%d') if p.created_at else '-' }}</td>
+                <td>{{ '✅' if p.is_vip else '—' }}</td>
+                <td>
+                    <a href="/player/{{ p.id }}" class="btn btn-primary" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">✏️ Управление</a>
+                </td>
             </tr>
             {% endfor %}
         </tbody>

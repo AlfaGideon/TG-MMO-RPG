@@ -5,42 +5,87 @@
 {% block content %}
 <div class="card">
     <div class="toolbar">
-        <h2>🎒 Предметы и магазин</h2>
+        <h2>🎒 Все предметы</h2>
+        <a href="#new-item" class="btn btn-primary">➕ Новый предмет</a>
     </div>
     <table>
         <thead>
             <tr>
                 <th>ID</th>
+                <th>Иконка</th>
                 <th>Название</th>
                 <th>Тип</th>
                 <th>Редкость</th>
+                <th>Ур.</th>
                 <th>Цена</th>
-                <th>Треб. ур.</th>
-                <th>Бонусы</th>
-                <th>В наличии</th>
+                <th>Действия</th>
             </tr>
         </thead>
         <tbody>
             {% for item in items %}
             <tr>
                 <td>{{ item.id }}</td>
-                <td>{{ item.icon }} {{ item.name }}</td>
+                <td>{{ item.icon }}</td>
+                <td>{{ item.name }}</td>
                 <td>{{ item.item_type.value }}</td>
                 <td><span class="badge badge-{{ item.rarity.value }}">{{ item.rarity.value }}</span></td>
-                <td>{{ item.price }}</td>
                 <td>{{ item.level_requirement }}</td>
+                <td>{{ item.price }}</td>
                 <td>
-                    {% if item.bonus_damage %}⚔️+{{ item.bonus_damage }} {% endif %}
-                    {% if item.bonus_defense %}🛡+{{ item.bonus_defense }} {% endif %}
-                    {% if item.bonus_strength %}💪+{{ item.bonus_strength }} {% endif %}
-                    {% if item.bonus_agility %}🏃+{{ item.bonus_agility }} {% endif %}
-                    {% if item.bonus_intelligence %}🧠+{{ item.bonus_intelligence }} {% endif %}
-                    {% if item.bonus_hp %}❤️+{{ item.bonus_hp }} {% endif %}
+                    <a href="/item/{{ item.id }}/edit" class="btn btn-primary" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">✏️</a>
+                    <form action="/item/{{ item.id }}/delete" method="post" style="display:inline" onsubmit="return confirm('Удалить предмет?')">
+                        <button type="submit" class="btn btn-danger" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">🗑</button>
+                    </form>
                 </td>
-                <td>{{ item.stock if item.stock >= 0 else '∞' }}</td>
             </tr>
             {% endfor %}
         </tbody>
     </table>
+</div>
+
+<div class="card" id="new-item">
+    <h3>➕ Создать предмет</h3>
+    <form action="/item/new" method="post">
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem;">
+            <div><label class="form-label">Название</label><input type="text" name="name" class="search-box" style="max-width:100%" required></div>
+            <div><label class="form-label">Тип</label>
+                <select name="item_type" class="search-box" style="max-width:100%">
+                    <option value="weapon">Оружие</option>
+                    <option value="armor">Броня</option>
+                    <option value="helmet">Шлем</option>
+                    <option value="boots">Сапоги</option>
+                    <option value="accessory">Аксессуар</option>
+                    <option value="consumable">Расходник</option>
+                    <option value="material">Материал</option>
+                </select>
+            </div>
+            <div><label class="form-label">Редкость</label>
+                <select name="rarity" class="search-box" style="max-width:100%">
+                    <option value="common">Обычный</option>
+                    <option value="uncommon">Необычный</option>
+                    <option value="rare">Редкий</option>
+                    <option value="epic">Эпический</option>
+                    <option value="legendary">Легендарный</option>
+                </select>
+            </div>
+            <div><label class="form-label">Иконка</label><input type="text" name="icon" value="⚔️" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">Ур. требование</label><input type="number" name="level_requirement" value="1" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">Цена</label><input type="number" name="price" value="0" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">Сила</label><input type="number" name="bonus_strength" value="0" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">Ловкость</label><input type="number" name="bonus_agility" value="0" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">Интеллект</label><input type="number" name="bonus_intelligence" value="0" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">Выносливость</label><input type="number" name="bonus_endurance" value="0" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">Удача</label><input type="number" name="bonus_luck" value="0" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">HP</label><input type="number" name="bonus_hp" value="0" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">MP</label><input type="number" name="bonus_mp" value="0" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">Урон</label><input type="number" name="bonus_damage" value="0" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">Защита</label><input type="number" name="bonus_defense" value="0" class="search-box" style="max-width:100%"></div>
+        </div>
+        <div style="margin-top: 0.75rem;">
+            <label class="form-label">Описание</label>
+            <textarea name="description" class="search-box" style="max-width:100%; width:100%; min-height:60px; resize:vertical;"></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary" style="margin-top:0.75rem">💾 Создать</button>
+    </form>
 </div>
 {% endblock %}

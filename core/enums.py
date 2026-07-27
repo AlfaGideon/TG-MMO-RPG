@@ -37,3 +37,9 @@ class BattleResult(str, Enum):
     VICTORY = "victory"
     DEFEAT = "defeat"
     ESCAPE = "escape"
+
+
+class QuestStatus(str, Enum):
+    ACTIVE = "active"
+    COMPLETED = "completed"
+    FAILED = "failed"

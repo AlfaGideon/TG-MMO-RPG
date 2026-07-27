@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+
+{% block title %}Редактор квестов — Shadow Lands{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="toolbar">
+        <h2>📜 Квесты</h2>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Название</th>
+                <th>Тип</th>
+                <th>Цель</th>
+                <th>Кол-во</th>
+                <th>Награда</th>
+                <th>Ур.</th>
+                <th>Локация</th>
+                <th>NPC</th>
+                <th>Действия</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for q in quests %}
+            <tr>
+                <td>{{ q.id }}</td>
+                <td>{{ q.name }}</td>
+                <td>{{ q.objective_type }}</td>
+                <td>{{ q.objective_target }}</td>
+                <td>{{ q.objective_count }}</td>
+                <td>{{ q.reward_gold }}🪙 / {{ q.reward_exp }}⭐ {% if q.reward_item %}+ {{ q.reward_item.name }}{% endif %}</td>
+                <td>{{ q.min_level }}</td>
+                <td>{{ q.location.name if q.location else '—' }}</td>
+                <td>{{ q.npc_name or '—' }}</td>
+                <td>
+                    <button onclick="editQuest({{ q.id }}, '{{ q.name|replace("'", "\\'") }}', '{{ q.description|replace("'", "\\'") }}', '{{ q.objective_type }}', '{{ q.objective_target|replace("'", "\\'") }}', {{ q.objective_count }}, {{ q.reward_gold }}, {{ q.reward_exp }}, {{ q.reward_item_id or 'null' }}, {{ q.min_level }}, {{ q.location_id or 'null' }}, '{{ q.npc_name or '' }}')" class="btn btn-primary" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">✏️</button>
+                    <form action="/editor/quests/{{ q.id }}/delete" method="post" style="display:inline" onsubmit="return confirm('Удалить квест?')">
+                        <button type="submit" class="btn btn-danger" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">🗑</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="card" id="quest-form">
+    <h3 id="quest-form-title">➕ Новый квест</h3>
+    <form action="/editor/quests/new" method="post" id="questForm">
+        <input type="hidden" name="quest_id" id="q_id" value="">
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem;">
+            <div><label class="form-label">Название</label><input type="text" name="name" id="q_name" class="search-box" style="max-width:100%" required></div>
+            <div><label class="form-label">Тип цели</label>
+                <select name="objective_type" id="q_type" class="search-box" style="max-width:100%">
+                    <option value="kill">Убить</option>
+                    <option value="collect">Собрать</option>
+                    <option value="explore">Исследовать</option>
+                    <option value="talk">Поговорить</option>
+                </select>
+            </div>
+            <div><label class="form-label">Цель</label><input type="text" name="objective_target" id="q_target" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">Количество</label><input type="number" name="objective_count" id="q_count" value="1" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">Золото</label><input type="number" name="reward_gold" id="q_gold" value="0" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">Опыт</label><input type="number" name="reward_exp" id="q_exp" value="0" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">Предмет-награда</label>
+                <select name="reward_item_id" id="q_item" class="search-box" style="max-width:100%">
+                    <option value="">—</option>
+                    {% for it in items %}
+                    <option value="{{ it.id }}">{{ it.icon }} {{ it.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div><label class="form-label">Мин. уровень</label><input type="number" name="min_level" id="q_lvl" value="1" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">Локация</label>
+                <select name="location_id" id="q_loc" class="search-box" style="max-width:100%">
+                    <option value="">—</option>
+                    {% for loc in locations %}
+                    <option value="{{ loc.id }}">{{ loc.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div><label class="form-label">NPC</label><input type="text" name="npc_name" id="q_npc" class="search-box" style="max-width:100%"></div>
+        </div>
+        <div style="margin-top: 0.75rem;">
+            <label class="form-label">Описание</label>
+            <textarea name="description" id="q_desc" class="search-box" style="max-width:100%; width:100%; min-height:60px; resize:vertical;"></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary" style="margin-top:0.75rem">💾 Сохранить</button>
+        <button type="button" class="btn" style="margin-top:0.75rem; background:var(--bg-hover)" onclick="resetQuestForm()">Отмена</button>
+    </form>
+</div>
+
+<script>
+function editQuest(id, name, desc, type, target, count, gold, exp, itemId, lvl, locId, npc) {
+    document.getElementById('quest-form-title').textContent = '✏️ Редактировать квест';
+    const form = document.getElementById('questForm');
+    form.action = '/editor/quests/' + id + '/edit';
+    document.getElementById('q_name').value = name;
+    document.getElementById('q_desc').value = desc;
+    document.getElementById('q_type').value = type;
+    document.getElementById('q_target').value = target;
+    document.getElementById('q_count').value = count;
+    document.getElementById('q_gold').value = gold;
+    document.getElementById('q_exp').value = exp;
+    document.getElementById('q_item').value = itemId || '';
+    document.getElementById('q_lvl').value = lvl;
+    document.getElementById('q_loc').value = locId || '';
+    document.getElementById('q_npc').value = npc;
+    window.location.hash = 'quest-form';
+}
+function resetQuestForm() {
+    document.getElementById('quest-form-title').textContent = '➕ Новый квест';
+    const form = document.getElementById('questForm');
+    form.action = '/editor/quests/new';
+    form.reset();
+}
+</script>
+{% endblock %}

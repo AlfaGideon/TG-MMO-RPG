@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block title %}Редактор мира — Shadow Lands{% endblock %}
+
+{% block content %}
+<style>
+.world-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 1rem;
+    margin-top: 1rem;
+}
+.world-loc {
+    background: var(--bg-hover);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem;
+    position: relative;
+}
+.world-loc h4 { margin: 0 0 0.5rem; }
+.world-loc .coords { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.5rem; }
+.world-loc .badge { font-size: 0.7rem; padding: 0.15rem 0.4rem; border-radius: 4px; }
+.world-empty {
+    border: 2px dashed var(--border);
+    border-radius: 8px;
+    padding: 1rem;
+    text-align: center;
+    color: var(--text-muted);
+    min-height: 120px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    text-decoration: none;
+}
+.world-empty:hover { border-color: var(--accent); color: var(--accent); }
+</style>
+
+<div class="card">
+    <div class="toolbar">
+        <h2>🌍 Редактор мировой карты</h2>
+        <a href="/editor/location/new" class="btn btn-primary">➕ Новая локация</a>
+    </div>
+    <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1rem;">
+        Локации располагаются по мировым координатам (world_x, world_y). Игроки переходят между ними бесшовно через граничные клетки.
+    </p>
+    <div class="world-grid">
+        {% for loc in locations %}
+        <div class="world-loc">
+            <div class="coords">🌍 {{ loc.world_x }}, {{ loc.world_y }}</div>
+            <h4>{{ loc.name }}</h4>
+            <span class="badge badge-{{ loc.location_type.value }}">{{ loc.location_type.value }}</span>
+            <div style="margin-top: 0.5rem; font-size: 0.8rem; color: var(--text-muted);">
+                Ур. {{ loc.min_level }} | Сетка {{ loc.grid_size }}x{{ loc.grid_size }}
+            </div>
+            <a href="/editor/location/{{ loc.id }}" class="btn btn-primary" style="margin-top: 0.75rem; padding: 0.25rem 0.5rem; font-size: 0.75rem;">✏️ Редактировать</a>
+        </div>
+        {% endfor %}
+        <a href="/editor/location/new" class="world-empty">
+            <div>➕<br>Создать локацию</div>
+        </a>
+    </div>
+</div>
+{% endblock %}

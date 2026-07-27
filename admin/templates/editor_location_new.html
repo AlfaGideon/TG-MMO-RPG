@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block title %}Новая локация — Shadow Lands{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="toolbar">
+        <h2>➕ Создать новую локацию</h2>
+        <a href="/editor/locations" class="btn">◀️ Назад</a>
+    </div>
+    <form action="/editor/location/new" method="post">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+            <div>
+                <label class="form-label">Название</label>
+                <input type="text" name="name" class="search-box" style="max-width: 100%;" required>
+            </div>
+            <div>
+                <label class="form-label">Тип</label>
+                <select name="location_type" class="search-box" style="max-width: 100%;">
+                    <option value="safe">Безопасная</option>
+                    <option value="dangerous">Опасная</option>
+                    <option value="dungeon">Подземелье</option>
+                    <option value="boss">Босс</option>
+                </select>
+            </div>
+            <div>
+                <label class="form-label">Мин. уровень</label>
+                <input type="number" name="min_level" value="1" class="search-box" style="max-width: 100%;" min="1">
+            </div>
+            <div>
+                <label class="form-label">Размер сетки</label>
+                <input type="number" name="grid_size" value="10" class="search-box" style="max-width: 100%;" min="5" max="20">
+            </div>
+            <div>
+                <label class="form-label">Мировая X</label>
+                <input type="number" name="world_x" value="0" class="search-box" style="max-width: 100%;">
+            </div>
+            <div>
+                <label class="form-label">Мировая Y</label>
+                <input type="number" name="world_y" value="0" class="search-box" style="max-width: 100%;">
+            </div>
+        </div>
+        <div style="margin-bottom: 1rem;">
+            <label class="form-label">Описание локации</label>
+            <textarea name="description" class="search-box" style="max-width: 100%; width: 100%; min-height: 80px; resize: vertical;"></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary">💾 Создать локацию</button>
+    </form>
+</div>
+{% endblock %}

@@ -10,11 +10,11 @@ def main_menu_keyboard(has_character: bool = False):
         builder.button(text="⚔️ Создать героя", callback_data="create_character")
     else:
         builder.button(text="🧙 Профиль", callback_data="profile")
-        builder.button(text="🗺 Локации", callback_data="locations")
         builder.button(text="🎒 Инвентарь", callback_data="inventory")
         builder.button(text="🏪 Лавка", callback_data="shop")
         builder.button(text="👥 Пати", callback_data="party_menu")
         builder.button(text="🏆 Топ", callback_data="leaderboard")
+        builder.button(text="🗿 Подземелье", callback_data="dungeon_menu")
     builder.button(text="❓ Помощь", callback_data="help")
     builder.adjust(2)
     return builder.as_markup()
@@ -48,46 +48,42 @@ def back_to_main_keyboard():
     return builder.as_markup()
 
 
-def locations_keyboard(locations: list, current_location_id: int):
+def cell_movement_keyboard(can_dirs: dict):
+    """
+    3x3 grid: 8 directions + center inspect.
+    can_dirs: {'nw': bool, 'n': bool, 'ne': bool, 'w': bool, 'e': bool,
+               'sw': bool, 's': bool, 'se': bool}
+    """
     builder = InlineKeyboardBuilder()
-    for loc in locations:
-        prefix = "📍" if loc.id == current_location_id else ""
-        builder.button(
-            text=f"{prefix} {loc.name}",
-            callback_data=f"travel:{loc.id}"
-        )
-    builder.button(text="◀️ Назад", callback_data="main_menu")
-    builder.adjust(1)
-    return builder.as_markup()
 
+    def btn(direction, icon, label):
+        if can_dirs.get(direction):
+            builder.button(text=f"{icon}", callback_data=f"move:{direction}")
+        else:
+            builder.button(text="⬛", callback_data="noop")
 
-def cell_movement_keyboard(can_north: bool, can_south: bool, can_west: bool, can_east: bool):
-    builder = InlineKeyboardBuilder()
-    if can_north:
-        builder.button(text="⬆️ Север", callback_data="move:north")
-    else:
-        builder.button(text="🚫 Север", callback_data="noop")
-    row2 = []
-    if can_west:
-        row2.append(("⬅️ Запад", "move:west"))
-    else:
-        row2.append(("🚫 Запад", "noop"))
-    row2.append(("🔍 Осмотреться", "inspect"))
-    if can_east:
-        row2.append(("➡️ Восток", "move:east"))
-    else:
-        row2.append(("🚫 Восток", "noop"))
-    for text, data in row2:
-        builder.button(text=text, callback_data=data)
-    if can_south:
-        builder.button(text="⬇️ Юг", callback_data="move:south")
-    else:
-        builder.button(text="🚫 Юг", callback_data="noop")
+    # Row 1: NW, N, NE
+    btn('nw', '↖️', 'СЗ')
+    btn('n', '⬆️', 'С')
+    btn('ne', '↗️', 'СВ')
+
+    # Row 2: W, Inspect, E
+    btn('w', '⬅️', 'З')
+    builder.button(text="🔍", callback_data="inspect")
+    btn('e', '➡️', 'В')
+
+    # Row 3: SW, S, SE
+    btn('sw', '↙️', 'ЮЗ')
+    btn('s', '⬇️', 'Ю')
+    btn('se', '↘️', 'ЮВ')
+
+    # Actions
     builder.button(text="🏕 Отдохнуть", callback_data="rest")
     builder.button(text="🎒 Инвентарь", callback_data="inventory")
-    builder.button(text="🗺 Локации", callback_data="locations")
+    builder.button(text="🗿 Подземелье", callback_data="dungeon_menu")
     builder.button(text="◀️ Меню", callback_data="main_menu")
-    builder.adjust(1, 3, 1, 2)
+
+    builder.adjust(3, 3, 3, 2, 2)
     return builder.as_markup()
 
 
@@ -170,5 +166,45 @@ def leaderboard_keyboard():
     builder.button(text="По уровню", callback_data="lb:level")
     builder.button(text="По золоту", callback_data="lb:gold")
     builder.button(text="◀️ Назад", callback_data="main_menu")
+    builder.adjust(2)
+    return builder.as_markup()
+
+
+def dungeon_menu_keyboard():
+    builder = InlineKeyboardBuilder()
+    builder.button(text="⚔️ Войти", callback_data="dungeon_enter")
+    builder.button(text="📜 Правила", callback_data="dungeon_info")
+    builder.button(text="◀️ Назад", callback_data="main_menu")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def dungeon_movement_keyboard(can_dirs: dict):
+    builder = InlineKeyboardBuilder()
+
+    def btn(direction, icon):
+        if can_dirs.get(direction):
+            builder.button(text=f"{icon}", callback_data=f"dungeon_move:{direction}")
+        else:
+            builder.button(text="⬛", callback_data="noop")
+
+    btn('nw', '↖️')
+    btn('n', '⬆️')
+    btn('ne', '↗️')
+    btn('w', '⬅️')
+    builder.button(text="🔍", callback_data="dungeon_inspect")
+    btn('e', '➡️')
+    btn('sw', '↙️')
+    btn('s', '⬇️')
+    btn('se', '↘️')
+    builder.button(text="🏃 Выйти", callback_data="dungeon_exit")
+    builder.adjust(3, 3, 3, 1)
+    return builder.as_markup()
+
+
+def dungeon_combat_keyboard():
+    builder = InlineKeyboardBuilder()
+    builder.button(text="⚔️ Атаковать", callback_data="dungeon_attack")
+    builder.button(text="🏃 Сбежать", callback_data="dungeon_flee")
     builder.adjust(2)
     return builder.as_markup()

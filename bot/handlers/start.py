@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from core.database import async_session
-from core.models import User, Character, Cell
+from core.models import User, Character, Cell, AdminMessage
 from bot.keyboards.inline import main_menu_keyboard, class_select_keyboard, confirm_class_keyboard, back_to_main_keyboard
 from bot.utils.texts import WELCOME_TEXT, CLASS_DESCRIPTIONS
 from core.enums import CharacterClass
@@ -42,6 +42,40 @@ async def cmd_start(message: Message):
             reply_markup=main_menu_keyboard(has_character=bool(character)),
             parse_mode="HTML",
         )
+
+
+@router.message(F.text)
+async def handle_text(message: Message):
+    """Handle text messages from players — check if replying to admin."""
+    async with async_session() as session:
+        result = await session.execute(
+            select(User).where(User.telegram_id == message.from_user.id)
+        )
+        user = result.scalar_one_or_none()
+        if not user:
+            return
+
+        # Save player message
+        msg = AdminMessage(user_id=user.id, from_admin=False, text=message.text)
+        session.add(msg)
+        await session.commit()
+
+        # Notify admin if any unread admin messages exist
+        result = await session.execute(
+            select(AdminMessage)
+            .where(AdminMessage.user_id == user.id)
+            .where(AdminMessage.from_admin == True)
+            .where(AdminMessage.is_read == False)
+        )
+        unread = result.scalars().all()
+        if unread:
+            for m in unread:
+                m.is_read = True
+            await session.commit()
+            await message.answer(
+                "📨 <b>Сообщение отправлено администратору.</b>",
+                parse_mode="HTML",
+            )
 
 
 @router.callback_query(F.data == "main_menu")
@@ -155,14 +189,15 @@ async def help_handler(callback: CallbackQuery):
         "📜 <b>Помощь</b>\n\n"
         "<b>Основные команды:</b>\n"
         "• Профиль — твои статы, экипировка и золото\n"
-        "• Локации — перемещение между зонами\n"
-        "• Бой — охота на монстров (иди по клеткам и ищи 👾)\n"
+        "• Бой — охота на монстров (осмотрись на клетке и ищи 👾)\n"
         "• Инвентарь — управление предметами\n"
-        "• Лавка — покупка снаряжения\n\n"
+        "• Лавка — покупка снаряжения\n"
+        "• Подземелье — процедурные данжи (соло)\n\n"
         "<b>Советы:</b>\n"
-        "— Не лезь в опасные зоны слишком рано\n"
+        "— Мир бесшовный: иди к краю локации, чтобы попасть в соседнюю\n"
         "— Отдыхай, чтобы восстановить здоровье\n"
-        "— Продавай лишний хлам торговцу\n\n"
+        "— Продавай лишний хлам торговцу\n"
+        "— Пиши админу простым сообщением в бот\n\n"
         "<i>Удачи в Теневых Землях...</i>"
     )
     await callback.message.edit_text(text, reply_markup=back_to_main_keyboard(), parse_mode="HTML")

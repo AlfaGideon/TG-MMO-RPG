@@ -139,3 +139,11 @@ def defeat_text():
         "Тьма поглотила тебя. Но смерть в этих землях не конец — "
         "ты очнулся у ближайшего костра с единицей здоровья."
     )
+
+
+def dungeon_text(cell, floor):
+    return (
+        f"🗿 <b>Подземелье Проклятых — Этаж {floor}</b>\n"
+        f"📍 [{cell.x},{cell.y}] | {cell.name}\n\n"
+        f"<i>{cell.description}</i>"
+    )

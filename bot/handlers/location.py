@@ -7,93 +7,40 @@ from core.database import async_session
 from core.models import User, Character, Location, Cell
 from core.map_renderer import ensure_cell_image
 from bot.keyboards.inline import (
-    locations_keyboard, cell_movement_keyboard, inspect_keyboard,
+    cell_movement_keyboard, inspect_keyboard,
     main_menu_keyboard, back_to_main_keyboard
 )
 from bot.utils.texts import location_text, cell_text
 
 router = Router()
 
-
-@router.callback_query(F.data == "locations")
-async def locations(callback: CallbackQuery):
-    async with async_session() as session:
-        result = await session.execute(
-            select(User).where(User.telegram_id == callback.from_user.id)
-        )
-        user = result.scalar_one_or_none()
-        if not user:
-            await callback.answer("Сначала создай персонажа!", show_alert=True)
-            return
-
-        result = await session.execute(
-            select(Character).where(Character.user_id == user.id)
-        )
-        character = result.scalar_one_or_none()
-        if not character:
-            await callback.answer("Сначала создай персонажа!", show_alert=True)
-            return
-
-        result = await session.execute(select(Location).order_by(Location.min_level))
-        locs = result.scalars().all()
-
-        await callback.message.edit_text(
-            "🗺 <b>Локации</b>\n\nВыбери, куда отправиться:",
-            reply_markup=locations_keyboard(locs, character.location_id),
-            parse_mode="HTML",
-        )
-
-
-@router.callback_query(F.data.startswith("travel:"))
-async def travel(callback: CallbackQuery):
-    loc_id = int(callback.data.split(":")[1])
-    async with async_session() as session:
-        result = await session.execute(
-            select(User).where(User.telegram_id == callback.from_user.id)
-        )
-        user = result.scalar_one_or_none()
-        if not user:
-            await callback.answer("Сначала создай персонажа!", show_alert=True)
-            return
-
-        result = await session.execute(
-            select(Character)
-            .where(Character.user_id == user.id)
-            .options(selectinload(Character.location), selectinload(Character.cell))
-        )
-        character = result.scalar_one_or_none()
-        if not character:
-            await callback.answer("Сначала создай персонажа!", show_alert=True)
-            return
-
-        result = await session.execute(select(Location).where(Location.id == loc_id))
-        new_loc = result.scalar_one_or_none()
-        if not new_loc:
-            await callback.answer("Локация не найдена.", show_alert=True)
-            return
-
-        if character.level < new_loc.min_level:
-            await callback.answer(
-                f"Нужен {new_loc.min_level} уровень!", show_alert=True
-            )
-            return
-
-        character.location_id = new_loc.id
-        result = await session.execute(
-            select(Cell).where(Cell.location_id == new_loc.id).where(Cell.x == 5).where(Cell.y == 5)
-        )
-        spawn_cell = result.scalar_one_or_none()
-        if spawn_cell:
-            character.cell_id = spawn_cell.id
-        await session.commit()
-
-        await show_cell(callback, character, new_loc, session)
+EMPTY_INSPECT_LINES = [
+    "Ты осматриваешься, но ничего примечательного не находишь. Лишь ветер шевелит травы.",
+    "Здесь пусто. Даже следы чужих ботинок редки в этих местах.",
+    "Ты прислушиваешься... Тишина. Полная, глухая тишина.",
+    "Осмотр не выявил ничего интересного. Только твоя тень сопровождает тебя.",
+    "Пустошь. Ни души, ни сокровищ — лишь пепел и пыль.",
+    "Ты ощупал каждый камень. Ничего. Даже вороны облетели эту клетку стороной.",
+    "Здесь когда-то что-то было... теперь лишь пустота и эхо прошлого.",
+    "Ты внимательно осмотрелся. Увы, удача сегодня не на твоей стороне.",
+    "Ни врагов, ни друзей, ни сокровищ. Сплошное безмолвие.",
+    "Ты присел на корточки и изучил землю. Ничего, кроме следов дождя.",
+    "Воздух здесь странно чист. Слишком чист. Как будто всё живое исчезло.",
+    "Ты осторожно обошёл кусты. Пусто. Даже грибов нет.",
+    "Осмотр клетки принёс разочарование: ни монстров, ни NPC, ни сундуков.",
+    "Здесь нет ничего, кроме твоих собственных мыслей. И они тревожны...",
+    "Ты нашёл лишь старый окурок и потрескавшийся камень. Больше ничего.",
+]
 
 
 @router.callback_query(F.data.startswith("move:"))
 async def move_direction(callback: CallbackQuery):
     direction = callback.data.split(":")[1]
-    dx, dy = {"north": (-1, 0), "south": (1, 0), "west": (0, -1), "east": (0, 1)}.get(direction, (0, 0))
+    deltas = {
+        "north": (-1, 0), "south": (1, 0), "west": (0, -1), "east": (0, 1),
+        "nw": (-1, -1), "ne": (-1, 1), "sw": (1, -1), "se": (1, 1),
+    }
+    dx, dy = deltas.get(direction, (0, 0))
 
     async with async_session() as session:
         result = await session.execute(
@@ -124,14 +71,35 @@ async def move_direction(callback: CallbackQuery):
             await callback.answer("Туда нельзя пройти!", show_alert=True)
             return
 
+        # Check seamless transition
+        if target.target_location_id is not None and target.target_x is not None and target.target_y is not None:
+            result = await session.execute(
+                select(Cell)
+                .where(Cell.location_id == target.target_location_id)
+                .where(Cell.x == target.target_x)
+                .where(Cell.y == target.target_y)
+            )
+            dest_cell = result.scalar_one_or_none()
+            if dest_cell:
+                character.location_id = target.target_location_id
+                character.cell_id = dest_cell.id
+                await session.commit()
+                await show_cell(callback, character, dest_cell.location, session)
+                return
+
         character.cell_id = target.id
         await session.commit()
         await show_cell(callback, character, character.location, session)
 
 
+@router.callback_query(F.data == "noop")
+async def noop_handler(callback: CallbackQuery):
+    await callback.answer("Туда нельзя пройти.", show_alert=True)
+
+
 @router.callback_query(F.data == "inspect")
 async def inspect_cell(callback: CallbackQuery):
-    """Player inspects current cell - reveals hidden elements."""
+    import random
     async with async_session() as session:
         result = await session.execute(
             select(User).where(User.telegram_id == callback.from_user.id)
@@ -140,7 +108,7 @@ async def inspect_cell(callback: CallbackQuery):
         result = await session.execute(
             select(Character)
             .where(Character.user_id == user.id)
-            .options(selectinload(Character.cell))
+            .options(selectinload(Character.cell).selectinload(Cell.mob))
         )
         character = result.scalar_one_or_none()
         if not character or not character.cell:
@@ -163,7 +131,7 @@ async def inspect_cell(callback: CallbackQuery):
         if found:
             lines.append("\n" + "\n".join(found))
         else:
-            lines.append("\n<i>Ничего необычного.</i>")
+            lines.append(f"\n<i>{random.choice(EMPTY_INSPECT_LINES)}</i>")
 
         await callback.message.edit_text(
             "\n".join(lines),
@@ -178,7 +146,6 @@ async def inspect_cell(callback: CallbackQuery):
 
 @router.callback_query(F.data == "back_to_cell")
 async def back_to_cell(callback: CallbackQuery):
-    """Return to cell view with image."""
     async with async_session() as session:
         result = await session.execute(
             select(User).where(User.telegram_id == callback.from_user.id)
@@ -196,7 +163,6 @@ async def back_to_cell(callback: CallbackQuery):
 
 @router.callback_query(F.data == "talk_npc")
 async def talk_npc(callback: CallbackQuery):
-    """Talk to NPC - text only, no image."""
     async with async_session() as session:
         result = await session.execute(
             select(User).where(User.telegram_id == callback.from_user.id)
@@ -230,7 +196,6 @@ async def talk_npc(callback: CallbackQuery):
 
 @router.callback_query(F.data == "open_chest")
 async def open_chest(callback: CallbackQuery):
-    """Open chest - simple reward for now."""
     async with async_session() as session:
         result = await session.execute(
             select(User).where(User.telegram_id == callback.from_user.id)
@@ -269,9 +234,11 @@ async def show_cell(callback, character, location, session):
         )
         return
 
-    # Check neighbors
-    neighbors = {}
-    for direction, (dx, dy) in {"north": (-1, 0), "south": (1, 0), "west": (0, -1), "east": (0, 1)}.items():
+    can_dirs = {}
+    for direction, (dx, dy) in {
+        "north": (-1, 0), "south": (1, 0), "west": (0, -1), "east": (0, 1),
+        "nw": (-1, -1), "ne": (-1, 1), "sw": (1, -1), "se": (1, 1),
+    }.items():
         result = await session.execute(
             select(Cell)
             .where(Cell.location_id == location.id)
@@ -279,24 +246,17 @@ async def show_cell(callback, character, location, session):
             .where(Cell.y == cell.y + dy)
         )
         n = result.scalar_one_or_none()
-        neighbors[direction] = n is not None and n.is_passable
+        can_dirs[direction] = n is not None and n.is_passable
 
     text = cell_text(cell, location.name)
 
-    # Get all cells for minimap
     result = await session.execute(
         select(Cell).where(Cell.location_id == location.id)
     )
     cells = result.scalars().all()
 
-    # Generate cell image
     img_path = ensure_cell_image(cell, cells, cell.x, cell.y)
-
-    # Build keyboard - no hints about mobs/NPCs
-    kb = cell_movement_keyboard(
-        neighbors["north"], neighbors["south"],
-        neighbors["west"], neighbors["east"]
-    )
+    kb = cell_movement_keyboard(can_dirs)
 
     try:
         await callback.message.delete()

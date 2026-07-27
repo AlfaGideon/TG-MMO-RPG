@@ -5,7 +5,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 
 from core.database import Base
-from core.enums import CharacterClass, ItemType, ItemRarity, LocationType, BattleResult
+from core.enums import CharacterClass, ItemType, ItemRarity, LocationType, BattleResult, QuestStatus
 
 
 class User(Base):
@@ -21,6 +21,7 @@ class User(Base):
     last_active = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     character = relationship("Character", back_populates="user", uselist=False)
+    messages = relationship("AdminMessage", back_populates="user", order_by="AdminMessage.created_at.desc()")
 
 
 class Party(Base):
@@ -68,6 +69,9 @@ class Character(Base):
     boots_id = Column(Integer, ForeignKey("items.id"), nullable=True)
     accessory_id = Column(Integer, ForeignKey("items.id"), nullable=True)
 
+    is_vip = Column(Boolean, default=False)
+    vip_until = Column(DateTime(timezone=True), nullable=True)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     user = relationship("User", back_populates="character")
@@ -76,6 +80,8 @@ class Character(Base):
     inventory = relationship("InventoryItem", back_populates="character", cascade="all, delete-orphan")
     battles = relationship("Battle", back_populates="character")
     party = relationship("Party", back_populates="members", foreign_keys=[party_id], overlaps="leader")
+    quests = relationship("CharacterQuest", back_populates="character", cascade="all, delete-orphan")
+    dungeon_runs = relationship("DungeonRun", back_populates="character", order_by="DungeonRun.created_at.desc()")
 
     def effective_stats(self):
         return {
@@ -100,6 +106,10 @@ class Location(Base):
     image_url = Column(String(512), nullable=True)
     grid_size = Column(Integer, default=10)
 
+    # World map coordinates for seamless world
+    world_x = Column(Integer, default=0)
+    world_y = Column(Integer, default=0)
+
     cells = relationship("Cell", back_populates="location", cascade="all, delete-orphan")
     mobs = relationship("Mob", back_populates="location")
 
@@ -116,22 +126,27 @@ class Cell(Base):
     image_url = Column(String(512), nullable=True)
     is_passable = Column(Boolean, default=True)
 
-    # Tile type for visual generation
-    tile_type = Column(String(32), default="grass")  # grass, forest, water, wall, road, cave, village
+    tile_type = Column(String(32), default="grass")
 
-    # Interactive elements
     mob_id = Column(Integer, ForeignKey("mobs.id"), nullable=True)
     has_npc = Column(Boolean, default=False)
     npc_name = Column(String(128), nullable=True)
     npc_dialogue = Column(Text, nullable=True)
-    npc_type = Column(String(32), nullable=True)  # merchant, quest_giver, storyteller
+    npc_type = Column(String(32), nullable=True)
     has_chest = Column(Boolean, default=False)
     has_house = Column(Boolean, default=False)
     has_campfire = Column(Boolean, default=False)
     has_tree = Column(Boolean, default=False)
 
-    location = relationship("Location", back_populates="cells")
+    # Seamless world: links to neighbor locations at borders
+    # If set, moving beyond this cell transitions to target_location_id at target_x, target_y
+    target_location_id = Column(Integer, ForeignKey("locations.id"), nullable=True)
+    target_x = Column(Integer, nullable=True)
+    target_y = Column(Integer, nullable=True)
+
+    location = relationship("Location", back_populates="cells", foreign_keys=[location_id])
     mob = relationship("Mob")
+    target_location = relationship("Location", foreign_keys=[target_location_id])
 
 
 class Mob(Base):
@@ -149,6 +164,7 @@ class Mob(Base):
     location_id = Column(Integer, ForeignKey("locations.id"), nullable=True)
     is_boss = Column(Boolean, default=False)
     drop_items = Column(Text, default="")
+    spawn_chance = Column(Float, default=0.3)
 
     location = relationship("Location", back_populates="mobs")
 
@@ -219,6 +235,96 @@ class ShopItem(Base):
     refresh_interval = Column(Integer, default=0)
 
     item = relationship("Item")
+
+
+class Quest(Base):
+    __tablename__ = "quests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(128), nullable=False)
+    description = Column(Text, nullable=False)
+    objective_type = Column(String(32), default="kill")  # kill, collect, explore, talk
+    objective_target = Column(String(64), default="")  # mob name or item name or npc name
+    objective_count = Column(Integer, default=1)
+    reward_gold = Column(Integer, default=0)
+    reward_exp = Column(Integer, default=0)
+    reward_item_id = Column(Integer, ForeignKey("items.id"), nullable=True)
+    min_level = Column(Integer, default=1)
+    location_id = Column(Integer, ForeignKey("locations.id"), nullable=True)
+    npc_name = Column(String(128), nullable=True)
+
+    reward_item = relationship("Item")
+
+
+class CharacterQuest(Base):
+    __tablename__ = "character_quests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    character_id = Column(Integer, ForeignKey("characters.id"), nullable=False)
+    quest_id = Column(Integer, ForeignKey("quests.id"), nullable=False)
+    status = Column(SQLEnum(QuestStatus), default=QuestStatus.ACTIVE)
+    progress = Column(Integer, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+    character = relationship("Character", back_populates="quests")
+    quest = relationship("Quest")
+
+
+class DungeonRun(Base):
+    __tablename__ = "dungeon_runs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    character_id = Column(Integer, ForeignKey("characters.id"), nullable=False)
+    dungeon_type = Column(String(32), default="procedural")  # procedural, fixed
+    seed = Column(Integer, default=0)
+    floor = Column(Integer, default=1)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+    character = relationship("Character", back_populates="dungeon_runs")
+    cells = relationship("DungeonCell", back_populates="run", cascade="all, delete-orphan")
+
+
+class DungeonCell(Base):
+    __tablename__ = "dungeon_cells"
+
+    id = Column(Integer, primary_key=True, index=True)
+    run_id = Column(Integer, ForeignKey("dungeon_runs.id"), nullable=False)
+    x = Column(Integer, nullable=False)
+    y = Column(Integer, nullable=False)
+    name = Column(String(128), default="")
+    description = Column(Text, default="")
+    is_passable = Column(Boolean, default=True)
+    tile_type = Column(String(32), default="cave")
+    has_mob = Column(Boolean, default=False)
+    mob_name = Column(String(128), nullable=True)
+    mob_level = Column(Integer, default=1)
+    mob_hp = Column(Integer, default=30)
+    mob_damage = Column(Integer, default=5)
+    mob_defense = Column(Integer, default=2)
+    mob_gold = Column(Integer, default=10)
+    mob_exp = Column(Integer, default=15)
+    has_chest = Column(Boolean, default=False)
+    chest_gold = Column(Integer, default=0)
+    has_exit = Column(Boolean, default=False)
+    is_visited = Column(Boolean, default=False)
+
+    run = relationship("DungeonRun", back_populates="cells")
+
+
+class AdminMessage(Base):
+    __tablename__ = "admin_messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    from_admin = Column(Boolean, default=False)
+    text = Column(Text, nullable=False)
+    is_read = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User", back_populates="messages")
 
 
 class AppSetting(Base):

@@ -11,10 +11,14 @@
         <h1>🌑 Shadow Lands — Admin</h1>
         <nav>
             <a href="/" class="{% if request.path == '/' %}active{% endif %}">Dashboard</a>
-            <a href="/players" class="{% if request.path == '/players' %}active{% endif %}">Игроки</a>
-            <a href="/items" class="{% if request.path == '/items' %}active{% endif %}">Предметы</a>
+            <a href="/players" class="{% if request.path.startswith('/player') %}active{% endif %}">Игроки</a>
+            <a href="/items" class="{% if request.path.startswith('/item') %}active{% endif %}">Предметы</a>
             <a href="/battles" class="{% if request.path == '/battles' %}active{% endif %}">Бои</a>
-            <a href="/editor/locations" class="{% if request.path.startswith('/editor') %}active{% endif %}">🗺 Редактор</a>
+            <a href="/editor/world" class="{% if request.path == '/editor/world' %}active{% endif %}">🌍 Мир</a>
+            <a href="/editor/locations" class="{% if request.path.startswith('/editor/location') %}active{% endif %}">🗺 Локации</a>
+            <a href="/editor/mobs" class="{% if request.path == '/editor/mobs' %}active{% endif %}">👾 Мобы</a>
+            <a href="/editor/npcs" class="{% if request.path == '/editor/npcs' %}active{% endif %}">🎭 NPC</a>
+            <a href="/editor/quests" class="{% if request.path == '/editor/quests' %}active{% endif %}">📜 Квесты</a>
             <a href="/settings" class="{% if request.path == '/settings' %}active{% endif %}">⚙️ Настройки</a>
         </nav>
     </header>

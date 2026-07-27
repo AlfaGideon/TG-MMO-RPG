@@ -5,6 +5,7 @@ from .battle import router as battle_router
 from .inventory import router as inventory_router
 from .shop import router as shop_router
 from .party import router as party_router
+from .dungeon import router as dungeon_router
 
 routers = [
     start_router,
@@ -14,4 +15,5 @@ routers = [
     inventory_router,
     shop_router,
     party_router,
+    dungeon_router,
 ]

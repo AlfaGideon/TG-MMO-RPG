@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+
+{% block title %}Редактор мобов — Shadow Lands{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="toolbar">
+        <h2>👾 Монстры</h2>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Имя</th>
+                <th>Ур.</th>
+                <th>HP</th>
+                <th>Урон</th>
+                <th>Защ</th>
+                <th>Золото</th>
+                <th>Опыт</th>
+                <th>Локация</th>
+                <th>Босс</th>
+                <th>Действия</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for mob in mobs %}
+            <tr>
+                <td>{{ mob.id }}</td>
+                <td>{{ mob.name }}</td>
+                <td>{{ mob.level }}</td>
+                <td>{{ mob.hp }}</td>
+                <td>{{ mob.damage }}</td>
+                <td>{{ mob.defense }}</td>
+                <td>{{ mob.gold_reward }}</td>
+                <td>{{ mob.exp_reward }}</td>
+                <td>{{ mob.location.name if mob.location else '—' }}</td>
+                <td>{{ '✅' if mob.is_boss else '—' }}</td>
+                <td>
+                    <button onclick="editMob({{ mob.id }}, '{{ mob.name|replace("'", "\\'") }}', '{{ mob.description|replace("'", "\\'") }}', {{ mob.level }}, {{ mob.hp }}, {{ mob.damage }}, {{ mob.defense }}, {{ mob.gold_reward }}, {{ mob.exp_reward }}, {{ mob.location_id or 'null' }}, {{ 'true' if mob.is_boss else 'false' }})" class="btn btn-primary" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">✏️</button>
+                    <form action="/editor/mobs/{{ mob.id }}/delete" method="post" style="display:inline" onsubmit="return confirm('Удалить моба?')">
+                        <button type="submit" class="btn btn-danger" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">🗑</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="card" id="mob-form">
+    <h3 id="mob-form-title">➕ Новый моб</h3>
+    <form action="/editor/mobs/new" method="post" id="mobForm">
+        <input type="hidden" name="mob_id" id="mob_id" value="">
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem;">
+            <div><label class="form-label">Имя</label><input type="text" name="name" id="m_name" class="search-box" style="max-width:100%" required></div>
+            <div><label class="form-label">Уровень</label><input type="number" name="level" id="m_level" value="1" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">HP</label><input type="number" name="hp" id="m_hp" value="30" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">Урон</label><input type="number" name="damage" id="m_damage" value="5" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">Защита</label><input type="number" name="defense" id="m_defense" value="2" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">Золото</label><input type="number" name="gold_reward" id="m_gold" value="10" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">Опыт</label><input type="number" name="exp_reward" id="m_exp" value="15" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">Локация</label>
+                <select name="location_id" id="m_loc" class="search-box" style="max-width:100%">
+                    <option value="">—</option>
+                    {% for loc in locations %}
+                    <option value="{{ loc.id }}">{{ loc.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div><label class="form-label">Шанс спавна</label><input type="number" step="0.1" name="spawn_chance" id="m_spawn" value="0.3" class="search-box" style="max-width:100%"></div>
+            <div style="display:flex;align-items:flex-end;gap:0.5rem;">
+                <label style="font-size:0.85rem"><input type="checkbox" name="is_boss" id="m_boss"> Босс</label>
+            </div>
+        </div>
+        <div style="margin-top: 0.75rem;">
+            <label class="form-label">Описание</label>
+            <textarea name="description" id="m_desc" class="search-box" style="max-width:100%; width:100%; min-height:60px; resize:vertical;"></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary" style="margin-top:0.75rem">💾 Сохранить</button>
+        <button type="button" class="btn" style="margin-top:0.75rem; background:var(--bg-hover)" onclick="resetMobForm()">Отмена</button>
+    </form>
+</div>
+
+<script>
+function editMob(id, name, desc, level, hp, dmg, defn, gold, exp, locId, isBoss) {
+    document.getElementById('mob-form-title').textContent = '✏️ Редактировать моба';
+    const form = document.getElementById('mobForm');
+    form.action = '/editor/mobs/' + id + '/edit';
+    document.getElementById('m_name').value = name;
+    document.getElementById('m_desc').value = desc;
+    document.getElementById('m_level').value = level;
+    document.getElementById('m_hp').value = hp;
+    document.getElementById('m_damage').value = dmg;
+    document.getElementById('m_defense').value = defn;
+    document.getElementById('m_gold').value = gold;
+    document.getElementById('m_exp').value = exp;
+    document.getElementById('m_loc').value = locId || '';
+    document.getElementById('m_boss').checked = isBoss;
+    window.location.hash = 'mob-form';
+}
+function resetMobForm() {
+    document.getElementById('mob-form-title').textContent = '➕ Новый моб';
+    const form = document.getElementById('mobForm');
+    form.action = '/editor/mobs/new';
+    form.reset();
+}
+</script>
+{% endblock %}

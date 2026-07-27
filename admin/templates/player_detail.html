@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+
+{% block title %}{{ char.name }} — Игрок — Shadow Lands{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="toolbar">
+        <h2>👤 {{ char.name }} <small style="color:var(--text-muted)">(ID: {{ char.id }})</small></h2>
+        <a href="/players" class="btn">◀️ Назад</a>
+    </div>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
+        <div>
+            <h3>📊 Статистика</h3>
+            <table style="font-size: 0.9rem;">
+                <tr><td>Telegram ID</td><td>{{ char.user.telegram_id }}</td></tr>
+                <tr><td>Username</td><td>{{ char.user.username or '—' }}</td></tr>
+                <tr><td>Класс</td><td>{{ char.character_class.value }}</td></tr>
+                <tr><td>Уровень</td><td>{{ char.level }}</td></tr>
+                <tr><td>Опыт</td><td>{{ char.experience }}</td></tr>
+                <tr><td>Золото</td><td>{{ char.gold }}</td></tr>
+                <tr><td>HP</td><td>{{ char.current_hp }}/{{ char.max_hp }}</td></tr>
+                <tr><td>MP</td><td>{{ char.current_mp }}/{{ char.max_mp }}</td></tr>
+                <tr><td>Сила</td><td>{{ char.strength }}</td></tr>
+                <tr><td>Ловкость</td><td>{{ char.agility }}</td></tr>
+                <tr><td>Интеллект</td><td>{{ char.intelligence }}</td></tr>
+                <tr><td>Выносливость</td><td>{{ char.endurance }}</td></tr>
+                <tr><td>Удача</td><td>{{ char.luck }}</td></tr>
+                <tr><td>Локация</td><td>{{ char.location.name if char.location else '—' }}</td></tr>
+                <tr><td>VIP</td><td>{{ '✅ до ' + char.vip_until.strftime('%Y-%m-%d') if char.vip_until else '❌' }}</td></tr>
+            </table>
+        </div>
+        <div>
+            <h3>✏️ Редактировать</h3>
+            <form action="/player/{{ char.id }}/edit" method="post">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+                    <div><label class="form-label">Имя</label><input type="text" name="name" value="{{ char.name }}" class="search-box" style="max-width:100%"></div>
+                    <div><label class="form-label">Уровень</label><input type="number" name="level" value="{{ char.level }}" class="search-box" style="max-width:100%"></div>
+                    <div><label class="form-label">Золото</label><input type="number" name="gold" value="{{ char.gold }}" class="search-box" style="max-width:100%"></div>
+                    <div><label class="form-label">Опыт</label><input type="number" name="experience" value="{{ char.experience }}" class="search-box" style="max-width:100%"></div>
+                    <div><label class="form-label">Сила</label><input type="number" name="strength" value="{{ char.strength }}" class="search-box" style="max-width:100%"></div>
+                    <div><label class="form-label">Ловкость</label><input type="number" name="agility" value="{{ char.agility }}" class="search-box" style="max-width:100%"></div>
+                    <div><label class="form-label">Интеллект</label><input type="number" name="intelligence" value="{{ char.intelligence }}" class="search-box" style="max-width:100%"></div>
+                    <div><label class="form-label">Выносливость</label><input type="number" name="endurance" value="{{ char.endurance }}" class="search-box" style="max-width:100%"></div>
+                    <div><label class="form-label">Удача</label><input type="number" name="luck" value="{{ char.luck }}" class="search-box" style="max-width:100%"></div>
+                    <div><label class="form-label">Макс HP</label><input type="number" name="max_hp" value="{{ char.max_hp }}" class="search-box" style="max-width:100%"></div>
+                    <div><label class="form-label">Макс MP</label><input type="number" name="max_mp" value="{{ char.max_mp }}" class="search-box" style="max-width:100%"></div>
+                    <div><label class="form-label">Тек HP</label><input type="number" name="current_hp" value="{{ char.current_hp }}" class="search-box" style="max-width:100%"></div>
+                    <div><label class="form-label">Тек MP</label><input type="number" name="current_mp" value="{{ char.current_mp }}" class="search-box" style="max-width:100%"></div>
+                    <div><label class="form-label">VIP дней</label><input type="number" name="vip_days" value="0" class="search-box" style="max-width:100%"></div>
+                    <div style="display:flex;align-items:flex-end;gap:0.5rem;">
+                        <label style="font-size:0.85rem"><input type="checkbox" name="is_vip" {% if char.is_vip %}checked{% endif %}> VIP</label>
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary" style="margin-top:0.75rem">💾 Сохранить</button>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <h3>🎒 Инвентарь</h3>
+    {% if inventory %}
+    <table style="font-size: 0.85rem;">
+        <thead><tr><th>Предмет</th><th>Кол-во</th><th>Экип</th></tr></thead>
+        <tbody>
+            {% for inv in inventory %}
+            <tr>
+                <td>{{ inv.item.icon }} {{ inv.item.name }}</td>
+                <td>{{ inv.quantity }}</td>
+                <td>{{ '✅' if inv.is_equipped else '—' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color:var(--text-muted)">Инвентарь пуст.</p>
+    {% endif %}
+    <form action="/player/{{ char.id }}/give-item" method="post" style="margin-top:1rem;display:flex;gap:0.5rem;">
+        <input type="number" name="item_id" placeholder="ID предмета" class="search-box" style="max-width:120px">
+        <input type="number" name="quantity" value="1" class="search-box" style="max-width:80px">
+        <button type="submit" class="btn btn-primary">🎁 Выдать</button>
+    </form>
+</div>
+
+<div class="card">
+    <h3>💬 Чат с игроком</h3>
+    <div style="max-height: 400px; overflow-y: auto; background: var(--bg-dark); border-radius: 8px; padding: 1rem; margin-bottom: 1rem;">
+        {% for msg in messages|reverse %}
+        <div style="margin-bottom: 0.75rem; {% if msg.from_admin %}text-align: right;{% endif %}">
+            <div style="display: inline-block; padding: 0.5rem 0.75rem; border-radius: 8px; {% if msg.from_admin %}background: var(--accent); color: #fff;{% else %}background: var(--bg-hover);{% endif %} font-size: 0.9rem; max-width: 80%;">
+                {{ msg.text }}
+            </div>
+            <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 0.25rem;">
+                {{ msg.created_at.strftime('%Y-%m-%d %H:%M') if msg.created_at else '' }}
+            </div>
+        </div>
+        {% else %}
+        <p style="color:var(--text-muted); text-align:center;">Нет сообщений</p>
+        {% endfor %}
+    </div>
+    <form action="/player/{{ char.id }}/send-message" method="post" style="display:flex;gap:0.5rem;">
+        <input type="text" name="text" placeholder="Написать сообщение..." class="search-box" style="flex:1" required>
+        <button type="submit" class="btn btn-primary">📨 Отправить</button>
+    </form>
+</div>
+{% endblock %}

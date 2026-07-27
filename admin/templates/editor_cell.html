@@ -43,6 +43,30 @@
 
                 <hr style="border-color: var(--border); margin: 1.5rem 0;">
 
+                <h3 style="margin-bottom: 1rem;">🌍 Переход в другую локацию</h3>
+                <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">Если игрок заходит на эту клетку, он телепортируется в указанную локацию и координаты.</p>
+                <div style="display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 0.5rem; margin-bottom: 1rem;">
+                    <div>
+                        <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Целевая локация</label>
+                        <select name="target_location_id" class="search-box" style="max-width: 100%;">
+                            <option value="">— нет —</option>
+                            {% for loc in all_locations %}
+                            <option value="{{ loc.id }}" {% if cell.target_location_id == loc.id %}selected{% endif %}>{{ loc.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">X</label>
+                        <input type="number" name="target_x" value="{{ cell.target_x or '' }}" class="search-box" style="max-width: 100%;">
+                    </div>
+                    <div>
+                        <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Y</label>
+                        <input type="number" name="target_y" value="{{ cell.target_y or '' }}" class="search-box" style="max-width: 100%;">
+                    </div>
+                </div>
+
+                <hr style="border-color: var(--border); margin: 1.5rem 0;">
+
                 <h3 style="margin-bottom: 1rem;">🎭 NPC</h3>
                 <div style="margin-bottom: 1rem;">
                     <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">
@@ -103,6 +127,9 @@
             <div style="background: var(--bg-hover); border-radius: 8px; padding: 1rem; margin-bottom: 1rem;">
                 <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem;">
                     Тип: {{ cell.tile_type }} | Проходима: {{ 'да' if cell.is_passable else 'нет' }}
+                    {% if cell.target_location_id %}
+                    <br>🌍 Переход: {{ cell.target_location.name if cell.target_location else 'Локация ' + cell.target_location_id|string }} [{{ cell.target_x }},{{ cell.target_y }}]
+                    {% endif %}
                 </div>
                 <div style="font-weight: 600; margin-bottom: 0.5rem;">{{ cell.name }}</div>
                 <div style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.5;">

@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block title %}Редактировать {{ item.name }} — Shadow Lands{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="toolbar">
+        <h2>✏️ Редактирование: {{ item.name }}</h2>
+        <a href="/items" class="btn">◀️ Назад</a>
+    </div>
+    <form action="/item/{{ item.id }}/edit" method="post">
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem;">
+            <div><label class="form-label">Название</label><input type="text" name="name" value="{{ item.name }}" class="search-box" style="max-width:100%" required></div>
+            <div><label class="form-label">Тип</label>
+                <select name="item_type" class="search-box" style="max-width:100%">
+                    <option value="weapon" {% if item.item_type.value == 'weapon' %}selected{% endif %}>Оружие</option>
+                    <option value="armor" {% if item.item_type.value == 'armor' %}selected{% endif %}>Броня</option>
+                    <option value="helmet" {% if item.item_type.value == 'helmet' %}selected{% endif %}>Шлем</option>
+                    <option value="boots" {% if item.item_type.value == 'boots' %}selected{% endif %}>Сапоги</option>
+                    <option value="accessory" {% if item.item_type.value == 'accessory' %}selected{% endif %}>Аксессуар</option>
+                    <option value="consumable" {% if item.item_type.value == 'consumable' %}selected{% endif %}>Расходник</option>
+                    <option value="material" {% if item.item_type.value == 'material' %}selected{% endif %}>Материал</option>
+                </select>
+            </div>
+            <div><label class="form-label">Редкость</label>
+                <select name="rarity" class="search-box" style="max-width:100%">
+                    <option value="common" {% if item.rarity.value == 'common' %}selected{% endif %}>Обычный</option>
+                    <option value="uncommon" {% if item.rarity.value == 'uncommon' %}selected{% endif %}>Необычный</option>
+                    <option value="rare" {% if item.rarity.value == 'rare' %}selected{% endif %}>Редкий</option>
+                    <option value="epic" {% if item.rarity.value == 'epic' %}selected{% endif %}>Эпический</option>
+                    <option value="legendary" {% if item.rarity.value == 'legendary' %}selected{% endif %}>Легендарный</option>
+                </select>
+            </div>
+            <div><label class="form-label">Иконка</label><input type="text" name="icon" value="{{ item.icon }}" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">Ур. требование</label><input type="number" name="level_requirement" value="{{ item.level_requirement }}" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">Цена</label><input type="number" name="price" value="{{ item.price }}" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">Сила</label><input type="number" name="bonus_strength" value="{{ item.bonus_strength }}" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">Ловкость</label><input type="number" name="bonus_agility" value="{{ item.bonus_agility }}" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">Интеллект</label><input type="number" name="bonus_intelligence" value="{{ item.bonus_intelligence }}" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">Выносливость</label><input type="number" name="bonus_endurance" value="{{ item.bonus_endurance }}" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">Удача</label><input type="number" name="bonus_luck" value="{{ item.bonus_luck }}" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">HP</label><input type="number" name="bonus_hp" value="{{ item.bonus_hp }}" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">MP</label><input type="number" name="bonus_mp" value="{{ item.bonus_mp }}" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">Урон</label><input type="number" name="bonus_damage" value="{{ item.bonus_damage }}" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">Защита</label><input type="number" name="bonus_defense" value="{{ item.bonus_defense }}" class="search-box" style="max-width:100%"></div>
+        </div>
+        <div style="margin-top: 0.75rem;">
+            <label class="form-label">Описание</label>
+            <textarea name="description" class="search-box" style="max-width:100%; width:100%; min-height:60px; resize:vertical;">{{ item.description }}</textarea>
+        </div>
+        <button type="submit" class="btn btn-primary" style="margin-top:0.75rem">💾 Сохранить</button>
+    </form>
+</div>
+{% endblock %}

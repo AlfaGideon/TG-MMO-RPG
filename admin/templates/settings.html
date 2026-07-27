@@ -41,9 +41,10 @@
         {% endif %}
     </form>
 
-    <div style="display: flex; gap: 0.75rem;">
+    <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
         <button class="btn btn-primary" onclick="startBot()">▶️ Запустить бота</button>
         <button class="btn btn-danger" onclick="stopBot()">⏹ Остановить бота</button>
+        <button class="btn" onclick="updateGit()" style="background: var(--bg-hover); color: var(--text);">🔄 Обновить с GitHub</button>
     </div>
 
     <div id="msg" style="margin-top: 1rem; font-size: 0.9rem;"></div>
@@ -75,6 +76,26 @@ async function startBot() {
         } else {
             msg.style.color = 'var(--danger)';
             msg.textContent = '❌ ' + (data.error || 'Ошибка запуска');
+        }
+    } catch (e) {
+        msg.style.color = 'var(--danger)';
+        msg.textContent = '❌ Ошибка сети: ' + e.message;
+    }
+}
+
+async function updateGit() {
+    const msg = document.getElementById('msg');
+    msg.style.color = 'var(--text-muted)';
+    msg.textContent = 'Обновляю с GitHub...';
+    try {
+        const r = await fetch('/api/update', {method: 'POST'});
+        const data = await r.json();
+        if (data.success) {
+            msg.style.color = 'var(--success)';
+            msg.textContent = '✅ Обновлено! Перезагрузи страницу.';
+        } else {
+            msg.style.color = 'var(--danger)';
+            msg.textContent = '❌ Ошибка: ' + (data.error || data.output || 'Неизвестно');
         }
     } catch (e) {
         msg.style.color = 'var(--danger)';
