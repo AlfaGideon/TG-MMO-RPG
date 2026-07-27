@@ -14,7 +14,7 @@ def main_menu_keyboard(has_character: bool = False):
         builder.button(text="⚔️ Бой", callback_data="battle_menu")
         builder.button(text="🎒 Инвентарь", callback_data="inventory")
         builder.button(text="🏪 Лавка", callback_data="shop")
-        builder.button(text="📜 Квесты", callback_data="quests")
+        builder.button(text="👥 Пати", callback_data="party_menu")
         builder.button(text="🏆 Топ", callback_data="leaderboard")
     builder.button(text="❓ Помощь", callback_data="help")
     builder.adjust(2)

@@ -4,6 +4,7 @@ from .location import router as location_router
 from .battle import router as battle_router
 from .inventory import router as inventory_router
 from .shop import router as shop_router
+from .party import router as party_router
 
 routers = [
     start_router,
@@ -12,4 +13,5 @@ routers = [
     battle_router,
     inventory_router,
     shop_router,
+    party_router,
 ]

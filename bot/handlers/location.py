@@ -1,5 +1,5 @@
 from aiogram import Router, F
-from aiogram.types import CallbackQuery
+from aiogram.types import CallbackQuery, InputMediaPhoto
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
@@ -75,7 +75,6 @@ async def travel(callback: CallbackQuery):
             return
 
         character.location_id = new_loc.id
-        # Spawn at center (5,5)
         result = await session.execute(
             select(Cell).where(Cell.location_id == new_loc.id).where(Cell.x == 5).where(Cell.y == 5)
         )
@@ -136,7 +135,7 @@ async def show_map(callback: CallbackQuery):
         result = await session.execute(
             select(Character)
             .where(Character.user_id == user.id)
-            .options(selectinload(Character.cell))
+            .options(selectinload(Character.cell), selectinload(Character.party))
         )
         character = result.scalar_one_or_none()
         if not character or not character.cell:
@@ -148,9 +147,24 @@ async def show_map(callback: CallbackQuery):
         )
         cells = result.scalars().all()
 
-        map_text = mini_map(cells, character.cell.x, character.cell.y)
+        # Get party members on same location
+        party_members = []
+        if character.party_id:
+            from core.models import Character as CharModel
+            result = await session.execute(
+                select(CharModel)
+                .where(CharModel.party_id == character.party_id)
+                .where(CharModel.location_id == character.location_id)
+                .where(CharModel.id != character.id)
+                .options(selectinload(CharModel.cell))
+            )
+            party_members = result.scalars().all()
+
+        map_text = mini_map(cells, character.cell.x, character.cell.y, party_members)
         await callback.message.edit_text(
-            f"🗺 <b>Мини-карта</b>\n{map_text}\n\n🧙 — ты | 👾 — враг | 🌲 — проходимо | ⬛ — непроходимо",
+            f"🗺 <b>Мини-карта</b>\n{map_text}\n\n"
+            f"🧙 — ты | 👾 — враг | 🌲 — проходимо | ⬛ — стена\n"
+            f"👥 — сопартиец",
             reply_markup=back_to_main_keyboard(),
             parse_mode="HTML",
         )
@@ -181,12 +195,23 @@ async def show_cell(callback, character, location, session):
     has_mob = cell.mob_id is not None
 
     text = cell_text(cell, location.name)
-    if cell.image_url:
-        # If we have an image, send it as photo with caption
-        try:
+    image_url = location.image_url or cell.image_url
+
+    # Check if message has photo — if so, edit media; otherwise send new
+    try:
+        if callback.message.photo and image_url:
+            await callback.message.edit_media(
+                media=InputMediaPhoto(media=image_url, caption=text, parse_mode="HTML"),
+                reply_markup=cell_movement_keyboard(
+                    neighbors["north"], neighbors["south"],
+                    neighbors["west"], neighbors["east"], has_mob
+                ),
+            )
+            return
+        elif image_url:
             await callback.message.delete()
             await callback.message.answer_photo(
-                photo=cell.image_url,
+                photo=image_url,
                 caption=text,
                 reply_markup=cell_movement_keyboard(
                     neighbors["north"], neighbors["south"],
@@ -195,8 +220,8 @@ async def show_cell(callback, character, location, session):
                 parse_mode="HTML",
             )
             return
-        except Exception:
-            pass
+    except Exception:
+        pass
 
     await callback.message.edit_text(
         text,

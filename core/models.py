@@ -23,6 +23,27 @@ class User(Base):
     character = relationship("Character", back_populates="user", uselist=False)
 
 
+class AppSetting(Base):
+    __tablename__ = "app_settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String(128), unique=True, nullable=False)
+    value = Column(Text, nullable=False, default="")
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class Party(Base):
+    __tablename__ = "parties"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(128), nullable=False)
+    leader_id = Column(Integer, ForeignKey("characters.id"), unique=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    members = relationship("Character", back_populates="party", foreign_keys="Character.party_id")
+    leader = relationship("Character", foreign_keys=[leader_id], overlaps="members")
+
+
 class Character(Base):
     __tablename__ = "characters"
 
@@ -51,6 +72,9 @@ class Character(Base):
     location_id = Column(Integer, ForeignKey("locations.id"), default=1)
     cell_id = Column(Integer, ForeignKey("cells.id"), nullable=True)
 
+    # Party
+    party_id = Column(Integer, ForeignKey("parties.id"), nullable=True)
+
     # Equipment
     weapon_id = Column(Integer, ForeignKey("items.id"), nullable=True)
     armor_id = Column(Integer, ForeignKey("items.id"), nullable=True)
@@ -65,6 +89,7 @@ class Character(Base):
     cell = relationship("Cell", foreign_keys=[cell_id])
     inventory = relationship("InventoryItem", back_populates="character", cascade="all, delete-orphan")
     battles = relationship("Battle", back_populates="character")
+    party = relationship("Party", back_populates="members", foreign_keys=[party_id], overlaps="leader")
 
     def effective_stats(self):
         stats = {

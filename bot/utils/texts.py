@@ -52,11 +52,12 @@ def profile_text(character):
     }
     icon = class_icons.get(character.character_class, "👤")
     cell_info = f"\n📍 Клетка: {character.cell.name if character.cell else '—'} ({character.cell.x if character.cell else 0},{character.cell.y if character.cell else 0})" if character.cell else ""
+    party_info = f"\n👥 Пати: {character.party.name}" if character.party else ""
 
     return (
         f"{icon} <b>{character.name}</b> | Ур. {character.level}\n"
         f"Класс: <code>{character.character_class.value}</code>\n"
-        f"Золото: <code>{character.gold}</code> 🪙\n\n"
+        f"Золото: <code>{character.gold}</code> 🪙{party_info}\n\n"
         f"❤️ HP: {character.current_hp}/{stats['max_hp']}\n{hp_bar}\n"
         f"💙 MP: {character.current_mp}/{stats['max_mp']}\n{mp_bar}\n\n"
         f"💪 Сила: {stats['strength']}\n"
@@ -100,24 +101,25 @@ def cell_text(cell, location_name):
 
     return (
         f"🗺 <b>{location_name}</b>\n"
-        f"📍 Клетка №{cell.x * 10 + cell.y + 1}\n"
-        f"<i>{cell.name}</i>\n\n"
+        f"📍 Клетка [{cell.x},{cell.y}] | <i>{cell.name}</i>\n\n"
         f"{cell.description}{mob_text}"
     )
 
 
-def mini_map(cells, player_x, player_y, size=5):
-    """Generate a small ASCII mini-map around player."""
+def mini_map(cells, player_x, player_y, party_members=None, size=5):
     half = size // 2
     lines = ["<code>"]
+    party_positions = {(m.cell.x, m.cell.y): m for m in (party_members or []) if m.cell}
+
     for dy in range(-half, half + 1):
         row = ""
         for dx in range(-half, half + 1):
             cx, cy = player_x + dx, player_y + dy
             if cx == player_x and cy == player_y:
                 row += "🧙"
+            elif (cx, cy) in party_positions:
+                row += "👥"
             else:
-                # Find cell
                 cell = next((c for c in cells if c.x == cx and c.y == cy), None)
                 if cell is None or not cell.is_passable:
                     row += "⬛"
