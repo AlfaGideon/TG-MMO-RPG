@@ -110,7 +110,7 @@ class Location(Base):
     world_x = Column(Integer, default=0)
     world_y = Column(Integer, default=0)
 
-    cells = relationship("Cell", back_populates="location", cascade="all, delete-orphan")
+    cells = relationship("Cell", back_populates="location", foreign_keys="Cell.location_id", cascade="all, delete-orphan")
     mobs = relationship("Mob", back_populates="location")
 
 
