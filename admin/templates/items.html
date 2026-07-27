@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+
+{% block title %}Предметы — Shadow Lands{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="toolbar">
+        <h2>🎒 Предметы и магазин</h2>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Название</th>
+                <th>Тип</th>
+                <th>Редкость</th>
+                <th>Цена</th>
+                <th>Треб. ур.</th>
+                <th>Бонусы</th>
+                <th>В наличии</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in items %}
+            <tr>
+                <td>{{ item.id }}</td>
+                <td>{{ item.icon }} {{ item.name }}</td>
+                <td>{{ item.item_type.value }}</td>
+                <td><span class="badge badge-{{ item.rarity.value }}">{{ item.rarity.value }}</span></td>
+                <td>{{ item.price }}</td>
+                <td>{{ item.level_requirement }}</td>
+                <td>
+                    {% if item.bonus_damage %}⚔️+{{ item.bonus_damage }} {% endif %}
+                    {% if item.bonus_defense %}🛡+{{ item.bonus_defense }} {% endif %}
+                    {% if item.bonus_strength %}💪+{{ item.bonus_strength }} {% endif %}
+                    {% if item.bonus_agility %}🏃+{{ item.bonus_agility }} {% endif %}
+                    {% if item.bonus_intelligence %}🧠+{{ item.bonus_intelligence }} {% endif %}
+                    {% if item.bonus_hp %}❤️+{{ item.bonus_hp }} {% endif %}
+                </td>
+                <td>{{ item.stock if item.stock >= 0 else '∞' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

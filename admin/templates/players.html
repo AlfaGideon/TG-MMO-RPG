@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block title %}Игроки — Shadow Lands{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="toolbar">
+        <h2>👥 Игроки и персонажи</h2>
+        <input type="text" class="search-box" placeholder="Поиск по имени..." onkeyup="filterTable(this.value)">
+    </div>
+    <table id="playersTable">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Telegram</th>
+                <th>Имя</th>
+                <th>Класс</th>
+                <th>Ур.</th>
+                <th>Опыт</th>
+                <th>Золото</th>
+                <th>HP</th>
+                <th>Локация</th>
+                <th>Создан</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for p in players %}
+            <tr>
+                <td>{{ p.id }}</td>
+                <td>{{ p.user.telegram_id }}</td>
+                <td>{{ p.name }}</td>
+                <td>{{ p.character_class.value }}</td>
+                <td>{{ p.level }}</td>
+                <td>{{ p.experience }}</td>
+                <td>{{ p.gold }}</td>
+                <td>{{ p.current_hp }}/{{ p.max_hp }}</td>
+                <td>{{ p.location.name if p.location else '-' }}</td>
+                <td>{{ p.created_at.strftime('%Y-%m-%d') if p.created_at else '-' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<script>
+function filterTable(query) {
+    const rows = document.querySelectorAll('#playersTable tbody tr');
+    const lower = query.toLowerCase();
+    rows.forEach(row => {
+        const text = row.innerText.toLowerCase();
+        row.style.display = text.includes(lower) ? '' : 'none';
+    });
+}
+</script>
+{% endblock %}

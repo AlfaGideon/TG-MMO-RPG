@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block title %}Бои — Shadow Lands{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="toolbar">
+        <h2>⚔️ История боёв</h2>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Игрок</th>
+                <th>Враг</th>
+                <th>Результат</th>
+                <th>Раундов</th>
+                <th>Урон нанёс</th>
+                <th>Урон получил</th>
+                <th>Золото</th>
+                <th>Опыт</th>
+                <th>Время</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for b in battles %}
+            <tr>
+                <td>{{ b.id }}</td>
+                <td>{{ b.character.name }}</td>
+                <td>{{ b.mob.name }}</td>
+                <td>
+                    {% if b.result.value == 'victory' %}
+                        <span class="badge badge-uncommon">Победа</span>
+                    {% elif b.result.value == 'defeat' %}
+                        <span class="badge badge-danger">Поражение</span>
+                    {% else %}
+                        <span class="badge badge-common">Побег</span>
+                    {% endif %}
+                </td>
+                <td>{{ b.rounds }}</td>
+                <td>{{ b.damage_dealt }}</td>
+                <td>{{ b.damage_taken }}</td>
+                <td>{{ b.gold_earned }}</td>
+                <td>{{ b.exp_earned }}</td>
+                <td>{{ b.created_at.strftime('%Y-%m-%d %H:%M') if b.created_at else '-' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
