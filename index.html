@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🌑 Shadow Lands — Admin</title>
+<link rel="stylesheet" href="webapp/static/admin.css">
+<style>
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f0f13;color:#e2e8f0}
+#boot{max-width:760px;margin:3rem auto;padding:1.2rem;background:#1a1a24;
+      border:1px solid #2e2e3e;border-radius:10px}
+#boot h2{color:#8b5cf6;margin-bottom:.6rem}
+#boot p{color:#94a3b8;font-size:.9rem;line-height:1.6}
+pre{background:#0a0a0f;border:1px solid #2e2e3e;border-radius:8px;padding:.7rem;
+    overflow:auto;font-size:.75rem;white-space:pre-wrap;color:#f87171}
+</style>
+</head>
+<body>
+<header>
+  <h1>🌑 Shadow Lands — Admin</h1>
+  <div id="botPill"><span class="dot" id="botDot"></span><span id="botText">Загрузка…</span></div>
+</header>
+<nav id="nav"></nav>
+<div class="container" id="view">
+  <div id="boot">
+    <h2>⏳ Запуск Python-среды</h2>
+    <p id="msg">Загружаю Pyodide…</p>
+    <p style="margin-top:.5rem;font-size:.8rem">
+      Первый запуск качает Python (~10 МБ) — это 10–30 секунд. Дальше из кеша браузера.</p>
+  </div>
+</div>
+<div class="modal" id="modal"><div class="box" id="modalBox"></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+// Загрузчик: поднимает Python и подтягивает модули из этого же репозитория.
+// Работает при открытии через HTTP (GitHub Pages, локальный сервер).
+const MODULES = [
+  "engine/__init__.py","engine/data.py","engine/models.py","engine/world.py",
+  "engine/rules.py","engine/texts.py","engine/combat.py","engine/game.py",
+  "engine/storage.py",
+  "webapp/__init__.py","webapp/html.py","webapp/backend.py","webapp/dom.py",
+  "webapp/transport.py","webapp/telegram.py",
+  "webapp/pages/__init__.py","webapp/pages/dashboard.py","webapp/pages/bot.py",
+  "webapp/pages/players.py","webapp/pages/world.py","webapp/pages/content.py",
+  "webapp/pages/settings.py",
+  "webapp/actions/__init__.py","webapp/actions/bot_actions.py",
+  "webapp/actions/player_actions.py","webapp/actions/world_actions.py",
+  "webapp/app.py","webapp/boot.py",
+];
+
+const RUNTIMES = [
+  "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/",
+  "https://cdn.jsdelivr.net/npm/pyodide@0.26.4/full/",
+  "https://unpkg.com/pyodide@0.26.4/full/",
+  "https://fastly.jsdelivr.net/pyodide/v0.26.4/full/",
+];
+
+const say = (t) => { const n = document.getElementById("msg"); if (n) n.textContent = t; };
+
+function fail(title, err, hint) {
+  document.getElementById("view").innerHTML =
+    '<div id="boot"><h2>❌ ' + title + '</h2><pre>' + String(err) + '</pre>' +
+    '<p>' + hint + '</p></div>';
+}
+
+function loadScript(base) {
+  return new Promise((ok, no) => {
+    const s = document.createElement("script");
+    s.src = base + "pyodide.js";
+    s.onload = ok;
+    s.onerror = () => no(new Error("нет ответа: " + base));
+    document.head.appendChild(s);
+  });
+}
+
+async function bootRuntime() {
+  for (const base of RUNTIMES) {
+    try {
+      say("Загружаю Python-среду… (" + new URL(base).hostname + ")");
+      await loadScript(base);
+      return await loadPyodide({ indexURL: base });
+    } catch (e) { console.warn("зеркало недоступно:", base, e); }
+  }
+  throw new Error("ни одно зеркало Python-среды не ответило");
+}
+
+(async () => {
+  let py;
+  try {
+    py = await bootRuntime();
+  } catch (err) {
+    return fail("Не удалось загрузить Python", err,
+      "Нужен доступ в интернет — среда грузится с CDN. Проверь соединение и обнови страницу.");
+  }
+
+  try {
+    const ROOT = "/app";
+    py.FS.mkdirTree(ROOT);
+    let done = 0;
+    for (const path of MODULES) {
+      const r = await fetch(path + "?v=" + Date.now(), { cache: "no-store" });
+      if (!r.ok) throw new Error(path + " → HTTP " + r.status);
+      const full = ROOT + "/" + path;
+      py.FS.mkdirTree(full.substring(0, full.lastIndexOf("/")));
+      py.FS.writeFile(full, await r.text());
+      say("Загружаю модули… " + (++done) + "/" + MODULES.length);
+    }
+    py.runPython(
+      "import sys, builtins\n" +
+      "sys.path.insert(0, '/app')\n" +
+      "builtins.CODE_ORIGIN = 'github'\n" +
+      "builtins.GH_REPO = 'AlfaGideon/TG-MMO-RPG'\n");
+    say("Запускаю админку…");
+    await py.runPythonAsync("import webapp.boot");
+    window.__py = py;
+  } catch (err) {
+    console.error(err);
+    fail("Не удалось загрузить модули", err,
+      "Файл открыт напрямую с диска (file://). Модули лежат рядом и грузятся по HTTP — " +
+      "включи GitHub Pages либо запусти локально: <code>python3 -m http.server</code>");
+  }
+})();
+</script>
+</body>
+</html>
