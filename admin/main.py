@@ -812,12 +812,23 @@ async def editor_npcs(request: Request):
 @app.post("/api/update")
 async def api_update():
     import subprocess
+    import sys
+    import threading
     try:
         result = subprocess.run(
             ["git", "pull", "origin", "main"],
             capture_output=True, text=True, cwd=os.getcwd(), timeout=30
         )
-        return {"success": result.returncode == 0, "output": result.stdout + result.stderr}
+        success = result.returncode == 0
+        output = result.stdout + result.stderr
+        if success and "Already up to date" not in output and "Уже обновлено" not in output:
+            # Schedule auto-restart in 3 seconds so the HTTP response can be sent first
+            def _restart():
+                import os
+                os.execv(sys.executable, [sys.executable, "launch.py"])
+            threading.Timer(3.0, _restart).start()
+            return {"success": True, "output": output, "restarting": True}
+        return {"success": success, "output": output, "restarting": False}
     except Exception as e:
         return {"success": False, "error": str(e)}
 

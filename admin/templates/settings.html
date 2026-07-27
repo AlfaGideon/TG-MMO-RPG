@@ -51,13 +51,24 @@
 </div>
 
 <div class="card">
-    <h2>📖 Как запустить</h2>
+    <h2>🚀 Replit — обновление в 1 клик</h2>
+    <ol style="padding-left: 1.25rem; color: var(--text-muted); line-height: 1.8;">
+        <li>Нажми кнопку <b>🔄 Обновить с GitHub</b> выше.</li>
+        <li>Если появилось "Обновлено, перезапуск..." — просто подожди 5 секунд, сервер сам перезапустится.</li>
+        <li>Если не перезапустился — нажми <b>Stop</b>, затем <b>Run</b> в Replit.</li>
+    </ol>
+    <p style="color: var(--text-muted); font-size: 0.85rem;">
+        <b>Альтернатива:</b> открой вкладку <b>Shell</b> в Replit и напиши <code>git pull origin main</code>, затем Stop → Run.
+    </p>
+</div>
+
+<div class="card">
+    <h2>📖 Первый запуск (локально / Render)</h2>
     <ol style="padding-left: 1.25rem; color: var(--text-muted); line-height: 1.8;">
         <li>Напиши <a href="https://t.me/BotFather" target="_blank" style="color: var(--accent);">@BotFather</a> в Telegram, создай нового бота и скопируй токен.</li>
         <li>Вставь токен в поле выше и нажми <b>Сохранить</b>.</li>
         <li>Нажми <b>Запустить бота</b>. Статус должен стать зелёным.</li>
         <li>Открой своего бота в Telegram и нажми /start.</li>
-        <li><b>Важно:</b> пока работает эта программа на твоём ноутбуке — бот доступен всем. Не закрывай окно терминала.</li>
     </ol>
 </div>
 
@@ -91,8 +102,13 @@ async function updateGit() {
         const r = await fetch('/api/update', {method: 'POST'});
         const data = await r.json();
         if (data.success) {
-            msg.style.color = 'var(--success)';
-            msg.textContent = '✅ Обновлено! Перезагрузи страницу.';
+            if (data.restarting) {
+                msg.style.color = 'var(--success)';
+                msg.textContent = '✅ Обновлено! Сервер перезапускается автоматически... Подожди 5 секунд и обнови страницу.';
+            } else {
+                msg.style.color = 'var(--success)';
+                msg.textContent = '✅ Уже актуальная версия. Перезагрузи страницу если нужно.';
+            }
         } else {
             msg.style.color = 'var(--danger)';
             msg.textContent = '❌ Ошибка: ' + (data.error || data.output || 'Неизвестно');
