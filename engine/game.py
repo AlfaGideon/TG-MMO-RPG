@@ -1,0 +1,317 @@
+"""Роутер бота: команда/callback -> Reply. Не знает ничего про Telegram."""
+import random
+
+from engine import combat, data, rules, texts, world
+from engine.models import Reply
+
+
+class Game:
+    def __init__(self, store):
+        self.store = store          # engine.storage.Store
+        self.world = store.world    # {key: Cell}
+
+    # ── вход ────────────────────────────────────────────────
+    def handle(self, p, action):
+        if action in ("start", "menu"):
+            return self.menu(p)
+        head, _, arg = action.partition(":")
+        fn = getattr(self, f"do_{head}", None)
+        if fn is None:
+            return Reply(alert="Неизвестная команда.")
+        return fn(p, arg) if arg or ":" in action else fn(p)
+
+    # ── меню и персонаж ─────────────────────────────────────
+    def menu(self, p):
+        if not p.created_char:
+            return Reply(text=texts.WELCOME, keyboard=[
+                [("⚔️ Создать героя", "new")], [("❓ Помощь", "help")]])
+        return Reply(text=texts.WELCOME + f"\n\n👤 {p.name}, ур. {p.level}", keyboard=[
+            [("🧭 В мир", "world"), ("🧙 Профиль", "profile")],
+            [("🎒 Инвентарь", "bag"), ("🏪 Лавка", "shop")],
+            [("🏆 Топ", "top"), ("❓ Помощь", "help")],
+        ])
+
+    def do_help(self, p, arg=""):
+        return Reply(text=texts.HELP, keyboard=[[("◀️ Меню", "menu")]])
+
+    def do_new(self, p, arg=""):
+        if p.created_char:
+            return Reply(alert="У тебя уже есть герой!")
+        rows = [[(data.CLASSES[c][0], f"pick:{c}")] for c in data.CLASSES]
+        rows.append([("◀️ Назад", "menu")])
+        return Reply(text="Выбери класс своего героя:", keyboard=rows)
+
+    def do_pick(self, p, cls):
+        if cls not in data.CLASSES:
+            return Reply(alert="Нет такого класса.")
+        title, desc, _ = data.CLASSES[cls]
+        return Reply(text=f"<b>{title}</b>\n\n{desc}", keyboard=[
+            [("✅ Подтвердить", f"make:{cls}")], [("◀️ Другой класс", "new")]])
+
+    def do_make(self, p, cls):
+        if p.created_char:
+            return Reply(alert="Герой уже создан!")
+        st = data.CLASSES[cls][2]
+        for k, v in st.items():
+            setattr(p, k, v)
+        p.cls = cls
+        p.hp, p.mp = p.max_hp, p.max_mp
+        p.loc, p.x, p.y = 0, 5, 5
+        self.store.save_player(p)
+        return Reply(text=(f"✅ Герой <b>{p.name}</b> создан!\n\n"
+                           f"Класс: {data.CLASSES[cls][0]}\n\n"
+                           f"Добро пожаловать в Теневые Земли, изгнанник."),
+                     keyboard=[[("🧭 В мир", "world")], [("◀️ Меню", "menu")]])
+
+    def do_profile(self, p, arg=""):
+        if not p.created_char:
+            return Reply(alert="Сначала создай героя!")
+        return Reply(text=texts.profile(p), keyboard=[
+            [("🎒 Инвентарь", "bag"), ("🧭 В мир", "world")], [("◀️ Меню", "menu")]])
+
+    # ── мир ─────────────────────────────────────────────────
+    def _cell(self, p):
+        return world.cell_at(self.world, p.loc, p.x, p.y)
+
+    def do_world(self, p, arg=""):
+        if not p.created_char:
+            return Reply(alert="Сначала создай героя!")
+        if p.combat:
+            return combat.view(p)
+        cell = self._cell(p)
+        if not cell:
+            p.loc, p.x, p.y = 0, 5, 5
+            cell = self._cell(p)
+        ok = world.neighbours(self.world, p.loc, p.x, p.y)
+        rows = []
+        for line in (("nw", "n", "ne"), ("w", None, "e"), ("sw", "s", "se")):
+            row = []
+            for d in line:
+                if d is None:
+                    row.append(("🔍", "look"))
+                elif ok.get(d):
+                    row.append((world.ARROWS[d], f"go:{d}"))
+                else:
+                    row.append(("⬛", "wall"))
+            rows.append(row)
+        rows.append([("🏕 Отдых", "rest"), ("🎒 Инвентарь", "bag")])
+        rows.append([("🗺 Карта", "map"), ("◀️ Меню", "menu")])
+        return Reply(text=texts.cell_view(p, cell), keyboard=rows)
+
+    def do_wall(self, p, arg=""):
+        return Reply(alert="Туда нельзя пройти.")
+
+    def do_go(self, p, d):
+        if p.combat:
+            return Reply(alert="Сначала закончи бой!")
+        dx, dy = world.DIRS.get(d, (0, 0))
+        target = world.cell_at(self.world, p.loc, p.x + dx, p.y + dy)
+        if not target or not target.passable:
+            return Reply(alert="Туда нельзя пройти!")
+        if target.link:
+            p.loc, p.x, p.y = target.link
+        else:
+            p.x, p.y = target.x, target.y
+        cell = self._cell(p)
+        if cell.mob >= 0 and random.random() < 0.75:
+            return combat.start(p, cell.mob)
+        return self.do_world(p)
+
+    def do_map(self, p, arg=""):
+        lines = [f"🗺 <b>{data.LOCATIONS[p.loc][0]}</b>\n<code>"]
+        for x in range(world.SIZE):
+            row = ""
+            for y in range(world.SIZE):
+                c = world.cell_at(self.world, p.loc, x, y)
+                if (x, y) == (p.x, p.y):
+                    row += "@"
+                elif not c or not c.passable:
+                    row += "#"
+                elif c.link:
+                    row += "="
+                else:
+                    row += "."
+            lines.append(row)
+        lines.append("</code>\n@ ты · # стена · = переход")
+        return Reply(text="\n".join(lines), keyboard=[[("◀️ Назад", "world")]])
+
+    def do_look(self, p, arg=""):
+        cell = self._cell(p)
+        found, rows = [], []
+        if cell.mob >= 0:
+            found.append(f"👾 Враг: {data.MOBS[cell.mob][0]} (ур. {data.MOBS[cell.mob][2]})")
+            rows.append([("⚔️ Атаковать", f"hunt:{cell.mob}")])
+        if cell.npc >= 0:
+            n = data.NPCS[cell.npc]
+            found.append(f"💬 {n[0]}")
+            rows.append([("💬 Поговорить", f"talk:{cell.npc}")])
+        if cell.chest:
+            found.append("📦 Сундук!")
+            rows.append([("📦 Открыть", "chest")])
+        body = "\n".join(found) if found else f"<i>{random.choice(data.EMPTY_LOOK)}</i>"
+        rows.append([("◀️ Назад", "world")])
+        return Reply(text=f"🔍 <b>Осмотр [{cell.x},{cell.y}]</b>\n<i>{cell.name}</i>\n\n"
+                          f"{cell.desc}\n\n{body}", keyboard=rows)
+
+    def do_hunt(self, p, arg):
+        cell = self._cell(p)
+        if cell.mob < 0:
+            return Reply(alert="Враг уже мёртв.")
+        return combat.start(p, cell.mob)
+
+    def do_fight(self, p, what):
+        return combat.action(p, what, self.world)
+
+    def do_talk(self, p, arg):
+        n = data.NPCS[int(arg)]
+        rows = []
+        if n[2] == "merchant":
+            rows.append([("🛒 Торговать", "shop")])
+        if n[2] == "healer":
+            rows.append([("💊 Исцелиться", "heal")])
+        rows.append([("◀️ Назад", "world")])
+        return Reply(text=f"💬 <b>{n[0]}</b>\n\n<i>{n[1]}</i>", keyboard=rows)
+
+    def do_heal(self, p, arg=""):
+        s = rules.stats(p)
+        p.hp, p.mp = s["max_hp"], s["max_mp"]
+        return Reply(text="💊 Лекарь Мира кладёт ладонь тебе на лоб.\n\n"
+                          "❤️ Здоровье и мана полностью восстановлены.",
+                     keyboard=[[("◀️ В мир", "world")]])
+
+    def do_chest(self, p, arg=""):
+        cell = self._cell(p)
+        if not cell.chest:
+            return Reply(alert="Сундук уже пуст.")
+        cell.chest = False
+        gold = random.randint(10, 45)
+        p.gold += gold
+        lines = [f"📦 <b>Сундук открыт!</b>\n\nВнутри: {gold} 🪙"]
+        if random.random() < 0.5:
+            idx = random.randrange(len(data.ITEMS))
+            p.inventory.append(idx)
+            lines.append(f"И ещё: {rules.item(idx)['icon']} {rules.item(idx)['name']}")
+        return Reply(text="\n".join(lines), keyboard=[[("◀️ В мир", "world")]])
+
+    def do_rest(self, p, arg=""):
+        s = rules.stats(p)
+        hp = max(1, s["max_hp"] // 3)
+        mp = max(1, s["max_mp"] // 3)
+        p.hp = min(s["max_hp"], p.hp + hp)
+        p.mp = min(s["max_mp"], p.mp + mp)
+        return Reply(text=(f"🏕 <b>Привал</b>\n\nТы отдохнул у костра.\n"
+                           f"❤️ +{hp} HP · 💙 +{mp} MP\n\n"
+                           f"Сейчас: {p.hp}/{s['max_hp']} HP"),
+                     keyboard=[[("◀️ В мир", "world")]])
+
+    # ── инвентарь ───────────────────────────────────────────
+    def do_bag(self, p, arg=""):
+        if not p.inventory:
+            return Reply(text="🎒 <b>Инвентарь</b>\n\nСумка пуста.",
+                         keyboard=[[("◀️ Меню", "menu")]])
+        rows, seen = [], {}
+        for slot, idx in p.equipped.items():
+            seen[idx] = slot
+        lines = ["🎒 <b>Инвентарь</b>\n"]
+        for pos, idx in enumerate(p.inventory):
+            it = rules.item(idx)
+            lines.append(texts.item_line(idx, idx in seen))
+            rows.append([(f"{it['icon']} {it['name']}", f"it:{pos}")])
+        rows.append([("◀️ Меню", "menu")])
+        return Reply(text="\n".join(lines), keyboard=rows[:12])
+
+    def do_it(self, p, arg):
+        pos = int(arg)
+        if pos >= len(p.inventory):
+            return Reply(alert="Предмет не найден.")
+        idx = p.inventory[pos]
+        it = rules.item(idx)
+        rows = []
+        if it["type"] == "consumable":
+            rows.append([("🧪 Использовать", f"use:{pos}")])
+        elif p.equipped.get(it["type"]) == idx:
+            rows.append([("➖ Снять", f"off:{pos}")])
+        else:
+            rows.append([("✅ Надеть", f"on:{pos}")])
+        rows.append([("💰 Продать", f"sell:{pos}"), ("🗑 Выбросить", f"toss:{pos}")])
+        rows.append([("◀️ Назад", "bag")])
+        bon = "\n".join(f"• {k} +{v}" for k, v in it["bonus"].items()) or "—"
+        return Reply(text=(f"{it['icon']} <b>{it['name']}</b>\n"
+                           f"<i>{it['type']} · {it['rarity']}</i>\n\n{bon}\n\n"
+                           f"Цена продажи: {it['price'] // 2} 🪙"), keyboard=rows)
+
+    def do_on(self, p, arg):
+        idx = p.inventory[int(arg)]
+        it = rules.item(idx)
+        if it["type"] not in rules.SLOTS:
+            return Reply(alert="Это нельзя надеть.")
+        p.equipped[it["type"]] = idx
+        r = self.do_bag(p)
+        r.alert = f"Надето: {it['name']}"
+        return r
+
+    def do_off(self, p, arg):
+        idx = p.inventory[int(arg)]
+        it = rules.item(idx)
+        p.equipped.pop(it["type"], None)
+        return self.do_bag(p)
+
+    def do_use(self, p, arg):
+        pos = int(arg)
+        idx = p.inventory[pos]
+        it = rules.item(idx)
+        s = rules.stats(p)
+        if "heal" in it["bonus"]:
+            p.hp = min(s["max_hp"], p.hp + it["bonus"]["heal"])
+        if "mana" in it["bonus"]:
+            p.mp = min(s["max_mp"], p.mp + it["bonus"]["mana"])
+        p.inventory.pop(pos)
+        r = combat.view(p) if p.combat else self.do_bag(p)
+        r.alert = f"Использовано: {it['name']}"
+        return r
+
+    def do_sell(self, p, arg):
+        pos = int(arg)
+        idx = p.inventory.pop(pos)
+        it = rules.item(idx)
+        if p.equipped.get(it["type"]) == idx:
+            p.equipped.pop(it["type"])
+        p.gold += it["price"] // 2
+        r = self.do_bag(p)
+        r.alert = f"Продано за {it['price'] // 2} 🪙"
+        return r
+
+    def do_toss(self, p, arg):
+        idx = p.inventory.pop(int(arg))
+        it = rules.item(idx)
+        if p.equipped.get(it["type"]) == idx:
+            p.equipped.pop(it["type"])
+        return self.do_bag(p)
+
+    # ── лавка и топ ─────────────────────────────────────────
+    def do_shop(self, p, arg=""):
+        rows = [[(f"{rules.item(i)['icon']} {rules.item(i)['name']} — {rules.item(i)['price']}🪙",
+                  f"buy:{i}")] for i in range(len(data.ITEMS))]
+        rows.append([("◀️ Меню", "menu")])
+        return Reply(text=f"🏪 <b>Лавка Варна</b>\n\nУ тебя: {p.gold} 🪙", keyboard=rows)
+
+    def do_buy(self, p, arg):
+        it = rules.item(int(arg))
+        if p.gold < it["price"]:
+            return Reply(alert="Недостаточно золота!")
+        p.gold -= it["price"]
+        p.inventory.append(it["idx"])
+        r = self.do_shop(p)
+        r.alert = f"Куплено: {it['name']}"
+        return r
+
+    def do_top(self, p, arg=""):
+        rows = sorted(self.store.players.values(),
+                      key=lambda q: (q.level, q.exp), reverse=True)[:10]
+        medals = ["🥇", "🥈", "🥉"] + [f"{i}." for i in range(4, 11)]
+        lines = ["🏆 <b>Топ героев</b>\n"]
+        for i, q in enumerate(rows):
+            lines.append(f"{medals[i]} {q.name} — ур. {q.level} · {q.gold}🪙")
+        if len(lines) == 1:
+            lines.append("<i>Пока пусто.</i>")
+        return Reply(text="\n".join(lines), keyboard=[[("◀️ Меню", "menu")]])
