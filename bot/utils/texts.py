@@ -51,6 +51,7 @@ def profile_text(character):
         CharacterClass.CLERIC: "✨",
     }
     icon = class_icons.get(character.character_class, "👤")
+    cell_info = f"\n📍 Клетка: {character.cell.name if character.cell else '—'} ({character.cell.x if character.cell else 0},{character.cell.y if character.cell else 0})" if character.cell else ""
 
     return (
         f"{icon} <b>{character.name}</b> | Ур. {character.level}\n"
@@ -63,7 +64,7 @@ def profile_text(character):
         f"🧠 Интеллект: {stats['intelligence']}\n"
         f"🛡 Выносливость: {stats['endurance']}\n"
         f"🍀 Удача: {stats['luck']}\n\n"
-        f"📍 Локация: {character.location.name if character.location else 'Неизвестно'}"
+        f"🗺 Локация: {character.location.name if character.location else 'Неизвестно'}{cell_info}"
     )
 
 
@@ -87,8 +88,46 @@ def location_text(location):
         f"🗺 <b>{location.name}</b>\n\n"
         f"{location.description}\n\n"
         f"Тип: {danger}\n"
-        f"Мин. уровень: {location.min_level}"
+        f"Мин. уровень: {location.min_level}\n"
+        f"Размер карты: {location.grid_size}x{location.grid_size} клеток"
     )
+
+
+def cell_text(cell, location_name):
+    mob_text = ""
+    if cell.mob:
+        mob_text = f"\n\n👾 <b>Враг:</b> {cell.mob.name} (ур. {cell.mob.level})"
+
+    return (
+        f"🗺 <b>{location_name}</b>\n"
+        f"📍 Клетка №{cell.x * 10 + cell.y + 1}\n"
+        f"<i>{cell.name}</i>\n\n"
+        f"{cell.description}{mob_text}"
+    )
+
+
+def mini_map(cells, player_x, player_y, size=5):
+    """Generate a small ASCII mini-map around player."""
+    half = size // 2
+    lines = ["<code>"]
+    for dy in range(-half, half + 1):
+        row = ""
+        for dx in range(-half, half + 1):
+            cx, cy = player_x + dx, player_y + dy
+            if cx == player_x and cy == player_y:
+                row += "🧙"
+            else:
+                # Find cell
+                cell = next((c for c in cells if c.x == cx and c.y == cy), None)
+                if cell is None or not cell.is_passable:
+                    row += "⬛"
+                elif cell.mob:
+                    row += "👾"
+                else:
+                    row += "🌲"
+        lines.append(row)
+    lines.append("</code>")
+    return "\n".join(lines)
 
 
 def battle_start_text(mob):

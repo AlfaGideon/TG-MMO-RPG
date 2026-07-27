@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: shadow-lands
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python launch.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: ADMIN_HOST
+        value: 0.0.0.0
+      - key: ADMIN_PORT
+        value: 10000
+    disk:
+      name: data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1

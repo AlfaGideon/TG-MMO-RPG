@@ -62,15 +62,39 @@ def locations_keyboard(locations: list, current_location_id: int):
     return builder.as_markup()
 
 
-def battle_menu_keyboard(location_type: LocationType):
+def cell_movement_keyboard(can_north: bool, can_south: bool, can_west: bool, can_east: bool, has_mob: bool):
     builder = InlineKeyboardBuilder()
-    if location_type != LocationType.SAFE:
-        builder.button(text="👾 Искать врага", callback_data="search_enemy")
-    if location_type in (LocationType.DUNGEON, LocationType.BOSS):
-        builder.button(text="💀 Босс", callback_data="boss_fight")
+    # North
+    if can_north:
+        builder.button(text="⬆️ Север", callback_data="move:north")
+    else:
+        builder.button(text="🚫 Север", callback_data="noop")
+    # West + Map + East
+    row2 = []
+    if can_west:
+        row2.append(("⬅️ Запад", "move:west"))
+    else:
+        row2.append(("🚫 Запад", "noop"))
+    row2.append(("🗺 Карта", "show_map"))
+    if can_east:
+        row2.append(("➡️ Восток", "move:east"))
+    else:
+        row2.append(("🚫 Восток", "noop"))
+    for text, data in row2:
+        builder.button(text=text, callback_data=data)
+    # South
+    if can_south:
+        builder.button(text="⬇️ Юг", callback_data="move:south")
+    else:
+        builder.button(text="🚫 Юг", callback_data="noop")
+    # Actions
+    if has_mob:
+        builder.button(text="⚔️ Атаковать", callback_data="cell_attack")
     builder.button(text="🏕 Отдохнуть", callback_data="rest")
-    builder.button(text="◀️ Назад", callback_data="main_menu")
-    builder.adjust(2)
+    builder.button(text="🎒 Инвентарь", callback_data="inventory")
+    builder.button(text="🗺 Локации", callback_data="locations")
+    builder.button(text="◀️ Меню", callback_data="main_menu")
+    builder.adjust(1, 3, 1, 2)
     return builder.as_markup()
 
 

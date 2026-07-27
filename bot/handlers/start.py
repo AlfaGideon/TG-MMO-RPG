@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from core.database import async_session
-from core.models import User, Character
+from core.models import User, Character, Cell
 from bot.keyboards.inline import main_menu_keyboard, class_select_keyboard, confirm_class_keyboard, back_to_main_keyboard
 from bot.utils.texts import WELCOME_TEXT, CLASS_DESCRIPTIONS
 from core.enums import CharacterClass
@@ -33,7 +33,7 @@ async def cmd_start(message: Message):
         result = await session.execute(
             select(Character)
             .where(Character.user_id == user.id)
-            .options(selectinload(Character.location))
+            .options(selectinload(Character.location), selectinload(Character.cell))
         )
         character = result.scalar_one_or_none()
 
@@ -106,7 +106,6 @@ async def confirm_class(callback: CallbackQuery):
             await callback.answer("У тебя уже есть персонаж!", show_alert=True)
             return
 
-        # Base stats by class
         stats = {
             CharacterClass.WARRIOR: {"strength": 15, "agility": 8, "intelligence": 5, "endurance": 14, "luck": 8, "max_hp": 140, "max_mp": 30},
             CharacterClass.MAGE: {"strength": 5, "agility": 8, "intelligence": 16, "endurance": 8, "luck": 10, "max_hp": 80, "max_mp": 120},
@@ -114,6 +113,11 @@ async def confirm_class(callback: CallbackQuery):
             CharacterClass.CLERIC: {"strength": 8, "agility": 8, "intelligence": 14, "endurance": 12, "luck": 10, "max_hp": 110, "max_mp": 90},
         }
         s = stats.get(char_class, stats[CharacterClass.WARRIOR])
+
+        result = await session.execute(
+            select(Cell).where(Cell.location_id == 1).where(Cell.x == 5).where(Cell.y == 5)
+        )
+        spawn_cell = result.scalar_one_or_none()
 
         character = Character(
             user_id=user.id,
@@ -132,6 +136,7 @@ async def confirm_class(callback: CallbackQuery):
             max_mp=s["max_mp"],
             current_mp=s["max_mp"],
             location_id=1,
+            cell_id=spawn_cell.id if spawn_cell else None,
         )
         session.add(character)
         await session.commit()
@@ -151,7 +156,7 @@ async def help_handler(callback: CallbackQuery):
         "<b>Основные команды:</b>\n"
         "• Профиль — твои статы, экипировка и золото\n"
         "• Локации — перемещение между зонами\n"
-        "• Бой — охота на монстров\n"
+        "• Бой — охота на монстров (иди по клеткам и ищи 👾)\n"
         "• Инвентарь — управление предметами\n"
         "• Лавка — покупка снаряжения\n\n"
         "<b>Советы:</b>\n"
@@ -161,6 +166,3 @@ async def help_handler(callback: CallbackQuery):
         "<i>Удачи в Теневых Землях...</i>"
     )
     await callback.message.edit_text(text, reply_markup=back_to_main_keyboard(), parse_mode="HTML")
-
-
-

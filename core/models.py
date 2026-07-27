@@ -47,8 +47,9 @@ class Character(Base):
     max_mp = Column(Integer, default=50)
     current_mp = Column(Integer, default=50)
 
-    # Location
+    # Location & Cell (open world grid)
     location_id = Column(Integer, ForeignKey("locations.id"), default=1)
+    cell_id = Column(Integer, ForeignKey("cells.id"), nullable=True)
 
     # Equipment
     weapon_id = Column(Integer, ForeignKey("items.id"), nullable=True)
@@ -61,11 +62,11 @@ class Character(Base):
 
     user = relationship("User", back_populates="character")
     location = relationship("Location", foreign_keys=[location_id])
+    cell = relationship("Cell", foreign_keys=[cell_id])
     inventory = relationship("InventoryItem", back_populates="character", cascade="all, delete-orphan")
     battles = relationship("Battle", back_populates="character")
 
     def effective_stats(self):
-        """Calculate effective stats with equipment bonuses."""
         stats = {
             "strength": self.strength,
             "agility": self.agility,
@@ -75,7 +76,6 @@ class Character(Base):
             "max_hp": self.max_hp,
             "max_mp": self.max_mp,
         }
-        # Equipment bonuses would be added here
         return stats
 
 
@@ -88,9 +88,27 @@ class Location(Base):
     location_type = Column(SQLEnum(LocationType), default=LocationType.SAFE)
     min_level = Column(Integer, default=1)
     image_url = Column(String(512), nullable=True)
-    connections = Column(String(256), default="")  # comma-separated location ids
+    grid_size = Column(Integer, default=10)  # 10x10
 
+    cells = relationship("Cell", back_populates="location", cascade="all, delete-orphan")
     mobs = relationship("Mob", back_populates="location")
+
+
+class Cell(Base):
+    __tablename__ = "cells"
+
+    id = Column(Integer, primary_key=True, index=True)
+    location_id = Column(Integer, ForeignKey("locations.id"), nullable=False)
+    x = Column(Integer, nullable=False)
+    y = Column(Integer, nullable=False)
+    name = Column(String(128), default="")
+    description = Column(Text, default="")
+    image_url = Column(String(512), nullable=True)
+    is_passable = Column(Boolean, default=True)
+    mob_id = Column(Integer, ForeignKey("mobs.id"), nullable=True)
+
+    location = relationship("Location", back_populates="cells")
+    mob = relationship("Mob")
 
 
 class Mob(Base):
@@ -107,7 +125,7 @@ class Mob(Base):
     exp_reward = Column(Integer, default=15)
     location_id = Column(Integer, ForeignKey("locations.id"), nullable=True)
     is_boss = Column(Boolean, default=False)
-    drop_items = Column(Text, default="")  # JSON or simple format
+    drop_items = Column(Text, default="")
 
     location = relationship("Location", back_populates="mobs")
 
@@ -123,7 +141,6 @@ class Item(Base):
     level_requirement = Column(Integer, default=1)
     price = Column(Integer, default=0)
 
-    # Stats bonuses
     bonus_strength = Column(Integer, default=0)
     bonus_agility = Column(Integer, default=0)
     bonus_intelligence = Column(Integer, default=0)
@@ -175,8 +192,8 @@ class ShopItem(Base):
     id = Column(Integer, primary_key=True, index=True)
     item_id = Column(Integer, ForeignKey("items.id"), nullable=False)
     price = Column(Integer, nullable=False)
-    stock = Column(Integer, default=-1)  # -1 = unlimited
-    refresh_interval = Column(Integer, default=0)  # hours, 0 = never
+    stock = Column(Integer, default=-1)
+    refresh_interval = Column(Integer, default=0)
 
     item = relationship("Item")
 

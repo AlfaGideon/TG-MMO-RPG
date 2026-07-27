@@ -5,14 +5,13 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 
 from core.database import async_session
-from core.models import User, Character, Location, Mob, Battle
+from core.models import User, Character, Location, Mob, Battle, Cell
 from core.enums import LocationType, BattleResult
-from bot.keyboards.inline import battle_menu_keyboard, combat_keyboard, main_menu_keyboard, back_to_main_keyboard
+from bot.keyboards.inline import combat_keyboard, main_menu_keyboard
 from bot.utils.texts import battle_start_text, battle_round_text, victory_text, defeat_text
 
 router = Router()
 
-# In-memory combat state (for production use Redis)
 combat_state = {}
 
 
@@ -30,73 +29,67 @@ async def battle_menu(callback: CallbackQuery):
         result = await session.execute(
             select(Character)
             .where(Character.user_id == user.id)
-            .options(selectinload(Character.location))
+            .options(selectinload(Character.location), selectinload(Character.cell))
         )
         character = result.scalar_one_or_none()
         if not character:
             await callback.answer("Сначала создай персонажа!", show_alert=True)
+            return
+
+        cell = character.cell
+        if cell and cell.mob:
+            await start_cell_battle(callback, character, cell.mob, session)
             return
 
         await callback.message.edit_text(
             f"⚔️ <b>Боевая зона</b>\n\n"
             f"Ты находишься в: {character.location.name}\n"
             f"❤️ HP: {character.current_hp}/{character.max_hp}\n\n"
-            f"Выбери действие:",
-            reply_markup=battle_menu_keyboard(character.location.location_type),
+            f"На этой клетке нет врагов. Иди на другую клетку или ищи врага.",
+            reply_markup=main_menu_keyboard(has_character=True),
             parse_mode="HTML",
         )
 
 
-@router.callback_query(F.data == "search_enemy")
-async def search_enemy(callback: CallbackQuery):
+@router.callback_query(F.data == "cell_attack")
+async def cell_attack(callback: CallbackQuery):
     async with async_session() as session:
         result = await session.execute(
             select(User).where(User.telegram_id == callback.from_user.id)
         )
         user = result.scalar_one_or_none()
-        if not user:
-            await callback.answer("Сначала создай персонажа!", show_alert=True)
-            return
-
         result = await session.execute(
             select(Character)
             .where(Character.user_id == user.id)
-            .options(selectinload(Character.location))
+            .options(selectinload(Character.cell))
         )
         character = result.scalar_one_or_none()
-        if not character:
-            await callback.answer("Сначала создай персонажа!", show_alert=True)
+        if not character or not character.cell or not character.cell.mob:
+            await callback.answer("Здесь нет врагов!", show_alert=True)
             return
 
-        if character.current_hp <= 0:
-            await callback.answer("Ты слишком слаб. Отдохни!", show_alert=True)
-            return
+        await start_cell_battle(callback, character, character.cell.mob, session)
 
-        result = await session.execute(
-            select(Mob)
-            .where(Mob.location_id == character.location_id)
-            .where(Mob.is_boss == False)
-        )
-        mobs = result.scalars().all()
-        if not mobs:
-            await callback.answer("Здесь нет врагов.", show_alert=True)
-            return
 
-        mob = random.choice(mobs)
-        combat_state[callback.from_user.id] = {
-            "mob_id": mob.id,
-            "mob_hp": mob.hp,
-            "character_hp": character.current_hp,
-            "rounds": 0,
-            "damage_dealt": 0,
-            "damage_taken": 0,
-        }
+async def start_cell_battle(callback, character, mob, session):
+    if character.current_hp <= 0:
+        await callback.answer("Ты слишком слаб. Отдохни!", show_alert=True)
+        return
 
-        await callback.message.edit_text(
-            battle_start_text(mob),
-            reply_markup=combat_keyboard(),
-            parse_mode="HTML",
-        )
+    combat_state[callback.from_user.id] = {
+        "mob_id": mob.id,
+        "mob_hp": mob.hp,
+        "character_hp": character.current_hp,
+        "rounds": 0,
+        "damage_dealt": 0,
+        "damage_taken": 0,
+    }
+
+    await callback.message.edit_text(
+        battle_start_text(mob),
+        reply_markup=combat_keyboard(),
+        parse_mode="HTML",
+    )
 
 
 @router.callback_query(F.data == "combat_attack")
@@ -119,7 +112,6 @@ async def combat_attack(callback: CallbackQuery):
         result = await session.execute(select(Mob).where(Mob.id == state["mob_id"]))
         mob = result.scalar_one()
 
-        # Simple damage formula
         char_dmg = max(1, character.strength + random.randint(-2, 4))
         mob_dmg = max(0, mob.damage - character.endurance // 5 + random.randint(-1, 2))
 
@@ -130,14 +122,12 @@ async def combat_attack(callback: CallbackQuery):
         state["damage_taken"] += mob_dmg
 
         if state["mob_hp"] <= 0:
-            # Victory
             gold = int(mob.gold_reward * random.uniform(0.8, 1.2))
             exp = mob.exp_reward
             character.gold += gold
             character.experience += exp
             character.current_hp = max(1, state["character_hp"])
 
-            # Level up check (simple)
             needed = character.level * 100
             while character.experience >= needed:
                 character.experience -= needed
@@ -160,6 +150,15 @@ async def combat_attack(callback: CallbackQuery):
                 exp_earned=exp,
             )
             session.add(battle)
+
+            # Remove mob from cell
+            result = await session.execute(
+                select(Cell).where(Cell.mob_id == mob.id)
+            )
+            cell = result.scalar_one_or_none()
+            if cell:
+                cell.mob_id = None
+
             await session.commit()
             del combat_state[callback.from_user.id]
 
@@ -171,7 +170,6 @@ async def combat_attack(callback: CallbackQuery):
             return
 
         if state["character_hp"] <= 0:
-            # Defeat
             character.current_hp = 1
             battle = Battle(
                 character_id=character.id,
