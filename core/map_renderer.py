@@ -54,7 +54,7 @@ def _draw_minimap(draw: ImageDraw.Draw, cells, player_x: int, player_y: int, ox:
                 # Wall - very dark
                 color = (15, 15, 20)
             else:
-                # All passable cells same color - no hints
+                # ALL passable cells same single color - no hints
                 color = (60, 65, 70)
 
             draw.rectangle([px, py, px + cs - 2, py + cs - 2], fill=color)
@@ -73,9 +73,8 @@ def render_cell_image(cell, cells, player_x: int, player_y: int, output_path: st
     # Fonts
     try:
         font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 18)
-        small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 13)
     except:
-        font = small = ImageFont.load_default()
+        font = ImageFont.load_default()
 
     # Cell name top
     draw.text((20, 12), cell.name, fill=(255, 255, 255),
@@ -84,8 +83,6 @@ def render_cell_image(cell, cells, player_x: int, player_y: int, output_path: st
     # Coords bottom
     draw.text((20, TILE_SIZE - 28), f"[{cell.x},{cell.y}]", fill=(180, 180, 180),
               font=font, stroke_width=2, stroke_fill=(0, 0, 0))
-
-    # No legend - player must explore
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     img.save(output_path, "JPEG", quality=90)
