@@ -1,7 +1,7 @@
 import random
 from aiogram import Router, F
 from aiogram.types import CallbackQuery
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from core.database import async_session
@@ -45,7 +45,7 @@ async def battle_menu(callback: CallbackQuery):
             f"⚔️ <b>Боевая зона</b>\n\n"
             f"Ты находишься в: {character.location.name}\n"
             f"❤️ HP: {character.current_hp}/{character.max_hp}\n\n"
-            f"На этой клетке нет врагов. Иди на другую клетку или ищи врага.",
+            f"Осмотрись на клетке, чтобы найти врагов.",
             reply_markup=main_menu_keyboard(has_character=True),
             parse_mode="HTML",
         )

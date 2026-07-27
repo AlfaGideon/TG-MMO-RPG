@@ -6,7 +6,10 @@ from sqlalchemy.orm import selectinload
 from core.database import async_session
 from core.models import User, Character, Location, Cell
 from core.map_renderer import ensure_cell_image
-from bot.keyboards.inline import locations_keyboard, cell_movement_keyboard, main_menu_keyboard, back_to_main_keyboard
+from bot.keyboards.inline import (
+    locations_keyboard, cell_movement_keyboard, inspect_keyboard,
+    main_menu_keyboard, back_to_main_keyboard
+)
 from bot.utils.texts import location_text, cell_text
 
 router = Router()
@@ -126,8 +129,9 @@ async def move_direction(callback: CallbackQuery):
         await show_cell(callback, character, character.location, session)
 
 
-@router.callback_query(F.data == "show_map")
-async def show_map(callback: CallbackQuery):
+@router.callback_query(F.data == "inspect")
+async def inspect_cell(callback: CallbackQuery):
+    """Player inspects current cell - reveals hidden elements."""
     async with async_session() as session:
         result = await session.execute(
             select(User).where(User.telegram_id == callback.from_user.id)
@@ -143,27 +147,56 @@ async def show_map(callback: CallbackQuery):
             await callback.answer("Ошибка.", show_alert=True)
             return
 
-        result = await session.execute(
-            select(Cell).where(Cell.location_id == character.location_id)
-        )
-        cells = result.scalars().all()
+        cell = character.cell
+        lines = [f"🔍 <b>Осмотр клетки [{cell.x},{cell.y}]</b>\n"]
+        lines.append(f"<i>{cell.name}</i>\n")
+        lines.append(f"{cell.description}\n")
 
-        # Generate map-only image
-        from core.map_renderer import render_cell_image
-        map_path = f"data/cell_images/map_{character.location_id}.jpg"
-        render_cell_image(character.cell, cells, character.cell.x, character.cell.y, map_path)
+        found = []
+        if cell.mob_id:
+            found.append(f"👾 Ты заметил врага: {cell.mob.name}!")
+        if cell.has_npc:
+            found.append(f"💬 Здесь кто-то есть: {cell.npc_name}")
+        if cell.has_chest:
+            found.append("📦 Ты нашёл сундук!")
 
-        text = f"🗺 <b>Мини-карта</b>\n\n📍 Ты здесь: [{character.cell.x},{character.cell.y}]\n🗺 {character.location.name}"
-        await callback.message.answer_photo(
-            photo=FSInputFile(map_path),
-            caption=text,
-            reply_markup=back_to_main_keyboard(),
+        if found:
+            lines.append("\n" + "\n".join(found))
+        else:
+            lines.append("\n<i>Ничего необычного.</i>")
+
+        await callback.message.edit_text(
+            "\n".join(lines),
+            reply_markup=inspect_keyboard(
+                has_mob=bool(cell.mob_id),
+                has_npc=cell.has_npc,
+                has_chest=cell.has_chest,
+            ),
             parse_mode="HTML",
         )
 
 
+@router.callback_query(F.data == "back_to_cell")
+async def back_to_cell(callback: CallbackQuery):
+    """Return to cell view with image."""
+    async with async_session() as session:
+        result = await session.execute(
+            select(User).where(User.telegram_id == callback.from_user.id)
+        )
+        user = result.scalar_one_or_none()
+        result = await session.execute(
+            select(Character)
+            .where(Character.user_id == user.id)
+            .options(selectinload(Character.location), selectinload(Character.cell))
+        )
+        character = result.scalar_one_or_none()
+        if character and character.cell:
+            await show_cell(callback, character, character.location, session)
+
+
 @router.callback_query(F.data == "talk_npc")
 async def talk_npc(callback: CallbackQuery):
+    """Talk to NPC - text only, no image."""
     async with async_session() as session:
         result = await session.execute(
             select(User).where(User.telegram_id == callback.from_user.id)
@@ -185,12 +218,43 @@ async def talk_npc(callback: CallbackQuery):
 
         if cell.npc_type == "merchant":
             builder.button(text="🛒 Торговать", callback_data="shop")
-        builder.button(text="◀️ Назад", callback_data="main_menu")
+        builder.button(text="◀️ Назад", callback_data="back_to_cell")
         builder.adjust(1)
 
         await callback.message.edit_text(
             f"💬 <b>{cell.npc_name}</b>\n\n<i>{cell.npc_dialogue}</i>",
             reply_markup=builder.as_markup(),
+            parse_mode="HTML",
+        )
+
+
+@router.callback_query(F.data == "open_chest")
+async def open_chest(callback: CallbackQuery):
+    """Open chest - simple reward for now."""
+    async with async_session() as session:
+        result = await session.execute(
+            select(User).where(User.telegram_id == callback.from_user.id)
+        )
+        user = result.scalar_one_or_none()
+        result = await session.execute(
+            select(Character)
+            .where(Character.user_id == user.id)
+            .options(selectinload(Character.cell))
+        )
+        character = result.scalar_one_or_none()
+        if not character or not character.cell or not character.cell.has_chest:
+            await callback.answer("Здесь нет сундука.", show_alert=True)
+            return
+
+        import random
+        gold = random.randint(5, 25)
+        character.gold += gold
+        character.cell.has_chest = False
+        await session.commit()
+
+        await callback.message.edit_text(
+            f"📦 <b>Сундук открыт!</b>\n\nВнутри ты нашёл {gold}🪙 золота.",
+            reply_markup=back_to_main_keyboard(),
             parse_mode="HTML",
         )
 
@@ -217,9 +281,6 @@ async def show_cell(callback, character, location, session):
         n = result.scalar_one_or_none()
         neighbors[direction] = n is not None and n.is_passable
 
-    has_mob = cell.mob_id is not None
-    has_npc = cell.has_npc
-
     text = cell_text(cell, location.name)
 
     # Get all cells for minimap
@@ -231,16 +292,11 @@ async def show_cell(callback, character, location, session):
     # Generate cell image
     img_path = ensure_cell_image(cell, cells, cell.x, cell.y)
 
-    # Build keyboard
+    # Build keyboard - no hints about mobs/NPCs
     kb = cell_movement_keyboard(
         neighbors["north"], neighbors["south"],
-        neighbors["west"], neighbors["east"], has_mob
+        neighbors["west"], neighbors["east"]
     )
-
-    # Add NPC button
-    if has_npc:
-        from aiogram.types import InlineKeyboardButton
-        kb.inline_keyboard.insert(0, [InlineKeyboardButton(text=f"💬 {cell.npc_name}", callback_data="talk_npc")])
 
     try:
         await callback.message.delete()

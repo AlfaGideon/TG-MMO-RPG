@@ -3,7 +3,6 @@ from PIL import Image, ImageDraw, ImageFont
 
 TILE_SIZE = 512
 MINIMAP_CELL = 36
-MINIMAP_PADDING = 20
 
 
 def _dark_bg(size: int) -> Image.Image:
@@ -38,8 +37,9 @@ def _draw_minimap(draw: ImageDraw.Draw, cells, player_x: int, player_y: int, ox:
     bw = size * cs + 4
     bh = size * cs + 4
 
-    # Border
-    draw.rectangle([ox - 2, oy - 2, ox + bw + 2, oy + bh + 2], fill=(40, 35, 30), outline=(180, 160, 100), width=2)
+    # Outer border
+    draw.rectangle([ox - 2, oy - 2, ox + bw + 2, oy + bh + 2],
+                   fill=(30, 30, 35), outline=(100, 100, 110), width=2)
 
     for cy in range(size):
         for cx in range(size):
@@ -48,26 +48,14 @@ def _draw_minimap(draw: ImageDraw.Draw, cells, player_x: int, player_y: int, ox:
             py = oy + cy * cs
 
             if cx == player_x and cy == player_y:
-                color = (0, 255, 100)      # Player
+                # Player - bright white dot
+                color = (220, 220, 220)
             elif cell is None or not cell.is_passable:
-                color = (20, 20, 25)       # Wall
-            elif cell.mob_id:
-                color = (220, 50, 50)      # Enemy
-            elif cell.has_npc:
-                color = (255, 200, 50)     # NPC
-            elif cell.has_chest:
-                color = (150, 50, 220)     # Chest
+                # Wall - very dark
+                color = (15, 15, 20)
             else:
-                t = cell.tile_type or "grass"
-                color = {
-                    "grass": (45, 100, 45),
-                    "forest": (25, 70, 25),
-                    "water": (35, 60, 110),
-                    "road": (80, 70, 45),
-                    "village": (90, 80, 45),
-                    "cave": (45, 40, 55),
-                    "wall": (20, 20, 25),
-                }.get(t, (45, 100, 45))
+                # All passable cells same color - no hints
+                color = (60, 65, 70)
 
             draw.rectangle([px, py, px + cs - 2, py + cs - 2], fill=color)
 
@@ -79,7 +67,7 @@ def render_cell_image(cell, cells, player_x: int, player_y: int, output_path: st
     # Center minimap
     mm_size = 10 * MINIMAP_CELL
     mm_x = (TILE_SIZE - mm_size) // 2
-    mm_y = (TILE_SIZE - mm_size) // 2 - 30
+    mm_y = (TILE_SIZE - mm_size) // 2 - 20
     _draw_minimap(draw, cells, player_x, player_y, mm_x, mm_y)
 
     # Fonts
@@ -90,26 +78,14 @@ def render_cell_image(cell, cells, player_x: int, player_y: int, output_path: st
         font = small = ImageFont.load_default()
 
     # Cell name top
-    draw.text((MINIMAP_PADDING, 12), cell.name, fill=(255, 255, 255),
+    draw.text((20, 12), cell.name, fill=(255, 255, 255),
               font=font, stroke_width=2, stroke_fill=(0, 0, 0))
 
     # Coords bottom
-    draw.text((MINIMAP_PADDING, TILE_SIZE - 28), f"[{cell.x},{cell.y}]", fill=(200, 200, 200),
+    draw.text((20, TILE_SIZE - 28), f"[{cell.x},{cell.y}]", fill=(180, 180, 180),
               font=font, stroke_width=2, stroke_fill=(0, 0, 0))
 
-    # Legend under minimap
-    ly = mm_y + mm_size + 15
-    legends = [
-        ("Ty", (0, 255, 100)),
-        ("Vrag", (220, 50, 50)),
-        ("NPC", (255, 200, 50)),
-        ("Sunduk", (150, 50, 220)),
-    ]
-    lx = mm_x
-    for text, color in legends:
-        draw.rectangle([lx, ly, lx + 10, ly + 10], fill=color)
-        draw.text((lx + 14, ly - 1), text, fill=(255, 255, 255), font=small)
-        lx += 70
+    # No legend - player must explore
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     img.save(output_path, "JPEG", quality=90)

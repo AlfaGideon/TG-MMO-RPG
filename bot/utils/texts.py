@@ -95,41 +95,12 @@ def location_text(location):
 
 
 def cell_text(cell, location_name):
-    mob_text = ""
-    if cell.mob:
-        mob_text = f"\n\n👾 <b>Враг:</b> {cell.mob.name} (ур. {cell.mob.level})"
-
+    # No hints about mobs, NPCs, chests - player must explore
     return (
         f"🗺 <b>{location_name}</b>\n"
         f"📍 Клетка [{cell.x},{cell.y}] | <i>{cell.name}</i>\n\n"
-        f"{cell.description}{mob_text}"
+        f"{cell.description}"
     )
-
-
-def mini_map(cells, player_x, player_y, party_members=None, size=5):
-    half = size // 2
-    lines = ["<code>"]
-    party_positions = {(m.cell.x, m.cell.y): m for m in (party_members or []) if m.cell}
-
-    for dy in range(-half, half + 1):
-        row = ""
-        for dx in range(-half, half + 1):
-            cx, cy = player_x + dx, player_y + dy
-            if cx == player_x and cy == player_y:
-                row += "🧙"
-            elif (cx, cy) in party_positions:
-                row += "👥"
-            else:
-                cell = next((c for c in cells if c.x == cx and c.y == cy), None)
-                if cell is None or not cell.is_passable:
-                    row += "⬛"
-                elif cell.mob:
-                    row += "👾"
-                else:
-                    row += "🌲"
-        lines.append(row)
-    lines.append("</code>")
-    return "\n".join(lines)
 
 
 def battle_start_text(mob):
