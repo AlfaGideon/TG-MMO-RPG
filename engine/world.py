@@ -1,4 +1,11 @@
-"""Генерация бесшовного мира: 5 локаций по 10x10 клеток."""
+"""Генерация бесшовного мира: локации по 10×10 клеток, швы по мировой сетке.
+
+Локации берутся из `data.LOCATIONS` (список может быть динамическим — его
+подменяет `engine/storage.py` из настроек панели). Переходы между локациями
+строятся по соседству на мировой сетке `world_grid` ({индекс: [wx, wy]}):
+соседи по горизонтали сшиваются восток↔запад, по вертикали — север↔юг.
+Без сетки работает старая цепочка 0→1→2→… — для совместимости.
+"""
 import random
 from collections import deque
 
@@ -7,6 +14,9 @@ from engine.models import Cell
 
 SIZE = 10
 SPAWN = (5, 5)
+
+# Дефолтная раскладка стартовых пяти локаций — ряд на восток.
+DEFAULT_GRID = {str(i): [i, 0] for i in range(5)}
 
 
 def _connect(cells):
@@ -32,74 +42,162 @@ def _connect(cells):
             c.tile = "wall"
 
 
-def generate(seed=1337):
-    """Возвращает {"cells": {key: Cell}, "locations": [...]}."""
-    rnd = random.Random(seed)
-    cells = {}
-    story = 0
+def gen_cells(li, rnd, story=0):
+    """Клетки одной локации li со спавном в центре. Возвращает (batch, story)."""
+    batch = []
+    for x in range(SIZE):
+        for y in range(SIZE):
+            border = x in (0, SIZE - 1) or y in (0, SIZE - 1)
+            wall = border or (rnd.random() < 0.15 and (x, y) != SPAWN)
+            name, desc, tile = data.STORIES[story % len(data.STORIES)]
+            story += 1
+            batch.append(Cell(loc=li, x=x, y=y, name=name, desc=desc,
+                              tile="wall" if wall else tile, passable=not wall))
+    _connect(batch)
+    return batch, story
 
-    for li in range(len(data.LOCATIONS)):
-        batch = []
-        for x in range(SIZE):
-            for y in range(SIZE):
-                border = x in (0, SIZE - 1) or y in (0, SIZE - 1)
-                wall = border or (rnd.random() < 0.15 and (x, y) != SPAWN)
-                name, desc, tile = data.STORIES[story % len(data.STORIES)]
-                story += 1
-                batch.append(Cell(loc=li, x=x, y=y, name=name, desc=desc,
-                                  tile="wall" if wall else tile, passable=not wall))
-        _connect(batch)
+
+def generate(seed=1337, locations=None, grid=None):
+    """Возвращает {key: Cell}. `grid` — {str(loc): [wx, wy]} на мировой сетке;
+    если не задан, локации связываются цепочкой, как раньше."""
+    locs = locations if locations is not None else data.LOCATIONS
+    rnd = random.Random(seed)
+    cells, story = {}, 0
+    for li in range(len(locs)):
+        batch, story = gen_cells(li, rnd, story)
         for c in batch:
             cells[c.key] = c
-
-    _link_locations(cells)
-    _populate(cells, rnd)
+    if grid:
+        _link_by_grid(cells, grid)
+    else:
+        for a in range(len(locs) - 1):
+            _link_east(cells, a, a + 1)
+    _populate(cells, rnd, locs)
     return cells
 
 
-def _link_locations(cells):
-    """Восточная граница локации A ↔ западная граница локации B."""
-    for a in range(len(data.LOCATIONS) - 1):
-        b = a + 1
-        for row in range(1, SIZE - 1):
-            ca = cells[f"{a}:{row}:{SIZE - 1}"]
-            cb = cells[f"{b}:{row}:0"]
-            for c in (ca, cb):
-                c.passable = True
-                c.tile = "road"
-                c.name = "Тракт между землями"
-                c.desc = "Утоптанная дорога уходит вдаль."
-            ca.link = (b, row, 1)
-            cb.link = (a, row, SIZE - 2)
+# ── швы между локациями ───────────────────────────────────
+
+def _road(c, link):
+    c.passable = True
+    c.tile = "road"
+    c.name = "Тракт между землями"
+    c.desc = "Утоптанная дорога уходит вдаль."
+    c.link = link
 
 
-def _populate(cells, rnd):
-    """Расставить NPC, мобов и сундуки."""
+def _link_east(cells, a, b):
+    """Восточная граница A ↔ западная граница B."""
+    for row in range(1, SIZE - 1):
+        _road(cells[f"{a}:{row}:{SIZE - 1}"], (b, row, 1))
+        _road(cells[f"{b}:{row}:0"], (a, row, SIZE - 2))
+
+
+def _link_south(cells, a, b):
+    """Южная граница A ↔ северная граница B."""
+    for col in range(1, SIZE - 1):
+        _road(cells[f"{a}:{SIZE - 1}:{col}"], (b, 1, col))
+        _road(cells[f"{b}:0:{col}"], (a, SIZE - 2, col))
+
+
+def _link_by_grid(cells, grid):
+    """Швы по соседству на мировой сетке: восток/запад и север/юг."""
+    pos = {int(k): tuple(v) for k, v in grid.items()}
+    pairs = set()
+    for ai, (ax, ay) in pos.items():
+        for bi, (bx, by) in pos.items():
+            if ai == bi or (bi, ai) in pairs:
+                continue
+            if (bx, by) == (ax + 1, ay):
+                _link_east(cells, ai, bi)
+                pairs.add((ai, bi))
+            elif (bx, by) == (ax, ay + 1):
+                _link_south(cells, ai, bi)
+                pairs.add((ai, bi))
+
+
+def link_new_location(cells, li, grid):
+    """Вшить свежедобавленную локацию li в существующий мир.
+
+    Граница связывается только если обе стороны свободны (ничьих швов ещё
+    нет) — чужие рукоправные переходы не затираются. Возвращает отчёт.
+    """
+    pos = {int(k): tuple(v) for k, v in grid.items()}
+    if li not in pos:
+        return ["Локация не размещена на сетке мира."]
+    ax, ay = pos[li]
+    report = []
+    dirs = {"восток": (1, 0, "e"), "запад": (-1, 0, "w"),
+            "юг": (0, 1, "s"), "север": (0, -1, "n")}
+    loc_name = data.LOCATIONS[li][0] if li < len(data.LOCATIONS) else str(li)
+    for name, (dx, dy, side) in dirs.items():
+        nb = next((j for j, (x, y) in pos.items() if (x, y) == (ax + dx, ay + dy)), None)
+        if nb is None:
+            continue
+        if side == "e":
+            mine, theirs = [(li, r, SIZE - 1) for r in range(1, SIZE - 1)], \
+                           [(nb, r, 0) for r in range(1, SIZE - 1)]
+        elif side == "w":
+            mine, theirs = [(li, r, 0) for r in range(1, SIZE - 1)], \
+                           [(nb, r, SIZE - 1) for r in range(1, SIZE - 1)]
+        elif side == "s":
+            mine, theirs = [(li, SIZE - 1, c) for c in range(1, SIZE - 1)], \
+                           [(nb, 0, c) for c in range(1, SIZE - 1)]
+        else:
+            mine, theirs = [(li, 0, c) for c in range(1, SIZE - 1)], \
+                           [(nb, SIZE - 1, c) for c in range(1, SIZE - 1)]
+        busy = any(cells[f"{l}:{x}:{y}"].link for l, x, y in mine + theirs)
+        if busy:
+            report.append(f"{name}: граница с «{data.LOCATIONS[nb][0]}» уже занята швом.")
+            continue
+        if side == "e":
+            _link_east(cells, li, nb)
+        elif side == "w":
+            _link_east(cells, nb, li)
+        elif side == "s":
+            _link_south(cells, li, nb)
+        else:
+            _link_south(cells, nb, li)
+        report.append(f"🔗 {name} ↔ {data.LOCATIONS[nb][0]}")
+    if not report:
+        report.append(f"Соседей у «{loc_name}» на сетке нет.")
+    return report
+
+
+# ── заселение ─────────────────────────────────────────────
+
+def _populate(cells, rnd, locs=None):
+    """Расставить NPC, мобов и сундуки по типам локаций."""
+    locs = locs if locs is not None else data.LOCATIONS
     free = lambda li: [c for c in cells.values()
                        if c.loc == li and c.passable and not c.link
                        and (c.x, c.y) != SPAWN and c.mob < 0 and c.npc < 0]
 
-    # NPC — только в стартовой безопасной локации
-    spots = free(0)
+    # NPC — в первой безопасной локации (или в нулевой, если такой нет)
+    safe = next((i for i, l in enumerate(locs) if l[2] == "safe"), 0)
+    spots = free(safe)
     rnd.shuffle(spots)
     for i in range(min(len(data.NPCS), len(spots))):
         spots[i].npc = i
 
-    # Мобы: по несколько экземпляров каждого вида в своей локации
+    # Мобы — в своих локациях; если локация удалена/не создана, моб не спавнится
     for mi, m in enumerate(data.MOBS):
         li = m[8]
+        if li >= len(locs):
+            continue
         count = 1 if m[0] == "Пожиратель Глубин" else 4
         spots = free(li)
         rnd.shuffle(spots)
         for c in spots[:count]:
             c.mob = mi
 
-    # Сундуки в опасных локациях
-    for li in (1, 2, 3, 4):
-        spots = free(li)
-        rnd.shuffle(spots)
-        for c in spots[:5]:
-            c.chest = True
+    # Сундуки — во всех опасных локациях (dangerous/dungeon/boss)
+    for li, l in enumerate(locs):
+        if l[2] in ("dangerous", "dungeon", "boss"):
+            spots = free(li)
+            rnd.shuffle(spots)
+            for c in spots[:5]:
+                c.chest = True
 
 
 def cell_at(cells, loc, x, y):

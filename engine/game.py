@@ -159,15 +159,25 @@ class Game:
         target = world.cell_at(self.world, p.loc, p.x + dx, p.y + dy)
         if not target or not target.passable:
             return Reply(alert="Туда нельзя пройти!")
+        warn = ""
         if target.link:
+            # Предупреждение по min_level: вход разрешён, но игрок видит alert.
+            dest = data.LOCATIONS[target.link[0]] if target.link[0] < len(data.LOCATIONS) else None
+            if dest and dest[3] > p.level:
+                warn = (f"⚠️ {dest[0]} — опасно! Рекомендуется {dest[3]}+ уровень, "
+                        f"у тебя {p.level}. Ты входишь на свой страх и риск…")
             p.loc, p.x, p.y = target.link
         else:
             p.x, p.y = target.x, target.y
         mapview.mark_visited(p)
         cell = self._cell(p)
         if cell.mob >= 0 and random.random() < 0.75:
-            return combat.start(p, cell.mob)
-        return self.do_world(p)
+            r = combat.start(p, cell.mob)
+        else:
+            r = self.do_world(p)
+        if warn and not r.alert:
+            r.alert = warn
+        return r
 
     def do_map(self, p, arg=""):
         mapview.mark_visited(p)
