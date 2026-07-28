@@ -11,6 +11,7 @@ def main_menu_keyboard(has_character: bool = False, is_admin: bool = False):
     else:
         builder.button(text="🧙 Профиль", callback_data="profile")
         builder.button(text="🎒 Инвентарь", callback_data="inventory")
+        builder.button(text="🌍 Карта мира", callback_data="world_map")
         builder.button(text="🏪 Лавка", callback_data="shop")
         builder.button(text="👥 Пати", callback_data="party_menu")
         builder.button(text="🏆 Топ", callback_data="leaderboard")
@@ -141,7 +142,19 @@ def cell_movement_keyboard(can_dirs: dict, dungeon_template_id: int | None = Non
 
 def map_view_keyboard():
     builder = InlineKeyboardBuilder()
+    builder.button(text="🌍 Карта мира", callback_data="world_map")
     builder.button(text="◀️ Назад", callback_data="back_to_cell")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def travel_keyboard(safe_locations: list):
+    """Карта мира: список посещённых безопасных локаций для быстрого travel."""
+    builder = InlineKeyboardBuilder()
+    for loc in safe_locations[:8]:
+        builder.button(text=f"🏠 {loc.name}", callback_data=f"travel:{loc.id}")
+    builder.button(text="◀️ Назад", callback_data="back_to_cell")
+    builder.adjust(1)
     return builder.as_markup()
 
 

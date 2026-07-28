@@ -189,3 +189,60 @@ def render_player_map(cells, visited: set, player_x: int, player_y: int, grid_si
 
 def get_player_map_path(character_id: int, location_id: int, floor: int) -> str:
     return f"data/player_maps/{character_id}_{location_id}_{floor}.png"
+
+
+# ── Карта мира (сетка локаций) ────────────────────────────
+
+LOC_TYPE_COLORS = {
+    "safe": (46, 125, 50),       # зелёный — безопасно
+    "dangerous": (150, 90, 30),  # охра — опасно
+    "dungeon": (61, 26, 92),     # фиолетовый — подземелье
+    "boss": (140, 40, 40),       # красный — логово босса
+}
+LOC_TYPE_ICONS = {"safe": "🛡", "dangerous": "⚠", "dungeon": "💀", "boss": "👹"}
+
+
+def render_world_map(locations, visited_ids: set, current_loc_id: int,
+                     world_grid_size: int, output_path: str, cell_px: int = 64) -> str:
+    """Мировая карта: сетка локаций с туманом войны по посещённости.
+
+    Посещённые локации окрашены по типу и подписаны, текущая обведена,
+    непосещённые скрыты туманом. world_x — горизонталь, world_y — вертикаль.
+    """
+    size = world_grid_size * cell_px
+    img = Image.new("RGB", (size, size), FOG_COLOR)
+    draw = ImageDraw.Draw(img)
+    try:
+        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 12)
+    except Exception:
+        font = ImageFont.load_default()
+
+    for loc in locations:
+        if not (0 <= loc.world_x < world_grid_size and 0 <= loc.world_y < world_grid_size):
+            continue
+        px, py = loc.world_x * cell_px, loc.world_y * cell_px
+        box = [px + 2, py + 2, px + cell_px - 3, py + cell_px - 3]
+        if loc.id in visited_ids:
+            color = LOC_TYPE_COLORS.get(loc.location_type.value, (60, 65, 70))
+            draw.rectangle(box, fill=color, outline=(90, 95, 100))
+            name = loc.name
+            if len(name) > 9:
+                name = name[:8] + "…"
+            draw.text((px + 6, py + cell_px // 2 - 6), name,
+                      fill=(235, 235, 235), font=font,
+                      stroke_width=1, stroke_fill=(0, 0, 0))
+        else:
+            draw.rectangle(box, fill=(28, 30, 36), outline=(55, 58, 66))
+            draw.text((px + cell_px // 2 - 5, py + cell_px // 2 - 9), "?",
+                      fill=(90, 93, 100), font=font)
+        if loc.id == current_loc_id:
+            draw.rectangle([px + 1, py + 1, px + cell_px - 2, py + cell_px - 2],
+                           outline=PLAYER_RING, width=3)
+
+    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+    img.save(output_path, "PNG")
+    return output_path
+
+
+def get_world_map_path(character_id: int) -> str:
+    return f"data/player_maps/world_{character_id}.png"
