@@ -100,11 +100,27 @@ class App:
                 active = " active" if key == self.page else ""
                 out += (f"<button class='nav-link{active}' data-act='nav' data-arg='{key}'>"
                         f"<span class='nav-icon'>{icon}</span> {text or icon}</button>")
+        out += self._player_ctx_markup()
         if self.actor is not None:
             out += ("<div class='nav-section-label'>Сессия</div>"
                     "<button class='nav-link' data-act='logout'>"
                     "<span class='nav-icon'>🚪</span> Выйти</button>")
         return out
+
+    def _player_ctx_markup(self):
+        from webapp.html import esc
+        pid = self.state.get("player_ctx")
+        if self.page != "players" or not pid:
+            return ""
+        p = self.store.players.get(int(pid))
+        if not p:
+            return ""
+        return f"""
+<div class='nav-section-label'>👤 {esc(p.name)}</div>
+<button class='nav-link' data-act='player-edit' data-arg='{p.tg_id}'>✏️ Редактировать</button>
+<button class='nav-link' data-act='player-heal' data-arg='{p.tg_id}'>💊 Вылечить</button>
+<button class='nav-link' data-act='player-access' data-arg='{p.tg_id}'>🔑 Доступ</button>
+"""
 
     def _crumbs_markup(self, page_mod):
         from webapp.html import esc

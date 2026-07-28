@@ -168,6 +168,9 @@ tr.clickable:hover td{background:var(--accent-soft)}
 .diff-row.change{background:rgba(139,92,246,.10);border-left-color:var(--accent)}
 .diff-row.remove{background:rgba(239,68,68,.10);border-left-color:var(--danger)}
 
+.inline-form{display:inline;margin:0}
+.inline-form input.inline-num{width:70px;padding:.25rem .4rem;text-align:center;font-size:.8rem}
+
 /* ── Mobile responsiveness ──────────────────────────────── */
 
 @media (max-width: 768px) {

@@ -11,8 +11,9 @@ INT_FIELDS = ["level", "gold", "hp", "max_hp", "mp", "max_mp", "strength",
 
 def register(app, A):
     A("dash-heal", lambda _="": _heal_all(app))
-    A("player-edit", lambda arg: app.modal(page.edit_form(app, arg)))
+    A("player-edit", lambda arg: _edit(app, arg))
     A("player-save", lambda arg: _save(app, arg))
+    A("player-inline", lambda arg: _inline(app, arg))
     A("player-del", lambda arg: _delete(app, arg))
     A("player-heal", lambda arg: _heal(app, arg))
     A("player-give", lambda arg: _give(app, arg))
@@ -46,6 +47,27 @@ def _flush(app):
         return
     import asyncio
     asyncio.ensure_future(app.bot.flush_outbox())
+
+
+def _edit(app, tg_id):
+    app.state["player_ctx"] = tg_id
+    app.modal(page.edit_form(app, tg_id))
+
+
+def _inline(app, payload):
+    try:
+        tg_id, field, val = payload.rsplit(":", 2)
+        tg_id = int(tg_id)
+        val = int(val)
+    except (ValueError, TypeError):
+        dom.toast("Некорректное значение", "err")
+        return
+    if field not in INT_FIELDS:
+        return
+    if _guard(app, adminops.set_fields, tg_id, {field: val}) is None:
+        return
+    dom.toast("Сохранено")
+    app.render()
 
 
 def _save(app, tg_id):

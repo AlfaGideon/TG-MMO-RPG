@@ -191,3 +191,29 @@ def wire_forms():
         proxy = create_proxy(onchange)
         _proxies.append(proxy)
         inp.addEventListener("change", proxy)
+
+    # inline editing: blur or Enter saves the value
+    for form in document.querySelectorAll("form.inline-form[data-act]"):
+        inp = form.querySelector("input, select, textarea")
+        if inp is None:
+            continue
+        def make_submit(f):
+            def submit(evt):
+                act = f.getAttribute("data-act")
+                arg = f.getAttribute("data-arg") or ""
+                val = evt.target.value
+                fn = _actions.get(act)
+                if fn is not None:
+                    fn(arg + ":" + val)
+            return submit
+        proxy = create_proxy(make_submit(form))
+        _proxies.append(proxy)
+        inp.addEventListener("change", proxy)
+        def make_key(p):
+            def key(evt):
+                if evt.key == "Enter":
+                    p(evt)
+            return key
+        key_proxy = create_proxy(make_key(proxy))
+        _proxies.append(key_proxy)
+        inp.addEventListener("keydown", key_proxy)
