@@ -55,6 +55,23 @@ class RoleMiddleware(BaseHTTPMiddleware):
         session = webauth.get_web_session(request)
         request.state.role = session[1] if session else None
         request.state.web_user_id = session[0] if session else None
+        request.state.caps = None
+
+        # Точечные права хранятся у пользователя — подтягиваем их на каждый
+        # запрос, чтобы изменения применялись без перелогина.
+        if session:
+            try:
+                async with async_session() as db:
+                    user = await db.get(User, session[0])
+                    if user is None or not user.is_web_admin:
+                        resp = RedirectResponse(url="/admin-login", status_code=303)
+                        resp.delete_cookie(webauth.COOKIE_NAME)
+                        return resp
+                    request.state.caps = user.web_admin_caps
+                    request.state.role = user.web_admin_role or session[1]
+            except Exception:
+                pass
+
         response = await call_next(request)
         return response
 
@@ -75,8 +92,13 @@ def guard(request: Request, cap: str):
     """Raise 403 if the current session (granted web-admin role) lacks `cap`.
     Direct/owner access (no cookie) always passes."""
     role = getattr(request.state, "role", None)
-    if not webauth.has_capability(role, cap):
-        raise HTTPException(status_code=403, detail=f"Недостаточно прав для этого действия (нужна роль с доступом «{cap}»).")
+    caps = getattr(request.state, "caps", None)
+    if not webauth.has_capability(role, cap, caps):
+        label = webauth.CAP_LABELS.get(cap, cap)
+        raise HTTPException(
+            status_code=403,
+            detail=f"Недостаточно прав для этого действия (нужен доступ «{label}»).",
+        )
 
 
 # ── Web-admin login (for granted access) ────────────────────
@@ -216,12 +238,18 @@ async def player_detail(request: Request, char_id: int):
         messages = result.scalars().all()
         result = await session.execute(select(Item).order_by(Item.id))
         all_items = result.scalars().all()
+    active_caps = webauth.caps_for(char.user.web_admin_role, char.user.web_admin_caps) \
+        if char.user.is_web_admin else set()
+
     return templates.TemplateResponse(
         request,
         "player_detail.html",
         {
             "char": char, "inventory": inventory, "messages": messages,
-            "all_items": all_items, "role_labels": webauth.ROLE_LABELS, "roles": webauth.ROLES,
+            "all_items": all_items, "role_labels": webauth.ROLE_LABELS,
+            "roles": webauth.ROLES, "caps": webauth.CAPS,
+            "cap_groups": webauth.CAP_GROUPS, "active_caps": active_caps,
+            "rank_presets": {r: webauth.rank_caps(r) for r in webauth.ROLES},
         },
     )
 
@@ -356,15 +384,21 @@ async def player_revoke_vip(request: Request, char_id: int):
 
 
 @app.post("/player/{char_id}/grant-admin")
-async def player_grant_admin(request: Request, char_id: int, role: str = Form("viewer")):
-    """Grants the player web-admin access with a chosen role, generates a fresh
-    password, and (if the bot is running) sends them an inline button linking to
-    the login page along with the plaintext password."""
-    guard(request, "manage_admins")
+async def player_grant_admin(
+    request: Request,
+    char_id: int,
+    role: str = Form("viewer"),
+    caps: list[str] = Form(default=[]),
+    new_password: str = Form(""),
+):
+    """Grants web-admin access with a rank preset plus optional per-function
+    capabilities, always (re)generates a password when there isn't one, and
+    notifies the player in the bot with login + password + capability list."""
+    guard(request, "grant_admin")
     if role not in webauth.ROLES:
         role = "viewer"
 
-    plain_password = webauth.generate_password()
+    picked = [c for c in caps if c in webauth.ALL_CAPS]
 
     async with async_session() as session:
         char = await session.get(Character, char_id)
@@ -372,52 +406,79 @@ async def player_grant_admin(request: Request, char_id: int, role: str = Form("v
             return RedirectResponse(url="/players", status_code=303)
 
         user = await session.get(User, char.user_id)
+        rotate = bool(new_password) or not user.web_admin_password
+        plain_password = webauth.generate_password() if rotate else user.web_admin_password
+
         user.is_web_admin = True
         user.web_admin_role = role
+        user.web_admin_caps = ",".join(picked)
+        user.web_admin_password = plain_password
         user.web_admin_password_hash = webauth.hash_password(plain_password)
         user.web_admin_granted_at = datetime.utcnow()
         await session.commit()
 
         telegram_id = user.telegram_id
+        granted = webauth.caps_for(role, user.web_admin_caps)
 
-        try:
-            from bot.runner import bot_runner
-            if bot_runner.is_running() and bot_runner.bot:
-                from aiogram.utils.keyboard import InlineKeyboardBuilder
-                base_url = str(request.base_url).rstrip("/")
-                login_url = f"{base_url}/admin-login?uid={telegram_id}"
-                builder = InlineKeyboardBuilder()
-                builder.button(text="🔑 Открыть веб-админку", url=login_url)
-                role_label = webauth.ROLE_LABELS.get(role, role)
-                await bot_runner.bot.send_message(
-                    chat_id=telegram_id,
-                    text=(
-                        "👑 <b>Тебе выдан доступ к веб-админке!</b>\n\n"
-                        f"Роль: {role_label}\n"
-                        f"Telegram ID (логин): <code>{telegram_id}</code>\n"
-                        f"Пароль: <code>{plain_password}</code>\n\n"
-                        "Нажми кнопку ниже, чтобы войти."
-                    ),
-                    parse_mode="HTML",
-                    reply_markup=builder.as_markup(),
-                )
-        except Exception:
-            pass
+    cap_list = "\n".join(
+        f"• {webauth.CAP_LABELS[k]}" for k in webauth.CAP_KEYS if k in granted) or "—"
+
+    try:
+        from bot.runner import bot_runner
+        if bot_runner.is_running() and bot_runner.bot:
+            from aiogram.utils.keyboard import InlineKeyboardBuilder
+            base_url = str(request.base_url).rstrip("/")
+            login_url = f"{base_url}/admin-login?uid={telegram_id}"
+            builder = InlineKeyboardBuilder()
+            builder.button(text="🔑 Открыть веб-админку", url=login_url)
+            await bot_runner.bot.send_message(
+                chat_id=telegram_id,
+                text=(
+                    "👑 <b>Тебе выдан доступ к админ-панели!</b>\n\n"
+                    f"Ранг: {webauth.ROLE_LABELS.get(role, role)}\n"
+                    f"Логин (Telegram ID): <code>{telegram_id}</code>\n"
+                    f"Пароль: <code>{plain_password}</code>\n\n"
+                    f"<b>Твои права:</b>\n{cap_list}\n\n"
+                    "Кнопка «🛠 Админка» появилась в меню бота — там всегда "
+                    "можно посмотреть пароль заново."
+                ),
+                parse_mode="HTML",
+                reply_markup=builder.as_markup(),
+            )
+    except Exception:
+        pass
 
     return RedirectResponse(url=f"/player/{char_id}", status_code=303)
 
 
 @app.post("/player/{char_id}/revoke-admin")
 async def player_revoke_admin(request: Request, char_id: int):
-    guard(request, "manage_admins")
+    guard(request, "grant_admin")
+    telegram_id = None
     async with async_session() as session:
         char = await session.get(Character, char_id)
         if char:
             user = await session.get(User, char.user_id)
             user.is_web_admin = False
             user.web_admin_role = None
+            user.web_admin_caps = None
+            user.web_admin_password = None
             user.web_admin_password_hash = None
             await session.commit()
+            telegram_id = user.telegram_id
+
+    if telegram_id:
+        try:
+            from bot.runner import bot_runner
+            if bot_runner.is_running() and bot_runner.bot:
+                await bot_runner.bot.send_message(
+                    chat_id=telegram_id,
+                    text=("🚫 <b>Доступ к админ-панели отозван.</b>\n\n"
+                          "<i>Кнопка «🛠 Админка» больше не доступна.</i>"),
+                    parse_mode="HTML",
+                )
+        except Exception:
+            pass
     return RedirectResponse(url=f"/player/{char_id}", status_code=303)
 
 
@@ -1504,40 +1565,51 @@ async def players_map(request: Request):
 # ── Update from Git ────────────────────────────────────────
 
 @app.post("/api/update")
-async def api_update(request: Request):
-    guard(request, "manage_settings")
+async def api_update(request: Request, notify: str = Form("1")):
+    """Pulls from GitHub and broadcasts the in-theme update notice.
+
+    The broadcast is awaited (not fire-and-forget) so it actually reaches
+    players before the process restarts — previously the task was cancelled
+    by the restart and nobody ever got the notification.
+    """
+    guard(request, "settings")
     import subprocess
     import sys
     import threading
+
     try:
         result = subprocess.run(
             ["git", "pull", "origin", "main"],
-            capture_output=True, text=True, cwd=os.getcwd(), timeout=30
+            capture_output=True, text=True, cwd=os.getcwd(), timeout=60
         )
         success = result.returncode == 0
-        output = result.stdout + result.stderr
-        if success and "Already up to date" not in output and "Уже обновлено" not in output:
-            # Notify players in-theme before the restart drops their connection.
-            # Give the broadcast a few seconds of head start before the process
-            # is replaced, so messages actually get delivered.
-            try:
-                from bot.broadcast import notify_update_deployed
-                if bot_runner.is_running() and bot_runner.bot:
-                    import asyncio
-                    asyncio.create_task(notify_update_deployed(bot_runner.bot))
-            except Exception:
-                pass
-
-            # Schedule auto-restart so the HTTP response and the notification
-            # broadcast above both have time to go out first.
-            def _restart():
-                import os
-                os.execv(sys.executable, [sys.executable, "launch.py"])
-            threading.Timer(6.0, _restart).start()
-            return {"success": True, "output": output, "restarting": True}
-        return {"success": success, "output": output, "restarting": False}
+        output = (result.stdout + result.stderr).strip()
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+    if not success:
+        return {"success": False, "output": output, "restarting": False, "notified": 0}
+
+    fresh = "Already up to date" not in output and "Уже обновлено" not in output
+
+    notified = 0
+    bot_off = not (bot_runner.is_running() and bot_runner.bot)
+    if notify == "1" and not bot_off:
+        try:
+            from bot.broadcast import notify_update_deployed
+            notified = await notify_update_deployed(bot_runner.bot)
+        except Exception as e:
+            return {"success": True, "output": output, "restarting": False,
+                    "notified": 0, "notify_error": str(e), "fresh": fresh}
+
+    if fresh:
+        def _restart():
+            os.execv(sys.executable, [sys.executable, "launch.py"])
+        # рассылка уже ушла — рестартуем сразу после ответа
+        threading.Timer(3.0, _restart).start()
+
+    return {"success": True, "output": output, "restarting": fresh,
+            "notified": notified, "bot_off": bot_off, "fresh": fresh}
 
 
 def main():

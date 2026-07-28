@@ -128,11 +128,29 @@ async function updateGitHeader(btn) {
     btn.disabled = true;
     btn.innerHTML = '⏳ Обновление...';
     try {
-        const r = await fetch('/api/update', {method: 'POST'});
+        const body = new FormData();
+        body.append('notify', '1');
+        const r = await fetch('/api/update', {method: 'POST', body});
         const data = await r.json();
+
         if (data.success) {
-            btn.innerHTML = '✅ Обновлено!';
-            alert(data.restarting ? '✅ Код успешно обновлён с GitHub! Сервер перезапускается... Перезагрузи страницу через 5 секунд.' : '✅ Код уже в самой актуальной версии!');
+            btn.innerHTML = '✅ Готово!';
+            let msg = data.fresh
+                ? '✅ Код обновлён с GitHub.'
+                : '✅ Код уже в актуальной версии.';
+
+            if (data.bot_off) {
+                msg += '\n\n⚠️ Бот остановлен — уведомление игрокам не отправлено.';
+            } else if (data.notify_error) {
+                msg += '\n\n⚠️ Рассылка не удалась: ' + data.notify_error;
+            } else {
+                msg += '\n\n📣 Уведомление об обновлении получили игроков: ' + (data.notified || 0);
+            }
+
+            if (data.restarting) {
+                msg += '\n\n♻️ Сервер перезапускается — обнови страницу через 5 секунд.';
+            }
+            alert(msg);
         } else {
             btn.innerHTML = '❌ Ошибка';
             alert('Ошибка обновления: ' + (data.error || data.output || 'Неизвестно'));

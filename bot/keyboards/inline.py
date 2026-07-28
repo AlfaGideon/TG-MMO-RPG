@@ -4,7 +4,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from core.enums import CharacterClass
 
 
-def main_menu_keyboard(has_character: bool = False):
+def main_menu_keyboard(has_character: bool = False, is_admin: bool = False):
     builder = InlineKeyboardBuilder()
     if not has_character:
         builder.button(text="⚔️ Создать героя", callback_data="create_character")
@@ -17,6 +17,18 @@ def main_menu_keyboard(has_character: bool = False):
         builder.button(text="🗿 Подземелье", callback_data="dungeon_menu")
     builder.button(text="❓ Помощь", callback_data="help")
     builder.adjust(2)
+    if is_admin:
+        builder.row(InlineKeyboardButton(text="🛠 Админка", callback_data="admin_panel"))
+    return builder.as_markup()
+
+
+def admin_panel_keyboard(login_url: str = ""):
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🔑 Показать пароль", callback_data="admin_password")
+    if login_url:
+        builder.button(text="🌐 Открыть панель", url=login_url)
+    builder.button(text="◀️ В главное меню", callback_data="main_menu")
+    builder.adjust(1)
     return builder.as_markup()
 
 
@@ -210,8 +222,15 @@ def dungeon_movement_keyboard(can_dirs: dict):
     btn('sw', '↙️')
     btn('s', '⬇️')
     btn('se', '↘️')
+    builder.button(text="🗺 Карта", callback_data="dungeon_map")
     builder.button(text="🏃 Выйти", callback_data="dungeon_exit")
-    builder.adjust(3, 3, 3, 1)
+    builder.adjust(3, 3, 3, 2)
+    return builder.as_markup()
+
+
+def dungeon_map_keyboard():
+    builder = InlineKeyboardBuilder()
+    builder.button(text="◀️ Назад", callback_data="dungeon_back")
     return builder.as_markup()
 
 

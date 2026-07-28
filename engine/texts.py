@@ -1,5 +1,5 @@
 """Тексты интерфейса бота."""
-from engine import data, rules
+from engine import data, permissions, rules
 
 WELCOME = (
     "🌑 <b>Теневые Земли</b>\n\n"
@@ -19,6 +19,47 @@ HELP = (
     "Мир бесшовный: дойди до края локации, чтобы попасть в соседнюю.\n"
     "<i>Удачи в Теневых Землях...</i>"
 )
+
+
+def admin_panel(p):
+    """Что показать админу в боте: ранг, права, как войти в панель."""
+    return (
+        "🛠 <b>Доступ администратора</b>\n\n"
+        f"Ранг: <b>{permissions.rank_title(p.web_admin_role)}</b>\n"
+        f"Логин: <code>{p.tg_id}</code>\n\n"
+        "<b>Твои права:</b>\n"
+        f"{permissions.summary(p)}\n\n"
+        "<i>Вход в веб-панель — по логину и паролю. "
+        "Нажми кнопку ниже, чтобы посмотреть пароль.</i>"
+    )
+
+
+def admin_password(p):
+    return (
+        "🔑 <b>Доступ в веб-панель</b>\n\n"
+        f"Логин: <code>{p.tg_id}</code>\n"
+        f"Пароль: <code>{p.web_admin_password}</code>\n\n"
+        "<i>Нажми на пароль, чтобы скопировать. Никому его не передавай — "
+        "администратор может сменить его в любой момент.</i>"
+    )
+
+
+def admin_granted(p):
+    """Сообщение игроку в момент выдачи доступа."""
+    return (
+        "👑 <b>Тебе выдан доступ к админ-панели!</b>\n\n"
+        f"Ранг: <b>{permissions.rank_title(p.web_admin_role)}</b>\n"
+        f"Логин: <code>{p.tg_id}</code>\n"
+        f"Пароль: <code>{p.web_admin_password}</code>\n\n"
+        "<b>Что тебе доступно:</b>\n"
+        f"{permissions.summary(p)}\n\n"
+        "<i>Кнопка «🛠 Админка» появилась в главном меню бота.</i>"
+    )
+
+
+def admin_revoked():
+    return ("🚫 <b>Доступ к админ-панели отозван.</b>\n\n"
+            "<i>Кнопка «🛠 Админка» больше не доступна.</i>")
 
 
 def profile(p):

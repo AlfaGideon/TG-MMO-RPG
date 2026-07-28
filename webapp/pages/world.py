@@ -1,5 +1,6 @@
 """Страница: карта мира, сетка мира и редактор подземелий."""
 from engine import data, world as W
+from webapp.pages import dungeons as page_dungeons
 from webapp.html import esc
 
 TITLE = "🗺 Мир"
@@ -20,7 +21,7 @@ def render(ctx):
     elif tab == "grid":
         content = _render_grid(ctx)
     elif tab == "dungeons":
-        content = _render_dungeons(ctx)
+        content = page_dungeons.render(ctx)
 
     return f"""
 <div class="card">
@@ -158,70 +159,6 @@ def _render_grid(ctx):
   <h2>🌐 Глобальная координатная сетка мира (10x10)</h2>
   <p class="muted" style="margin-bottom:1rem">Размещайте локации на глобальной карте. Новые игроки будут видеть сетку в зависимости от переходов.</p>
   <div class="mapgrid" style="grid-template-columns: repeat(10, 1fr); max-width:480px; gap:4px;">{cells}</div>
-</div>
-"""
-
-
-def _render_dungeons(ctx):
-    dungeons = ctx.store.settings.setdefault("dungeon_templates", [
-        {"id": 0, "name": "🔥 Огненная Преисподняя", "desc": "Пещеры, заполненные лавой и демонами.", "min_level": 5, "grid_size": 15, "portal_cell": None},
-        {"id": 1, "name": "🕸 Забытый Склеп Пауков", "desc": "Гробница древнего короля, затянутая густой паутиной.", "min_level": 3, "grid_size": 12, "portal_cell": None}
-    ])
-    
-    rows = ""
-    for dg in dungeons:
-        portal = dg.get("portal_cell")
-        if portal:
-            li, x, y = map(int, portal.split(":"))
-            status = f"<b style='color:var(--success)'>Активен: {esc(data.LOCATIONS[li][0])} [{x},{y}]</b>"
-            action_btn = f"<button class='btn danger' data-act='dungeon-close' data-arg='{dg['id']}'>❌ Закрыть портал</button>"
-        else:
-            status = "<span class='muted'>Закрыт</span>"
-            action_btn = f"<button class='btn primary' data-act='dungeon-open' data-arg='{dg['id']}'>🚪 Открыть портал</button>"
-            
-        rows += f"""
-        <tr>
-          <td><b>{esc(dg['name'])}</b></td>
-          <td class="muted">{esc(dg['desc'])}</td>
-          <td>{dg['min_level']}</td>
-          <td>{dg['grid_size']}x{dg['grid_size']}</td>
-          <td>{status}</td>
-          <td>
-            <div style="display:flex;gap:.3rem;">
-              {action_btn}
-              <button class='btn danger' data-act='dungeon-delete' data-arg='{dg['id']}'>🗑</button>
-            </div>
-          </td>
-        </tr>
-        """
-        
-    if not rows:
-        rows = "<tr><td colspan='6' class='muted'>Подземелий пока нет. Создайте новое ниже.</td></tr>"
-
-    return f"""
-<div class="card">
-  <h2>🗝 Шаблоны подземелий & Порталы</h2>
-  <p class="muted" style="margin-bottom:1rem">Открывайте порталы в случайных точках мира. Игроки увидят порталы на карте и смогут войти.</p>
-  <div class="scroll"><table>
-    <tr><th>Название</th><th>Описание</th><th>Мин. ур</th><th>Размер</th><th>Статус</th><th>Действия</th></tr>
-    {rows}
-  </table></div>
-</div>
-
-<div class="card">
-  <h2>🆕 Создать шаблон подземелья</h2>
-  <div class="row" style="margin-top:.5rem">
-    <div><label>Название</label><input id="dg_name" placeholder="Например: Древняя Шахта"></div>
-    <div><label>Мин. уровень</label><input id="dg_level" type="number" value="1"></div>
-    <div><label>Размер сетки</label><input id="dg_size" type="number" value="10"></div>
-  </div>
-  <div style="margin-top:.5rem">
-    <label>Описание</label>
-    <input id="dg_desc" placeholder="Краткое описание для игроков">
-  </div>
-  <div style="margin-top:1rem">
-    <button class="btn primary" data-act="dungeon-create">➕ Создать шаблон</button>
-  </div>
 </div>
 """
 

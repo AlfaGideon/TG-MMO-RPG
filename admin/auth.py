@@ -20,23 +20,37 @@ SECRET = os.getenv("ADMIN_SECRET_KEY", "shadow-lands-secret")
 COOKIE_NAME = "wa_session"
 SESSION_MAX_AGE = 30 * 24 * 3600  # 30 days
 
-ROLES = ["viewer", "moderator", "admin"]
+# Ранги (пресеты) и точечные права — как ранги в кланах MMO.
+from engine.permissions import (           # noqa: E402  (общий источник правды)
+    CAPS, CAP_KEYS, CAP_LABELS, CAP_GROUPS, RANKS, RANK_KEYS,
+    rank_caps, rank_title,
+)
 
-ROLE_LABELS = {
-    "viewer": "👁 Наблюдатель (только просмотр)",
-    "moderator": "🛠 Модератор (управление игроками)",
-    "admin": "👑 Администратор (полный доступ)",
+ROLES = list(RANK_KEYS)
+
+ROLE_LABELS = {r: rank_title(r) for r in RANK_KEYS}
+
+ALL_CAPS = set(CAP_KEYS)
+
+
+# Старые «крупные» права -> набор новых точечных. Любое из них открывает доступ.
+LEGACY_CAPS = {
+    "view": {"view_dash", "view_players", "view_world", "view_content"},
+    "manage_players": {"edit_players", "heal_players", "give_items", "del_players"},
+    "manage_content": {"edit_content", "edit_world", "regen_world", "dungeons"},
+    "manage_settings": {"settings", "bot_control", "broadcast"},
+    "manage_admins": {"grant_admin"},
 }
 
-# Capabilities granted to each role. `None` (no cookie / direct owner access)
-# always has every capability.
-CAPS_BY_ROLE = {
-    "viewer": {"view"},
-    "moderator": {"view", "manage_players"},
-    "admin": {"view", "manage_players", "manage_content", "manage_settings", "manage_admins"},
-}
 
-ALL_CAPS = {"view", "manage_players", "manage_content", "manage_settings", "manage_admins"}
+def caps_for(role, custom=None):
+    """Итоговые права: точечный список важнее пресета ранга."""
+    if custom:
+        keys = [c.strip() for c in custom.split(",") if c.strip()]
+        picked = {c for c in keys if c in ALL_CAPS}
+        if picked:
+            return picked
+    return set(rank_caps(role or "viewer"))
 
 
 def generate_password(length: int = 10) -> str:
@@ -94,11 +108,18 @@ def get_web_session(request: Request):
     return parse_session_token(token)
 
 
-def has_capability(role, cap: str) -> bool:
-    """role is None for the owner (unrestricted) or one of ROLES."""
+def has_capability(role, cap: str, custom=None) -> bool:
+    """role is None for the owner (unrestricted) or one of ROLES.
+
+    Accepts both new granular caps ("edit_world") and legacy coarse ones
+    ("manage_content"), so older routes keep working unchanged.
+    """
     if role is None:
         return True
-    return cap in CAPS_BY_ROLE.get(role, set())
+    mine = caps_for(role, custom)
+    if cap in mine:
+        return True
+    return bool(LEGACY_CAPS.get(cap, set()) & mine)
 
 
 def role_of(request: Request):

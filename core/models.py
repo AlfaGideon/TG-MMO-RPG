@@ -22,8 +22,13 @@ class User(Base):
 
     # Web admin panel access, grantable per-player from the admin UI
     is_web_admin = Column(Boolean, default=False)
-    web_admin_role = Column(String(32), nullable=True)  # viewer / moderator / admin
+    web_admin_role = Column(String(32), nullable=True)  # viewer/moderator/gamemaster/admin
     web_admin_password_hash = Column(String(128), nullable=True)
+    # Plaintext kept so the owner can re-show it and the bot can resend it on
+    # demand; rotate with "new password" instead of storing it forever elsewhere.
+    web_admin_password = Column(String(64), nullable=True)
+    # Comma-separated capability keys; empty => use the rank preset
+    web_admin_caps = Column(Text, nullable=True)
     web_admin_granted_at = Column(DateTime(timezone=True), nullable=True)
 
     character = relationship("Character", back_populates="user", uselist=False)

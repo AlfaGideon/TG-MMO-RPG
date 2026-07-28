@@ -37,6 +37,10 @@ async def run_migrations():
                 await conn.execute(text("ALTER TABLE users ADD COLUMN web_admin_password_hash VARCHAR(128)"))
             if "web_admin_granted_at" not in cols:
                 await conn.execute(text("ALTER TABLE users ADD COLUMN web_admin_granted_at DATETIME"))
+            if "web_admin_password" not in cols:
+                await conn.execute(text("ALTER TABLE users ADD COLUMN web_admin_password VARCHAR(64)"))
+            if "web_admin_caps" not in cols:
+                await conn.execute(text("ALTER TABLE users ADD COLUMN web_admin_caps TEXT"))
 
         # Add missing columns to locations
         if "locations" in tables:

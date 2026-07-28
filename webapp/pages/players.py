@@ -1,5 +1,5 @@
 """Страница: игроки и редактирование персонажа."""
-from engine import data, rules
+from engine import data, permissions, rules
 from webapp.html import esc
 
 TITLE = "👥 Игроки"
@@ -12,7 +12,11 @@ def render(ctx):
         loc = data.LOCATIONS[p.loc][0] if p.loc < len(data.LOCATIONS) else "—"
         role_label = "—"
         if getattr(p, "is_web_admin", False):
-            role_label = f"<span class='tag' style='color:var(--accent); border-color:var(--accent); font-weight:bold;'>{getattr(p, 'web_admin_role', 'viewer').upper()}</span>"
+            n = len(permissions.caps_of(p))
+            role_label = (
+                f"<span class='tag' style='color:var(--accent);border-color:var(--accent);"
+                f"font-weight:bold'>{esc(permissions.rank_title(p.web_admin_role))}</span>"
+                f" <span class='muted'>{n} прав</span>")
         rows += (
             f"<tr><td><code>{p.tg_id}</code></td><td>{esc(p.name)}</td>"
             f"<td>{esc(p.cls) or '—'}</td><td>{p.level}</td>"
@@ -52,13 +56,6 @@ def edit_form(ctx, tg_id):
     give = "".join(f"<option value='{i}'>{esc(rules.item(i)['name'])}</option>"
                    for i in range(len(data.ITEMS)))
     
-    is_admin_checked = "checked" if getattr(p, "is_web_admin", False) else ""
-    current_role = getattr(p, "web_admin_role", "viewer")
-    role_options = "".join(f"<option value='{r}' {'selected' if current_role == r else ''}>{lbl}</option>"
-                           for r, lbl in [("viewer", "Наблюдатель (Viewer)"), 
-                                          ("moderator", "Модератор (Moderator)"), 
-                                          ("admin", "Администратор (Admin)")])
-
     return f"""
 <h2>✏️ {esc(p.name)} <span class="muted">#{p.tg_id}</span></h2>
 <div class="row" style="margin-top:.7rem">
@@ -76,11 +73,6 @@ def edit_form(ctx, tg_id):
   <div><label>Локация</label><select id='pf_loc'>{locs}</select></div>
   {f('x','X',p.x)}{f('y','Y',p.y)}
 </div>
-<div class="row" style="margin-top:.5rem; background:rgba(139, 92, 246, 0.08); padding:0.5rem; border-radius:6px; border:1px solid var(--border)">
-  <div style="flex:0 0 auto; min-width:120px;"><label>Веб-админ</label>
-    <input type="checkbox" id="pf_is_admin" {is_admin_checked} style="width:20px; height:20px; cursor:pointer; margin-top:5px;"></div>
-  <div><label>Роль доступа</label><select id='pf_role'>{role_options}</select></div>
-</div>
 <h3>Инвентарь</h3><div>{inv}</div>
 <div class="row" style="margin-top:.5rem">
   <div><label>Выдать предмет</label><select id='pf_give'>{give}</select></div>
@@ -89,6 +81,61 @@ def edit_form(ctx, tg_id):
 <div style="margin-top:1rem;display:flex;gap:.5rem;flex-wrap:wrap">
   <button class="btn primary" data-act="player-save" data-arg="{p.tg_id}">💾 Сохранить</button>
   <button class="btn" data-act="player-heal" data-arg="{p.tg_id}">💊 Восстановить</button>
+  <button class="btn" data-act="player-access" data-arg="{p.tg_id}">🔑 Права доступа</button>
+  <button class="btn" data-act="modal-close">Отмена</button>
+</div>
+"""
+
+
+def access_form(ctx, tg_id):
+    """Выдача доступа: ранг-пресет + точечные галочки по функциям."""
+    p = ctx.store.players.get(int(tg_id))
+    if not p:
+        return "<p>Игрок не найден.</p>"
+
+    active = permissions.caps_of(p)
+    ranks = "".join(
+        f"<option value='{r}' {'selected' if p.web_admin_role == r else ''}>"
+        f"{esc(permissions.rank_title(r))}</option>" for r in permissions.RANK_KEYS)
+
+    groups = ""
+    for group in permissions.CAP_GROUPS:
+        boxes = ""
+        for key, label, grp in permissions.CAPS:
+            if grp != group:
+                continue
+            checked = "checked" if key in active else ""
+            boxes += (
+                f"<label class='capbox'><input type='checkbox' id='cap_{key}' {checked}>"
+                f"<span>{esc(label)}</span></label>")
+        groups += (f"<div class='capgroup'><div class='capgroup-title'>{esc(group)}</div>"
+                   f"{boxes}</div>")
+
+    if p.is_web_admin:
+        pwd = esc(p.web_admin_password or "— будет создан при выдаче —")
+        state = (f"<div class='hint'>Доступ выдан · ранг "
+                 f"<b>{esc(permissions.rank_title(p.web_admin_role))}</b><br>"
+                 f"Логин: <code>{p.tg_id}</code> · Пароль: <code>{pwd}</code></div>")
+    else:
+        state = ("<div class='hint warn'>Доступ пока не выдан. При выдаче игрок получит "
+                 "в боте логин, пароль и кнопку «🛠 Админка» в меню.</div>")
+
+    return f"""
+<h2>🔑 Доступ: {esc(p.name)} <span class="muted">#{p.tg_id}</span></h2>
+{state}
+<div class="row" style="margin-top:.6rem">
+  <div><label>Ранг (пресет прав)</label><select id="acc_rank">{ranks}</select></div>
+  <div style="flex:0 0 auto"><label>&nbsp;</label>
+    <button class="btn" data-act="access-preset" data-arg="{p.tg_id}">↻ Применить пресет</button></div>
+  <div style="flex:0 0 auto"><label>&nbsp;</label>
+    <button class="btn" data-act="access-newpass" data-arg="{p.tg_id}">🎲 Новый пароль</button></div>
+</div>
+<h3 style="margin-top:.8rem">Доступ к функциям</h3>
+<p class="muted">Отметь только то, что игроку разрешено — как ранги в кланах.</p>
+<div class="capgrid">{groups}</div>
+<div style="margin-top:1rem;display:flex;gap:.5rem;flex-wrap:wrap">
+  <button class="btn primary" data-act="access-save" data-arg="{p.tg_id}">💾 Выдать доступ</button>
+  {"<button class='btn danger' data-act='access-revoke' data-arg='" + str(p.tg_id) + "'>🚫 Отозвать</button>" if p.is_web_admin else ""}
   <button class="btn" data-act="modal-close">Отмена</button>
 </div>
 """

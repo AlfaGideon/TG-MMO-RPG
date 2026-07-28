@@ -4,7 +4,8 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SUITES = ["test_engine.py", "test_pages.py", "test_transport.py", "test_wiring.py"]
+SUITES = ["test_engine.py", "test_pages.py", "test_transport.py", "test_access.py",
+          "test_wiring.py"]
 
 
 def main():

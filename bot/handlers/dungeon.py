@@ -8,7 +8,11 @@ from sqlalchemy.orm import selectinload
 
 from core.database import async_session
 from core.models import User, Character, DungeonRun, DungeonCell, DungeonTemplate, Cell
-from bot.keyboards.inline import dungeon_menu_keyboard, dungeon_movement_keyboard, dungeon_combat_keyboard, back_to_main_keyboard, main_menu_keyboard
+from bot.keyboards.inline import (
+    dungeon_menu_keyboard, dungeon_movement_keyboard, dungeon_combat_keyboard,
+    dungeon_map_keyboard, back_to_main_keyboard, main_menu_keyboard,
+)
+from core.map_renderer import render_dungeon_map, get_dungeon_map_path
 
 router = Router()
 
@@ -615,6 +619,80 @@ async def dungeon_open_chest(callback: CallbackQuery):
         )
 
 
+@router.callback_query(F.data == "dungeon_map")
+async def dungeon_map(callback: CallbackQuery):
+    """Карта подземелья: открытые клетки, сундуки, монстры и лестница."""
+    async with async_session() as session:
+        result = await session.execute(
+            select(User).where(User.telegram_id == callback.from_user.id)
+        )
+        user = result.scalar_one_or_none()
+        result = await session.execute(
+            select(Character).where(Character.user_id == user.id)
+        )
+        character = result.scalar_one_or_none()
+        if not character:
+            await callback.answer("Ошибка.", show_alert=True)
+            return
+
+        result = await session.execute(
+            select(DungeonRun)
+            .where(DungeonRun.character_id == character.id)
+            .where(DungeonRun.is_active == True)
+        )
+        run = result.scalar_one_or_none()
+        if not run:
+            await callback.answer("Ты не в подземелье.", show_alert=True)
+            return
+
+        current = await _current_cell(session, run)
+        await session.commit()
+
+        result = await session.execute(
+            select(DungeonCell).where(DungeonCell.run_id == run.id)
+        )
+        cells = result.scalars().all()
+
+        template = await _get_template(session, run)
+        size = _dungeon_config(template)["size"]
+        seen = sum(1 for c in cells if c.is_visited)
+
+        path = get_dungeon_map_path(run.id, run.floor)
+        render_dungeon_map(cells, current.x, current.y, size, path)
+
+    caption = (
+        f"🗺 <b>Карта подземелья — этаж {run.floor}</b>\n"
+        f"📍 Ты на [{current.x},{current.y}] · изучено клеток: {seen}\n\n"
+        "🟣 лестница вниз · 🟡 сундук · 🔴 монстр · ⬛ стена\n"
+        "<i>Тёмное — ещё не исследовано.</i>"
+    )
+
+    photo = FSInputFile(path)
+    msg = callback.message
+    try:
+        if msg and msg.photo:
+            from aiogram.types import InputMediaPhoto
+            await msg.edit_media(
+                media=InputMediaPhoto(media=photo, caption=caption, parse_mode="HTML"),
+                reply_markup=dungeon_map_keyboard(),
+            )
+        else:
+            if msg:
+                try:
+                    await msg.delete()
+                except Exception:
+                    pass
+            await callback.message.answer_photo(
+                photo=photo, caption=caption, parse_mode="HTML",
+                reply_markup=dungeon_map_keyboard(),
+            )
+    except Exception:
+        await callback.message.answer_photo(
+            photo=FSInputFile(path), caption=caption, parse_mode="HTML",
+            reply_markup=dungeon_map_keyboard(),
+        )
+
+
 @router.callback_query(F.data == "dungeon_back")
 async def dungeon_back(callback: CallbackQuery):
     async with async_session() as session:
@@ -661,4 +739,17 @@ async def show_dungeon_cell(callback, run, session):
         text += "\n🚪 Лестница вниз"
 
     kb = dungeon_movement_keyboard(can_dirs)
-    await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    msg = callback.message
+    # После карты сообщение — фото, а его edit_text редактировать нельзя.
+    if msg and msg.photo:
+        try:
+            await msg.delete()
+        except Exception:
+            pass
+        await msg.answer(text, reply_markup=kb, parse_mode="HTML")
+        return
+    try:
+        await msg.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    except Exception as e:
+        if "message is not modified" not in str(e).lower():
+            await msg.answer(text, reply_markup=kb, parse_mode="HTML")

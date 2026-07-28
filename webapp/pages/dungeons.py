@@ -1,0 +1,172 @@
+"""Подземелья и порталы: список шаблонов, карта порталов, карточка.
+
+Отдельный модуль, чтобы страница мира оставалась компактной.
+"""
+from engine import data, world as W
+from webapp.html import esc
+
+
+def render(ctx):
+    dungeons = ctx.store.settings.setdefault("dungeon_templates", [
+        {"id": 0, "name": "🔥 Огненная Преисподняя", "desc": "Пещеры, заполненные лавой и демонами.", "min_level": 5, "grid_size": 15, "portal_cell": None},
+        {"id": 1, "name": "🕸 Забытый Склеп Пауков", "desc": "Гробница древнего короля, затянутая густой паутиной.", "min_level": 3, "grid_size": 12, "portal_cell": None}
+    ])
+    
+    rows = ""
+    for dg in dungeons:
+        portal = dg.get("portal_cell")
+        if portal:
+            li, x, y = map(int, portal.split(":"))
+            status = f"<b style='color:var(--success)'>Активен: {esc(data.LOCATIONS[li][0])} [{x},{y}]</b>"
+            action_btn = f"<button class='btn danger' data-act='dungeon-close' data-arg='{dg['id']}'>❌ Закрыть портал</button>"
+        else:
+            status = "<span class='muted'>Закрыт</span>"
+            action_btn = f"<button class='btn primary' data-act='dungeon-open' data-arg='{dg['id']}'>🚪 Открыть портал</button>"
+            
+        rows += f"""
+        <tr>
+          <td><b>{esc(dg['name'])}</b></td>
+          <td class="muted">{esc(dg['desc'])}</td>
+          <td>{dg['min_level']}</td>
+          <td>{dg['grid_size']}x{dg['grid_size']}</td>
+          <td>{status}</td>
+          <td>
+            <div style="display:flex;gap:.3rem;">
+              {action_btn}
+              <button class='btn danger' data-act='dungeon-delete' data-arg='{dg['id']}'>🗑</button>
+            </div>
+          </td>
+        </tr>
+        """
+        
+    if not rows:
+        rows = "<tr><td colspan='6' class='muted'>Подземелий пока нет. Создайте новое ниже.</td></tr>"
+
+    return f"""
+<div class="card">
+  <h2>🗝 Шаблоны подземелий & Порталы</h2>
+  <p class="muted" style="margin-bottom:1rem">Открывайте порталы в случайных точках мира. Игроки увидят порталы на карте и смогут войти.</p>
+  <div class="scroll"><table>
+    <tr><th>Название</th><th>Описание</th><th>Мин. ур</th><th>Размер</th><th>Статус</th><th>Действия</th></tr>
+    {rows}
+  </table></div>
+</div>
+
+{_portal_map(ctx, dungeons)}
+
+<div class="card">
+  <h2>🆕 Создать шаблон подземелья</h2>
+  <div class="row" style="margin-top:.5rem">
+    <div><label>Название</label><input id="dg_name" placeholder="Например: Древняя Шахта"></div>
+    <div><label>Мин. уровень</label><input id="dg_level" type="number" value="1"></div>
+    <div><label>Размер сетки</label><input id="dg_size" type="number" value="10"></div>
+  </div>
+  <div style="margin-top:.5rem">
+    <label>Описание</label>
+    <input id="dg_desc" placeholder="Краткое описание для игроков">
+  </div>
+  <div style="margin-top:1rem">
+    <button class="btn primary" data-act="dungeon-create">➕ Создать шаблон</button>
+  </div>
+</div>
+"""
+
+
+def _portal_map(ctx, dungeons):
+    """Карта локации с отметками всех открытых порталов подземелий."""
+    li = ctx.state.get("portal_loc", 0)
+    by_cell = {d["portal_cell"]: d for d in dungeons if d.get("portal_cell")}
+
+    tabs = ""
+    for i, loc in enumerate(data.LOCATIONS):
+        count = sum(1 for k in by_cell if k.startswith(f"{i}:"))
+        badge = f" <b>({count}🌀)</b>" if count else ""
+        tabs += (f"<button class='btn {'primary' if i == li else ''}' "
+                 f"data-act='portal-loc' data-arg='{i}'>{esc(loc[0])}{badge}</button> ")
+
+    cells = ""
+    for x in range(W.SIZE):
+        for y in range(W.SIZE):
+            key = f"{li}:{x}:{y}"
+            c = ctx.store.world.get(key)
+            if not c:
+                continue
+            dg = by_cell.get(key)
+            color = data.TILE_COLORS.get(c.tile, "#333")
+            if dg:
+                dg_name = esc(dg["name"])
+                dg_id = dg["id"]
+                cells += (
+                    f"<div class='c portal-cell' title='🌀 {dg_name} — {esc(c.name)} [{x},{y}]' "
+                    f"data-act='dungeon-focus' data-arg='{dg_id}'>🌀</div>")
+            else:
+                mark = "🚪" if c.link else ("⬛" if not c.passable else "")
+                cells += (f"<div class='c' style='background:{color};opacity:.55' "
+                          f"title='{esc(c.name)} [{x},{y}]'>{mark}</div>")
+
+    open_rows = ""
+    for dg in dungeons:
+        key = dg.get("portal_cell")
+        if not key:
+            continue
+        cl, cx, cy = map(int, key.split(":"))
+        open_rows += (f"<tr><td>🌀 <b>{esc(dg['name'])}</b></td>"
+                      f"<td>{esc(data.LOCATIONS[cl][0])}</td><td><code>[{cx},{cy}]</code></td>"
+                      f"<td>ур. {dg['min_level']}+</td>"
+                      f"<td><button class='btn' data-act='portal-loc' data-arg='{cl}'>"
+                      f"👁 Показать</button></td></tr>")
+    if not open_rows:
+        open_rows = "<tr><td colspan='5' class='muted'>Открытых порталов нет.</td></tr>"
+
+    return f"""
+<div class="card">
+  <h2>🗺 Карта порталов</h2>
+  <p class="muted">Где сейчас открыты входы в подземелья. Клик по 🌀 — открыть шаблон.</p>
+  <div style="display:flex;gap:.4rem;flex-wrap:wrap;margin:.6rem 0">{tabs}</div>
+  <div class="mapgrid">{cells}</div>
+  <div class="legend">
+    <span>🌀 портал</span><span>🚪 переход</span><span>⬛ стена</span>
+  </div>
+</div>
+
+<div class="card">
+  <h2>📍 Активные порталы</h2>
+  <div class="scroll"><table>
+    <tr><th>Подземелье</th><th>Локация</th><th>Клетка</th><th>Уровень</th><th></th></tr>
+    {open_rows}
+  </table></div>
+</div>
+"""
+
+
+def dungeon_form(ctx, dg):
+    """Карточка подземелья: где портал, чем закрыть/переоткрыть."""
+    key = dg.get("portal_cell")
+    if key:
+        cl, cx, cy = map(int, key.split(":"))
+        cell = ctx.store.world.get(key)
+        where = (f"<div class='hint'>🌀 Портал открыт: <b>{esc(data.LOCATIONS[cl][0])}</b> "
+                 f"[{cx},{cy}]<br><span class='muted'>{esc(cell.name if cell else '')}</span></div>")
+        buttons = (f"<button class='btn danger' data-act='dungeon-close' "
+                   f"data-arg='{dg['id']}'>❌ Закрыть портал</button>")
+    else:
+        where = "<div class='hint warn'>Портал закрыт — игроки не могут войти.</div>"
+        buttons = (f"<button class='btn primary' data-act='dungeon-open' "
+                   f"data-arg='{dg['id']}'>🚪 Открыть портал</button>")
+
+    return f"""
+<h2>🗝 {esc(dg['name'])}</h2>
+<p class="muted">{esc(dg['desc'])}</p>
+{where}
+<div class="row" style="margin-top:.6rem">
+  <div><label>Мин. уровень</label><input value="{dg['min_level']}" disabled></div>
+  <div><label>Размер</label><input value="{dg['grid_size']}x{dg['grid_size']}" disabled></div>
+</div>
+<div style="margin-top:1rem;display:flex;gap:.5rem;flex-wrap:wrap">
+  {buttons}
+  <button class="btn danger" data-act="dungeon-delete" data-arg="{dg['id']}">🗑 Удалить</button>
+  <button class="btn" data-act="modal-close">Закрыть</button>
+</div>
+"""
+
+

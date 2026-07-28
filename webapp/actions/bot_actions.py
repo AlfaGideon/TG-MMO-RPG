@@ -88,12 +88,38 @@ def _proxy_save(app):
     app.render()
 
 
-def _git_update(app):
-    """Перезагружает страницу мимо кеша, чтобы подтянуть свежий код с GitHub."""
-    from js import Date, location
-    dom.toast("Обновляю интерфейс с GitHub…", "sys")
-    try:
-        base = str(location.origin) + str(location.pathname)
-        location.replace(base + "?v=" + str(int(Date.now())))
-    except Exception:
-        location.reload()
+UPDATE_NOTICE = (
+    "📖 <b>Хроники изменились...</b>\n\n"
+    "Древние силы перекроили Теневые Земли — мир только что обновился.\n"
+    "Панель уходит на короткую перезагрузку, чтобы принять изменения.\n\n"
+    "<i>Если что-то не ответит с первого раза — повтори действие через пару секунд.</i>"
+)
+
+
+async def _git_update(app):
+    """Уведомляет игроков об обновлении, затем перезагружает панель мимо кеша."""
+    from js import Date, location, setTimeout
+    from pyodide.ffi import create_proxy
+
+    dom.toast("Обновляю с GitHub…", "sys")
+
+    if app.bot.running:
+        app.log("sys", "Рассылаю уведомление об обновлении…")
+        try:
+            sent = await app.bot.broadcast(UPDATE_NOTICE)
+            dom.toast(f"Уведомлено игроков: {sent}")
+            app.log("sys", f"Уведомление доставлено: {sent}")
+        except Exception as e:
+            app.log("err", f"Рассылка обновления не удалась: {e}")
+    else:
+        app.log("sys", "Бот остановлен — уведомление игрокам не отправлено")
+
+    def reload(*_):
+        try:
+            base = str(location.origin) + str(location.pathname)
+            location.replace(base + "?v=" + str(int(Date.now())))
+        except Exception:
+            location.reload()
+
+    # даём тостам и последним запросам уйти до перезагрузки страницы
+    setTimeout(create_proxy(reload), 1500)

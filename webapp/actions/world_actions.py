@@ -4,6 +4,7 @@ import random
 
 from engine import world as W, data
 from webapp import dom
+from webapp.pages import dungeons as page_dungeons
 from webapp.pages import world as page
 
 DEFAULTS = {"token": "", "seed": 1337, "welcome_bonus": 50,
@@ -31,6 +32,8 @@ def register(app, A):
     A("dungeon-open", lambda arg: _dungeon_open(app, arg))
     A("dungeon-close", lambda arg: _dungeon_close(app, arg))
     A("dungeon-delete", lambda arg: _dungeon_delete(app, arg))
+    A("portal-loc", lambda arg: _portal_loc(app, arg))
+    A("dungeon-focus", lambda arg: _dungeon_focus(app, arg))
 
 
 def _pick_loc(app, idx):
@@ -164,6 +167,23 @@ def _grid_remove(app, loc_idx):
     app.close_modal()
     dom.toast("Локация убрана с сетки")
     app.render()
+
+
+def _portal_loc(app, idx):
+    """Переключает локацию на карте порталов."""
+    app.state["world_tab"] = "dungeons"
+    app.state["portal_loc"] = int(idx)
+    app.render()
+
+
+def _dungeon_focus(app, dg_id):
+    """Клик по 🌀 на карте — карточка подземелья."""
+    tpls = app.store.settings.setdefault("dungeon_templates", [])
+    dg = next((t for t in tpls if t["id"] == int(dg_id)), None)
+    if not dg:
+        dom.toast("Шаблон не найден", "err")
+        return
+    app.modal(page_dungeons.dungeon_form(app, dg))
 
 
 def _dungeon_create(app):
