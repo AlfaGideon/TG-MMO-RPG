@@ -254,6 +254,94 @@ function setupImagePreviews() {
     });
 }
 
+async function inlineSave(form) {
+    const data = new FormData(form);
+    const btn = form.querySelector('button[type=submit]');
+    try {
+        const r = await fetch(form.action, {method: 'POST', body: data});
+        const json = await r.json();
+        if (json.success) {
+            showToast('Сохранено');
+            form.classList.add('saved');
+            setTimeout(() => form.classList.remove('saved'), 1000);
+        } else {
+            showToast(json.error || 'Ошибка', 'err');
+        }
+    } catch (e) {
+        showToast('Ошибка сети', 'err');
+    }
+    return false;
+}
+
+function validateForm(form) {
+    let firstInvalid = null;
+    for (const input of form.querySelectorAll('input, select, textarea')) {
+        if (input.disabled || input.type === 'submit' || input.type === 'button') continue;
+        let msg = '';
+        if (input.required && !input.value.trim()) {
+            msg = 'Заполните это поле';
+        } else if (input.min && input.value && Number(input.value) < Number(input.min)) {
+            msg = 'Минимальное значение: ' + input.min;
+        } else if (input.max && input.value && Number(input.value) > Number(input.max)) {
+            msg = 'Максимальное значение: ' + input.max;
+        } else if (input.minLength && input.value.length < input.minLength) {
+            msg = 'Минимум символов: ' + input.minLength;
+        } else if (input.pattern && input.value && !new RegExp(input.pattern).test(input.value)) {
+            msg = input.title || 'Неверный формат';
+        }
+        input.setCustomValidity(msg);
+        if (msg && !firstInvalid) firstInvalid = input;
+    }
+    if (firstInvalid) {
+        firstInvalid.focus();
+        showToast('Проверьте поле: ' + (firstInvalid.name || firstInvalid.placeholder || ''), 'err');
+        return false;
+    }
+    return true;
+}
+
+function setupFormValidation() {
+    document.querySelectorAll('form[data-validate]').forEach(form => {
+        form.addEventListener('submit', function(e) {
+            if (!validateForm(form)) e.preventDefault();
+        });
+    });
+}
+
+function setupAutosave() {
+    document.querySelectorAll('form[data-autosave]').forEach(form => {
+        const key = 'autosave:' + window.location.pathname + ':' + (form.action || '');
+        const saved = localStorage.getItem(key);
+        if (saved) {
+            try {
+                const data = JSON.parse(saved);
+                Object.entries(data).forEach(([name, value]) => {
+                    const input = form.querySelector('[name="' + name + '"]');
+                    if (input && !input.value) {
+                        if (input.type === 'checkbox') input.checked = value === 'on' || value === true;
+                        else if (input.type === 'radio') {
+                            const radio = form.querySelector('[name="' + name + '"][value="' + value + '"]');
+                            if (radio) radio.checked = true;
+                        } else input.value = value;
+                    }
+                });
+            } catch (e) {}
+        }
+
+        let debounce;
+        form.addEventListener('input', () => {
+            clearTimeout(debounce);
+            debounce = setTimeout(() => {
+                const data = {};
+                new FormData(form).forEach((v, k) => { data[k] = v; });
+                localStorage.setItem(key, JSON.stringify(data));
+            }, 500);
+        });
+
+        form.addEventListener('submit', () => localStorage.removeItem(key));
+    });
+}
+
 function toggleGroup(id) {
     const el = document.getElementById(id);
     const willOpen = !el.classList.contains('open');
@@ -269,7 +357,11 @@ function toggleGroup(id) {
     });
 })();
 
-document.addEventListener('DOMContentLoaded', setupImagePreviews);
+document.addEventListener('DOMContentLoaded', () => {
+    setupImagePreviews();
+    setupFormValidation();
+    setupAutosave();
+});
 
 (function initGlobalSearch() {
     const modal = document.getElementById('searchModal');

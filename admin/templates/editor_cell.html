@@ -19,7 +19,7 @@
 
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
         <div>
-            <form action="/editor/cell/{{ cell.id }}/save" method="post" enctype="multipart/form-data">
+            <form action="/editor/cell/{{ cell.id }}/save" method="post" enctype="multipart/form-data" data-validate data-autosave>
                 <div style="margin-bottom: 1rem;">
                     <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Название клетки</label>
                     <input type="text" name="name" value="{{ cell.name }}" class="search-box" style="max-width: 100%;" required>

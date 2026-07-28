@@ -29,6 +29,18 @@
 {% endif %}
 {% endmacro %}
 
+{% macro sort_link(label, field, current_sort, current_order, base_url, q='') %}
+{% set sep = '&' if '?' in base_url else '?' %}
+{% set qparam = ('q=' + q | urlencode + '&') if q else '' %}
+{% set active = current_sort == field %}
+{% set next_order = 'asc' if active and current_order == 'desc' else 'desc' %}
+<a href="{{ base_url }}{{ sep }}{{ qparam }}sort={{ field }}&order={{ next_order }}"
+   class="sort-header {% if active %}active {{ current_order }}{% endif %}">
+    {{ label }}
+    {% if active %}{{ '▲' if current_order == 'asc' else '▼' }}{% else %}<span class="sort-inactive">⇅</span>{% endif %}
+</a>
+{% endmacro %}
+
 {% macro search_form(action, q='', placeholder='Поиск...') %}
 <form method="get" action="{{ action }}" class="list-toolbar">
     <input type="text" name="q" value="{{ q }}" placeholder="{{ placeholder }}" class="search-box">

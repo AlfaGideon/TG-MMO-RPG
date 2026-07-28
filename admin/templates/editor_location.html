@@ -63,7 +63,7 @@
 <div class="card">
     <h2>✏️ Редактирование: {{ location.name }}</h2>
 
-    <form action="/editor/location/{{ location.id }}/save" method="post" enctype="multipart/form-data" style="margin-bottom: 1.5rem;">
+    <form action="/editor/location/{{ location.id }}/save" method="post" enctype="multipart/form-data" style="margin-bottom: 1.5rem;" data-validate data-autosave>
         {% if location.image_url %}
         <div style="margin-bottom: 1rem;">
             <img id="locPreview" src="{{ location.image_url }}" style="max-width: 200px; border-radius: 8px; border: 1px solid var(--border);">

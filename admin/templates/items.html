@@ -24,13 +24,13 @@
     <table>
         <thead>
             <tr>
-                <th>ID</th>
+                <th>{{ macros.sort_link('ID', 'id', sort, order, '/items', q) }}</th>
                 <th>Иконка</th>
-                <th>Название</th>
+                <th>{{ macros.sort_link('Название', 'name', sort, order, '/items', q) }}</th>
                 <th>Тип</th>
                 <th>Редкость</th>
-                <th>Ур.</th>
-                <th>Цена</th>
+                <th>{{ macros.sort_link('Ур.', 'level_requirement', sort, order, '/items', q) }}</th>
+                <th>{{ macros.sort_link('Цена', 'price', sort, order, '/items', q) }}</th>
                 <th title="Разброс статов у экземпляров">Разброс</th>
                 <th title="Сколько уникальных экземпляров в игре">Копий</th>
                 <th>Действия</th>
@@ -44,8 +44,18 @@
                 <td>{{ item.name }}</td>
                 <td>{{ item.item_type.value }}</td>
                 <td><span class="badge badge-{{ item.rarity.value }}">{{ item.rarity.value }}</span></td>
-                <td>{{ item.level_requirement }}</td>
-                <td>{{ item.price }}</td>
+                <td>
+                    <form action="/api/item/{{ item.id }}/inline" method="post" class="inline-form" onsubmit="return inlineSave(this)">
+                        <input type="hidden" name="field" value="level_requirement">
+                        <input type="number" name="value" value="{{ item.level_requirement }}" min="1" class="search-box" style="max-width:70px">
+                    </form>
+                </td>
+                <td>
+                    <form action="/api/item/{{ item.id }}/inline" method="post" class="inline-form" onsubmit="return inlineSave(this)">
+                        <input type="hidden" name="field" value="price">
+                        <input type="number" name="value" value="{{ item.price }}" min="0" class="search-box" style="max-width:90px">
+                    </form>
+                </td>
                 <td>{% if item.is_unique_roll %}±{{ ((item.stat_variance or 0) * 100)|int }}%{% else %}<span style="color:var(--text-muted)">стак</span>{% endif %}</td>
                 <td>{{ instance_counts.get(item.id, 0) }}</td>
                 <td>

@@ -19,6 +19,7 @@ def register(app, A):
     A("players-wipe", lambda _="": _wipe(app))
     A("player-access", lambda arg: app.modal(page.access_form(app, arg)))
     A("players-page", lambda arg: _set_page(app, arg))
+    A("players-sort", lambda arg: _set_sort(app, arg))
     A("access-preset", lambda arg: _preset(app, arg))
     A("access-newpass", lambda arg: _newpass(app, arg))
     A("access-save", lambda arg: _access_save(app, arg))
@@ -93,6 +94,18 @@ def _give(app, tg_id):
 
 def _set_page(app, arg):
     app.state["players_page"] = int(arg)
+    app.render()
+
+
+def _set_sort(app, arg):
+    current = app.state.get("players_sort", "level")
+    order = app.state.get("players_order", "desc")
+    if current == arg:
+        app.state["players_order"] = "asc" if order == "desc" else "desc"
+    else:
+        app.state["players_sort"] = arg
+        app.state["players_order"] = "desc"
+    app.state["players_page"] = 1
     app.render()
 
 

@@ -60,9 +60,16 @@
     <div class="table-wrap">
     <table>
         <thead>
-            <tr><th>ID предмета</th><th>Название</th><th>Кач.</th><th>Зат.</th>
-                <th>Редкость</th><th>Источник</th><th>Сделок</th>
-                <th>Владелец</th><th></th></tr>
+            <tr>
+                <th>{{ macros.sort_link('ID предмета', 'id', sort, order, '/editor/instances' + ('?source=' + source if source else ''), q) }}</th>
+                <th>Название</th>
+                <th>{{ macros.sort_link('Кач.', 'quality', sort, order, '/editor/instances' + ('?source=' + source if source else ''), q) }}</th>
+                <th>{{ macros.sort_link('Зат.', 'upgrade_level', sort, order, '/editor/instances' + ('?source=' + source if source else ''), q) }}</th>
+                <th>Редкость</th>
+                <th>Источник</th>
+                <th>{{ macros.sort_link('Сделок', 'trade_count', sort, order, '/editor/instances' + ('?source=' + source if source else ''), q) }}</th>
+                <th>Владелец</th><th></th>
+            </tr>
         </thead>
         <tbody>
             {% for inst, item, owner in rows %}

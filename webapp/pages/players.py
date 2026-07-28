@@ -9,15 +9,37 @@ CRUMBS = [("Игроки", "players")]
 PER_PAGE = 15
 
 
+SORTABLE = [
+    ("name", "Имя"), ("level", "Ур."), ("gold", "Золото"),
+    ("hp", "HP"), ("kills", "Убийств"),
+]
+
+
 def render(ctx):
     page = max(1, ctx.state.get("players_page", 1))
-    ps_all = sorted(ctx.store.players.values(), key=lambda p: -p.level)
+    sort = ctx.state.get("players_sort", "level")
+    order = ctx.state.get("players_order", "desc")
+    reverse = order == "desc"
+
+    def key(p):
+        val = getattr(p, sort, 0)
+        if sort == "name":
+            val = val.lower() if val else ""
+        return val
+
+    ps_all = sorted(ctx.store.players.values(), key=key, reverse=reverse)
     total = len(ps_all)
     pages = max(1, (total + PER_PAGE - 1) // PER_PAGE)
     page = min(page, pages)
     ctx.state["players_page"] = page
     start = (page - 1) * PER_PAGE
     ps = ps_all[start:start + PER_PAGE]
+
+    headers = "".join(
+        f"<th><button class='sort-btn {'active' if sort == k else ''}' data-act='players-sort' data-arg='{k}'>{label} "
+        f"{'▲' if sort == k and not reverse else '▼' if sort == k else '⇅'}</button></th>"
+        for k, label in [("tg_id", "TG ID")] + SORTABLE + [("loc", "Позиция"), ("inv", "Предм.")]
+    )
     rows = ""
     for p in ps:
         loc = data.LOCATIONS[p.loc][0] if p.loc < len(data.LOCATIONS) else "—"
@@ -67,8 +89,7 @@ def render(ctx):
 <div class="card">
   <h2>👥 Игроки <span class="muted">({start + 1}–{min(start + PER_PAGE, total)} из {total})</span></h2>
   <div class="scroll"><table>
-    <tr><th>TG ID</th><th>Имя</th><th>Класс</th><th>Ур.</th><th>HP</th>
-        <th>Золото</th><th>Позиция</th><th>Предм.</th><th>Роль</th><th></th></tr>
+    <tr>{headers}<th>Роль</th><th></th></tr>
     {rows}
   </table></div>
   {pagination}

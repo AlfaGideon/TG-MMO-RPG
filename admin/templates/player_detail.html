@@ -142,7 +142,7 @@
     <h3>✏️ Редактирование персонажа</h3>
     <p class="section-sub">Поля сгруппированы по смыслу: личность, прокачка, характеристики, витальность.</p>
 
-    <form action="/player/{{ char.id }}/edit" method="post" enctype="multipart/form-data">
+    <form action="/player/{{ char.id }}/edit" method="post" enctype="multipart/form-data" data-validate data-autosave>
         <fieldset class="field-group">
             <span class="group-title">👤 Личность</span>
             <div class="field-row cols-2">

@@ -110,6 +110,10 @@ code{background:var(--bg-input);padding:.1rem .35rem;border-radius:4px;font-size
 .pagination button,.pagination span{min-width:2rem;height:2rem;display:inline-flex;align-items:center;justify-content:center;border-radius:8px;border:1px solid var(--border);color:var(--text-muted);background:transparent;font-size:.82rem}
 .pagination button:hover{border-color:var(--accent);color:var(--text)}
 .pagination .current{background:var(--accent-soft);color:var(--accent);border-color:var(--accent);font-weight:600}
+
+.sort-btn{background:transparent;border:none;color:var(--text-muted);font-size:inherit;font-weight:inherit;cursor:pointer;padding:0;display:inline-flex;align-items:center;gap:.2rem}
+.sort-btn:hover{color:var(--accent)}
+.sort-btn.active{color:var(--accent);font-weight:600}
 /* ── Кликабельные строки таблиц (контент, экземпляры) ── */
 tr.clickable{cursor:pointer}
 tr.clickable:hover td{background:var(--accent-soft)}

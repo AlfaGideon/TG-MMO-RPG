@@ -94,6 +94,15 @@ def paginate(total: int, page: int, per_page: int):
     }
 
 
+def apply_sort(query, model, sort: str, order: str, default=("id", "desc")):
+    """Применяет сортировку к SQLAlchemy-запросу."""
+    allowed = {c.name for c in model.__table__.columns}
+    field = sort if sort in allowed else default[0]
+    direction = "desc" if order.lower() == "desc" else "asc"
+    col = getattr(model, field)
+    return query.order_by(col.desc() if direction == "desc" else col.asc())
+
+
 STATION_LABELS = {
     "forge": "🔨 Кузница", "alchemy": "⚗️ Алхимия",
     "jewelry": "💎 Ювелир", "any": "🛠 Любой станок",
@@ -331,7 +340,10 @@ async def dashboard(request: Request):
 # ── Players ────────────────────────────────────────────────
 
 @app.get("/players")
-async def players(request: Request, page: int = 1, q: str = ""):
+async def players(
+    request: Request, page: int = 1, q: str = "",
+    sort: str = "level", order: str = "desc",
+):
     per_page = 25
     async with async_session() as session:
         base_query = select(Character).options(
@@ -346,16 +358,16 @@ async def players(request: Request, page: int = 1, q: str = ""):
         ) or 0
         meta = paginate(total, page, per_page)
 
+        base_query = apply_sort(base_query, Character, sort, order, ("level", "desc"))
         result = await session.execute(
-            base_query.order_by(Character.level.desc())
-            .offset(meta["offset"]).limit(per_page)
+            base_query.offset(meta["offset"]).limit(per_page)
         )
         chars = result.scalars().all()
 
     return templates.TemplateResponse(
         request,
         "players.html",
-        {"players": chars, "pagination": meta, "q": q},
+        {"players": chars, "pagination": meta, "q": q, "sort": sort, "order": order},
     )
 
 
@@ -532,6 +544,35 @@ async def player_edit(
                 char.image_url = image_url.strip()
             await session.commit()
     return RedirectResponse(url=f"/player/{char_id}", status_code=303)
+
+
+@app.post("/api/player/{char_id}/inline")
+async def player_inline_edit(
+    request: Request, char_id: int,
+    field: str = Form(...), value: str = Form(...),
+):
+    """Inline-редактирование простых полей персонажа прямо в таблице."""
+    guard(request, "manage_players")
+    allowed = {"level", "gold", "strength", "agility", "intelligence", "endurance", "luck"}
+    if field not in allowed:
+        return JSONResponse({"success": False, "error": "Нельзя редактировать это поле"})
+    try:
+        num = int(value)
+    except ValueError:
+        return JSONResponse({"success": False, "error": "Нужно число"})
+
+    async with async_session() as session:
+        char = await session.get(Character, char_id)
+        if not char:
+            return JSONResponse({"success": False, "error": "Персонаж не найден"})
+        if field == "level":
+            char.level = max(1, num)
+        elif field == "gold":
+            char.gold = max(0, num)
+        else:
+            setattr(char, field, num)
+        await session.commit()
+    return JSONResponse({"success": True})
 
 
 @app.get("/player/{char_id}/heal")
@@ -948,7 +989,10 @@ async def player_revoke_admin(request: Request, char_id: int):
 # ── Items ──────────────────────────────────────────────────
 
 @app.get("/items")
-async def items(request: Request, page: int = 1, q: str = ""):
+async def items(
+    request: Request, page: int = 1, q: str = "",
+    sort: str = "id", order: str = "asc",
+):
     per_page = 25
     async with async_session() as session:
         base_query = select(Item)
@@ -961,8 +1005,9 @@ async def items(request: Request, page: int = 1, q: str = ""):
         ) or 0
         meta = paginate(total, page, per_page)
 
+        base_query = apply_sort(base_query, Item, sort, order, ("id", "asc"))
         result = await session.execute(
-            base_query.order_by(Item.id).offset(meta["offset"]).limit(per_page)
+            base_query.offset(meta["offset"]).limit(per_page)
         )
         all_items = result.scalars().all()
 
@@ -978,9 +1023,9 @@ async def items(request: Request, page: int = 1, q: str = ""):
         )
         instance_counts = {row[0]: row[1] for row in result.all()}
 
-    # Для выпадающего списка «Добавить в лавку» нужны все предметы
-    all_items_result = await session.execute(select(Item).order_by(Item.name))
-    all_items_for_shop = all_items_result.scalars().all()
+        # Для выпадающего списка «Добавить в лавку» нужны все предметы
+        all_items_result = await session.execute(select(Item).order_by(Item.name))
+        all_items_for_shop = all_items_result.scalars().all()
 
     return templates.TemplateResponse(
         request,
@@ -988,7 +1033,7 @@ async def items(request: Request, page: int = 1, q: str = ""):
         {
             "items": all_items, "all_items": all_items_for_shop,
             "shop_items": shop_items, "instance_counts": instance_counts,
-            "pagination": meta, "q": q,
+            "pagination": meta, "q": q, "sort": sort, "order": order,
         },
     )
 
@@ -1090,6 +1135,30 @@ async def item_edit(
                 item.image_url = image_url.strip()
             await session.commit()
     return RedirectResponse(url="/items", status_code=303)
+
+
+@app.post("/api/item/{item_id}/inline")
+async def item_inline_edit(
+    request: Request, item_id: int,
+    field: str = Form(...), value: str = Form(...),
+):
+    """Inline-редактирование простых полей предмета прямо в таблице."""
+    guard(request, "manage_content")
+    allowed = {"price", "level_requirement", "max_upgrade_level"}
+    if field not in allowed:
+        return JSONResponse({"success": False, "error": "Нельзя редактировать это поле"})
+    try:
+        num = int(value)
+    except ValueError:
+        return JSONResponse({"success": False, "error": "Нужно число"})
+
+    async with async_session() as session:
+        item = await session.get(Item, item_id)
+        if not item:
+            return JSONResponse({"success": False, "error": "Предмет не найден"})
+        setattr(item, field, max(0, num))
+        await session.commit()
+    return JSONResponse({"success": True})
 
 
 @app.post("/item/new")
@@ -1203,22 +1272,28 @@ async def item_delete(request: Request, item_id: int):
 # ── Battles ────────────────────────────────────────────────
 
 @app.get("/battles")
-async def battles(request: Request, page: int = 1):
+async def battles(
+    request: Request, page: int = 1,
+    sort: str = "id", order: str = "desc",
+):
     per_page = 50
     async with async_session() as session:
         total = await session.scalar(select(func.count(Battle.id))) or 0
         meta = paginate(total, page, per_page)
-        result = await session.execute(
+
+        base_query = (
             select(Battle)
             .options(selectinload(Battle.character), selectinload(Battle.mob))
-            .order_by(Battle.id.desc())
-            .offset(meta["offset"]).limit(per_page)
+        )
+        base_query = apply_sort(base_query, Battle, sort, order, ("id", "desc"))
+        result = await session.execute(
+            base_query.offset(meta["offset"]).limit(per_page)
         )
         rows = result.scalars().all()
     return templates.TemplateResponse(
         request,
         "battles.html",
-        {"battles": rows, "pagination": meta},
+        {"battles": rows, "pagination": meta, "sort": sort, "order": order},
     )
 
 
@@ -2952,7 +3027,8 @@ async def spawn_kill(request: Request, spawn_id: int):
 
 @app.get("/editor/instances")
 async def editor_instances(
-    request: Request, page: int = 1, source: str = "", q: str = ""
+    request: Request, page: int = 1, source: str = "", q: str = "",
+    sort: str = "id", order: str = "desc",
 ):
     """Все уникальные экземпляры в игре: кто владеет, откуда взялся."""
     guard(request, "manage_content")
@@ -2976,9 +3052,9 @@ async def editor_instances(
         ) or 0
         meta = paginate(total, page, per_page)
 
+        base_query = apply_sort(base_query, ItemInstance, sort, order, ("id", "desc"))
         rows = (await session.execute(
-            base_query.order_by(ItemInstance.id.desc())
-            .offset(meta["offset"]).limit(per_page)
+            base_query.offset(meta["offset"]).limit(per_page)
         )).all()
 
         by_source = {
@@ -3005,6 +3081,7 @@ async def editor_instances(
             "rows": rows, "total": total, "by_source": by_source,
             "uniques": uniques, "festive": festive, "traded": traded,
             "source": source, "q": q, "pagination": meta,
+            "sort": sort, "order": order,
             "badges": SOURCE_BADGES, "source_labels": SOURCE_LABELS,
         },
     )

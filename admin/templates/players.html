@@ -23,13 +23,13 @@
     <table id="playersTable">
         <thead>
             <tr>
-                <th>ID</th>
+                <th>{{ macros.sort_link('ID', 'id', sort, order, '/players', q) }}</th>
                 <th>Telegram</th>
-                <th>Имя</th>
+                <th>{{ macros.sort_link('Имя', 'name', sort, order, '/players', q) }}</th>
                 <th>Класс</th>
-                <th>Ур.</th>
-                <th>Опыт</th>
-                <th>Золото</th>
+                <th>{{ macros.sort_link('Ур.', 'level', sort, order, '/players', q) }}</th>
+                <th>{{ macros.sort_link('Опыт', 'experience', sort, order, '/players', q) }}</th>
+                <th>{{ macros.sort_link('Золото', 'gold', sort, order, '/players', q) }}</th>
                 <th>HP</th>
                 <th>Локация</th>
                 <th>VIP</th>
@@ -43,9 +43,19 @@
                 <td>{{ p.user.telegram_id }}</td>
                 <td>{{ p.name }}</td>
                 <td>{{ p.character_class.value }}</td>
-                <td>{{ p.level }}</td>
+                <td>
+                    <form action="/api/player/{{ p.id }}/inline" method="post" class="inline-form" onsubmit="return inlineSave(this)">
+                        <input type="hidden" name="field" value="level">
+                        <input type="number" name="value" value="{{ p.level }}" min="1" class="search-box" style="max-width:70px">
+                    </form>
+                </td>
                 <td>{{ p.experience }}</td>
-                <td>{{ p.gold }}</td>
+                <td>
+                    <form action="/api/player/{{ p.id }}/inline" method="post" class="inline-form" onsubmit="return inlineSave(this)">
+                        <input type="hidden" name="field" value="gold">
+                        <input type="number" name="value" value="{{ p.gold }}" min="0" class="search-box" style="max-width:90px">
+                    </form>
+                </td>
                 <td>{{ p.current_hp }}/{{ p.max_hp }}</td>
                 <td>{{ p.location.name if p.location else '-' }}</td>
                 <td>{{ '✅' if p.is_vip else '—' }}</td>

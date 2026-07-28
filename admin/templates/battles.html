@@ -21,16 +21,16 @@
     <table>
         <thead>
             <tr>
-                <th>ID</th>
+                <th>{{ macros.sort_link('ID', 'id', sort, order, '/battles') }}</th>
                 <th>Игрок</th>
                 <th>Враг</th>
                 <th>Результат</th>
-                <th>Раундов</th>
-                <th>Урон нанёс</th>
-                <th>Урон получил</th>
-                <th>Золото</th>
-                <th>Опыт</th>
-                <th>Время</th>
+                <th>{{ macros.sort_link('Раундов', 'rounds', sort, order, '/battles') }}</th>
+                <th>{{ macros.sort_link('Урон нанёс', 'damage_dealt', sort, order, '/battles') }}</th>
+                <th>{{ macros.sort_link('Урон получил', 'damage_taken', sort, order, '/battles') }}</th>
+                <th>{{ macros.sort_link('Золото', 'gold_earned', sort, order, '/battles') }}</th>
+                <th>{{ macros.sort_link('Опыт', 'exp_earned', sort, order, '/battles') }}</th>
+                <th>{{ macros.sort_link('Время', 'created_at', sort, order, '/battles') }}</th>
             </tr>
         </thead>
         <tbody>

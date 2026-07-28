@@ -56,7 +56,7 @@
             </tr>
             <tr id="cls-{{ c.id }}" style="display:none;">
                 <td colspan="9">
-                    <form action="/editor/classes/{{ c.id }}/edit" method="post">
+                    <form action="/editor/classes/{{ c.id }}/edit" method="post" data-validate data-autosave>
                         <fieldset class="field-group">
                             <span class="group-title">Основное</span>
                             <div class="field-row">
@@ -166,7 +166,7 @@
 
 <div class="card" id="new-class">
     <h3>➕ Создать класс</h3>
-    <form action="/editor/classes/new" method="post">
+    <form action="/editor/classes/new" method="post" data-validate data-autosave>
         <fieldset class="field-group">
             <span class="group-title">Основное</span>
             <div class="field-row">

@@ -20,7 +20,7 @@
         с разбросом. Ниже — база и настройки разброса.
     </p>
 
-    <form action="/item/{{ item.id }}/edit" method="post" enctype="multipart/form-data">
+    <form action="/item/{{ item.id }}/edit" method="post" enctype="multipart/form-data" data-validate data-autosave>
         {% if item.image_url %}
         <div style="margin-bottom:1rem; text-align:center;">
             <img src="{{ item.image_url }}" style="max-width:150px; max-height:150px; border-radius:8px; border:1px solid var(--border);">

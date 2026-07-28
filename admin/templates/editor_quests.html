@@ -65,7 +65,7 @@
 
 <div class="card" id="quest-form">
     <h3 id="quest-form-title">➕ Новый квест</h3>
-    <form action="/editor/quests/new" method="post" id="questForm" enctype="multipart/form-data">
+    <form action="/editor/quests/new" method="post" id="questForm" enctype="multipart/form-data" data-validate data-autosave>
         <input type="hidden" name="quest_id" id="q_id" value="">
         <div class="form-grid">
             <div><label class="form-label">Название</label><input type="text" name="name" id="q_name" class="search-box" style="max-width:100%" required></div>
