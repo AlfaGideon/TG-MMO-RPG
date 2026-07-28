@@ -93,13 +93,19 @@ def _render_map(ctx):
         for p in ctx.store.players.values() if p.created_char
     )
 
+    brush_opts = "".join(f"<option value='{t}' {'selected' if t == 'grass' else ''}>{t}</option>" for t in data.TILE_COLORS)
     return f"""
 <div class="card">
   <h2>🗺 Выберите локацию</h2>
   <div style="display:flex;gap:.4rem;flex-wrap:wrap;margin-bottom:1rem;">{tabs}</div>
-  <div style="display:flex;align-items:center;gap:.5rem;margin-top:.5rem;">
+  <div style="display:flex;align-items:center;gap:.5rem;margin-top:.5rem;flex-wrap:wrap">
     <span class="muted">Режим тумана войны (выберите игрока):</span>
     <select id="fogPlayerSelect" data-act="world-fog-select" style="max-width:200px;width:auto;">{player_options}</select>
+  </div>
+  <div style="display:flex;align-items:center;gap:.5rem;margin-top:.5rem;flex-wrap:wrap">
+    <span class="muted">Кисть для рисования:</span>
+    <select id="paintBrush" style="max-width:150px;width:auto;">{brush_opts}</select>
+    <span class="muted">Кликай по клеткам, чтобы закрасить. Для редактирования — клик правой кнопкой.</span>
   </div>
 </div>
 
@@ -109,10 +115,39 @@ def _render_map(ctx):
      · мин. уровень {data.LOCATIONS[li][3]}</p>
   <p class="muted" style="margin-bottom:.7rem">👾 мобов: {mobs} · 📦 сундуков: {chests} · 🧱 стен: {walls}
      · ⭐ спавн [{W.SPAWN[0]},{W.SPAWN[1]}] · 🚪 переход в соседнюю локацию</p>
-  <div class="mapgrid">{cells}</div>
+  <div class="mapgrid" id="locMapGrid">{cells}</div>
   <div class="legend">{legend}</div>
-  <p class="muted" style="margin-top:.6rem">Клик по клетке — редактировать.</p>
+  <p class="muted" style="margin-top:.6rem">ЛКМ — закрасить выбранной кистью, ПКМ — редактировать клетку.</p>
 </div>
+<script>
+(function(){{
+  const grid = document.getElementById('locMapGrid');
+  if (!grid) return;
+  let painting = false;
+  grid.addEventListener('mousedown', function(e){{
+    const cell = e.target.closest('.c');
+    if (!cell) return;
+    if (e.button === 2) return; // right click -> edit via data-act
+    painting = true;
+    e.preventDefault();
+    const brush = document.getElementById('paintBrush')?.value || 'grass';
+    window.__app && window.__app.paint_cell && window.__app.paint_cell(cell.dataset.arg, brush);
+  }});
+  grid.addEventListener('mouseover', function(e){{
+    if (!painting) return;
+    const cell = e.target.closest('.c');
+    if (!cell) return;
+    const brush = document.getElementById('paintBrush')?.value || 'grass';
+    window.__app && window.__app.paint_cell && window.__app.paint_cell(cell.dataset.arg, brush);
+  }});
+  document.addEventListener('mouseup', function(){{ painting = false; }});
+  grid.addEventListener('contextmenu', function(e){{
+    e.preventDefault();
+    const cell = e.target.closest('.c');
+    if (cell && window.__app && window.__app.edit_cell) window.__app.edit_cell(cell.dataset.arg);
+  }});
+}})();
+</script>
 
 <div class="card">
   <h2>🎲 Пересоздать мир</h2>
@@ -142,7 +177,7 @@ def _render_grid(ctx):
             if loc_idx is not None:
                 loc_name = data.LOCATIONS[loc_idx][0]
                 cells += (
-                    f"<div class='c' style='background:var(--accent); color:#fff; font-size:0.7rem; border-radius:4px; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:2px; height:40px; cursor:pointer;' "
+                    f"<div class='c loc-cell' style='background:var(--accent); color:#fff; font-size:0.7rem; border-radius:4px; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:2px; height:40px; cursor:pointer;' "
                     f"title='{esc(loc_name)} [{wx},{wy}]' data-act='world-grid-edit' data-arg='{wx}:{wy}:{loc_idx}'>"
                     f"<b>L{loc_idx}</b><span style='font-size:0.5rem; overflow:hidden; text-overflow:ellipsis; width:100%; white-space:nowrap;'>{esc(loc_name[:8])}</span>"
                     f"</div>"
@@ -158,9 +193,36 @@ def _render_grid(ctx):
     return f"""
 <div class="card">
   <h2>🌐 Глобальная координатная сетка мира (10x10)</h2>
-  <p class="muted" style="margin-bottom:1rem">Размещайте локации на глобальной карте. Новые игроки будут видеть сетку в зависимости от переходов.</p>
-  <div class="mapgrid" style="grid-template-columns: repeat(10, 1fr); max-width:480px; gap:4px;">{cells}</div>
+  <p class="muted" style="margin-bottom:1rem">Размещайте локации на глобальной карте. Перетаскивайте размещённые локации на пустые клетки.</p>
+  <div class="mapgrid" id="worldGrid" style="grid-template-columns: repeat(10, 1fr); max-width:480px; gap:4px;">{cells}</div>
 </div>
+<script>
+(function(){{
+  const grid = document.getElementById('worldGrid');
+  if (!grid) return;
+  let dragged = null;
+  grid.querySelectorAll('.loc-cell').forEach(el => {{
+    el.setAttribute('draggable', 'true');
+    el.addEventListener('dragstart', function(e){{
+      dragged = el.dataset.arg;
+      e.dataTransfer.effectAllowed = 'move';
+    }});
+  }});
+  grid.addEventListener('dragover', function(e){{
+    const cell = e.target.closest('.c');
+    if (cell && !cell.classList.contains('loc-cell')) e.preventDefault();
+  }});
+  grid.addEventListener('drop', function(e){{
+    const cell = e.target.closest('.c');
+    if (!cell || cell.classList.contains('loc-cell') || !dragged) return;
+    e.preventDefault();
+    const parts = cell.dataset.arg.split(':');
+    if (parts.length !== 2) return;
+    const locIdx = dragged.split(':')[2];
+    window.__app && window.__app.move_world_loc && window.__app.move_world_loc(locIdx, parts[0], parts[1]);
+  }});
+}})();
+</script>
 """
 
 

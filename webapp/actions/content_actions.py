@@ -16,12 +16,14 @@ def register(app, A):
     A("mob-save", lambda arg: _mob_save(app, arg))
     A("mob-del", lambda arg: _mob_del(app, arg))
     A("mob-clone", lambda arg: _mob_clone(app, arg))
+    A("mob-drops", lambda arg: app.modal(page.mob_drops_form(app, int(arg))))
 
     A("item-edit", lambda arg: app.modal(page.item_form(app, int(arg))))
     A("item-new", lambda _="": app.modal(page.item_form(app, None)))
     A("item-save", lambda arg: _item_save(app, arg))
     A("item-del", lambda arg: _item_del(app, arg))
     A("item-clone", lambda arg: _item_clone(app, arg))
+    A("item-inline", lambda arg: _item_inline(app, arg))
 
     A("npc-edit", lambda arg: app.modal(page.npc_form(app, int(arg))))
     A("npc-new", lambda _="": app.modal(page.npc_form(app, None)))
@@ -210,6 +212,23 @@ def _item_clone(app, arg):
     src[0] = src[0] + " (копия)"
     data.ITEMS.append(tuple(src))
     dom.toast(f"Предмет «{src[0]}» склонирован")
+    _persist(app)
+
+
+def _item_inline(app, payload):
+    try:
+        idx, field, val = payload.rsplit(":", 2)
+        idx = int(idx)
+        val = int(val)
+    except (ValueError, TypeError):
+        dom.toast("Некорректное значение", "err")
+        return
+    if field != "price" or idx < 0 or idx >= len(data.ITEMS):
+        return
+    it = list(data.ITEMS[idx])
+    it[3] = val
+    data.ITEMS[idx] = tuple(it)
+    dom.toast("Цена обновлена")
     _persist(app)
 
 

@@ -167,6 +167,28 @@ class App:
         from js import location
         location.replace("admin-login.html")
 
+    def paint_cell(self, key, tile):
+        """Drag-to-paint клетки локации (вызывается из inline JS)."""
+        from engine import data
+        c = self.store.world.get(key)
+        if c is None or tile not in data.TILE_COLORS:
+            return
+        c.tile = tile
+        self.store.save()
+        self.render()
+
+    def edit_cell(self, key):
+        """Открыть форму клетки (вызывается из inline JS)."""
+        from webapp.pages import world as page
+        self.modal(page.cell_form(self, key))
+
+    def move_world_loc(self, loc_idx, wx, wy):
+        """Переместить локацию на глобальной сетке (drag-and-drop)."""
+        grid = self.store.settings.setdefault("world_grid", {})
+        grid[str(loc_idx)] = [int(wx), int(wy)]
+        self.store.save()
+        self.render()
+
     # ── запуск ──────────────────────────────────────────────
     def wire(self):
         dom.register("nav", self.go)

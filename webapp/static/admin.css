@@ -170,6 +170,9 @@ tr.clickable:hover td{background:var(--accent-soft)}
 
 .inline-form{display:inline;margin:0}
 .inline-form input.inline-num{width:70px;padding:.25rem .4rem;text-align:center;font-size:.8rem}
+.drop-preview-list{display:flex;flex-direction:column;gap:.4rem;margin-top:.6rem}
+.drop-preview-row{display:flex;justify-content:space-between;align-items:center;padding:.45rem .6rem;background:var(--bg-hover);border-radius:6px}
+.drop-preview-row .drop-chance{font-size:.8rem;color:var(--accent);font-weight:600}
 
 /* ── Mobile responsiveness ──────────────────────────────── */
 

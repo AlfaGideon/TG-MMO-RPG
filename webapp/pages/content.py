@@ -46,7 +46,9 @@ def _mobs(ctx):
         f"<b>{esc(m[0])}</b>", f"<span class='muted'>{esc(m[1])}</span>", m[2],
         m[3], m[4], m[5], f"{m[6]} 🪙", f"{m[7]} ⭐",
         esc(data.LOCATIONS[m[8]][0])], labels,
-        actions=f"<button class='btn'>✏️</button> <button class='btn' data-act='mob-clone' data-arg='{i}' title='Клонировать'>📋</button>")
+        actions=(f"<button class='btn'>✏️</button> "
+                 f"<button class='btn' data-act='mob-drops' data-arg='{i}' title='Что выпадает'>🎁</button> "
+                 f"<button class='btn' data-act='mob-clone' data-arg='{i}' title='Клонировать'>📋</button>"))
         for i, m in enumerate(data.MOBS))
     return f"""
 <div class="card">
@@ -66,11 +68,13 @@ def _items(ctx):
     for i in range(len(data.ITEMS)):
         it = rules.item(i)
         bon = ", ".join(f"{k}+{v}" for k, v in it["bonus"].items()) or "—"
+        price_form = (f"<form class='inline-form' data-act='item-inline' data-arg='{i}:price' onsubmit='return false'>"
+                      f"<input type='number' class='inline-num' value='{it['price']}' min='0' max='999999'></form>")
         rows += _row(f"data-act='item-edit' data-arg='{i}'", [
             f"{it['icon']} <b>{esc(it['name'])}</b>",
             f"<span class='tag'>{it['type']}</span>",
             f"<span class='tag {it['rarity']}'>{it['rarity']}</span>",
-            f"{it['price']} 🪙", f"<span class='muted'>{esc(bon)}</span>"], labels,
+            price_form, f"<span class='muted'>{esc(bon)}</span>"], labels,
             actions=f"<button class='btn'>✏️</button> <button class='btn' data-act='item-clone' data-arg='{i}' title='Клонировать'>📋</button>")
     return f"""
 <div class="card">
@@ -167,7 +171,7 @@ def item_form(ctx, idx):
     arg = "new" if new else idx
     return f"""
 <h2>{'➕ Новый предмет' if new else it[4] + ' ' + esc(it[0])}</h2>
-<form data-validate data-autosave>
+<form data-validate data-autosave id="itemForm">
 <div class="row" style="margin-top:.6rem">
   <div><label>Название</label><input id="if_name" value="{esc(it[0])}"></div>
   <div style="flex:0 0 90px"><label>Иконка</label><input id="if_icon" value="{esc(it[4])}"></div>
@@ -212,6 +216,32 @@ def npc_form(ctx, idx):
   <button class="btn" data-act="modal-close">Отмена</button>
 </div>
 </form>
+"""
+
+
+def mob_drops_form(ctx, idx):
+    from engine import rules
+    m = data.MOBS[idx]
+    level = m[2]
+    rows = ""
+    candidates = []
+    for i, it in enumerate(data.ITEMS):
+        itd = rules.item(i)
+        rarity_score = {"common": 1, "uncommon": 2, "rare": 3, "epic": 4, "legendary": 5}.get(itd["rarity"], 1)
+        price_score = itd["price"] // 20
+        candidates.append((i, itd, rarity_score + price_score))
+    candidates.sort(key=lambda x: x[2], reverse=True)
+    for i, itd, _ in candidates[:6]:
+        chance = max(5, min(60, 50 - i * 5 + level * 2))
+        rows += (f"<div class='drop-preview-row'><span class='drop-name'>{itd['icon']} {esc(itd['name'])}</span>"
+                 f"<span class='drop-chance'>{chance}%</span></div>")
+    if not rows:
+        rows = "<div class='muted'>Нет подходящих предметов.</div>"
+    return f"""
+<h2>🎁 Что выпадает с «{esc(m[0])}»</h2>
+<p class="muted">Уровень моба: {level} · локация: {esc(data.LOCATIONS[m[8]][0])}</p>
+<div class="drop-preview-list">{rows}</div>
+<div style="margin-top:1rem"><button class="btn" data-act="modal-close">Закрыть</button></div>
 """
 
 
