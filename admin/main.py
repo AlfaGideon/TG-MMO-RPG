@@ -17,8 +17,12 @@ from core.migrations import run_migrations
 from core.models import (
     User, Character, Location, Mob, Item, ShopItem, Battle, AppSetting, Cell,
     Quest, AdminMessage, InventoryItem, VisitedCell, DungeonTemplate, DungeonRun,
+    CharacterClassDef, ItemInstance, DropEntry, CraftRecipe, CraftIngredient,
+    UpgradeRule, MobSpawn,
 )
-from core.enums import LocationType, ItemType, ItemRarity, QuestStatus
+from core.enums import (
+    LocationType, ItemType, ItemRarity, QuestStatus, ItemSource, CraftStation,
+)
 from admin.config import settings
 from admin import auth as webauth
 from bot.runner import bot_runner
@@ -28,6 +32,15 @@ from bot.runner import bot_runner
 async def lifespan(app: FastAPI):
     os.makedirs("data", exist_ok=True)
     await run_migrations()
+    try:
+        from core.seed_content import seed_content
+        from core.spawns import ensure_all_populations
+        async with async_session() as session:
+            await seed_content(session)
+            await ensure_all_populations(session)
+            await session.commit()
+    except Exception:
+        pass
     async with async_session() as session:
         result = await session.execute(
             select(AppSetting).where(AppSetting.key == "bot_token")
@@ -45,6 +58,25 @@ app.mount("/static", StaticFiles(directory="admin/static"), name="static")
 templates = Jinja2Templates(directory="admin/templates")
 
 PUBLIC_PATHS = {"/admin-login", "/admin-logout"}
+
+# Подписи слотов экипировки и бонусов — используются шаблонами редактора
+SLOT_LABELS = {
+    "weapon": "⚔️ Оружие", "armor": "🦺 Броня", "helmet": "🪖 Шлем",
+    "boots": "👢 Сапоги", "accessory": "💍 Аксессуар",
+}
+
+BONUS_LABELS = {
+    "bonus_strength": "💪", "bonus_agility": "🏃", "bonus_intelligence": "🧠",
+    "bonus_endurance": "🛡", "bonus_luck": "🍀", "bonus_hp": "❤️",
+    "bonus_mp": "💙", "bonus_damage": "⚔️", "bonus_defense": "🛡",
+}
+
+BONUS_FIELDS = tuple(BONUS_LABELS.keys())
+
+STATION_LABELS = {
+    "forge": "🔨 Кузница", "alchemy": "⚗️ Алхимия",
+    "jewelry": "💎 Ювелир", "any": "🛠 Любой станок",
+}
 
 
 class RoleMiddleware(BaseHTTPMiddleware):
@@ -218,7 +250,11 @@ async def player_detail(request: Request, char_id: int):
         result = await session.execute(
             select(Character)
             .where(Character.id == char_id)
-            .options(selectinload(Character.user), selectinload(Character.location))
+            .options(
+                selectinload(Character.user),
+                selectinload(Character.location),
+                selectinload(Character.cell),
+            )
         )
         char = result.scalar_one_or_none()
         if not char:
@@ -226,7 +262,11 @@ async def player_detail(request: Request, char_id: int):
         result = await session.execute(
             select(InventoryItem)
             .where(InventoryItem.character_id == char_id)
-            .options(selectinload(InventoryItem.item))
+            .options(
+                selectinload(InventoryItem.item),
+                selectinload(InventoryItem.instance),
+            )
+            .order_by(InventoryItem.is_equipped.desc(), InventoryItem.id)
         )
         inventory = result.scalars().all()
         result = await session.execute(
@@ -236,8 +276,21 @@ async def player_detail(request: Request, char_id: int):
             .limit(50)
         )
         messages = result.scalars().all()
-        result = await session.execute(select(Item).order_by(Item.id))
+        result = await session.execute(select(Item).order_by(Item.name))
         all_items = result.scalars().all()
+        result = await session.execute(select(Location).order_by(Location.id))
+        all_locations = result.scalars().all()
+
+        from core.classes import all_classes as list_classes, get_class
+        from core.stats import combat_stats
+        classes = await list_classes(session, only_enabled=False)
+        class_def = await get_class(session, char.character_class)
+        totals = await combat_stats(session, char)
+
+    equipped_by_slot = {
+        inv.item.item_type.value: inv
+        for inv in inventory if inv.is_equipped and inv.item
+    }
     active_caps = webauth.caps_for(char.user.web_admin_role, char.user.web_admin_caps) \
         if char.user.is_web_admin else set()
 
@@ -250,6 +303,11 @@ async def player_detail(request: Request, char_id: int):
             "roles": webauth.ROLES, "caps": webauth.CAPS,
             "cap_groups": webauth.CAP_GROUPS, "active_caps": active_caps,
             "rank_presets": {r: webauth.rank_caps(r) for r in webauth.ROLES},
+            "all_classes": classes, "class_def": class_def,
+            "all_locations": all_locations, "totals": totals,
+            "equipped_by_slot": equipped_by_slot,
+            "slot_labels": SLOT_LABELS, "bonus_labels": BONUS_LABELS,
+            "rarities": [r.value for r in ItemRarity],
         },
     )
 
@@ -274,6 +332,7 @@ async def player_edit(
     request: Request,
     char_id: int,
     name: str = Form(...),
+    character_class: str = Form(""),
     level: int = Form(1),
     gold: int = Form(0),
     experience: int = Form(0),
@@ -286,6 +345,10 @@ async def player_edit(
     max_mp: int = Form(50),
     current_hp: int = Form(100),
     current_mp: int = Form(50),
+    location_id: int = Form(None),
+    floor: int = Form(0),
+    cell_x: int = Form(None),
+    cell_y: int = Form(None),
     is_vip: bool = Form(False),
     vip_days: int = Form(0),
     image_url: str = Form(""),
@@ -296,19 +359,47 @@ async def player_edit(
         char = await session.get(Character, char_id)
         if char:
             char.name = name
-            char.level = level
-            char.gold = gold
-            char.experience = experience
+            if character_class.strip():
+                char.character_class = character_class.strip()
+            char.level = max(1, level)
+            char.gold = max(0, gold)
+            char.experience = max(0, experience)
             char.strength = strength
             char.agility = agility
             char.intelligence = intelligence
             char.endurance = endurance
             char.luck = luck
-            char.max_hp = max_hp
-            char.max_mp = max_mp
-            char.current_hp = current_hp
-            char.current_mp = current_mp
+            char.max_hp = max(1, max_hp)
+            char.max_mp = max(0, max_mp)
+            char.current_hp = min(max(0, current_hp), char.max_hp)
+            char.current_mp = min(max(0, current_mp), char.max_mp)
             char.is_vip = is_vip
+
+            # Перенос по миру: ищем указанную клетку, иначе любую проходимую
+            if location_id:
+                char.location_id = location_id
+                char.floor = max(0, floor or 0)
+                target = None
+                if cell_x is not None and cell_y is not None:
+                    result = await session.execute(
+                        select(Cell)
+                        .where(Cell.location_id == location_id)
+                        .where(Cell.floor == char.floor)
+                        .where(Cell.x == cell_x).where(Cell.y == cell_y)
+                    )
+                    target = result.scalar_one_or_none()
+                if target is None:
+                    result = await session.execute(
+                        select(Cell)
+                        .where(Cell.location_id == location_id)
+                        .where(Cell.floor == char.floor)
+                        .where(Cell.is_passable == True)  # noqa: E712
+                        .limit(1)
+                    )
+                    target = result.scalar_one_or_none()
+                if target is not None:
+                    char.cell_id = target.id
+
             if vip_days > 0:
                 char.vip_until = datetime.utcnow() + timedelta(days=vip_days)
             elif not is_vip:
@@ -321,16 +412,217 @@ async def player_edit(
     return RedirectResponse(url=f"/player/{char_id}", status_code=303)
 
 
-@app.post("/player/{char_id}/give-item")
-async def player_give_item(request: Request, char_id: int, item_id: int = Form(...), quantity: int = Form(1)):
+@app.get("/player/{char_id}/heal")
+async def player_heal(request: Request, char_id: int):
+    """Быстрое восстановление HP/MP до максимума."""
     guard(request, "manage_players")
     async with async_session() as session:
         char = await session.get(Character, char_id)
-        item = await session.get(Item, item_id)
-        if char and item:
-            inv = InventoryItem(character_id=char.id, item_id=item.id, quantity=quantity)
-            session.add(inv)
+        if char:
+            char.current_hp = char.max_hp
+            char.current_mp = char.max_mp
             await session.commit()
+    return RedirectResponse(url=f"/player/{char_id}", status_code=303)
+
+
+@app.post("/player/{char_id}/give-item")
+async def player_give_item(
+    request: Request, char_id: int,
+    item_id: int = Form(...), quantity: int = Form(1),
+    roll_stats: str = Form(""),
+):
+    """Выдаёт предмет игроку.
+
+    С `roll_stats` предмет получает уникальный ID и статы с разбросом —
+    как выпавший из моба. Без него создаётся ровно по шаблону.
+    """
+    guard(request, "manage_players")
+    from core.loot import grant_item, create_instance, is_stackable
+
+    async with async_session() as session:
+        char = await session.get(Character, char_id)
+        item = await session.get(Item, item_id)
+        if not char or not item:
+            return RedirectResponse(url=f"/player/{char_id}", status_code=303)
+
+        if roll_stats:
+            await grant_item(
+                session, char, item, max(1, quantity),
+                source=ItemSource.ADMIN.value, source_detail="Выдано админом",
+            )
+        elif is_stackable(item):
+            result = await session.execute(
+                select(InventoryItem)
+                .where(InventoryItem.character_id == char.id)
+                .where(InventoryItem.item_id == item.id)
+                .where(InventoryItem.instance_id.is_(None))
+            )
+            row = result.scalar_one_or_none()
+            if row:
+                row.quantity = (row.quantity or 0) + max(1, quantity)
+            else:
+                session.add(InventoryItem(
+                    character_id=char.id, item_id=item.id, quantity=max(1, quantity),
+                ))
+        else:
+            # Точная копия шаблона: качество ровно 100 %, без префикса
+            for _ in range(max(1, quantity)):
+                inst = create_instance(
+                    item, source=ItemSource.ADMIN.value,
+                    source_detail="Выдано админом (по шаблону)",
+                    force_quality=100,
+                )
+                inst.prefix = ""
+                for field in BONUS_FIELDS:
+                    setattr(inst, field, getattr(item, field) or 0)
+                inst.rarity = item.rarity
+                session.add(inst)
+                await session.flush()
+                session.add(InventoryItem(
+                    character_id=char.id, item_id=item.id,
+                    instance_id=inst.id, quantity=1,
+                ))
+
+        await session.commit()
+    return RedirectResponse(url=f"/player/{char_id}", status_code=303)
+
+
+@app.post("/player/{char_id}/inv/{inv_id}/edit")
+async def player_inv_edit(
+    request: Request, char_id: int, inv_id: int,
+    bonus_strength: int = Form(0), bonus_agility: int = Form(0),
+    bonus_intelligence: int = Form(0), bonus_endurance: int = Form(0),
+    bonus_luck: int = Form(0), bonus_hp: int = Form(0), bonus_mp: int = Form(0),
+    bonus_damage: int = Form(0), bonus_defense: int = Form(0),
+    quality: int = Form(100), upgrade_level: int = Form(0),
+    rarity: str = Form("common"), prefix: str = Form(""),
+):
+    """Правка статов конкретного экземпляра предмета в сумке игрока."""
+    guard(request, "manage_players")
+    async with async_session() as session:
+        result = await session.execute(
+            select(InventoryItem)
+            .where(InventoryItem.id == inv_id)
+            .options(selectinload(InventoryItem.instance))
+        )
+        inv = result.scalar_one_or_none()
+        if inv and inv.instance:
+            inst = inv.instance
+            inst.bonus_strength = bonus_strength
+            inst.bonus_agility = bonus_agility
+            inst.bonus_intelligence = bonus_intelligence
+            inst.bonus_endurance = bonus_endurance
+            inst.bonus_luck = bonus_luck
+            inst.bonus_hp = bonus_hp
+            inst.bonus_mp = bonus_mp
+            inst.bonus_damage = bonus_damage
+            inst.bonus_defense = bonus_defense
+            inst.quality = max(1, min(300, quality))
+            inst.upgrade_level = max(0, upgrade_level)
+            inst.prefix = prefix.strip()
+            try:
+                inst.rarity = ItemRarity(rarity)
+            except ValueError:
+                pass
+            await session.commit()
+    return RedirectResponse(url=f"/player/{char_id}#inv", status_code=303)
+
+
+@app.post("/player/{char_id}/inv/{inv_id}/reroll")
+async def player_inv_reroll(request: Request, char_id: int, inv_id: int):
+    """Перекатывает статы экземпляра заново по шаблону предмета."""
+    guard(request, "manage_players")
+    from core.loot import create_instance
+
+    async with async_session() as session:
+        result = await session.execute(
+            select(InventoryItem)
+            .where(InventoryItem.id == inv_id)
+            .options(
+                selectinload(InventoryItem.item),
+                selectinload(InventoryItem.instance),
+            )
+        )
+        inv = result.scalar_one_or_none()
+        if inv and inv.instance and inv.item:
+            fresh = create_instance(inv.item, source=inv.instance.source)
+            inst = inv.instance
+            for field in BONUS_FIELDS:
+                setattr(inst, field, getattr(fresh, field))
+            inst.quality = fresh.quality
+            inst.rarity = fresh.rarity
+            inst.prefix = fresh.prefix
+            inst.upgrade_level = 0
+            await session.commit()
+    return RedirectResponse(url=f"/player/{char_id}", status_code=303)
+
+
+@app.post("/player/{char_id}/inv/{inv_id}/toggle-equip")
+async def player_inv_toggle_equip(request: Request, char_id: int, inv_id: int):
+    """Надеть/снять предмет. Занятый слот освобождается автоматически."""
+    guard(request, "manage_players")
+    async with async_session() as session:
+        result = await session.execute(
+            select(InventoryItem)
+            .where(InventoryItem.id == inv_id)
+            .options(selectinload(InventoryItem.item))
+        )
+        inv = result.scalar_one_or_none()
+        if inv and inv.item:
+            if inv.is_equipped:
+                inv.is_equipped = False
+            elif inv.item.item_type == ItemType.CONSUMABLE or \
+                    inv.item.item_type == ItemType.MATERIAL:
+                pass  # расходники и материалы не надеваются
+            else:
+                result = await session.execute(
+                    select(InventoryItem)
+                    .where(InventoryItem.character_id == inv.character_id)
+                    .where(InventoryItem.is_equipped == True)  # noqa: E712
+                    .options(selectinload(InventoryItem.item))
+                )
+                for other in result.scalars().all():
+                    if other.item and other.item.item_type == inv.item.item_type:
+                        other.is_equipped = False
+                inv.is_equipped = True
+            await session.commit()
+    return RedirectResponse(url=f"/player/{char_id}", status_code=303)
+
+
+@app.post("/player/{char_id}/inv/{inv_id}/delete")
+async def player_inv_delete(request: Request, char_id: int, inv_id: int):
+    guard(request, "manage_players")
+    async with async_session() as session:
+        result = await session.execute(
+            select(InventoryItem)
+            .where(InventoryItem.id == inv_id)
+            .options(selectinload(InventoryItem.instance))
+        )
+        inv = result.scalar_one_or_none()
+        if inv:
+            instance = inv.instance
+            await session.delete(inv)
+            if instance is not None:
+                await session.delete(instance)
+            await session.commit()
+    return RedirectResponse(url=f"/player/{char_id}", status_code=303)
+
+
+@app.post("/player/{char_id}/clear-inventory")
+async def player_clear_inventory(request: Request, char_id: int):
+    guard(request, "manage_players")
+    async with async_session() as session:
+        result = await session.execute(
+            select(InventoryItem)
+            .where(InventoryItem.character_id == char_id)
+            .options(selectinload(InventoryItem.instance))
+        )
+        for inv in result.scalars().all():
+            instance = inv.instance
+            await session.delete(inv)
+            if instance is not None:
+                await session.delete(instance)
+        await session.commit()
     return RedirectResponse(url=f"/player/{char_id}", status_code=303)
 
 
@@ -497,10 +789,21 @@ async def items(request: Request):
             select(ShopItem).options(selectinload(ShopItem.item)).order_by(ShopItem.id)
         )
         shop_items = result.scalars().all()
+
+        # Сколько уникальных экземпляров каждого шаблона гуляет по игре
+        result = await session.execute(
+            select(ItemInstance.item_id, func.count(ItemInstance.id))
+            .group_by(ItemInstance.item_id)
+        )
+        instance_counts = {row[0]: row[1] for row in result.all()}
+
     return templates.TemplateResponse(
         request,
         "items.html",
-        {"items": all_items, "shop_items": shop_items},
+        {
+            "items": all_items, "shop_items": shop_items,
+            "instance_counts": instance_counts,
+        },
     )
 
 
@@ -510,7 +813,25 @@ async def item_edit_page(request: Request, item_id: int):
         item = await session.get(Item, item_id)
         if not item:
             return RedirectResponse(url="/items")
-    return templates.TemplateResponse(request, "item_edit.html", {"item": item})
+
+        # Последние выпущенные экземпляры — видно, какие статы реально катаются
+        instance_count = await session.scalar(
+            select(func.count(ItemInstance.id)).where(ItemInstance.item_id == item_id)
+        ) or 0
+        result = await session.execute(
+            select(ItemInstance, Character)
+            .outerjoin(InventoryItem, InventoryItem.instance_id == ItemInstance.id)
+            .outerjoin(Character, Character.id == InventoryItem.character_id)
+            .where(ItemInstance.item_id == item_id)
+            .order_by(ItemInstance.id.desc())
+            .limit(25)
+        )
+        instances = [(inst, owner) for inst, owner in result.all()]
+
+    return templates.TemplateResponse(
+        request, "item_edit.html",
+        {"item": item, "instances": instances, "instance_count": instance_count},
+    )
 
 
 @app.post("/item/{item_id}/edit")
@@ -533,6 +854,10 @@ async def item_edit(
     bonus_damage: int = Form(0),
     bonus_defense: int = Form(0),
     icon: str = Form("⚔️"),
+    stat_variance: float = Form(0.15),
+    is_unique_roll: bool = Form(False),
+    is_sellable: bool = Form(False),
+    max_upgrade_level: int = Form(10),
     image_url: str = Form(""),
     image: UploadFile = File(None),
 ):
@@ -556,6 +881,10 @@ async def item_edit(
             item.bonus_damage = bonus_damage
             item.bonus_defense = bonus_defense
             item.icon = icon
+            item.stat_variance = max(0.0, min(0.6, stat_variance))
+            item.is_unique_roll = is_unique_roll
+            item.is_sellable = is_sellable
+            item.max_upgrade_level = max(0, max_upgrade_level)
             if image and image.filename:
                 item.image_url = save_uploaded_image(image, "item", item.id)
             elif image_url.strip():
@@ -583,6 +912,9 @@ async def item_new(
     bonus_damage: int = Form(0),
     bonus_defense: int = Form(0),
     icon: str = Form("⚔️"),
+    stat_variance: float = Form(0.15),
+    is_unique_roll: bool = Form(False),
+    max_upgrade_level: int = Form(10),
     image_url: str = Form(""),
     image: UploadFile = File(None),
 ):
@@ -595,6 +927,9 @@ async def item_new(
             bonus_intelligence=bonus_intelligence, bonus_endurance=bonus_endurance,
             bonus_luck=bonus_luck, bonus_hp=bonus_hp, bonus_mp=bonus_mp,
             bonus_damage=bonus_damage, bonus_defense=bonus_defense, icon=icon,
+            stat_variance=max(0.0, min(0.6, stat_variance)),
+            is_unique_roll=is_unique_roll,
+            max_upgrade_level=max(0, max_upgrade_level),
             image_url=image_url.strip(),
         )
         session.add(item)
@@ -607,8 +942,20 @@ async def item_new(
 
 @app.post("/item/{item_id}/delete")
 async def item_delete(request: Request, item_id: int):
+    """Удаляет шаблон вместе со всеми его экземплярами и ссылками на него."""
     guard(request, "manage_content")
     async with async_session() as session:
+        await session.execute(
+            delete(InventoryItem).where(InventoryItem.item_id == item_id)
+        )
+        await session.execute(
+            delete(ItemInstance).where(ItemInstance.item_id == item_id)
+        )
+        await session.execute(delete(DropEntry).where(DropEntry.item_id == item_id))
+        await session.execute(
+            delete(CraftIngredient).where(CraftIngredient.item_id == item_id)
+        )
+        await session.execute(delete(ShopItem).where(ShopItem.item_id == item_id))
         await session.execute(delete(Item).where(Item.id == item_id))
         await session.commit()
     return RedirectResponse(url="/items", status_code=303)
@@ -735,6 +1082,12 @@ async def content_hub(request: Request):
         total_quests = await session.scalar(select(func.count(Quest.id))) or 0
         total_items = await session.scalar(select(func.count(Item.id))) or 0
         total_dungeons = await session.scalar(select(func.count(DungeonTemplate.id))) or 0
+        total_classes = await session.scalar(select(func.count(CharacterClassDef.id))) or 0
+        total_drops = await session.scalar(select(func.count(DropEntry.id))) or 0
+        total_recipes = await session.scalar(select(func.count(CraftRecipe.id))) or 0
+        total_spawns = await session.scalar(
+            select(func.count(MobSpawn.id)).where(MobSpawn.is_alive == True)  # noqa: E712
+        ) or 0
     return templates.TemplateResponse(
         request,
         "content.html",
@@ -745,6 +1098,10 @@ async def content_hub(request: Request):
             "total_quests": total_quests,
             "total_items": total_items,
             "total_dungeons": total_dungeons,
+            "total_classes": total_classes,
+            "total_drops": total_drops,
+            "total_recipes": total_recipes,
+            "total_spawns": total_spawns,
         },
     )
 
@@ -957,8 +1314,10 @@ async def editor_cell_save(
     has_npc: bool = Form(False),
     npc_name: str = Form(""),
     npc_type: str = Form(""),
+    npc_station: str = Form(""),
     npc_dialogue: str = Form(""),
     has_chest: bool = Form(False),
+    chest_tier: int = Form(1),
     has_house: bool = Form(False),
     has_tree: bool = Form(False),
     has_campfire: bool = Form(False),
@@ -983,8 +1342,12 @@ async def editor_cell_save(
         cell.has_npc = has_npc
         cell.npc_name = npc_name or None
         cell.npc_type = npc_type or None
+        cell.npc_station = npc_station or None
         cell.npc_dialogue = npc_dialogue or None
         cell.has_chest = has_chest
+        cell.chest_tier = max(1, chest_tier)
+        if not has_chest:
+            cell.chest_respawn_at = None
         cell.has_house = has_house
         cell.has_tree = has_tree
         cell.has_campfire = has_campfire
@@ -1097,6 +1460,13 @@ async def mob_new(
     location_id: int = Form(None),
     is_boss: bool = Form(False),
     spawn_chance: float = Form(0.3),
+    population: int = Form(3),
+    respawn_seconds: int = Form(120),
+    move_interval_seconds: int = Form(45),
+    can_roam: bool = Form(False),
+    roam_radius: int = Form(1),
+    gold_min: int = Form(0),
+    gold_max: int = Form(0),
     image_url: str = Form(""),
     image: UploadFile = File(None),
 ):
@@ -1107,12 +1477,22 @@ async def mob_new(
             damage=damage, defense=defense, gold_reward=gold_reward,
             exp_reward=exp_reward, location_id=location_id,
             is_boss=is_boss, spawn_chance=spawn_chance,
+            population=max(0, population),
+            respawn_seconds=max(5, respawn_seconds),
+            move_interval_seconds=max(0, move_interval_seconds),
+            can_roam=can_roam, roam_radius=max(0, roam_radius),
+            gold_min=max(0, gold_min), gold_max=max(0, gold_max),
             image_url=image_url.strip(),
         )
         session.add(mob)
         await session.flush()
         if image and image.filename:
             mob.image_url = save_uploaded_image(image, "mob", mob.id)
+        await session.commit()
+
+        # Сразу наполняем локацию живыми экземплярами до лимита
+        from core.spawns import ensure_population
+        await ensure_population(session, mob)
         await session.commit()
     return RedirectResponse(url="/editor/mobs", status_code=303)
 
@@ -1132,6 +1512,13 @@ async def mob_edit(
     location_id: int = Form(None),
     is_boss: bool = Form(False),
     spawn_chance: float = Form(0.3),
+    population: int = Form(3),
+    respawn_seconds: int = Form(120),
+    move_interval_seconds: int = Form(45),
+    can_roam: bool = Form(False),
+    roam_radius: int = Form(1),
+    gold_min: int = Form(0),
+    gold_max: int = Form(0),
     image_url: str = Form(""),
     image: UploadFile = File(None),
 ):
@@ -1147,13 +1534,41 @@ async def mob_edit(
             mob.defense = defense
             mob.gold_reward = gold_reward
             mob.exp_reward = exp_reward
+            old_location = mob.location_id
             mob.location_id = location_id
             mob.is_boss = is_boss
             mob.spawn_chance = spawn_chance
+            mob.population = max(0, population)
+            mob.respawn_seconds = max(5, respawn_seconds)
+            mob.move_interval_seconds = max(0, move_interval_seconds)
+            mob.can_roam = can_roam
+            mob.roam_radius = max(0, roam_radius)
+            mob.gold_min = max(0, gold_min)
+            mob.gold_max = max(0, gold_max)
             if image and image.filename:
                 mob.image_url = save_uploaded_image(image, "mob", mob.id)
             elif image_url.strip():
                 mob.image_url = image_url.strip()
+            await session.commit()
+
+            # Приводим живую популяцию к новому лимиту/локации
+            from core.spawns import ensure_population
+            result = await session.execute(
+                select(MobSpawn)
+                .where(MobSpawn.mob_id == mob.id)
+                .where(MobSpawn.is_alive == True)  # noqa: E712
+                .order_by(MobSpawn.id.desc())
+            )
+            alive = result.scalars().all()
+            if old_location != mob.location_id:
+                # Переехал в другую локацию — старые экземпляры убираем
+                for spawn in alive:
+                    await session.delete(spawn)
+                alive = []
+            for spawn in alive[:max(0, len(alive) - mob.population)]:
+                await session.delete(spawn)
+            await session.flush()
+            await ensure_population(session, mob)
             await session.commit()
     return RedirectResponse(url="/editor/mobs", status_code=303)
 
@@ -1162,6 +1577,13 @@ async def mob_edit(
 async def mob_delete(request: Request, mob_id: int):
     guard(request, "manage_content")
     async with async_session() as session:
+        # Живые экземпляры и таблица лута умирают вместе с мобом
+        await session.execute(delete(MobSpawn).where(MobSpawn.mob_id == mob_id))
+        await session.execute(
+            delete(DropEntry)
+            .where(DropEntry.owner_type == "mob")
+            .where(DropEntry.owner_id == mob_id)
+        )
         await session.execute(delete(Mob).where(Mob.id == mob_id))
         await session.commit()
     return RedirectResponse(url="/editor/mobs", status_code=303)
@@ -1546,6 +1968,516 @@ async def dungeon_template_open_portal(request: Request, template_id: int):
                 pass
 
     return RedirectResponse(url="/editor/dungeons", status_code=303)
+
+
+# ── Character Classes Editor ────────────────────────────────
+
+@app.get("/editor/classes")
+async def editor_classes(request: Request):
+    """Классы персонажей: стартовые статы и прирост за уровень."""
+    guard(request, "manage_content")
+    async with async_session() as session:
+        result = await session.execute(
+            select(CharacterClassDef).order_by(
+                CharacterClassDef.sort_order, CharacterClassDef.id
+            )
+        )
+        classes = result.scalars().all()
+
+        # Сколько живых персонажей каждого класса — чтобы не удалить нужный
+        result = await session.execute(
+            select(Character.character_class, func.count(Character.id))
+            .group_by(Character.character_class)
+        )
+        usage = {str(row[0]): row[1] for row in result.all()}
+
+    return templates.TemplateResponse(
+        request, "editor_classes.html",
+        {"classes": classes, "usage": usage},
+    )
+
+
+def _class_payload(form: dict) -> dict:
+    """Общий разбор формы класса для создания и редактирования."""
+    return dict(
+        name=form["name"].strip(),
+        icon=(form.get("icon") or "⚔️").strip()[:16],
+        description=(form.get("description") or "").strip(),
+        base_strength=form["base_strength"], base_agility=form["base_agility"],
+        base_intelligence=form["base_intelligence"],
+        base_endurance=form["base_endurance"], base_luck=form["base_luck"],
+        base_hp=max(1, form["base_hp"]), base_mp=max(0, form["base_mp"]),
+        growth_strength=form["growth_strength"], growth_agility=form["growth_agility"],
+        growth_intelligence=form["growth_intelligence"],
+        growth_endurance=form["growth_endurance"], growth_luck=form["growth_luck"],
+        growth_hp=form["growth_hp"], growth_mp=form["growth_mp"],
+        image_url=(form.get("image_url") or "").strip(),
+        is_enabled=form.get("is_enabled", True),
+        sort_order=form.get("sort_order", 100),
+    )
+
+
+@app.post("/editor/classes/new")
+async def class_new(
+    request: Request,
+    key: str = Form(...),
+    name: str = Form(...),
+    icon: str = Form("⚔️"),
+    description: str = Form(""),
+    base_strength: int = Form(10), base_agility: int = Form(10),
+    base_intelligence: int = Form(10), base_endurance: int = Form(10),
+    base_luck: int = Form(10), base_hp: int = Form(100), base_mp: int = Form(50),
+    growth_strength: int = Form(1), growth_agility: int = Form(1),
+    growth_intelligence: int = Form(1), growth_endurance: int = Form(1),
+    growth_luck: int = Form(0), growth_hp: int = Form(10), growth_mp: int = Form(5),
+    image_url: str = Form(""), sort_order: int = Form(100),
+    is_enabled: bool = Form(False),
+):
+    """Добавляет новый класс — он сразу появится в боте при создании героя."""
+    guard(request, "manage_content")
+    slug = "".join(
+        ch for ch in key.strip().lower().replace(" ", "_") if ch.isalnum() or ch == "_"
+    )[:32]
+    if not slug:
+        return RedirectResponse(url="/editor/classes", status_code=303)
+
+    async with async_session() as session:
+        result = await session.execute(
+            select(CharacterClassDef).where(CharacterClassDef.key == slug)
+        )
+        if result.scalar_one_or_none():
+            # Ключ занят — не плодим дубликаты
+            return RedirectResponse(url="/editor/classes?err=exists", status_code=303)
+
+        session.add(CharacterClassDef(key=slug, **_class_payload(locals())))
+        await session.commit()
+    return RedirectResponse(url="/editor/classes", status_code=303)
+
+
+@app.post("/editor/classes/{class_id}/edit")
+async def class_edit(
+    request: Request, class_id: int,
+    name: str = Form(...), icon: str = Form("⚔️"), description: str = Form(""),
+    base_strength: int = Form(10), base_agility: int = Form(10),
+    base_intelligence: int = Form(10), base_endurance: int = Form(10),
+    base_luck: int = Form(10), base_hp: int = Form(100), base_mp: int = Form(50),
+    growth_strength: int = Form(1), growth_agility: int = Form(1),
+    growth_intelligence: int = Form(1), growth_endurance: int = Form(1),
+    growth_luck: int = Form(0), growth_hp: int = Form(10), growth_mp: int = Form(5),
+    image_url: str = Form(""), sort_order: int = Form(100),
+    is_enabled: bool = Form(False),
+):
+    guard(request, "manage_content")
+    async with async_session() as session:
+        cls = await session.get(CharacterClassDef, class_id)
+        if cls:
+            for field, value in _class_payload(locals()).items():
+                setattr(cls, field, value)
+            await session.commit()
+    return RedirectResponse(url="/editor/classes", status_code=303)
+
+
+@app.post("/editor/classes/{class_id}/delete")
+async def class_delete(request: Request, class_id: int):
+    """Удаляет класс, если им никто не играет; иначе просто выключает."""
+    guard(request, "manage_content")
+    async with async_session() as session:
+        cls = await session.get(CharacterClassDef, class_id)
+        if cls:
+            in_use = await session.scalar(
+                select(func.count(Character.id))
+                .where(Character.character_class == cls.key)
+            ) or 0
+            if in_use:
+                cls.is_enabled = False
+            else:
+                await session.delete(cls)
+            await session.commit()
+    return RedirectResponse(url="/editor/classes", status_code=303)
+
+
+# ── Drop Tables Editor (что выпадает из мобов и сундуков) ───
+
+@app.get("/editor/drops")
+async def editor_drops(request: Request, owner_type: str = "mob"):
+    guard(request, "manage_content")
+    if owner_type not in ("mob", "chest", "dungeon"):
+        owner_type = "mob"
+
+    async with async_session() as session:
+        result = await session.execute(
+            select(DropEntry)
+            .options(selectinload(DropEntry.item))
+            .where(DropEntry.owner_type == owner_type)
+            .order_by(DropEntry.owner_id, DropEntry.chance.desc())
+        )
+        entries = result.scalars().all()
+
+        result = await session.execute(select(Item).order_by(Item.name))
+        items = result.scalars().all()
+        result = await session.execute(select(Mob).order_by(Mob.level, Mob.id))
+        mobs = result.scalars().all()
+        result = await session.execute(select(Location).order_by(Location.id))
+        locations = result.scalars().all()
+        result = await session.execute(
+            select(DungeonTemplate).order_by(DungeonTemplate.id)
+        )
+        dungeons = result.scalars().all()
+
+    owners = {"mob": mobs, "chest": locations, "dungeon": dungeons}[owner_type]
+    owner_names = {o.id: o.name for o in owners}
+
+    grouped = {}
+    for entry in entries:
+        grouped.setdefault(entry.owner_id, []).append(entry)
+
+    return templates.TemplateResponse(
+        request, "editor_drops.html",
+        {
+            "owner_type": owner_type, "grouped": grouped, "items": items,
+            "owners": owners, "owner_names": owner_names,
+            "total": len(entries),
+        },
+    )
+
+
+@app.post("/editor/drops/new")
+async def drop_new(
+    request: Request,
+    owner_type: str = Form("mob"),
+    owner_id: str = Form(""),
+    item_id: int = Form(...),
+    chance: float = Form(0.2),
+    min_quantity: int = Form(1),
+    max_quantity: int = Form(1),
+    variance_bonus: float = Form(0.0),
+):
+    guard(request, "manage_content")
+    async with async_session() as session:
+        session.add(DropEntry(
+            owner_type=owner_type,
+            owner_id=int(owner_id) if owner_id.strip() else None,
+            item_id=item_id,
+            chance=max(0.0, min(1.0, chance)),
+            min_quantity=max(1, min_quantity),
+            max_quantity=max(max(1, min_quantity), max_quantity),
+            variance_bonus=variance_bonus,
+        ))
+        await session.commit()
+    return RedirectResponse(url=f"/editor/drops?owner_type={owner_type}", status_code=303)
+
+
+@app.post("/editor/drops/{entry_id}/edit")
+async def drop_edit(
+    request: Request, entry_id: int,
+    chance: float = Form(0.2),
+    min_quantity: int = Form(1),
+    max_quantity: int = Form(1),
+    variance_bonus: float = Form(0.0),
+):
+    guard(request, "manage_content")
+    async with async_session() as session:
+        entry = await session.get(DropEntry, entry_id)
+        owner_type = "mob"
+        if entry:
+            owner_type = entry.owner_type
+            entry.chance = max(0.0, min(1.0, chance))
+            entry.min_quantity = max(1, min_quantity)
+            entry.max_quantity = max(entry.min_quantity, max_quantity)
+            entry.variance_bonus = variance_bonus
+            await session.commit()
+    return RedirectResponse(url=f"/editor/drops?owner_type={owner_type}", status_code=303)
+
+
+@app.post("/editor/drops/{entry_id}/delete")
+async def drop_delete(request: Request, entry_id: int):
+    guard(request, "manage_content")
+    async with async_session() as session:
+        entry = await session.get(DropEntry, entry_id)
+        owner_type = entry.owner_type if entry else "mob"
+        await session.execute(delete(DropEntry).where(DropEntry.id == entry_id))
+        await session.commit()
+    return RedirectResponse(url=f"/editor/drops?owner_type={owner_type}", status_code=303)
+
+
+# ── Craft Editor (рецепты и правила заточки) ────────────────
+
+@app.get("/editor/craft")
+async def editor_craft(request: Request):
+    guard(request, "manage_content")
+    async with async_session() as session:
+        result = await session.execute(
+            select(CraftRecipe)
+            .options(
+                selectinload(CraftRecipe.result_item),
+                selectinload(CraftRecipe.ingredients).selectinload(CraftIngredient.item),
+            )
+            .order_by(CraftRecipe.station, CraftRecipe.min_level, CraftRecipe.id)
+        )
+        recipes = result.scalars().all()
+
+        result = await session.execute(
+            select(UpgradeRule)
+            .options(selectinload(UpgradeRule.material_item))
+            .order_by(UpgradeRule.from_level)
+        )
+        rules = result.scalars().all()
+
+        result = await session.execute(select(Item).order_by(Item.name))
+        items = result.scalars().all()
+
+        # Клетки с NPC-ремесленниками — чтобы видеть, где они стоят
+        result = await session.execute(
+            select(Cell)
+            .options(selectinload(Cell.location))
+            .where(Cell.npc_station.isnot(None))
+        )
+        crafters = result.scalars().all()
+
+    return templates.TemplateResponse(
+        request, "editor_craft.html",
+        {
+            "recipes": recipes, "rules": rules, "items": items,
+            "crafters": crafters,
+            "stations": [(s.value, STATION_LABELS[s.value]) for s in CraftStation],
+        },
+    )
+
+
+@app.post("/editor/craft/new")
+async def recipe_new(
+    request: Request,
+    name: str = Form(...),
+    description: str = Form(""),
+    station: str = Form("forge"),
+    result_item_id: int = Form(...),
+    result_quantity: int = Form(1),
+    gold_cost: int = Form(0),
+    min_level: int = Form(1),
+    success_chance: float = Form(1.0),
+    quality_bonus: float = Form(0.0),
+):
+    guard(request, "manage_content")
+    async with async_session() as session:
+        session.add(CraftRecipe(
+            name=name.strip(), description=description.strip(), station=station,
+            result_item_id=result_item_id, result_quantity=max(1, result_quantity),
+            gold_cost=max(0, gold_cost), min_level=max(1, min_level),
+            success_chance=max(0.05, min(1.0, success_chance)),
+            quality_bonus=quality_bonus, is_enabled=True,
+        ))
+        await session.commit()
+    return RedirectResponse(url="/editor/craft", status_code=303)
+
+
+@app.post("/editor/craft/{recipe_id}/edit")
+async def recipe_edit(
+    request: Request, recipe_id: int,
+    name: str = Form(...),
+    description: str = Form(""),
+    station: str = Form("forge"),
+    result_item_id: int = Form(...),
+    result_quantity: int = Form(1),
+    gold_cost: int = Form(0),
+    min_level: int = Form(1),
+    success_chance: float = Form(1.0),
+    quality_bonus: float = Form(0.0),
+    is_enabled: bool = Form(False),
+):
+    guard(request, "manage_content")
+    async with async_session() as session:
+        recipe = await session.get(CraftRecipe, recipe_id)
+        if recipe:
+            recipe.name = name.strip()
+            recipe.description = description.strip()
+            recipe.station = station
+            recipe.result_item_id = result_item_id
+            recipe.result_quantity = max(1, result_quantity)
+            recipe.gold_cost = max(0, gold_cost)
+            recipe.min_level = max(1, min_level)
+            recipe.success_chance = max(0.05, min(1.0, success_chance))
+            recipe.quality_bonus = quality_bonus
+            recipe.is_enabled = is_enabled
+            await session.commit()
+    return RedirectResponse(url="/editor/craft", status_code=303)
+
+
+@app.post("/editor/craft/{recipe_id}/delete")
+async def recipe_delete(request: Request, recipe_id: int):
+    guard(request, "manage_content")
+    async with async_session() as session:
+        await session.execute(
+            delete(CraftIngredient).where(CraftIngredient.recipe_id == recipe_id)
+        )
+        await session.execute(delete(CraftRecipe).where(CraftRecipe.id == recipe_id))
+        await session.commit()
+    return RedirectResponse(url="/editor/craft", status_code=303)
+
+
+@app.post("/editor/craft/{recipe_id}/ingredient/add")
+async def ingredient_add(
+    request: Request, recipe_id: int,
+    item_id: int = Form(...), quantity: int = Form(1),
+):
+    guard(request, "manage_content")
+    async with async_session() as session:
+        session.add(CraftIngredient(
+            recipe_id=recipe_id, item_id=item_id, quantity=max(1, quantity),
+        ))
+        await session.commit()
+    return RedirectResponse(url="/editor/craft", status_code=303)
+
+
+@app.post("/editor/craft/ingredient/{ing_id}/delete")
+async def ingredient_delete(request: Request, ing_id: int):
+    guard(request, "manage_content")
+    async with async_session() as session:
+        await session.execute(
+            delete(CraftIngredient).where(CraftIngredient.id == ing_id)
+        )
+        await session.commit()
+    return RedirectResponse(url="/editor/craft", status_code=303)
+
+
+@app.post("/editor/craft/rules/new")
+async def upgrade_rule_new(
+    request: Request,
+    from_level: int = Form(0), to_level: int = Form(1),
+    gold_cost: int = Form(50),
+    material_item_id: str = Form(""),
+    material_quantity: int = Form(1),
+    success_chance: float = Form(0.9),
+    stat_gain_percent: float = Form(0.08),
+    min_stat_gain: int = Form(1),
+):
+    guard(request, "manage_content")
+    async with async_session() as session:
+        session.add(UpgradeRule(
+            from_level=max(0, from_level),
+            to_level=max(from_level + 1, to_level),
+            gold_cost=max(0, gold_cost),
+            material_item_id=int(material_item_id) if material_item_id.strip() else None,
+            material_quantity=max(0, material_quantity),
+            success_chance=max(0.05, min(1.0, success_chance)),
+            stat_gain_percent=max(0.0, stat_gain_percent),
+            min_stat_gain=max(0, min_stat_gain),
+        ))
+        await session.commit()
+    return RedirectResponse(url="/editor/craft#rules", status_code=303)
+
+
+@app.post("/editor/craft/rules/{rule_id}/edit")
+async def upgrade_rule_edit(
+    request: Request, rule_id: int,
+    from_level: int = Form(0), to_level: int = Form(1),
+    gold_cost: int = Form(50),
+    material_item_id: str = Form(""),
+    material_quantity: int = Form(1),
+    success_chance: float = Form(0.9),
+    stat_gain_percent: float = Form(0.08),
+    min_stat_gain: int = Form(1),
+):
+    guard(request, "manage_content")
+    async with async_session() as session:
+        rule = await session.get(UpgradeRule, rule_id)
+        if rule:
+            rule.from_level = max(0, from_level)
+            rule.to_level = max(from_level + 1, to_level)
+            rule.gold_cost = max(0, gold_cost)
+            rule.material_item_id = int(material_item_id) if material_item_id.strip() else None
+            rule.material_quantity = max(0, material_quantity)
+            rule.success_chance = max(0.05, min(1.0, success_chance))
+            rule.stat_gain_percent = max(0.0, stat_gain_percent)
+            rule.min_stat_gain = max(0, min_stat_gain)
+            await session.commit()
+    return RedirectResponse(url="/editor/craft#rules", status_code=303)
+
+
+@app.post("/editor/craft/rules/{rule_id}/delete")
+async def upgrade_rule_delete(request: Request, rule_id: int):
+    guard(request, "manage_content")
+    async with async_session() as session:
+        await session.execute(delete(UpgradeRule).where(UpgradeRule.id == rule_id))
+        await session.commit()
+    return RedirectResponse(url="/editor/craft#rules", status_code=303)
+
+
+# ── Mob population control ──────────────────────────────────
+
+@app.get("/editor/spawns")
+async def editor_spawns(request: Request):
+    """Живая популяция мобов на карте: кто где стоит и когда воскреснет."""
+    guard(request, "manage_content")
+    from core.spawns import population_report
+
+    async with async_session() as session:
+        report = await population_report(session)
+        result = await session.execute(
+            select(MobSpawn)
+            .options(
+                selectinload(MobSpawn.mob),
+                selectinload(MobSpawn.location),
+                selectinload(MobSpawn.home_location),
+            )
+            .where(MobSpawn.is_alive == True)  # noqa: E712
+            .order_by(MobSpawn.location_id, MobSpawn.mob_id)
+        )
+        alive = result.scalars().all()
+
+    return templates.TemplateResponse(
+        request, "editor_spawns.html",
+        {"report": report, "alive": alive, "now": datetime.utcnow()},
+    )
+
+
+@app.post("/editor/spawns/respawn-all")
+async def spawns_respawn_all(request: Request):
+    """Мгновенно воскрешает всех и добивает популяцию до лимитов."""
+    guard(request, "manage_content")
+    from core.spawns import ensure_all_populations
+
+    async with async_session() as session:
+        result = await session.execute(
+            select(MobSpawn).where(MobSpawn.is_alive == False)  # noqa: E712
+        )
+        for spawn in result.scalars().all():
+            spawn.respawn_at = datetime.utcnow() - timedelta(seconds=1)
+        await session.flush()
+        await ensure_all_populations(session)
+        await session.commit()
+    return RedirectResponse(url="/editor/spawns", status_code=303)
+
+
+@app.post("/editor/spawns/reset")
+async def spawns_reset(request: Request):
+    """Полный сброс: удаляет все спавны и расставляет мобов заново."""
+    guard(request, "manage_content")
+    from core.spawns import ensure_all_populations
+
+    async with async_session() as session:
+        await session.execute(delete(MobSpawn))
+        await session.flush()
+        await ensure_all_populations(session)
+        await session.commit()
+    return RedirectResponse(url="/editor/spawns", status_code=303)
+
+
+@app.post("/editor/spawns/{spawn_id}/kill")
+async def spawn_kill(request: Request, spawn_id: int):
+    guard(request, "manage_content")
+    from core.spawns import kill_spawn
+
+    async with async_session() as session:
+        result = await session.execute(
+            select(MobSpawn)
+            .where(MobSpawn.id == spawn_id)
+            .options(selectinload(MobSpawn.mob))
+        )
+        spawn = result.scalar_one_or_none()
+        if spawn and spawn.mob:
+            await kill_spawn(session, spawn, spawn.mob)
+            await session.commit()
+    return RedirectResponse(url="/editor/spawns", status_code=303)
 
 
 # ── Players Map (who is where) ──────────────────────────────

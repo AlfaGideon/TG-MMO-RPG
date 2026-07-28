@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+
+{% block title %}Популяция мобов — Shadow Lands{% endblock %}
+{% block page_title %}👣 Популяция мобов{% endblock %}
+{% block topbar_actions %}
+<form action="/editor/spawns/respawn-all" method="post" style="display:inline">
+    <button type="submit" class="btn">⏱ Воскресить всех</button>
+</form>
+<form action="/editor/spawns/reset" method="post" style="display:inline"
+      onsubmit="return confirm('Переставить всех мобов заново по карте?')">
+    <button type="submit" class="btn btn-primary">♻️ Пересоздать</button>
+</form>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>📊 Лимиты и живые экземпляры</h2>
+    <p class="section-sub">
+        В каждой локации живёт ровно столько мобов, сколько задано в лимите.
+        Убили одного — новый появится через таймер респавна, но <b>сверх лимита
+        никто не заспавнится</b>. Лимит и таймеры настраиваются в
+        <a href="/editor/mobs">редакторе мобов</a>.
+    </p>
+
+    <div class="table-wrap">
+    <table>
+        <thead>
+            <tr><th>Монстр</th><th>Ур.</th><th>Домашняя локация</th>
+                <th>Живых / лимит</th><th>Ждут респавна</th>
+                <th>Бродит</th><th>Респавн</th></tr>
+        </thead>
+        <tbody>
+            {% for row in report %}
+            {% set mob = row.mob %}
+            <tr>
+                <td>{{ mob.name }}{% if mob.is_boss %} <span class="badge badge-boss">босс</span>{% endif %}</td>
+                <td>{{ mob.level }}</td>
+                <td>{{ mob.location.name if mob.location else '— не привязан —' }}</td>
+                <td>
+                    <span class="pop-bar">
+                        {% for i in range(row.limit) %}
+                        <span class="pop-dot {% if i >= row.alive %}dead{% endif %}"></span>
+                        {% endfor %}
+                        <b style="margin-left:0.3rem;">{{ row.alive }}/{{ row.limit }}</b>
+                    </span>
+                </td>
+                <td>{{ row.dead }}</td>
+                <td>
+                    {% if mob.can_roam and (mob.move_interval_seconds or 0) > 0 %}
+                    ✅ шаг раз в {{ mob.move_interval_seconds }}с, радиус {{ mob.roam_radius }}
+                    {% else %}🚫 стоит на месте{% endif %}
+                </td>
+                <td>{{ mob.respawn_seconds }}с</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7">
+                <div class="empty-state"><div class="empty-icon">👾</div>Мобов ещё нет.</div>
+            </td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</div>
+
+<div class="card">
+    <h2>🗺 Живые мобы на карте ({{ alive|length }})</h2>
+    <p class="section-sub">
+        Слабые мобы могут забредать в локации уровнем выше, сильные к слабым — нет.
+        Моб, с которым идёт бой, стоит на месте до конца схватки.
+    </p>
+
+    <div class="table-wrap">
+    <table>
+        <thead>
+            <tr><th>ID</th><th>Монстр</th><th>Сейчас в локации</th><th>Клетка</th>
+                <th>HP</th><th>Дом</th><th>В бою</th><th></th></tr>
+        </thead>
+        <tbody>
+            {% for s in alive %}
+            <tr>
+                <td>{{ s.id }}</td>
+                <td>{{ s.mob.name }} <span style="color:var(--text-muted)">(ур. {{ s.mob.level }})</span></td>
+                <td>
+                    {{ s.location.name if s.location else '—' }}
+                    {% if s.location_id != s.home_location_id %}
+                    <span class="badge badge-uncommon">забрёл</span>
+                    {% endif %}
+                </td>
+                <td>[{{ s.x }},{{ s.y }}]{% if s.floor %} эт.{{ s.floor }}{% endif %}</td>
+                <td>{{ s.current_hp }}/{{ s.mob.hp }}</td>
+                <td style="font-size:0.8rem; color:var(--text-muted)">{{ s.home_location.name if s.home_location else '—' }}</td>
+                <td>{{ '⚔️' if s.engaged_by_id else '—' }}</td>
+                <td>
+                    <form action="/editor/spawns/{{ s.id }}/kill" method="post">
+                        <button type="submit" class="btn btn-danger btn-sm" title="Убить (уйдёт в респавн)">💀</button>
+                    </form>
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="8">
+                <div class="empty-state"><div class="empty-icon">🗺</div>
+                    Живых мобов нет. Нажми «♻️ Пересоздать».
+                </div>
+            </td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</div>
+{% endblock %}

@@ -120,5 +120,65 @@ async def run_migrations():
             if "portal_closed_at" not in cols:
                 await conn.execute(text("ALTER TABLE dungeon_templates ADD COLUMN portal_closed_at DATETIME"))
 
+        # Add missing columns to mobs (population / roaming)
+        if "mobs" in tables:
+            cols_result = await conn.execute(text("PRAGMA table_info(mobs)"))
+            cols = {row[1] for row in cols_result.fetchall()}
+            for col, ddl in (
+                ("population", "INTEGER DEFAULT 3"),
+                ("respawn_seconds", "INTEGER DEFAULT 120"),
+                ("move_interval_seconds", "INTEGER DEFAULT 45"),
+                ("can_roam", "BOOLEAN DEFAULT 1"),
+                ("roam_radius", "INTEGER DEFAULT 1"),
+                ("gold_min", "INTEGER DEFAULT 0"),
+                ("gold_max", "INTEGER DEFAULT 0"),
+            ):
+                if col not in cols:
+                    await conn.execute(text(f"ALTER TABLE mobs ADD COLUMN {col} {ddl}"))
+
+        # Add missing columns to items (unique-roll settings)
+        if "items" in tables:
+            cols_result = await conn.execute(text("PRAGMA table_info(items)"))
+            cols = {row[1] for row in cols_result.fetchall()}
+            for col, ddl in (
+                ("stat_variance", "FLOAT DEFAULT 0.15"),
+                ("is_unique_roll", "BOOLEAN DEFAULT 1"),
+                ("is_craftable", "BOOLEAN DEFAULT 0"),
+                ("max_upgrade_level", "INTEGER DEFAULT 10"),
+            ):
+                if col not in cols:
+                    await conn.execute(text(f"ALTER TABLE items ADD COLUMN {col} {ddl}"))
+
+        # Add missing columns to inventory_items (unique instance link)
+        if "inventory_items" in tables:
+            cols_result = await conn.execute(text("PRAGMA table_info(inventory_items)"))
+            cols = {row[1] for row in cols_result.fetchall()}
+            if "instance_id" not in cols:
+                await conn.execute(
+                    text("ALTER TABLE inventory_items ADD COLUMN instance_id INTEGER")
+                )
+
+        # Add missing columns to cells (craft NPC station, chest respawn)
+        if "cells" in tables:
+            cols_result = await conn.execute(text("PRAGMA table_info(cells)"))
+            cols = {row[1] for row in cols_result.fetchall()}
+            for col, ddl in (
+                ("npc_station", "VARCHAR(16)"),
+                ("chest_respawn_at", "DATETIME"),
+                ("chest_tier", "INTEGER DEFAULT 1"),
+            ):
+                if col not in cols:
+                    await conn.execute(text(f"ALTER TABLE cells ADD COLUMN {col} {ddl}"))
+
+        # characters.character_class was an ENUM, now a plain string key so new
+        # classes can be added from the admin panel. SQLAlchemy's Enum stored
+        # the member *name* ("WARRIOR"), while the new class registry keys off
+        # the lowercase value ("warrior") — normalise old rows once.
+        if "characters" in tables:
+            await conn.execute(text(
+                "UPDATE characters SET character_class = lower(character_class) "
+                "WHERE character_class <> lower(character_class)"
+            ))
+
         # Create new tables if not exist
         await conn.run_sync(Base.metadata.create_all)

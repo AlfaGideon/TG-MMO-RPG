@@ -100,7 +100,19 @@
                         <option value="merchant" {% if cell.npc_type == 'merchant' %}selected{% endif %}>🛒 Торговец</option>
                         <option value="quest_giver" {% if cell.npc_type == 'quest_giver' %}selected{% endif %}>❓ Квестодатель</option>
                         <option value="storyteller" {% if cell.npc_type == 'storyteller' %}selected{% endif %}>📖 Рассказчик</option>
+                        <option value="crafter" {% if cell.npc_type == 'crafter' %}selected{% endif %}>🔨 Ремесленник</option>
                     </select>
+                </div>
+                <div style="margin-bottom: 1rem;">
+                    <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Станок (для ремесленника)</label>
+                    <select name="npc_station" class="search-box" style="max-width: 100%;">
+                        <option value="">—</option>
+                        <option value="forge" {% if cell.npc_station == 'forge' %}selected{% endif %}>🔨 Кузница (оружие, броня)</option>
+                        <option value="alchemy" {% if cell.npc_station == 'alchemy' %}selected{% endif %}>⚗️ Алхимия (зелья)</option>
+                        <option value="jewelry" {% if cell.npc_station == 'jewelry' %}selected{% endif %}>💎 Ювелир (аксессуары)</option>
+                        <option value="any" {% if cell.npc_station == 'any' %}selected{% endif %}>🛠 Все рецепты</option>
+                    </select>
+                    <p class="hint">Ремесленник даёт крафт по рецептам своего станка и заточку любых вещей.</p>
                 </div>
                 <div style="margin-bottom: 1rem;">
                     <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Диалог NPC</label>
@@ -112,6 +124,8 @@
                 <h3 style="margin-bottom: 1rem;">📦 Объекты</h3>
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 1rem;">
                     <label style="font-size: 0.85rem;"><input type="checkbox" name="has_chest" {% if cell.has_chest %}checked{% endif %}> 📦 Сундук</label>
+                    <div><label class="form-label" style="font-size:0.75rem;">Уровень сундука</label>
+                        <input type="number" name="chest_tier" value="{{ cell.chest_tier or 1 }}" min="1" max="5" class="search-box" style="max-width:90px"></div>
                     <label style="font-size: 0.85rem;"><input type="checkbox" name="has_house" {% if cell.has_house %}checked{% endif %}> 🏠 Дом</label>
                     <label style="font-size: 0.85rem;"><input type="checkbox" name="has_tree" {% if cell.has_tree %}checked{% endif %}> 🌳 Дерево</label>
                     <label style="font-size: 0.85rem;"><input type="checkbox" name="has_campfire" {% if cell.has_campfire %}checked{% endif %}> 🔥 Костёр</label>

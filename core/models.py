@@ -1,11 +1,122 @@
 from sqlalchemy import (
     Column, Integer, String, BigInteger, DateTime, Float,
-    Boolean, ForeignKey, Text, Enum as SQLEnum, func
+    Boolean, ForeignKey, Text, Enum as SQLEnum, TypeDecorator, func
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, validates
 
 from core.database import Base
-from core.enums import CharacterClass, ItemType, ItemRarity, LocationType, BattleResult, QuestStatus
+from core.enums import (
+    CharacterClass, ItemType, ItemRarity, LocationType, BattleResult, QuestStatus,
+    ItemSource, CraftStation,
+)
+
+
+# Ключи классов пишутся строчными буквами; старые enum-имена были в верхнем
+# регистре. Одна точка нормализации на всё приложение.
+def _normalize_class_key(value) -> str:
+    if isinstance(value, CharacterClass):
+        return value.value
+    text = str(value).strip()
+    return text.lower() if text.isupper() else text
+
+
+class ClassKey(str):
+    """Ключ класса персонажа.
+
+    Ведёт себя как обычная строка (`"warrior"`), но у него есть `.value`,
+    поэтому весь старый код вида `character.character_class.value`
+    продолжает работать после перехода классов из enum в таблицу БД.
+    """
+
+    @property
+    def value(self) -> str:
+        return str(self)
+
+    @property
+    def name(self) -> str:
+        return str(self).upper()
+
+
+class ClassKeyType(TypeDecorator):
+    """Хранит класс персонажа строкой, отдаёт `ClassKey`.
+
+    Раньше колонка была `Enum(CharacterClass)` и новые классы нельзя было
+    добавить из админки. Теперь список классов ведётся в таблице
+    `character_classes`, а тут лежит просто её ключ.
+    """
+    impl = String(32)
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        return _normalize_class_key(value)
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        # Старые записи хранили имя enum-члена ("WARRIOR"), а не ключ
+        # ("warrior") — SQLAlchemy Enum пишет .name. Нормализуем на чтении,
+        # чтобы персонажи из прежних версий находили свой класс.
+        return ClassKey(_normalize_class_key(value))
+
+
+class CharacterClassDef(Base):
+    """Класс персонажа, настраиваемый из админки.
+
+    Стартовые статы, множители роста за уровень и описание для экрана
+    выбора класса в боте — всё редактируется без правки кода.
+    """
+    __tablename__ = "character_classes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String(32), unique=True, nullable=False, index=True)
+    name = Column(String(64), nullable=False)
+    icon = Column(String(16), default="⚔️")
+    description = Column(Text, default="")
+
+    base_strength = Column(Integer, default=10)
+    base_agility = Column(Integer, default=10)
+    base_intelligence = Column(Integer, default=10)
+    base_endurance = Column(Integer, default=10)
+    base_luck = Column(Integer, default=10)
+    base_hp = Column(Integer, default=100)
+    base_mp = Column(Integer, default=50)
+
+    # Прирост за уровень
+    growth_strength = Column(Integer, default=1)
+    growth_agility = Column(Integer, default=1)
+    growth_intelligence = Column(Integer, default=1)
+    growth_endurance = Column(Integer, default=1)
+    growth_luck = Column(Integer, default=0)
+    growth_hp = Column(Integer, default=10)
+    growth_mp = Column(Integer, default=5)
+
+    image_url = Column(String(512), nullable=True)
+    is_enabled = Column(Boolean, default=True)
+    sort_order = Column(Integer, default=100)
+
+    def base_stats(self) -> dict:
+        return {
+            "strength": self.base_strength,
+            "agility": self.base_agility,
+            "intelligence": self.base_intelligence,
+            "endurance": self.base_endurance,
+            "luck": self.base_luck,
+            "max_hp": self.base_hp,
+            "max_mp": self.base_mp,
+        }
+
+    def growth(self) -> dict:
+        return {
+            "strength": self.growth_strength,
+            "agility": self.growth_agility,
+            "intelligence": self.growth_intelligence,
+            "endurance": self.growth_endurance,
+            "luck": self.growth_luck,
+            "max_hp": self.growth_hp,
+            "max_mp": self.growth_mp,
+        }
 
 
 class User(Base):
@@ -53,7 +164,7 @@ class Character(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
     name = Column(String(64), nullable=False)
-    character_class = Column(SQLEnum(CharacterClass), nullable=False)
+    character_class = Column(ClassKeyType, nullable=False)
     level = Column(Integer, default=1)
     experience = Column(Integer, default=0)
     gold = Column(Integer, default=50)
@@ -95,6 +206,17 @@ class Character(Base):
     party = relationship("Party", back_populates="members", foreign_keys=[party_id], overlaps="leader")
     quests = relationship("CharacterQuest", back_populates="character", cascade="all, delete-orphan")
     dungeon_runs = relationship("DungeonRun", back_populates="character", order_by="DungeonRun.created_at.desc()")
+
+    @validates("character_class")
+    def _normalize_class(self, key, value):
+        """Класс всегда хранится как ClassKey, даже до записи в БД.
+
+        Так `character.character_class.value` работает и сразу после
+        присваивания обычной строки, и после чтения из базы.
+        """
+        if value is None:
+            return None
+        return ClassKey(_normalize_class_key(value))
 
     def effective_stats(self):
         return {
@@ -152,6 +274,11 @@ class Cell(Base):
     has_house = Column(Boolean, default=False)
     has_campfire = Column(Boolean, default=False)
     has_tree = Column(Boolean, default=False)
+    # Для NPC-ремесленника: какой станок он обслуживает (forge/alchemy/jewelry)
+    npc_station = Column(String(16), nullable=True)
+    # Когда сундук будет доступен снова (сундуки восстанавливаются)
+    chest_respawn_at = Column(DateTime(timezone=True), nullable=True)
+    chest_tier = Column(Integer, default=1)
 
     # Dungeon entrance: stepping on this cell can start a procedural dungeon run
     dungeon_template_id = Column(Integer, ForeignKey("dungeon_templates.id"), nullable=True)
@@ -188,7 +315,25 @@ class Mob(Base):
     spawn_chance = Column(Float, default=0.3)
     image_url = Column(String(512), nullable=True)
 
+    # ── Популяция и передвижение ───────────────────────────
+    # Сколько живых экземпляров этого моба одновременно держим в локации.
+    # Убили одного — заспавнится новый, но не сверх этого числа.
+    population = Column(Integer, default=3)
+    respawn_seconds = Column(Integer, default=120)
+    # Насколько часто моб делает шаг по карте (0 = стоит на месте)
+    move_interval_seconds = Column(Integer, default=45)
+    can_roam = Column(Boolean, default=True)
+    # Слабый моб может забредать в локации выше уровнем, сильный к слабым — нет.
+    # Правило: моб уходит только туда, где min_level >= min_level его дома.
+    roam_radius = Column(Integer, default=1)  # на сколько локаций может уйти
+    gold_min = Column(Integer, default=0)     # 0 = использовать gold_reward
+    gold_max = Column(Integer, default=0)
+
     location = relationship("Location", back_populates="mobs")
+    spawns = relationship(
+        "MobSpawn", foreign_keys="MobSpawn.mob_id",
+        cascade="all, delete-orphan", back_populates="mob",
+    )
 
 
 class Item(Base):
@@ -216,6 +361,79 @@ class Item(Base):
     icon = Column(String(16), default="⚔️")
     image_url = Column(String(512), nullable=True)
 
+    # ── Уникальность выпадающих предметов ──────────────────
+    # Шаблон задаёт «базу», а конкретный экземпляр получает разброс статов
+    # в пределах ±stat_variance (доля от базового значения) и может быть
+    # улучшен гриндом. Так два одинаковых меча всё равно различаются.
+    stat_variance = Column(Float, default=0.15)
+    is_unique_roll = Column(Boolean, default=True)   # катать ли статы при дропе
+    is_craftable = Column(Boolean, default=False)    # используется ли в крафте как результат
+    max_upgrade_level = Column(Integer, default=10)
+
+    BONUS_FIELDS = (
+        "bonus_strength", "bonus_agility", "bonus_intelligence",
+        "bonus_endurance", "bonus_luck", "bonus_hp", "bonus_mp",
+        "bonus_damage", "bonus_defense",
+    )
+
+    def base_bonuses(self) -> dict:
+        return {f: getattr(self, f) or 0 for f in self.BONUS_FIELDS}
+
+
+class ItemInstance(Base):
+    """Уникальный экземпляр предмета.
+
+    У каждого выпавшего/скрафченного предмета свой ID (`uid`, показывается
+    игроку) и собственные статы, откатанные с небольшим разбросом от
+    шаблона. Улучшение гриндом повышает `upgrade_level` и статы.
+    """
+    __tablename__ = "item_instances"
+
+    id = Column(Integer, primary_key=True, index=True)
+    uid = Column(String(32), unique=True, index=True, nullable=False)
+    item_id = Column(Integer, ForeignKey("items.id"), nullable=False)
+
+    # Кто и откуда его получил — для истории и админки
+    source = Column(String(32), default=ItemSource.MOB.value)
+    source_detail = Column(String(128), default="")
+
+    rarity = Column(SQLEnum(ItemRarity), default=ItemRarity.COMMON)
+    quality = Column(Integer, default=100)   # 60..140 %, влияет на цену и статы
+    upgrade_level = Column(Integer, default=0)
+    prefix = Column(String(64), default="")  # «Ржавый», «Закалённый» и т.п.
+
+    bonus_strength = Column(Integer, default=0)
+    bonus_agility = Column(Integer, default=0)
+    bonus_intelligence = Column(Integer, default=0)
+    bonus_endurance = Column(Integer, default=0)
+    bonus_luck = Column(Integer, default=0)
+    bonus_hp = Column(Integer, default=0)
+    bonus_mp = Column(Integer, default=0)
+    bonus_damage = Column(Integer, default=0)
+    bonus_defense = Column(Integer, default=0)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    item = relationship("Item")
+
+    BONUS_FIELDS = Item.BONUS_FIELDS
+
+    def bonuses(self) -> dict:
+        return {f: getattr(self, f) or 0 for f in self.BONUS_FIELDS}
+
+    def display_name(self, item=None) -> str:
+        """Имя экземпляра: «Закалённый Стальной меч +3».
+
+        `item` можно передать снаружи, чтобы не дёргать relationship —
+        вызывающий код обычно уже держит шаблон загруженным.
+        """
+        template = item if item is not None else self.__dict__.get("item")
+        base = template.name if template is not None else "Предмет"
+        name = f"{self.prefix} {base}".strip() if self.prefix else base
+        if self.upgrade_level:
+            name += f" +{self.upgrade_level}"
+        return name
+
 
 class InventoryItem(Base):
     __tablename__ = "inventory_items"
@@ -223,11 +441,153 @@ class InventoryItem(Base):
     id = Column(Integer, primary_key=True, index=True)
     character_id = Column(Integer, ForeignKey("characters.id"), nullable=False)
     item_id = Column(Integer, ForeignKey("items.id"), nullable=False)
+    # Уникальный экземпляр: заполнен у снаряжения, пуст у стакающихся
+    # расходников и материалов (у них статы не катаются).
+    instance_id = Column(Integer, ForeignKey("item_instances.id"), nullable=True)
     quantity = Column(Integer, default=1)
     is_equipped = Column(Boolean, default=False)
 
     character = relationship("Character", back_populates="inventory")
     item = relationship("Item")
+    instance = relationship("ItemInstance")
+
+    # Проверяем instance_id перед self.instance: у стакающихся предметов
+    # экземпляра нет, и лишнее обращение к relationship вызвало бы ленивую
+    # загрузку из async-сессии (MissingGreenlet).
+    def _instance(self):
+        return self.instance if self.instance_id else None
+
+    def bonuses(self) -> dict:
+        """Итоговые бонусы: у уникального экземпляра — свои, иначе шаблонные."""
+        inst = self._instance()
+        if inst is not None:
+            return inst.bonuses()
+        return self.item.base_bonuses() if self.item else {}
+
+    def display_name(self) -> str:
+        inst = self._instance()
+        if inst is not None:
+            return inst.display_name(self.item)
+        return self.item.name if self.item else "Предмет"
+
+    def uid(self) -> str:
+        inst = self._instance()
+        return inst.uid if inst is not None else ""
+
+
+class DropEntry(Base):
+    """Строка таблицы лута: что может выпасть из моба или сундука.
+
+    `owner_type` — "mob" (owner_id = mobs.id), "chest" (owner_id = None —
+    общий пул для сундуков, либо locations.id для лута конкретной локации)
+    или "dungeon" (owner_id = dungeon_templates.id).
+    """
+    __tablename__ = "drop_entries"
+
+    id = Column(Integer, primary_key=True, index=True)
+    owner_type = Column(String(16), default="mob", index=True)
+    owner_id = Column(Integer, nullable=True, index=True)
+    item_id = Column(Integer, ForeignKey("items.id"), nullable=False)
+    chance = Column(Float, default=0.2)      # 0..1
+    min_quantity = Column(Integer, default=1)
+    max_quantity = Column(Integer, default=1)
+    # Дополнительный разброс статов именно для этого источника (доля)
+    variance_bonus = Column(Float, default=0.0)
+
+    item = relationship("Item")
+
+
+class CraftRecipe(Base):
+    """Рецепт крафта. Доступен у NPC-ремесленника нужного типа."""
+    __tablename__ = "craft_recipes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(128), nullable=False)
+    description = Column(Text, default="")
+    station = Column(String(16), default=CraftStation.FORGE.value)
+    result_item_id = Column(Integer, ForeignKey("items.id"), nullable=False)
+    result_quantity = Column(Integer, default=1)
+    gold_cost = Column(Integer, default=0)
+    min_level = Column(Integer, default=1)
+    success_chance = Column(Float, default=1.0)
+    # Разброс статов результата (доля). Крафт тоже даёт уникальные предметы.
+    quality_bonus = Column(Float, default=0.0)
+    is_enabled = Column(Boolean, default=True)
+
+    result_item = relationship("Item")
+    ingredients = relationship(
+        "CraftIngredient", back_populates="recipe", cascade="all, delete-orphan"
+    )
+
+
+class CraftIngredient(Base):
+    __tablename__ = "craft_ingredients"
+
+    id = Column(Integer, primary_key=True, index=True)
+    recipe_id = Column(Integer, ForeignKey("craft_recipes.id"), nullable=False)
+    item_id = Column(Integer, ForeignKey("items.id"), nullable=False)
+    quantity = Column(Integer, default=1)
+
+    recipe = relationship("CraftRecipe", back_populates="ingredients")
+    item = relationship("Item")
+
+
+class UpgradeRule(Base):
+    """Правила улучшения предмета гриндом у NPC-ремесленника.
+
+    Одна строка на диапазон уровней заточки: сколько золота и материалов
+    нужно, какой шанс успеха и сколько статов добавляется.
+    """
+    __tablename__ = "upgrade_rules"
+
+    id = Column(Integer, primary_key=True, index=True)
+    from_level = Column(Integer, default=0)
+    to_level = Column(Integer, default=1)
+    gold_cost = Column(Integer, default=50)
+    material_item_id = Column(Integer, ForeignKey("items.id"), nullable=True)
+    material_quantity = Column(Integer, default=1)
+    success_chance = Column(Float, default=0.9)
+    # На сколько процентов от базовых статов растёт предмет за уровень
+    stat_gain_percent = Column(Float, default=0.08)
+    # Минимальный абсолютный прирост, чтобы слабые предметы тоже росли
+    min_stat_gain = Column(Integer, default=1)
+
+    material_item = relationship("Item")
+
+
+class MobSpawn(Base):
+    """Живой экземпляр моба на карте.
+
+    Каждая локация держит фиксированное число живых мобов: убили одного —
+    через `respawn_seconds` появится новый, но сверх лимита никто не
+    спавнится. Мобы ходят по клеткам своей локации и могут уходить в
+    локации с уровнем не ниже родного.
+    """
+    __tablename__ = "mob_spawns"
+
+    id = Column(Integer, primary_key=True, index=True)
+    mob_id = Column(Integer, ForeignKey("mobs.id"), nullable=False, index=True)
+    # Локация, к которой моб «приписан» (лимит считается по ней)
+    home_location_id = Column(Integer, ForeignKey("locations.id"), nullable=False, index=True)
+    # Где он сейчас (может отличаться от домашней при бродяжничестве)
+    location_id = Column(Integer, ForeignKey("locations.id"), nullable=False, index=True)
+    floor = Column(Integer, default=0)
+    x = Column(Integer, default=0)
+    y = Column(Integer, default=0)
+
+    current_hp = Column(Integer, default=0)
+    is_alive = Column(Boolean, default=True, index=True)
+    killed_at = Column(DateTime(timezone=True), nullable=True)
+    respawn_at = Column(DateTime(timezone=True), nullable=True)
+    last_move_at = Column(DateTime(timezone=True), nullable=True)
+    # Кто сейчас в бою с этим мобом (чтобы моб не ушёл посреди боя)
+    engaged_by_id = Column(Integer, ForeignKey("characters.id"), nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    mob = relationship("Mob", foreign_keys=[mob_id], back_populates="spawns")
+    location = relationship("Location", foreign_keys=[location_id])
+    home_location = relationship("Location", foreign_keys=[home_location_id])
 
 
 class Battle(Base):

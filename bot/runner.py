@@ -18,6 +18,7 @@ class BotRunner:
         self.dp: Optional[Dispatcher] = None
         self._task: Optional[asyncio.Task] = None
         self._portal_sweep_task: Optional[asyncio.Task] = None
+        self._spawn_tick_task: Optional[asyncio.Task] = None
         self._running = False
 
     def is_running(self) -> bool:
@@ -43,6 +44,7 @@ class BotRunner:
             self._task = asyncio.create_task(self._poll())
             asyncio.create_task(self._notify_resume_on_start())
             self._portal_sweep_task = asyncio.create_task(self._portal_sweep_loop())
+            self._spawn_tick_task = asyncio.create_task(self._spawn_tick_loop())
             logger.info("Bot started")
             return True
         except Exception as e:
@@ -85,6 +87,28 @@ class BotRunner:
                 logger.debug(f"portal sweep failed: {e}")
             await asyncio.sleep(300)  # check every 5 minutes
 
+    async def _spawn_tick_loop(self):
+        """Живой мир: держит популяцию мобов на лимите и двигает их по карте.
+
+        Убили моба — через его respawn_seconds появится новый, но сверх
+        Mob.population никто не заспавнится. Ходят мобы только там, где им
+        разрешено (слабые могут уйти в локации выше уровнем, сильные к
+        слабым — нет).
+        """
+        from core.database import async_session
+        from core.spawns import tick
+
+        while self.is_running():
+            try:
+                async with async_session() as session:
+                    stats = await tick(session)
+                    await session.commit()
+                if stats.get("spawned") or stats.get("moved"):
+                    logger.debug(f"world tick: {stats}")
+            except Exception as e:
+                logger.debug(f"spawn tick failed: {e}")
+            await asyncio.sleep(20)
+
     async def _poll(self):
         try:
             await self.dp.start_polling(self.bot)
@@ -116,6 +140,14 @@ class BotRunner:
             except asyncio.CancelledError:
                 pass
             self._portal_sweep_task = None
+
+        if self._spawn_tick_task:
+            self._spawn_tick_task.cancel()
+            try:
+                await self._spawn_tick_task
+            except asyncio.CancelledError:
+                pass
+            self._spawn_tick_task = None
 
         if self.dp:
             await self.dp.emit_shutdown()

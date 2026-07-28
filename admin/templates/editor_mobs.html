@@ -2,27 +2,32 @@
 
 {% block title %}Редактор мобов — Shadow Lands{% endblock %}
 {% block page_title %}👾 Монстры{% endblock %}
-{% block topbar_actions %}<a href="#mob-form" class="btn btn-primary">➕ Новый моб</a>{% endblock %}
+{% block topbar_actions %}
+<a href="/editor/spawns" class="btn">👣 Популяция</a>
+<a href="/editor/drops" class="btn">🎁 Лут</a>
+<a href="#mob-form" class="btn btn-primary" onclick="resetMobForm()">➕ Новый моб</a>
+{% endblock %}
 
 {% block content %}
 <div class="card">
-    <h2>👾 Все монстры</h2>
+    <h2>👾 Все монстры ({{ mobs|length }})</h2>
+    <p class="section-sub">
+        Лимит популяции задаёт, сколько живых экземпляров моба одновременно
+        держится в его локации. Слабые мобы могут забредать в локации уровнем
+        выше, сильные к слабым — нет.
+    </p>
+
     <div class="table-wrap">
     <table>
         <thead>
             <tr>
-                <th>Фото</th>
-                <th>ID</th>
-                <th>Имя</th>
-                <th>Ур.</th>
-                <th>HP</th>
-                <th>Урон</th>
-                <th>Защ</th>
-                <th>Золото</th>
-                <th>Опыт</th>
-                <th>Локация</th>
-                <th>Босс</th>
-                <th>Действия</th>
+                <th>Фото</th><th>ID</th><th>Имя</th><th>Ур.</th>
+                <th>HP</th><th>Урон</th><th>Защ</th>
+                <th>Золото</th><th>Опыт</th><th>Локация</th>
+                <th title="Лимит популяции">Поп.</th>
+                <th title="Респавн, сек">⏱</th>
+                <th title="Ходит ли по карте">Ход</th>
+                <th>Босс</th><th>Действия</th>
             </tr>
         </thead>
         <tbody>
@@ -31,9 +36,7 @@
                 <td>
                     {% if mob.image_url %}
                     <img src="{{ mob.image_url }}" style="width:36px;height:36px;object-fit:cover;border-radius:6px;border:1px solid var(--border);">
-                    {% else %}
-                    <span style="opacity:0.4;">🖼</span>
-                    {% endif %}
+                    {% else %}<span style="opacity:0.4;">🖼</span>{% endif %}
                 </td>
                 <td>{{ mob.id }}</td>
                 <td>{{ mob.name }}</td>
@@ -41,19 +44,43 @@
                 <td>{{ mob.hp }}</td>
                 <td>{{ mob.damage }}</td>
                 <td>{{ mob.defense }}</td>
-                <td>{{ mob.gold_reward }}</td>
+                <td>{{ mob.gold_min }}–{{ mob.gold_max }}{% if not mob.gold_max %}{{ mob.gold_reward }}{% endif %}</td>
                 <td>{{ mob.exp_reward }}</td>
                 <td>{{ mob.location.name if mob.location else '—' }}</td>
+                <td><b>{{ mob.population }}</b></td>
+                <td>{{ mob.respawn_seconds }}с</td>
+                <td>{{ '🚶 ' ~ mob.move_interval_seconds ~ 'с' if mob.can_roam and mob.move_interval_seconds else '🚫' }}</td>
                 <td>{{ '✅' if mob.is_boss else '—' }}</td>
                 <td>
-                    <button onclick="editMob({{ mob.id }}, '{{ mob.name|replace("'", "\\'") }}', '{{ mob.description|replace("'", "\\'") }}', {{ mob.level }}, {{ mob.hp }}, {{ mob.damage }}, {{ mob.defense }}, {{ mob.gold_reward }}, {{ mob.exp_reward }}, {{ mob.location_id or 'null' }}, {{ 'true' if mob.is_boss else 'false' }}, '{{ mob.image_url or '' }}')" class="btn btn-primary btn-sm">✏️</button>
-                    <form action="/editor/mobs/{{ mob.id }}/delete" method="post" style="display:inline" onsubmit="return confirm('Удалить моба?')">
+                    <button type="button" class="btn btn-primary btn-sm mob-edit"
+                            data-id="{{ mob.id }}"
+                            data-name="{{ mob.name }}"
+                            data-desc="{{ mob.description }}"
+                            data-level="{{ mob.level }}"
+                            data-hp="{{ mob.hp }}"
+                            data-damage="{{ mob.damage }}"
+                            data-defense="{{ mob.defense }}"
+                            data-gold="{{ mob.gold_reward }}"
+                            data-goldmin="{{ mob.gold_min }}"
+                            data-goldmax="{{ mob.gold_max }}"
+                            data-exp="{{ mob.exp_reward }}"
+                            data-loc="{{ mob.location_id or '' }}"
+                            data-boss="{{ '1' if mob.is_boss else '' }}"
+                            data-spawn="{{ mob.spawn_chance }}"
+                            data-population="{{ mob.population }}"
+                            data-respawn="{{ mob.respawn_seconds }}"
+                            data-move="{{ mob.move_interval_seconds }}"
+                            data-roam="{{ '1' if mob.can_roam else '' }}"
+                            data-radius="{{ mob.roam_radius }}"
+                            data-image="{{ mob.image_url or '' }}">✏️</button>
+                    <a href="/editor/drops?owner_type=mob" class="btn btn-sm" title="Таблица лута">🎁</a>
+                    <form action="/editor/mobs/{{ mob.id }}/delete" method="post" style="display:inline" onsubmit="return confirm('Удалить моба? Его живые экземпляры тоже исчезнут.')">
                         <button type="submit" class="btn btn-danger btn-sm">🗑</button>
                     </form>
                 </td>
             </tr>
             {% else %}
-            <tr><td colspan="12">
+            <tr><td colspan="15">
                 <div class="empty-state"><div class="empty-icon">👾</div>Монстров пока нет.</div>
             </td></tr>
             {% endfor %}
@@ -65,57 +92,142 @@
 <div class="card" id="mob-form">
     <h3 id="mob-form-title">➕ Новый моб</h3>
     <form action="/editor/mobs/new" method="post" id="mobForm" enctype="multipart/form-data">
-        <input type="hidden" name="mob_id" id="mob_id" value="">
-        <div class="form-grid">
-            <div><label class="form-label">Имя</label><input type="text" name="name" id="m_name" class="search-box" style="max-width:100%" required></div>
-            <div><label class="form-label">Уровень</label><input type="number" name="level" id="m_level" value="1" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">HP</label><input type="number" name="hp" id="m_hp" value="30" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">Урон</label><input type="number" name="damage" id="m_damage" value="5" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">Защита</label><input type="number" name="defense" id="m_defense" value="2" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">Золото</label><input type="number" name="gold_reward" id="m_gold" value="10" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">Опыт</label><input type="number" name="exp_reward" id="m_exp" value="15" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">Локация</label>
-                <select name="location_id" id="m_loc" class="search-box" style="max-width:100%">
-                    <option value="">—</option>
-                    {% for loc in locations %}
-                    <option value="{{ loc.id }}">{{ loc.name }}</option>
-                    {% endfor %}
-                </select>
+        <fieldset class="field-group">
+            <span class="group-title">👤 Кто это</span>
+            <div class="field-row">
+                <div><label class="form-label">Имя</label>
+                    <input type="text" name="name" id="m_name" class="search-box" required></div>
+                <div><label class="form-label">Уровень</label>
+                    <input type="number" name="level" id="m_level" value="1" min="1" class="search-box"></div>
+                <div><label class="form-label">Локация (дом)</label>
+                    <select name="location_id" id="m_loc" class="search-box">
+                        <option value="">— не привязан —</option>
+                        {% for loc in locations %}
+                        <option value="{{ loc.id }}">{{ loc.name }} (ур. {{ loc.min_level }}+)</option>
+                        {% endfor %}
+                    </select></div>
+                <div style="display:flex; align-items:flex-end;">
+                    <label style="font-size:0.85rem; display:flex; align-items:center; gap:0.35rem;">
+                        <input type="checkbox" name="is_boss" id="m_boss"> 👑 Босс
+                    </label>
+                </div>
             </div>
-            <div><label class="form-label">Шанс спавна</label><input type="number" step="0.1" name="spawn_chance" id="m_spawn" value="0.3" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">🖼 Файл картинки</label><input type="file" name="image" accept="image/*" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">URL картинки</label><input type="text" name="image_url" id="m_image_url" class="search-box" style="max-width:100%" placeholder="https://..."></div>
-            <div style="display:flex;align-items:flex-end;gap:0.5rem;">
-                <label style="font-size:0.85rem"><input type="checkbox" name="is_boss" id="m_boss"> Босс</label>
+            <div style="margin-top:0.6rem;">
+                <label class="form-label">Описание</label>
+                <textarea name="description" id="m_desc" class="search-box" style="width:100%; min-height:60px;"></textarea>
             </div>
-        </div>
-        <div style="margin-top: 0.75rem;">
-            <label class="form-label">Описание</label>
-            <textarea name="description" id="m_desc" class="search-box" style="max-width:100%; width:100%; min-height:60px; resize:vertical;"></textarea>
-        </div>
-        <button type="submit" class="btn btn-primary" style="margin-top:0.75rem">💾 Сохранить</button>
-        <button type="button" class="btn" style="margin-top:0.75rem; background:var(--bg-hover)" onclick="resetMobForm()">Отмена</button>
+        </fieldset>
+
+        <fieldset class="field-group">
+            <span class="group-title">⚔️ Боевые характеристики</span>
+            <div class="field-row cols-5">
+                <div class="stat-input"><span class="stat-emoji">❤️</span><span class="stat-name">HP</span>
+                    <input type="number" name="hp" id="m_hp" value="30"></div>
+                <div class="stat-input"><span class="stat-emoji">⚔️</span><span class="stat-name">Урон</span>
+                    <input type="number" name="damage" id="m_damage" value="5"></div>
+                <div class="stat-input"><span class="stat-emoji">🛡</span><span class="stat-name">Защ</span>
+                    <input type="number" name="defense" id="m_defense" value="2"></div>
+            </div>
+        </fieldset>
+
+        <fieldset class="field-group">
+            <span class="group-title">🏆 Награды</span>
+            <div class="field-row">
+                <div><label class="form-label">Опыт</label>
+                    <input type="number" name="exp_reward" id="m_exp" value="15" min="0" class="search-box"></div>
+                <div><label class="form-label">Золото (базовое)</label>
+                    <input type="number" name="gold_reward" id="m_gold" value="10" min="0" class="search-box"></div>
+                <div><label class="form-label">Золото: мин</label>
+                    <input type="number" name="gold_min" id="m_goldmin" value="0" min="0" class="search-box"></div>
+                <div><label class="form-label">Золото: макс</label>
+                    <input type="number" name="gold_max" id="m_goldmax" value="0" min="0" class="search-box"></div>
+            </div>
+            <p class="hint">
+                Если макс = 0, золото считается от базового ±20 %. Предметы настраиваются
+                отдельно в <a href="/editor/drops">таблице лута</a> — каждый выпавший предмет
+                получает свой ID и статы с разбросом.
+            </p>
+        </fieldset>
+
+        <fieldset class="field-group">
+            <span class="group-title">👣 Популяция и передвижение</span>
+            <div class="field-row">
+                <div><label class="form-label">Лимит популяции</label>
+                    <input type="number" name="population" id="m_population" value="3" min="0" class="search-box"></div>
+                <div><label class="form-label">Респавн, сек</label>
+                    <input type="number" name="respawn_seconds" id="m_respawn" value="120" min="5" class="search-box"></div>
+                <div><label class="form-label">Шаг раз в, сек</label>
+                    <input type="number" name="move_interval_seconds" id="m_move" value="45" min="0" class="search-box"></div>
+                <div><label class="form-label">Радиус бродяжничества</label>
+                    <input type="number" name="roam_radius" id="m_radius" value="1" min="0" class="search-box"></div>
+                <div style="display:flex; align-items:flex-end;">
+                    <label style="font-size:0.85rem; display:flex; align-items:center; gap:0.35rem;">
+                        <input type="checkbox" name="can_roam" id="m_roam" checked> 🚶 Может бродить
+                    </label>
+                </div>
+                <div><label class="form-label">Шанс спавна (легаси)</label>
+                    <input type="number" step="0.1" name="spawn_chance" id="m_spawn" value="0.3" class="search-box"></div>
+            </div>
+            <p class="hint">
+                <b>Лимит</b> — сколько живых экземпляров держится в локации. Убили одного —
+                через «респавн» появится новый, но сверх лимита никто не заспавнится.
+                <b>Шаг = 0</b> или снятая галочка — моб стоит на месте.
+                <b>Радиус</b> — на сколько локаций по мировой сетке он может уйти;
+                уйти можно только туда, где минимальный уровень не ниже его домашней локации.
+            </p>
+        </fieldset>
+
+        <fieldset class="field-group">
+            <span class="group-title">🖼 Внешний вид</span>
+            <div class="field-row cols-2">
+                <div><label class="form-label">Файл картинки</label>
+                    <input type="file" name="image" accept="image/*" class="search-box"></div>
+                <div><label class="form-label">Или URL</label>
+                    <input type="text" name="image_url" id="m_image_url" class="search-box" placeholder="https://..."></div>
+            </div>
+        </fieldset>
+
+        <button type="submit" class="btn btn-primary">💾 Сохранить</button>
+        <button type="button" class="btn" onclick="resetMobForm()">Отмена</button>
     </form>
 </div>
+{% endblock %}
 
+{% block scripts %}
 <script>
-function editMob(id, name, desc, level, hp, dmg, defn, gold, exp, locId, isBoss, imageUrl) {
-    document.getElementById('mob-form-title').textContent = '✏️ Редактировать моба';
-    const form = document.getElementById('mobForm');
-    form.action = '/editor/mobs/' + id + '/edit';
-    document.getElementById('m_name').value = name;
-    document.getElementById('m_desc').value = desc;
-    document.getElementById('m_level').value = level;
-    document.getElementById('m_hp').value = hp;
-    document.getElementById('m_damage').value = dmg;
-    document.getElementById('m_defense').value = defn;
-    document.getElementById('m_gold').value = gold;
-    document.getElementById('m_exp').value = exp;
-    document.getElementById('m_loc').value = locId || '';
-    document.getElementById('m_boss').checked = isBoss;
-    document.getElementById('m_image_url').value = imageUrl || '';
-    window.location.hash = 'mob-form';
-}
+// Данные передаются через data-атрибуты, а не через inline-аргументы:
+// имена и описания мобов содержат кавычки и переносы строк.
+document.querySelectorAll('.mob-edit').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const d = btn.dataset;
+        document.getElementById('mob-form-title').textContent = '✏️ Редактировать: ' + d.name;
+        document.getElementById('mobForm').action = '/editor/mobs/' + d.id + '/edit';
+
+        const set = (id, value) => { document.getElementById(id).value = value; };
+        set('m_name', d.name);
+        set('m_desc', d.desc);
+        set('m_level', d.level);
+        set('m_hp', d.hp);
+        set('m_damage', d.damage);
+        set('m_defense', d.defense);
+        set('m_gold', d.gold);
+        set('m_goldmin', d.goldmin);
+        set('m_goldmax', d.goldmax);
+        set('m_exp', d.exp);
+        set('m_loc', d.loc);
+        set('m_spawn', d.spawn);
+        set('m_population', d.population);
+        set('m_respawn', d.respawn);
+        set('m_move', d.move);
+        set('m_radius', d.radius);
+        set('m_image_url', d.image);
+        document.getElementById('m_boss').checked = !!d.boss;
+        document.getElementById('m_roam').checked = !!d.roam;
+
+        document.getElementById('mob-form').scrollIntoView({behavior: 'smooth'});
+    });
+});
+
 function resetMobForm() {
     document.getElementById('mob-form-title').textContent = '➕ Новый моб';
     const form = document.getElementById('mobForm');

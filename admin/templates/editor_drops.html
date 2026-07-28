@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+
+{% block title %}Лут — Shadow Lands{% endblock %}
+{% block page_title %}🎁 Таблицы лута{% endblock %}
+{% block topbar_actions %}<a href="#new-drop" class="btn btn-primary">➕ Добавить дроп</a>{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>🎁 Что откуда выпадает</h2>
+    <p class="section-sub">
+        Шанс — вероятность выпадения за одно убийство или открытие. Статы у
+        выпавших предметов всегда катаются с разбросом, поэтому каждый экземпляр
+        получает свой уникальный ID. «Доп. разброс» расширяет вилку статов именно
+        для этого источника.
+    </p>
+
+    <div class="tabs">
+        <a href="/editor/drops?owner_type=mob" class="tab-btn {% if owner_type == 'mob' %}active{% endif %}" style="text-decoration:none;">👾 Из мобов</a>
+        <a href="/editor/drops?owner_type=chest" class="tab-btn {% if owner_type == 'chest' %}active{% endif %}" style="text-decoration:none;">📦 Из сундуков</a>
+        <a href="/editor/drops?owner_type=dungeon" class="tab-btn {% if owner_type == 'dungeon' %}active{% endif %}" style="text-decoration:none;">🕳 В подземельях</a>
+    </div>
+
+    {% if owner_type == 'chest' %}
+    <p class="hint" style="margin-bottom:1rem;">
+        Записи без владельца — общий пул для всех сундуков мира. Записи с локацией
+        действуют только в ней и имеют приоритет над общим пулом.
+    </p>
+    {% endif %}
+
+    {% for owner_id, entries in grouped.items() %}
+    <fieldset class="field-group">
+        <span class="group-title">
+            {% if owner_id is none %}🌍 Общий пул{% else %}
+            {{ owner_names.get(owner_id, 'ID ' ~ owner_id) }}{% endif %}
+            — {{ entries|length }} поз.
+        </span>
+        <div class="table-wrap">
+        <table>
+            <thead>
+                <tr><th>Предмет</th><th>Шанс</th><th>Кол-во</th><th>Доп. разброс</th><th></th></tr>
+            </thead>
+            <tbody>
+                {% for e in entries %}
+                <tr>
+                    <td>{{ e.item.icon }} {{ e.item.name }}
+                        <span class="badge badge-{{ e.item.rarity.value }}">{{ e.item.rarity.value }}</span></td>
+                    <td colspan="3">
+                        <form action="/editor/drops/{{ e.id }}/edit" method="post" class="inline-form">
+                            <input type="number" name="chance" value="{{ '%.2f'|format(e.chance) }}"
+                                   step="0.01" min="0" max="1" title="Шанс 0..1">
+                            <input type="number" name="min_quantity" value="{{ e.min_quantity }}" min="1" title="Мин. кол-во">
+                            <input type="number" name="max_quantity" value="{{ e.max_quantity }}" min="1" title="Макс. кол-во">
+                            <input type="number" name="variance_bonus" value="{{ '%.2f'|format(e.variance_bonus or 0) }}"
+                                   step="0.01" title="Доп. разброс статов">
+                            <button type="submit" class="btn btn-primary btn-sm">💾</button>
+                        </form>
+                    </td>
+                    <td>
+                        <form action="/editor/drops/{{ e.id }}/delete" method="post" onsubmit="return confirm('Убрать из таблицы лута?')">
+                            <button type="submit" class="btn btn-danger btn-sm">🗑</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    </fieldset>
+    {% else %}
+    <div class="empty-state"><div class="empty-icon">🎁</div>Здесь пока ничего не выпадает.</div>
+    {% endfor %}
+</div>
+
+<div class="card" id="new-drop">
+    <h3>➕ Новая строка лута</h3>
+    <form action="/editor/drops/new" method="post">
+        <input type="hidden" name="owner_type" value="{{ owner_type }}">
+        <div class="field-row">
+            <div>
+                <label class="form-label">
+                    {% if owner_type == 'mob' %}Монстр{% elif owner_type == 'chest' %}Локация{% else %}Подземелье{% endif %}
+                </label>
+                <select name="owner_id" class="search-box">
+                    {% if owner_type == 'chest' %}
+                    <option value="">🌍 Общий пул (все сундуки)</option>
+                    {% endif %}
+                    {% for o in owners %}
+                    <option value="{{ o.id }}">{{ o.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="form-label">Предмет</label>
+                <select name="item_id" class="search-box" required>
+                    {% for it in items %}
+                    <option value="{{ it.id }}">{{ it.icon }} {{ it.name }} ({{ it.rarity.value }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="form-label">Шанс (0–1)</label>
+                <input type="number" name="chance" value="0.20" step="0.01" min="0" max="1" class="search-box">
+            </div>
+            <div>
+                <label class="form-label">Мин. кол-во</label>
+                <input type="number" name="min_quantity" value="1" min="1" class="search-box">
+            </div>
+            <div>
+                <label class="form-label">Макс. кол-во</label>
+                <input type="number" name="max_quantity" value="1" min="1" class="search-box">
+            </div>
+            <div>
+                <label class="form-label">Доп. разброс статов</label>
+                <input type="number" name="variance_bonus" value="0.00" step="0.01" class="search-box">
+            </div>
+        </div>
+        <button type="submit" class="btn btn-primary" style="margin-top:0.75rem">➕ Добавить</button>
+    </form>
+</div>
+{% endblock %}

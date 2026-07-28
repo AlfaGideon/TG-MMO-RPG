@@ -1,59 +1,151 @@
 {% extends "base.html" %}
 
 {% block title %}Редактировать {{ item.name }} — Shadow Lands{% endblock %}
-{% block page_title %}✏️ {{ item.name }}{% endblock %}
+{% block page_title %}✏️ {{ item.icon }} {{ item.name }} <span style="color:var(--text-muted); font-weight:400; font-size:0.85rem;">(шаблон #{{ item.id }})</span>{% endblock %}
 {% block topbar_actions %}<a href="/items" class="btn">◀️ Назад</a>{% endblock %}
 
 {% block content %}
 <div class="card">
+    <p class="section-sub">
+        Это <b>шаблон</b> предмета. Каждый выпавший или скрафченный экземпляр
+        получает собственный уникальный ID и статы, откатанные от этих значений
+        с разбросом. Ниже — база и настройки разброса.
+    </p>
+
     <form action="/item/{{ item.id }}/edit" method="post" enctype="multipart/form-data">
         {% if item.image_url %}
-        <div style="margin-bottom: 1rem; text-align: center;">
-            <img src="{{ item.image_url }}" style="max-width: 150px; max-height: 150px; border-radius: 8px; border: 1px solid var(--border);">
+        <div style="margin-bottom:1rem; text-align:center;">
+            <img src="{{ item.image_url }}" style="max-width:150px; max-height:150px; border-radius:8px; border:1px solid var(--border);">
         </div>
         {% endif %}
-        <div class="form-grid">
-            <div><label class="form-label">Название</label><input type="text" name="name" value="{{ item.name }}" class="search-box" style="max-width:100%" required></div>
-            <div><label class="form-label">Тип</label>
-                <select name="item_type" class="search-box" style="max-width:100%">
-                    <option value="weapon" {% if item.item_type.value == 'weapon' %}selected{% endif %}>Оружие</option>
-                    <option value="armor" {% if item.item_type.value == 'armor' %}selected{% endif %}>Броня</option>
-                    <option value="helmet" {% if item.item_type.value == 'helmet' %}selected{% endif %}>Шлем</option>
-                    <option value="boots" {% if item.item_type.value == 'boots' %}selected{% endif %}>Сапоги</option>
-                    <option value="accessory" {% if item.item_type.value == 'accessory' %}selected{% endif %}>Аксессуар</option>
-                    <option value="consumable" {% if item.item_type.value == 'consumable' %}selected{% endif %}>Расходник</option>
-                    <option value="material" {% if item.item_type.value == 'material' %}selected{% endif %}>Материал</option>
-                </select>
+
+        <fieldset class="field-group">
+            <span class="group-title">📋 Основное</span>
+            <div class="field-row">
+                <div><label class="form-label">Название</label>
+                    <input type="text" name="name" value="{{ item.name }}" class="search-box" required></div>
+                <div><label class="form-label">Тип</label>
+                    <select name="item_type" class="search-box">
+                        {% for val, label in [('weapon','⚔️ Оружие'),('armor','🦺 Броня'),('helmet','🪖 Шлем'),('boots','👢 Сапоги'),('accessory','💍 Аксессуар'),('consumable','🧪 Расходник'),('material','🔩 Материал')] %}
+                        <option value="{{ val }}" {% if item.item_type.value == val %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select></div>
+                <div><label class="form-label">Редкость</label>
+                    <select name="rarity" class="search-box">
+                        {% for val, label in [('common','⚪ Обычный'),('uncommon','🟢 Необычный'),('rare','🔵 Редкий'),('epic','🟣 Эпический'),('legendary','🟠 Легендарный')] %}
+                        <option value="{{ val }}" {% if item.rarity.value == val %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select></div>
+                <div><label class="form-label">Иконка</label>
+                    <input type="text" name="icon" value="{{ item.icon }}" class="search-box"></div>
+                <div><label class="form-label">Ур. требование</label>
+                    <input type="number" name="level_requirement" value="{{ item.level_requirement }}" min="1" class="search-box"></div>
+                <div><label class="form-label">Базовая цена</label>
+                    <input type="number" name="price" value="{{ item.price }}" min="0" class="search-box"></div>
             </div>
-            <div><label class="form-label">Редкость</label>
-                <select name="rarity" class="search-box" style="max-width:100%">
-                    <option value="common" {% if item.rarity.value == 'common' %}selected{% endif %}>Обычный</option>
-                    <option value="uncommon" {% if item.rarity.value == 'uncommon' %}selected{% endif %}>Необычный</option>
-                    <option value="rare" {% if item.rarity.value == 'rare' %}selected{% endif %}>Редкий</option>
-                    <option value="epic" {% if item.rarity.value == 'epic' %}selected{% endif %}>Эпический</option>
-                    <option value="legendary" {% if item.rarity.value == 'legendary' %}selected{% endif %}>Легендарный</option>
-                </select>
+            <div style="margin-top:0.6rem;">
+                <label class="form-label">Описание</label>
+                <textarea name="description" class="search-box" style="width:100%; min-height:60px;">{{ item.description }}</textarea>
             </div>
-            <div><label class="form-label">Иконка</label><input type="text" name="icon" value="{{ item.icon }}" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">Ур. требование</label><input type="number" name="level_requirement" value="{{ item.level_requirement }}" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">Цена</label><input type="number" name="price" value="{{ item.price }}" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">Сила</label><input type="number" name="bonus_strength" value="{{ item.bonus_strength }}" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">Ловкость</label><input type="number" name="bonus_agility" value="{{ item.bonus_agility }}" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">Интеллект</label><input type="number" name="bonus_intelligence" value="{{ item.bonus_intelligence }}" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">Выносливость</label><input type="number" name="bonus_endurance" value="{{ item.bonus_endurance }}" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">Удача</label><input type="number" name="bonus_luck" value="{{ item.bonus_luck }}" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">HP</label><input type="number" name="bonus_hp" value="{{ item.bonus_hp }}" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">MP</label><input type="number" name="bonus_mp" value="{{ item.bonus_mp }}" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">Урон</label><input type="number" name="bonus_damage" value="{{ item.bonus_damage }}" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">Защита</label><input type="number" name="bonus_defense" value="{{ item.bonus_defense }}" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">🖼 Картинка (файл)</label><input type="file" name="image" accept="image/*" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">URL картинки</label><input type="text" name="image_url" value="{{ item.image_url or '' }}" class="search-box" style="max-width:100%" placeholder="https://..."></div>
-        </div>
-        <div style="margin-top: 0.75rem;">
-            <label class="form-label">Описание</label>
-            <textarea name="description" class="search-box" style="max-width:100%; width:100%; min-height:60px; resize:vertical;">{{ item.description }}</textarea>
-        </div>
-        <button type="submit" class="btn btn-primary" style="margin-top:0.75rem">💾 Сохранить</button>
+        </fieldset>
+
+        <fieldset class="field-group">
+            <span class="group-title">💪 Базовые бонусы</span>
+            <div class="field-row cols-5">
+                <div class="stat-input"><span class="stat-emoji">💪</span><span class="stat-name">Сила</span>
+                    <input type="number" name="bonus_strength" value="{{ item.bonus_strength }}"></div>
+                <div class="stat-input"><span class="stat-emoji">🏃</span><span class="stat-name">Ловк</span>
+                    <input type="number" name="bonus_agility" value="{{ item.bonus_agility }}"></div>
+                <div class="stat-input"><span class="stat-emoji">🧠</span><span class="stat-name">Инт</span>
+                    <input type="number" name="bonus_intelligence" value="{{ item.bonus_intelligence }}"></div>
+                <div class="stat-input"><span class="stat-emoji">🛡</span><span class="stat-name">Вын</span>
+                    <input type="number" name="bonus_endurance" value="{{ item.bonus_endurance }}"></div>
+                <div class="stat-input"><span class="stat-emoji">🍀</span><span class="stat-name">Удача</span>
+                    <input type="number" name="bonus_luck" value="{{ item.bonus_luck }}"></div>
+                <div class="stat-input"><span class="stat-emoji">❤️</span><span class="stat-name">HP</span>
+                    <input type="number" name="bonus_hp" value="{{ item.bonus_hp }}"></div>
+                <div class="stat-input"><span class="stat-emoji">💙</span><span class="stat-name">MP</span>
+                    <input type="number" name="bonus_mp" value="{{ item.bonus_mp }}"></div>
+                <div class="stat-input"><span class="stat-emoji">⚔️</span><span class="stat-name">Урон</span>
+                    <input type="number" name="bonus_damage" value="{{ item.bonus_damage }}"></div>
+                <div class="stat-input"><span class="stat-emoji">🛡</span><span class="stat-name">Защ</span>
+                    <input type="number" name="bonus_defense" value="{{ item.bonus_defense }}"></div>
+            </div>
+        </fieldset>
+
+        <fieldset class="field-group">
+            <span class="group-title">🎲 Уникальность экземпляров</span>
+            <div class="field-row">
+                <div>
+                    <label class="form-label">Разброс статов</label>
+                    <input type="number" name="stat_variance" value="{{ '%.2f'|format(item.stat_variance or 0) }}"
+                           step="0.01" min="0" max="0.6" class="search-box">
+                </div>
+                <div>
+                    <label class="form-label">Предел заточки</label>
+                    <input type="number" name="max_upgrade_level" value="{{ item.max_upgrade_level or 0 }}" min="0" class="search-box">
+                </div>
+                <div style="display:flex; align-items:flex-end;">
+                    <label style="font-size:0.85rem; display:flex; align-items:center; gap:0.35rem;">
+                        <input type="checkbox" name="is_unique_roll" value="true" {% if item.is_unique_roll %}checked{% endif %}>
+                        Уникальные экземпляры
+                    </label>
+                </div>
+                <div style="display:flex; align-items:flex-end;">
+                    <label style="font-size:0.85rem; display:flex; align-items:center; gap:0.35rem;">
+                        <input type="checkbox" name="is_sellable" value="true" {% if item.is_sellable %}checked{% endif %}>
+                        Можно продать
+                    </label>
+                </div>
+            </div>
+            <p class="hint">
+                <b>Разброс 0.15</b> — статы гуляют примерно ±15 %, качество экземпляра
+                выходит в диапазоне 85–115 %. При <b>0</b> все копии одинаковые.
+                Снятая галочка «уникальные экземпляры» превращает предмет в
+                стакающийся (как расходники и материалы) — у него не будет своего ID.
+            </p>
+        </fieldset>
+
+        <fieldset class="field-group">
+            <span class="group-title">🖼 Внешний вид</span>
+            <div class="field-row cols-2">
+                <div><label class="form-label">Файл картинки</label>
+                    <input type="file" name="image" accept="image/*" class="search-box"></div>
+                <div><label class="form-label">Или URL</label>
+                    <input type="text" name="image_url" value="{{ item.image_url or '' }}" class="search-box" placeholder="https://..."></div>
+            </div>
+        </fieldset>
+
+        <button type="submit" class="btn btn-primary">💾 Сохранить</button>
     </form>
 </div>
+
+{% if instances %}
+<div class="card">
+    <h3>🆔 Экземпляры в игре ({{ instance_count }})</h3>
+    <p class="section-sub">Последние выпущенные копии этого предмета — у каждой свои статы.</p>
+    <div class="table-wrap">
+    <table>
+        <thead><tr><th>ID предмета</th><th>Название</th><th>Кач.</th><th>Зат.</th>
+            <th>Редкость</th><th>Источник</th><th>Владелец</th></tr></thead>
+        <tbody>
+            {% for inst, owner in instances %}
+            <tr>
+                <td><code>{{ inst.uid }}</code></td>
+                <td>{{ inst.display_name(item) }}</td>
+                <td>{{ inst.quality }}%</td>
+                <td>+{{ inst.upgrade_level }}</td>
+                <td><span class="badge badge-{{ inst.rarity.value }}">{{ inst.rarity.value }}</span></td>
+                <td style="font-size:0.78rem; color:var(--text-muted)">{{ inst.source_detail or inst.source }}</td>
+                <td>
+                    {% if owner %}<a href="/player/{{ owner.id }}">{{ owner.name }}</a>
+                    {% else %}<span style="color:var(--text-muted)">—</span>{% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</div>
+{% endif %}
 {% endblock %}

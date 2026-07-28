@@ -555,3 +555,232 @@ tr:hover td { background: var(--bg-hover); }
     flex-wrap: wrap;
     margin-bottom: 1rem;
 }
+
+/* ══════════════════════════════════════════════════════════
+   Редактор контента: вкладки, панели статов, инвентарь
+   ══════════════════════════════════════════════════════════ */
+
+/* ── Вкладки ── */
+.tabs {
+    display: flex;
+    gap: 0.35rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 1.25rem;
+    flex-wrap: wrap;
+}
+
+.tab-btn {
+    background: transparent;
+    border: 1px solid transparent;
+    border-bottom: none;
+    color: var(--text-muted);
+    padding: 0.55rem 1rem;
+    border-radius: 8px 8px 0 0;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-family: inherit;
+    transition: all 0.15s;
+    white-space: nowrap;
+}
+
+.tab-btn:hover { color: var(--text); background: var(--bg-hover); }
+
+.tab-btn.active {
+    color: var(--text);
+    background: var(--bg-card);
+    border-color: var(--border);
+    box-shadow: inset 0 2px 0 var(--accent);
+}
+
+.tab-panel { display: none; }
+.tab-panel.active { display: block; animation: fadeIn 0.18s ease; }
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: none; }
+}
+
+/* ── Сгруппированные поля формы ── */
+.field-group {
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.9rem 1rem 1rem;
+    margin-bottom: 1rem;
+}
+
+.field-group > legend,
+.field-group .group-title {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    margin-bottom: 0.7rem;
+    display: block;
+    font-weight: 600;
+}
+
+.field-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 0.75rem;
+}
+
+.field-row.cols-2 { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.field-row.cols-5 { grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); }
+
+.field-row .form-label { display: block; margin-bottom: 0.25rem; }
+.field-row input, .field-row select, .field-row textarea { max-width: 100%; width: 100%; }
+
+/* ── Компактный ввод стата ── */
+.stat-input {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.35rem 0.5rem;
+}
+
+.stat-input .stat-emoji { font-size: 1rem; flex-shrink: 0; }
+
+.stat-input input {
+    background: transparent;
+    border: none;
+    color: var(--text);
+    width: 100%;
+    font-size: 0.9rem;
+    font-family: inherit;
+    padding: 0.15rem 0;
+}
+
+.stat-input input:focus { outline: none; }
+.stat-input:focus-within { border-color: var(--accent); }
+.stat-input .stat-name {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    flex-shrink: 0;
+    min-width: 42px;
+}
+
+/* ── Инвентарь игрока ── */
+.inv-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 0.75rem;
+}
+
+.inv-card {
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.7rem 0.8rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    position: relative;
+}
+
+.inv-card.equipped { border-color: var(--success); }
+
+.inv-card .inv-head {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-size: 0.9rem;
+}
+
+.inv-card .inv-icon { font-size: 1.2rem; }
+.inv-card .inv-name { font-weight: 600; }
+
+.inv-card .inv-uid {
+    font-family: ui-monospace, monospace;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    letter-spacing: 0.02em;
+}
+
+.inv-card .inv-bonuses {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    line-height: 1.5;
+}
+
+.inv-card .inv-actions {
+    display: flex;
+    gap: 0.3rem;
+    flex-wrap: wrap;
+    margin-top: 0.15rem;
+}
+
+/* ── Слоты экипировки ── */
+.slot-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 0.6rem;
+    margin-bottom: 1rem;
+}
+
+.slot-box {
+    background: var(--bg-dark);
+    border: 1px dashed var(--border);
+    border-radius: 10px;
+    padding: 0.6rem;
+    text-align: center;
+    font-size: 0.8rem;
+}
+
+.slot-box.filled { border-style: solid; border-color: var(--accent); }
+.slot-box .slot-label { font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase; }
+.slot-box .slot-item { margin-top: 0.25rem; font-weight: 600; }
+
+/* ── Индикатор качества предмета ── */
+.quality-bar {
+    height: 4px;
+    background: var(--bg-input);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.quality-bar span {
+    display: block;
+    height: 100%;
+    background: linear-gradient(90deg, var(--warning), var(--success));
+}
+
+/* ── Строки таблиц с инлайн-формами ── */
+.inline-form {
+    display: flex;
+    gap: 0.35rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.inline-form input, .inline-form select { max-width: 90px; }
+.inline-form input.wide { max-width: 180px; }
+
+/* ── Мини-подсказка ── */
+.hint {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: 0.3rem;
+    line-height: 1.5;
+}
+
+/* ── Полоска популяции мобов ── */
+.pop-bar {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.78rem;
+}
+
+.pop-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--success);
+    display: inline-block;
+}
+
+.pop-dot.dead { background: var(--border); }
