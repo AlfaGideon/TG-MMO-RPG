@@ -68,3 +68,4 @@ class Reply:
     keyboard: list = field(default_factory=list)   # [[(label, data), ...], ...]
     alert: str = ""                                # всплывающее уведомление
     new_message: bool = False                      # отправить новым сообщением
+    image_url: str = ""                            # ссылка или путь к картинке

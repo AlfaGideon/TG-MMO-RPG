@@ -45,7 +45,7 @@
 
 <div class="card" id="new-item">
     <h3>➕ Создать предмет</h3>
-    <form action="/item/new" method="post">
+    <form action="/item/new" method="post" enctype="multipart/form-data">
         <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem;">
             <div><label class="form-label">Название</label><input type="text" name="name" class="search-box" style="max-width:100%" required></div>
             <div><label class="form-label">Тип</label>
@@ -80,6 +80,8 @@
             <div><label class="form-label">MP</label><input type="number" name="bonus_mp" value="0" class="search-box" style="max-width:100%"></div>
             <div><label class="form-label">Урон</label><input type="number" name="bonus_damage" value="0" class="search-box" style="max-width:100%"></div>
             <div><label class="form-label">Защита</label><input type="number" name="bonus_defense" value="0" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">🖼 Файл картинки</label><input type="file" name="image" accept="image/*" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">URL картинки</label><input type="text" name="image_url" class="search-box" style="max-width:100%" placeholder="https://..."></div>
         </div>
         <div style="margin-top: 0.75rem;">
             <label class="form-label">Описание</label>

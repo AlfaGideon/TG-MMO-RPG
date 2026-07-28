@@ -9,6 +9,7 @@ from core.models import User, Character, Location, Mob, Battle, Cell
 from core.enums import LocationType, BattleResult
 from bot.keyboards.inline import combat_keyboard, main_menu_keyboard
 from bot.utils.texts import battle_start_text, battle_round_text, victory_text, defeat_text
+from bot.utils.photos import send_or_edit_photo
 
 router = Router()
 
@@ -85,10 +86,11 @@ async def start_cell_battle(callback, character, mob, session):
         "damage_taken": 0,
     }
 
-    await callback.message.edit_text(
+    await send_or_edit_photo(
+        callback,
         battle_start_text(mob),
         reply_markup=combat_keyboard(),
-        parse_mode="HTML",
+        image_url=mob.image_url,
     )
 
 
@@ -192,13 +194,14 @@ async def combat_attack(callback: CallbackQuery):
 
         await session.commit()
 
-        await callback.message.edit_text(
+        await send_or_edit_photo(
+            callback,
             battle_round_text(
                 character.name, mob.name, char_dmg, mob_dmg,
                 state["character_hp"], state["mob_hp"], character.max_hp
             ),
             reply_markup=combat_keyboard(),
-            parse_mode="HTML",
+            image_url=mob.image_url,
         )
 
 

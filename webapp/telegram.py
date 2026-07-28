@@ -118,9 +118,19 @@ class TelegramBot:
     async def send(self, chat, p, reply, force_new=False):
         kb = {"inline_keyboard": [[{"text": t, "callback_data": d} for t, d in row]
                                   for row in reply.keyboard]}
+        self.counters["sent"] += 1
+
+        if getattr(reply, "image_url", None) and reply.image_url.startswith(("http://", "https://")):
+            photo_args = dict(chat_id=chat, photo=reply.image_url, caption=reply.text, parse_mode="HTML", reply_markup=kb)
+            res = await self.call("sendPhoto", **photo_args)
+            if res.get("ok"):
+                p.msg_id = res["result"]["message_id"]
+                self.store.save_player(p)
+                self.log("out", reply.text.splitlines()[0][:60])
+                return
+
         args = dict(chat_id=chat, text=reply.text, parse_mode="HTML",
                     reply_markup=kb)
-        self.counters["sent"] += 1
         if p.msg_id and not force_new and not reply.new_message:
             res = await self.call("editMessageText", message_id=p.msg_id, **args)
             if res.get("ok"):

@@ -37,7 +37,7 @@
                 <td>{{ mob.location.name if mob.location else '—' }}</td>
                 <td>{{ '✅' if mob.is_boss else '—' }}</td>
                 <td>
-                    <button onclick="editMob({{ mob.id }}, '{{ mob.name|replace("'", "\\'") }}', '{{ mob.description|replace("'", "\\'") }}', {{ mob.level }}, {{ mob.hp }}, {{ mob.damage }}, {{ mob.defense }}, {{ mob.gold_reward }}, {{ mob.exp_reward }}, {{ mob.location_id or 'null' }}, {{ 'true' if mob.is_boss else 'false' }})" class="btn btn-primary" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">✏️</button>
+                    <button onclick="editMob({{ mob.id }}, '{{ mob.name|replace("'", "\\'") }}', '{{ mob.description|replace("'", "\\'") }}', {{ mob.level }}, {{ mob.hp }}, {{ mob.damage }}, {{ mob.defense }}, {{ mob.gold_reward }}, {{ mob.exp_reward }}, {{ mob.location_id or 'null' }}, {{ 'true' if mob.is_boss else 'false' }}, '{{ mob.image_url or '' }}')" class="btn btn-primary" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">✏️</button>
                     <form action="/editor/mobs/{{ mob.id }}/delete" method="post" style="display:inline" onsubmit="return confirm('Удалить моба?')">
                         <button type="submit" class="btn btn-danger" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">🗑</button>
                     </form>
@@ -50,7 +50,7 @@
 
 <div class="card" id="mob-form">
     <h3 id="mob-form-title">➕ Новый моб</h3>
-    <form action="/editor/mobs/new" method="post" id="mobForm">
+    <form action="/editor/mobs/new" method="post" id="mobForm" enctype="multipart/form-data">
         <input type="hidden" name="mob_id" id="mob_id" value="">
         <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem;">
             <div><label class="form-label">Имя</label><input type="text" name="name" id="m_name" class="search-box" style="max-width:100%" required></div>
@@ -69,6 +69,8 @@
                 </select>
             </div>
             <div><label class="form-label">Шанс спавна</label><input type="number" step="0.1" name="spawn_chance" id="m_spawn" value="0.3" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">🖼 Файл картинки</label><input type="file" name="image" accept="image/*" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">URL картинки</label><input type="text" name="image_url" id="m_image_url" class="search-box" style="max-width:100%" placeholder="https://..."></div>
             <div style="display:flex;align-items:flex-end;gap:0.5rem;">
                 <label style="font-size:0.85rem"><input type="checkbox" name="is_boss" id="m_boss"> Босс</label>
             </div>
@@ -83,7 +85,7 @@
 </div>
 
 <script>
-function editMob(id, name, desc, level, hp, dmg, defn, gold, exp, locId, isBoss) {
+function editMob(id, name, desc, level, hp, dmg, defn, gold, exp, locId, isBoss, imageUrl) {
     document.getElementById('mob-form-title').textContent = '✏️ Редактировать моба';
     const form = document.getElementById('mobForm');
     form.action = '/editor/mobs/' + id + '/edit';
@@ -97,6 +99,7 @@ function editMob(id, name, desc, level, hp, dmg, defn, gold, exp, locId, isBoss)
     document.getElementById('m_exp').value = exp;
     document.getElementById('m_loc').value = locId || '';
     document.getElementById('m_boss').checked = isBoss;
+    document.getElementById('m_image_url').value = imageUrl || '';
     window.location.hash = 'mob-form';
 }
 function resetMobForm() {
