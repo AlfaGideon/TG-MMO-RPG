@@ -68,12 +68,37 @@ def main():
                            ("engine/rules.py", "engine/itemui.py"),
                            ("engine/itemui.py", "engine/inventory.py"),
                            ("engine/itemui.py", "engine/shop.py"),
+                           ("engine/items.py", "engine/craft.py"),
+                           ("engine/items.py", "engine/auction.py"),
+                           ("engine/craft.py", "engine/trade.py"),
+                           ("engine/auction.py", "engine/trade.py"),
+                           ("engine/craft.py", "engine/combat.py"),
+                           ("engine/trade.py", "engine/game.py"),
                            ("engine/inventory.py", "engine/game.py"),
                            ("engine/shop.py", "engine/game.py"),
                            ("webapp/html.py", "webapp/dom.py"),
                            ("webapp/transport.py", "webapp/telegram.py"),
                            ("webapp/app.py", "webapp/boot.py")]:
         check(listed.index(dep) < listed.index(dependant), f"{dep} раньше {dependant}")
+
+    print("\n— Страницы панели доступны из меню —")
+    # Страница, которой нет в PAGES/NAV_SECTIONS, для пользователя не существует:
+    # файл лежит в репозитории, а в панели раздела нет. Именно так «пропали»
+    # возможности обновления 8, пока они жили только в серверном стеке.
+    app_src = open("webapp/app.py", encoding="utf-8").read()
+    page_files = {os.path.basename(f)[:-3] for f in glob.glob("webapp/pages/*.py")
+                  if not f.endswith("__init__.py")}
+    nav_block = re.search(r"NAV_SECTIONS = \[(.*?)\n\]", app_src, re.S)
+    nav_keys = set(re.findall(r'"([\w]+)"', nav_block.group(1))) if nav_block else set()
+    pages_block = re.search(r"PAGES = \[(.*?)\n\]", app_src, re.S)
+    page_keys = set(re.findall(r'\("([\w]+)",', pages_block.group(1))) if pages_block else set()
+    # dungeons рисуется внутри вкладки «Мир», своего пункта меню не имеет
+    standalone = page_files - {"dungeons"}
+    for mod in sorted(standalone):
+        check(any(mod.startswith(k) or k in mod for k in page_keys),
+              f"страница {mod} подключена в PAGES")
+    for key in sorted(page_keys):
+        check(key in nav_keys, f"раздел «{key}» виден в боковом меню")
 
     print("\n— Действия UI —")
     used = set()

@@ -43,6 +43,10 @@ class Player:
     y: int = 5
     inventory: list = field(default_factory=list)   # [item_index, ...]
     equipped: dict = field(default_factory=dict)    # {slot: item_index}
+    magic: list = field(default_factory=list)       # [(школа, ступень), ...]
+    worn: dict = field(default_factory=dict)        # {slot: uid экземпляра}
+    rolls: int = 0                                  # осталось перекатов статов
+    roll_state: dict = field(default_factory=dict)  # текущий бросок при создании
     kills: int = 0
     combat: dict = field(default_factory=dict)      # активный бой
     msg_id: int = 0                                 # id сообщения для edit

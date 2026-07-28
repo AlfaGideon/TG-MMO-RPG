@@ -1,5 +1,5 @@
 """Пошаговый бой."""
-from engine import data, rules, texts
+from engine import craft, data, items, rules, texts
 from engine.models import Reply
 
 
@@ -16,7 +16,7 @@ def view(p):
     ])
 
 
-def _finish_win(p, world):
+def _finish_win(p, world, store=None):
     st = p.combat
     m = data.MOBS[st["mob"]]
     gold, exp = m[6], m[7]
@@ -33,13 +33,29 @@ def _finish_win(p, world):
              f"💰 +{gold} 🪙   ⭐ +{exp} опыта"]
     if loot >= 0:
         p.inventory.append(loot)
-        lines.append(f"📦 Добыча: {rules.item(loot)['icon']} {rules.item(loot)['name']}")
+        # Именной экземпляр со своим ID и статами — если есть куда записать.
+        inst = None
+        if store is not None:
+            inst = items.create(store, loot, source="mob", owner=p.tg_id,
+                                luck=p.luck, detail=m[0])
+        if inst is not None:
+            lines.append(f"📦 Добыча: {inst['icon']} <b>{items.title(inst)}</b>")
+            lines.append(f"   <code>{items.tag(inst)}</code> · {items.stats_line(inst)}")
+        else:
+            it = rules.item(loot)
+            lines.append(f"📦 Добыча: {it['icon']} {it['name']}")
+    if store is not None:
+        mat = craft.loot_material(store, p.tg_id, st["mob"], p.luck)
+        if mat >= 0:
+            name, icon, _r, _pr = craft.material(mat)
+            lines.append(f"🔩 Ресурс: {icon} {name}")
     if levels:
         lines.append(f"\n🎖 <b>Новый уровень: {p.level}!</b> Здоровье восстановлено.")
     p.combat = {}
     return Reply(text="\n".join(lines), keyboard=[
         [("🧭 Продолжить путь", "world")],
-        [("🧙 Профиль", "profile"), ("◀️ Меню", "menu")],
+        [("🔨 Мастерская", "craft"), ("🧙 Профиль", "profile")],
+        [("◀️ Меню", "menu")],
     ])
 
 
@@ -57,7 +73,7 @@ def _finish_lose(p):
     ), keyboard=[[("🧭 В мир", "world")], [("◀️ Меню", "menu")]])
 
 
-def action(p, what, world):
+def action(p, what, world, store=None):
     st = p.combat
     if not st:
         return Reply(alert="Бой уже закончен.")
@@ -77,10 +93,13 @@ def action(p, what, world):
         if p.mp < cost:
             return Reply(alert="Недостаточно маны!")
         p.mp -= cost
-        s = rules.stats(p)
-        dmg = int((s["intelligence"] + s["damage"]) * 1.6)
+        s = rules.stats(p, store)
+        from engine import hero
+        power = hero.magic_power(p)          # дар к магии усиливает умение
+        dmg = int((s["intelligence"] + s["damage"]) * 1.6 * power)
         st["mob_hp"] -= dmg
-        st["log"].append(f"✨ Умение наносит {dmg} урона!")
+        mark = f" {hero.magic_short(getattr(p, 'magic', []))}" if power > 1 else ""
+        st["log"].append(f"✨ Умение наносит {dmg} урона!{mark}")
     elif what == "block":
         st["defend"] = True
         st["log"].append("🛡 Ты уходишь в глухую оборону.")
@@ -90,7 +109,7 @@ def action(p, what, world):
         st["log"].append(f"⚔️ {'КРИТ! ' if crit else ''}Ты наносишь {dmg} урона.")
 
     if st["mob_hp"] <= 0:
-        return _finish_win(p, world)
+        return _finish_win(p, world, store)
 
     mdmg, dodged = rules.mob_roll(p, m[4])
     if st.get("defend"):
