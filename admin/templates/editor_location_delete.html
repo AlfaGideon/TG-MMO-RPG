@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+
+{% block title %}Удаление {{ location.name }} — Shadow Lands{% endblock %}
+{% block page_title %}🗑 Удаление локации{% endblock %}
+{% block topbar_actions %}<a href="/editor/location/{{ location.id }}" class="btn">◀️ Назад</a>{% endblock %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+    <a href="/">Dashboard</a><span class="sep">/</span>
+    <a href="/editor/locations">Локации</a><span class="sep">/</span>
+    <a href="/editor/location/{{ location.id }}">{{ location.name }}</a><span class="sep">/</span>
+    <span class="current">Удаление</span>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>🗑 Удалить «{{ location.name }}»?</h2>
+    <p class="section-sub">
+        Локация будет удалена вместе со всеми клетками. Перед этим мир будет
+        аккуратно зачищен — никто не «повиснет» в пустоте.
+    </p>
+
+    <table style="margin-bottom:1rem">
+        <thead><tr><th>Зависимость</th><th>Количество</th><th>Что случится</th></tr></thead>
+        <tbody>
+            <tr>
+                <td>👥 Игроки внутри</td>
+                <td>{{ deps.players|length }}</td>
+                <td>{% if deps.players %}Будут эвакуированы в ближайшую безопасную локацию
+                    ({{ deps.players|map(attribute='name')|join(', ') }})
+                    {% else %}—{% endif %}</td>
+            </tr>
+            <tr>
+                <td>👾 Мобы, приписанные к локации</td>
+                <td>{{ deps.mobs|length }}</td>
+                <td>{% if deps.mobs %}Будут приписаны к безопасной локации
+                    ({{ deps.mobs|map(attribute='name')|join(', ') }})
+                    {% else %}—{% endif %}</td>
+            </tr>
+            <tr>
+                <td>💨 Живые спавны</td>
+                <td>{{ deps.spawns }}</td>
+                <td>{% if deps.spawns %}Распущены; популяция восполнится по новому дому{% else %}—{% endif %}</td>
+            </tr>
+            <tr>
+                <td>📜 Квесты локации</td>
+                <td>{{ deps.quests|length }}</td>
+                <td>{% if deps.quests %}Станут глобальными (привязка к локации снимется)
+                    {% else %}—{% endif %}</td>
+            </tr>
+            <tr>
+                <td>🚪 Чужие переходы, ведущие сюда</td>
+                <td>{{ deps.inbound }}</td>
+                <td>{% if deps.inbound %}Будут закрыты (клетки останутся проходимыми){% else %}—{% endif %}</td>
+            </tr>
+            <tr>
+                <td>🌫 Записи тумана войны</td>
+                <td>{{ deps.visited }}</td>
+                <td>{% if deps.visited %}Будут удалены{% else %}—{% endif %}</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div class="banner warn">
+        Действие необратимо: клетки и история перемещений по этой локации будут потеряны.
+    </div>
+
+    <div style="display:flex; gap:0.75rem;">
+        <form action="/editor/location/{{ location.id }}/delete" method="post">
+            <button type="submit" class="btn btn-danger">🗑 Да, удалить и зачистить мир</button>
+        </form>
+        <a href="/editor/location/{{ location.id }}" class="btn">Отмена</a>
+    </div>
+</div>
+{% endblock %}

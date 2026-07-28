@@ -883,6 +883,20 @@ tr:hover td { background: var(--bg-hover); }
     line-height: 1.5;
 }
 
+/* ── Баннер-уведомление ── */
+.banner {
+    padding: 0.7rem 1rem;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    font-size: 0.85rem;
+    line-height: 1.5;
+    margin-bottom: 1rem;
+    background: var(--bg-hover);
+}
+.banner.warn { background: rgba(248, 113, 113, .08); border-color: var(--danger); }
+.banner.ok { background: rgba(74, 222, 128, .08); border-color: var(--success); }
+.banner.info { background: var(--accent-soft); border-color: var(--accent); }
+
 /* ── Полоска популяции мобов ── */
 .pop-bar {
     display: inline-flex;

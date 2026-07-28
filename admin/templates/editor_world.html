@@ -76,8 +76,12 @@
 
 <div class="card">
     <h3>🔀 Переместить существующую локацию</h3>
-    <p class="section-sub">Измени мировые координаты локации, чтобы переставить её блок на карте.</p>
-    <form action="/editor/world/place" method="post" style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:flex-end;">
+    <p class="section-sub">
+        Измени мировые координаты локации, чтобы переставить её блок на карте.
+        Если клетка занята — локации <b>поменяются местами</b>; бесшовные
+        переходы пересоберутся по новой карте соседства автоматически.
+    </p>
+    <form id="placeForm" style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:flex-end;">
         <div>
             <label class="form-label">Локация</label>
             <select name="location_id" class="search-box" style="max-width:220px">
@@ -97,11 +101,51 @@
         <button type="submit" class="btn btn-primary">💾 Переставить</button>
     </form>
 </div>
+
+<div class="card">
+    <h3>🔗 Бесшовные переходы</h3>
+    <p class="section-sub">
+        Переходы между локациями строятся по соседству на этой сетке. После
+        перестановок они пересобираются сами, но если что-то правили вручную —
+        можно пересобрать всё разом.
+    </p>
+    <form action="/editor/world/relink" method="post">
+        <button type="submit" class="btn">🔗 Пересобрать все переходы</button>
+    </form>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
 (function() {
+    const params = new URLSearchParams(location.search);
+    if (params.get('relinked') !== null) {
+        showToast('Пересобрано швов: ' + params.get('relinked'));
+    }
+
+    async function placeLocation(body) {
+        try {
+            const r = await fetch('/editor/world/place', {method: 'POST', body});
+            const data = await r.json().catch(() => ({}));
+            if (r.ok && data.success) {
+                showToast(data.message || 'Локация перемещена');
+                setTimeout(() => location.assign('/editor/world'), 600);
+            } else {
+                showToast(data.detail || 'Не удалось переместить', 'err');
+            }
+        } catch (err) {
+            showToast('Ошибка сети', 'err');
+        }
+    }
+
+    const placeForm = document.getElementById('placeForm');
+    if (placeForm) {
+        placeForm.addEventListener('submit', e => {
+            e.preventDefault();
+            placeLocation(new URLSearchParams(new FormData(placeForm)));
+        });
+    }
+
     const grid = document.getElementById('worldGrid');
     if (!grid) return;
     let draggedId = null;
@@ -132,17 +176,7 @@
             body.append('location_id', draggedId);
             body.append('world_x', el.dataset.x);
             body.append('world_y', el.dataset.y);
-            try {
-                const r = await fetch('/editor/world/place', {method: 'POST', body});
-                if (r.ok) {
-                    showToast('Локация перемещена');
-                    setTimeout(() => location.reload(), 400);
-                } else {
-                    showToast('Не удалось переместить', 'err');
-                }
-            } catch (err) {
-                showToast('Ошибка сети', 'err');
-            }
+            await placeLocation(body);
         });
     });
 })();

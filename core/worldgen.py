@@ -1,0 +1,296 @@
+"""Построение и преобразование мира — общая логика для сида, админки и бота.
+
+Мир — сетка локаций на мировой карте (WORLD_GRID_SIZE×WORLD_GRID_SIZE).
+Каждая локация — собственная квадратная сетка клеток (grid_size×grid_size),
+возможно многоэтажная. Соседние по мировой карте локации связываются
+бесшовными переходами через пограничные клетки: шаг на границу переносит
+игрока в зеркальную клетку соседней локации.
+
+Координаты клеток: x — вертикаль (север→юг), y — горизонталь (запад→восток),
+как в `core/map_renderer.py`. Координаты на мировой карте: world_x — восток,
+world_y — юг.
+"""
+import random
+from collections import deque
+
+from sqlalchemy import select, update, delete, func
+
+from core.models import (
+    Location, Cell, Character, Mob, MobSpawn, Quest, VisitedCell,
+)
+from core.enums import LocationType
+
+WORLD_GRID_SIZE = 10  # 10×10 локаций на мировой карте
+
+# Соседство на мировой карте: (Δworld_x, Δworld_y).
+DIRS = {"e": (1, 0), "w": (-1, 0), "s": (0, 1), "n": (0, -1)}
+OPPOSITE = {"e": "w", "w": "e", "s": "n", "n": "s"}
+DIR_NAMES = {"e": "восток", "w": "запад", "s": "юг", "n": "север"}
+
+
+def center_of(grid_size: int) -> tuple:
+    """Центральная клетка сетки — она же спавн и узел лестниц."""
+    g = max(3, int(grid_size or 10))
+    return (g // 2, g // 2)
+
+
+# ── связность ─────────────────────────────────────────────
+
+def ensure_connectivity(cells, grid_size: int):
+    """Гарантирует, что все проходимые клетки досягаемы из центра.
+
+    `cells` — любые объекты с x, y, is_passable, tile_type (мутируются).
+    Недосягаемое становится стеной: игрок не должен застревать в карманах.
+    """
+    passable = {(c.x, c.y): c for c in cells if c.is_passable}
+    if not passable:
+        return
+    start = center_of(grid_size)
+    if start not in passable:
+        c = next((c for c in cells if (c.x, c.y) == start), None)
+        if c:
+            c.is_passable = True
+            if c.tile_type == "wall":
+                c.tile_type = "grass"
+            passable[start] = c
+    seen, queue = {start}, deque([start])
+    while queue:
+        x, y = queue.popleft()
+        for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+            n = (x + dx, y + dy)
+            if n in passable and n not in seen:
+                seen.add(n)
+                queue.append(n)
+    for pos, c in passable.items():
+        if pos not in seen:
+            c.is_passable = False
+            c.tile_type = "wall"
+
+
+# ── генерация клеток ──────────────────────────────────────
+
+async def build_cells(session, loc, stories, rng=None, wall_density=0.15):
+    """Создаёт клетки всех этажей локации с проверкой связности.
+
+    Только для свежесозданных локаций (у loc ещё нет клеток).
+    `stories` — список (name, description, tile) для наполнения клеток.
+    """
+    rng = rng or random
+    cx, cy = center_of(loc.grid_size)
+    story_idx = rng.randint(0, len(stories) - 1)
+    for floor in range(max(1, loc.floors_count or 1)):
+        cells = []
+        for x in range(loc.grid_size):
+            for y in range(loc.grid_size):
+                border = x in (0, loc.grid_size - 1) or y in (0, loc.grid_size - 1)
+                wall = border or (rng.random() < wall_density and (x, y) != (cx, cy))
+                name_s, desc_s, tile = stories[story_idx % len(stories)]
+                story_idx += 1
+                cell = Cell(
+                    location_id=loc.id, x=x, y=y, floor=floor,
+                    name=name_s, description=desc_s,
+                    is_passable=not wall,
+                    tile_type=tile if not wall else "wall",
+                )
+                session.add(cell)
+                cells.append(cell)
+        ensure_connectivity(cells, loc.grid_size)
+    await session.flush()
+    if (loc.floors_count or 1) > 1:
+        await ensure_stairs(session, loc)
+
+
+async def ensure_stairs(session, loc):
+    """Лестницы между этажами: два узла, «вверх» и «вниз», у центра сетки.
+
+    Одна клетка не может целиться на два этажа сразу, поэтому лестница —
+    это пара соседних клеток: узел UP (в центре) ведёт на этаж выше, узел
+    DOWN (соседняя) — на этаж ниже. С любого этажа можно и подняться, и
+    спуститься: раньше ссылка была односторонней, и игрок застревал наверху.
+    """
+    floors = max(1, loc.floors_count or 1)
+    if floors < 2:
+        return
+    cx, cy = center_of(loc.grid_size)
+    dx, dy = (1, 0) if cx + 1 < loc.grid_size - 1 else (-1, 0)
+    ux, uy, ddx, ddy = cx, cy, cx + dx, cy + dy
+    for floor in range(floors):
+        if floor < floors - 1:  # узел UP: наверх
+            up = await cell_at(session, loc.id, ux, uy, floor)
+            if up:
+                up.is_passable = True
+                up.tile_type = "road"
+                up.target_location_id = loc.id
+                up.target_x, up.target_y, up.target_floor = ux, uy, floor + 1
+        if floor > 0:         # узел DOWN: вниз
+            down = await cell_at(session, loc.id, ddx, ddy, floor)
+            if down:
+                down.is_passable = True
+                down.tile_type = "road"
+                down.target_location_id = loc.id
+                down.target_x, down.target_y, down.target_floor = ddx, ddy, floor - 1
+    await session.flush()
+
+
+async def cell_at(session, location_id, x, y, floor=0):
+    result = await session.execute(
+        select(Cell)
+        .where(Cell.location_id == location_id)
+        .where(Cell.floor == floor)
+        .where(Cell.x == x).where(Cell.y == y)
+    )
+    return result.scalar_one_or_none()
+
+
+async def _cells_by_pos(session, loc, floor=0):
+    result = await session.execute(
+        select(Cell).where(Cell.location_id == loc.id).where(Cell.floor == floor)
+    )
+    return {(c.x, c.y): c for c in result.scalars().all()}
+
+
+# ── соседи и швы ──────────────────────────────────────────
+
+async def neighbor(session, loc, direction):
+    """Сосед loc на мировой карте в направлении direction (e/w/s/n) или None."""
+    dx, dy = DIRS[direction]
+    wx, wy = loc.world_x + dx, loc.world_y + dy
+    if not (0 <= wx < WORLD_GRID_SIZE and 0 <= wy < WORLD_GRID_SIZE):
+        return None
+    result = await session.execute(
+        select(Location).where(Location.world_x == wx).where(Location.world_y == wy)
+    )
+    nb = result.scalar_one_or_none()
+    return nb if nb and nb.id != loc.id else None
+
+
+async def link_pair(session, a, b, direction):
+    """Бесшовный переход между a и b; b находится со стороны `direction` от a.
+
+    Ворота — ряд внутренних клеток общей границы (по меньшей из сеток).
+    После линковки прорубаем дороги от центра каждой локации до её ворот,
+    чтобы переход никогда не упирался в стену. Возвращает число пар ворот.
+    """
+    gates = max(1, min(a.grid_size, b.grid_size) - 2)
+    horizontal = direction in ("e", "w")   # граница вертикальная, ряды по x
+    for row in range(1, gates + 1):
+        if direction == "e":
+            ca = await cell_at(session, a.id, row, a.grid_size - 1)
+            cb = await cell_at(session, b.id, row, 0)
+            ta, tb = (row, 1), (row, a.grid_size - 2)
+        elif direction == "w":
+            ca = await cell_at(session, a.id, row, 0)
+            cb = await cell_at(session, b.id, row, b.grid_size - 1)
+            ta, tb = (row, b.grid_size - 2), (row, 1)
+        elif direction == "s":
+            ca = await cell_at(session, a.id, a.grid_size - 1, row)
+            cb = await cell_at(session, b.id, 0, row)
+            ta, tb = (1, row), (a.grid_size - 2, row)
+        else:  # "n"
+            ca = await cell_at(session, a.id, 0, row)
+            cb = await cell_at(session, b.id, b.grid_size - 1, row)
+            ta, tb = (b.grid_size - 2, row), (1, row)
+        if not ca or not cb:
+            continue
+        ca.is_passable = True
+        ca.tile_type = "road"
+        ca.target_location_id, ca.target_x, ca.target_y, ca.target_floor = b.id, *ta, 0
+        cb.is_passable = True
+        cb.tile_type = "road"
+        cb.target_location_id, cb.target_x, cb.target_y, cb.target_floor = a.id, *tb, 0
+    await _carve_to_border(session, a, direction, gates)
+    await _carve_to_border(session, b, OPPOSITE[direction], gates)
+    await session.flush()
+    return gates
+
+
+async def _carve_to_border(session, loc, direction, gates):
+    """Дорога от центра локации к каждому её переходу в сторону `direction`.
+
+    Сначала вертикальный/горизонтальный «хребет» через центр, от него —
+    ветка к каждыми воротам. Стены становятся дорогой; проходимые клетки и
+    их содержимое (NPC, сундуки) не трогаем.
+    """
+    cells = await _cells_by_pos(session, loc)
+    cx, cy = center_of(loc.grid_size)
+    horizontal = direction in ("e", "w")
+    border_y = loc.grid_size - 1 if direction == "e" else 0
+    border_x = loc.grid_size - 1 if direction == "s" else 0
+
+    def open_(x, y):
+        c = cells.get((x, y))
+        if c and not c.is_passable:
+            c.is_passable = True
+            c.tile_type = "road"
+
+    if horizontal:
+        for x in range(1, loc.grid_size - 1):       # хребет по колонне центра
+            open_(x, cy)
+        for row in range(1, gates + 1):             # ветки к воротам
+            lo, hi = sorted((cy, border_y))
+            for y in range(lo, hi + 1):
+                open_(row, y)
+    else:
+        for y in range(1, loc.grid_size - 1):       # хребет по строке центра
+            open_(cx, y)
+        for row in range(1, gates + 1):
+            lo, hi = sorted((cx, border_x))
+            for x in range(lo, hi + 1):
+                open_(x, row)
+
+
+async def autolink(session, loc):
+    """Связывает loc со всеми соседями по мировой карте. Отчёт по направлениям."""
+    report = []
+    for d in ("n", "e", "s", "w"):
+        nb = await neighbor(session, loc, d)
+        if not nb:
+            continue
+        gates = await link_pair(session, loc, nb, d)
+        report.append(f"🔗 {DIR_NAMES[d]} ↔ {nb.name} ({gates} ворот)")
+    if not report:
+        report.append("Соседей на мировой карте нет — связывать не с кем.")
+    return report
+
+
+async def unlink_others(session, loc):
+    """Убирает переходы между loc и другими локациями (лестницы не трогаем).
+
+    Клетки-швы остаются проходимыми дорогами, но уже никуда не ведут.
+    """
+    await session.execute(
+        update(Cell)
+        .where(Cell.location_id == loc.id)
+        .where(Cell.target_location_id != loc.id)
+        .values(target_location_id=None, target_x=None, target_y=None, target_floor=None)
+    )
+    await session.execute(
+        update(Cell)
+        .where(Cell.target_location_id == loc.id)
+        .where(Cell.location_id != loc.id)
+        .values(target_location_id=None, target_x=None, target_y=None, target_floor=None)
+    )
+
+
+async def relink_all(session):
+    """Пересобирает все бесшовные швы по текущим мировым координатам.
+
+    Вызывать после перемещений локаций: старые швы снимаются, новые
+    ставятся по фактическому соседству на сетке WORLD_GRID_SIZE×WORLD_GRID_SIZE.
+    """
+    result = await session.execute(select(Location))
+    locations = result.scalars().all()
+    for loc in locations:
+        await unlink_others(session, loc)
+    await session.flush()
+    done = set()
+    pairs = []
+    for loc in locations:
+        for d in ("e", "s"):  # каждой паре достаточно одной стороны
+            nb = await neighbor(session, loc, d)
+            if nb and (nb.id, loc.id) not in done:
+                pairs.append((loc, nb, d))
+                done.add((loc.id, nb.id))
+    for a, b, d in pairs:
+        await link_pair(session, a, b, d)
+    return len(pairs)

@@ -6,6 +6,14 @@
 
 {% block content %}
 <div class="card">
+    {% if error %}
+    <div class="banner warn">⚠️ {{ error.replace('+', ' ') }}</div>
+    {% endif %}
+    <p class="section-sub" style="margin-bottom:1rem">
+        Локация создаётся сразу проходимой: клетки генерируются с проверкой связности
+        (всё досягаемо из центра), лестницы между этажами — двусторонние.
+        Опционально — бесшовные переходы ко всем соседям по мировой карте.
+    </p>
     <form action="/editor/location/new" method="post">
         <div class="form-grid" style="grid-template-columns: repeat(2, 1fr);">
             <div>
@@ -45,6 +53,16 @@
         <div style="margin-bottom: 1rem;">
             <label class="form-label">Описание локации</label>
             <textarea name="description" class="search-box" style="max-width: 100%; width: 100%; min-height: 80px; resize: vertical;"></textarea>
+        </div>
+        <div style="display:flex; gap:1.5rem; flex-wrap:wrap; margin-bottom:1rem;">
+            <label style="display:flex; align-items:center; gap:0.4rem; font-size:0.85rem; cursor:pointer;">
+                <input type="checkbox" name="autolink" value="true" checked>
+                🔗 Связать бесшовными переходами с соседями по мировой карте
+            </label>
+            <label style="display:flex; align-items:center; gap:0.4rem; font-size:0.85rem; cursor:pointer;">
+                <input type="checkbox" name="pick_spot" value="true" checked>
+                📍 Автоподбор свободных координат, если клетка занята
+            </label>
         </div>
         <button type="submit" class="btn btn-primary">💾 Создать локацию</button>
     </form>
