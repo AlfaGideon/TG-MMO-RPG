@@ -3,41 +3,88 @@ from aiogram.types import CallbackQuery
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from core import history
 from core.database import async_session
-from core.models import User, Character, InventoryItem, Item
+from core.models import User, Character, InventoryItem, Item, ItemInstance
 from core.enums import ItemType
-from bot.keyboards.inline import inventory_keyboard, item_action_keyboard, main_menu_keyboard
+from core.stats import combat_stats
+from bot.keyboards.inline import (
+    inventory_keyboard, item_action_keyboard, main_menu_keyboard,
+)
+from bot.utils.texts import item_detail_text, item_line
 from bot.utils.photos import send_or_edit_photo
 
 router = Router()
 
+# Расходники нельзя «надеть», их используют
+EQUIPPABLE = {
+    ItemType.WEAPON, ItemType.ARMOR, ItemType.HELMET,
+    ItemType.BOOTS, ItemType.ACCESSORY,
+}
+
+
+async def load_inventory(session, character_id: int):
+    """Инвентарь с подгруженными шаблонами и уникальными экземплярами."""
+    result = await session.execute(
+        select(InventoryItem)
+        .where(InventoryItem.character_id == character_id)
+        .options(
+            selectinload(InventoryItem.item),
+            selectinload(InventoryItem.instance).selectinload(ItemInstance.item),
+        )
+        .order_by(
+            InventoryItem.is_equipped.desc(),
+            InventoryItem.id,
+        )
+    )
+    return result.scalars().all()
+
+
+async def _character_of(session, telegram_id: int):
+    result = await session.execute(select(User).where(User.telegram_id == telegram_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        return None
+    result = await session.execute(
+        select(Character).where(Character.user_id == user.id)
+    )
+    return result.scalar_one_or_none()
+
+
+def inventory_text(items, stats: dict) -> str:
+    """Заголовок сумки: сводка по надетому + список."""
+    equipped = [i for i in items if i.is_equipped]
+    lines = [
+        "🎒 <b>Инвентарь</b>",
+        f"Предметов: {len(items)} | Надето: {len(equipped)}",
+        "",
+        f"⚔️ Урон от снаряжения: <b>+{stats['damage']}</b> | "
+        f"🛡 Защита: <b>+{stats['defense']}</b>",
+    ]
+    bonus = stats["bonus"]
+    extras = []
+    for key, label in (
+        ("strength", "💪"), ("agility", "🏃"), ("intelligence", "🧠"),
+        ("endurance", "🛡"), ("luck", "🍀"), ("max_hp", "❤️"), ("max_mp", "💙"),
+    ):
+        if bonus.get(key):
+            extras.append(f"{label} +{bonus[key]}")
+    if extras:
+        lines.append("Бонусы: " + " ".join(extras))
+    lines.append("")
+    lines.append("Выбери предмет:")
+    return "\n".join(lines)
+
 
 @router.callback_query(F.data == "inventory")
-async def inventory(callback: CallbackQuery):
+async def inventory(callback: CallbackQuery, page: int = 0):
     async with async_session() as session:
-        result = await session.execute(
-            select(User).where(User.telegram_id == callback.from_user.id)
-        )
-        user = result.scalar_one_or_none()
-        if not user:
-            await callback.answer("Сначала создай персонажа!", show_alert=True)
-            return
-
-        result = await session.execute(
-            select(Character).where(Character.user_id == user.id)
-        )
-        character = result.scalar_one_or_none()
+        character = await _character_of(session, callback.from_user.id)
         if not character:
             await callback.answer("Сначала создай персонажа!", show_alert=True)
             return
 
-        result = await session.execute(
-            select(InventoryItem)
-            .where(InventoryItem.character_id == character.id)
-            .options(selectinload(InventoryItem.item))
-        )
-        items = result.scalars().all()
-
+        items = await load_inventory(session, character.id)
         if not items:
             await callback.message.edit_text(
                 "🎒 <b>Инвентарь</b>\n\nТвоя сумка пуста...",
@@ -46,38 +93,19 @@ async def inventory(callback: CallbackQuery):
             )
             return
 
-        await callback.message.edit_text(
-            "🎒 <b>Инвентарь</b>\n\nВыбери предмет:",
-            reply_markup=inventory_keyboard(items),
-            parse_mode="HTML",
-        )
+        stats = await combat_stats(session, character)
+
+    await callback.message.edit_text(
+        inventory_text(items, stats),
+        reply_markup=inventory_keyboard(items, page=page),
+        parse_mode="HTML",
+    )
 
 
 @router.callback_query(F.data.startswith("inv_page:"))
 async def inventory_page(callback: CallbackQuery):
     page = int(callback.data.split(":")[1])
-    async with async_session() as session:
-        result = await session.execute(
-            select(User).where(User.telegram_id == callback.from_user.id)
-        )
-        user = result.scalar_one_or_none()
-        result = await session.execute(
-            select(Character).where(Character.user_id == user.id)
-        )
-        character = result.scalar_one_or_none()
-
-        result = await session.execute(
-            select(InventoryItem)
-            .where(InventoryItem.character_id == character.id)
-            .options(selectinload(InventoryItem.item))
-        )
-        items = result.scalars().all()
-
-    await callback.message.edit_text(
-        "🎒 <b>Инвентарь</b>\n\nВыбери предмет:",
-        reply_markup=inventory_keyboard(items, page=page),
-        parse_mode="HTML",
-    )
+    await inventory(callback, page=page)
 
 
 @router.callback_query(F.data.startswith("item:"))
@@ -87,7 +115,10 @@ async def item_detail(callback: CallbackQuery):
         result = await session.execute(
             select(InventoryItem)
             .where(InventoryItem.id == inv_id)
-            .options(selectinload(InventoryItem.item))
+            .options(
+                selectinload(InventoryItem.item),
+                selectinload(InventoryItem.instance),
+            )
         )
         inv_item = result.scalar_one_or_none()
         if not inv_item:
@@ -95,33 +126,23 @@ async def item_detail(callback: CallbackQuery):
             return
 
         item = inv_item.item
-        text = (
-            f"{item.icon} <b>{item.name}</b>\n"
-            f"Тип: <code>{item.item_type.value}</code> | Редкость: <code>{item.rarity.value}</code>\n\n"
-            f"{item.description}\n\n"
-        )
-        bonuses = []
-        if item.bonus_strength: bonuses.append(f"💪 Сила +{item.bonus_strength}")
-        if item.bonus_agility: bonuses.append(f"🏃 Ловкость +{item.bonus_agility}")
-        if item.bonus_intelligence: bonuses.append(f"🧠 Интеллект +{item.bonus_intelligence}")
-        if item.bonus_endurance: bonuses.append(f"🛡 Выносливость +{item.bonus_endurance}")
-        if item.bonus_luck: bonuses.append(f"🍀 Удача +{item.bonus_luck}")
-        if item.bonus_hp: bonuses.append(f"❤️ HP +{item.bonus_hp}")
-        if item.bonus_mp: bonuses.append(f"💙 MP +{item.bonus_mp}")
-        if item.bonus_damage: bonuses.append(f"⚔️ Урон +{item.bonus_damage}")
-        if item.bonus_defense: bonuses.append(f"🛡 Защита +{item.bonus_defense}")
+        # Летопись есть только у именных вещей
+        rows = await history.load(session, inv_item.instance_id) \
+            if inv_item.instance_id else []
+        text = item_detail_text(inv_item, rows)
+        can_equip = item.item_type in EQUIPPABLE
+        can_use = item.item_type == ItemType.CONSUMABLE
+        can_sell = bool(inv_item.instance_id) and item.is_sellable
 
-        if bonuses:
-            text += "<b>Бонусы:</b>\n" + "\n".join(bonuses)
-        else:
-            text += "<b>Нет бонусов</b>"
-
-        await send_or_edit_photo(
-            callback,
-            text,
-            reply_markup=item_action_keyboard(inv_item.id, inv_item.is_equipped),
-            image_url=item.image_url,
-        )
+    await send_or_edit_photo(
+        callback,
+        text,
+        reply_markup=item_action_keyboard(
+            inv_item.id, inv_item.is_equipped,
+            can_equip=can_equip, can_use=can_use, can_sell=can_sell,
+        ),
+        image_url=item.image_url,
+    )
 
 
 @router.callback_query(F.data.startswith("equip:"))
@@ -131,7 +152,10 @@ async def equip_item(callback: CallbackQuery):
         result = await session.execute(
             select(InventoryItem)
             .where(InventoryItem.id == inv_id)
-            .options(selectinload(InventoryItem.item))
+            .options(
+                selectinload(InventoryItem.item),
+                selectinload(InventoryItem.instance),
+            )
         )
         inv_item = result.scalar_one_or_none()
         if not inv_item:
@@ -139,31 +163,33 @@ async def equip_item(callback: CallbackQuery):
             return
 
         item = inv_item.item
-        result = await session.execute(
-            select(Character).where(Character.id == inv_item.character_id)
-        )
-        character = result.scalar_one()
-
-        if character.level < item.level_requirement:
-            await callback.answer(f"Нужен {item.level_requirement} уровень!", show_alert=True)
+        if item.item_type not in EQUIPPABLE:
+            await callback.answer("Это нельзя надеть.", show_alert=True)
             return
 
-        # Unequip existing item of same type
+        character = await session.get(Character, inv_item.character_id)
+        if character.level < (item.level_requirement or 1):
+            await callback.answer(
+                f"Нужен {item.level_requirement} уровень!", show_alert=True
+            )
+            return
+
+        # Снимаем то, что уже занимает этот слот
         result = await session.execute(
             select(InventoryItem)
             .where(InventoryItem.character_id == character.id)
-            .where(InventoryItem.is_equipped == True)
+            .where(InventoryItem.is_equipped == True)  # noqa: E712
             .options(selectinload(InventoryItem.item))
         )
-        equipped = result.scalars().all()
-        for eq in equipped:
+        for eq in result.scalars().all():
             if eq.item.item_type == item.item_type:
                 eq.is_equipped = False
 
         inv_item.is_equipped = True
+        name = inv_item.display_name()
         await session.commit()
 
-    await callback.answer(f"Экипировано: {item.name}")
+    await callback.answer(f"Экипировано: {name}")
     await inventory(callback)
 
 
@@ -171,14 +197,65 @@ async def equip_item(callback: CallbackQuery):
 async def unequip_item(callback: CallbackQuery):
     inv_id = int(callback.data.split(":")[1])
     async with async_session() as session:
-        result = await session.execute(
-            select(InventoryItem).where(InventoryItem.id == inv_id)
-        )
-        inv_item = result.scalar_one_or_none()
+        inv_item = await session.get(InventoryItem, inv_id)
         if inv_item:
             inv_item.is_equipped = False
             await session.commit()
     await callback.answer("Предмет снят.")
+    await inventory(callback)
+
+
+@router.callback_query(F.data.startswith("use:"))
+async def use_item(callback: CallbackQuery):
+    """Расходники: зелья восстанавливают HP/MP по своим бонусам."""
+    inv_id = int(callback.data.split(":")[1])
+    async with async_session() as session:
+        result = await session.execute(
+            select(InventoryItem)
+            .where(InventoryItem.id == inv_id)
+            .options(selectinload(InventoryItem.item))
+        )
+        inv_item = result.scalar_one_or_none()
+        if not inv_item or inv_item.item.item_type != ItemType.CONSUMABLE:
+            await callback.answer("Это нельзя использовать.", show_alert=True)
+            return
+
+        character = await session.get(Character, inv_item.character_id)
+        item = inv_item.item
+        bonuses = inv_item.bonuses()
+
+        # Если у зелья не проставлены бонусы — лечим по редкости
+        heal = bonuses.get("bonus_hp") or 0
+        mana = bonuses.get("bonus_mp") or 0
+        if not heal and not mana:
+            base = {"common": 30, "uncommon": 70, "rare": 140}.get(
+                item.rarity.value, 30
+            )
+            if "ман" in item.name.lower():
+                mana = base
+            else:
+                heal = base
+
+        before_hp, before_mp = character.current_hp, character.current_mp
+        character.current_hp = min(character.max_hp, character.current_hp + heal)
+        character.current_mp = min(character.max_mp, character.current_mp + mana)
+        gained_hp = character.current_hp - before_hp
+        gained_mp = character.current_mp - before_mp
+
+        inv_item.quantity = (inv_item.quantity or 1) - 1
+        if inv_item.quantity <= 0:
+            await session.delete(inv_item)
+        await session.commit()
+
+    parts = []
+    if gained_hp:
+        parts.append(f"❤️ +{gained_hp} HP")
+    if gained_mp:
+        parts.append(f"💙 +{gained_mp} MP")
+    await callback.answer(
+        f"{item.name}: " + (" | ".join(parts) if parts else "эффекта нет"),
+        show_alert=True,
+    )
     await inventory(callback)
 
 
@@ -187,11 +264,17 @@ async def drop_item(callback: CallbackQuery):
     inv_id = int(callback.data.split(":")[1])
     async with async_session() as session:
         result = await session.execute(
-            select(InventoryItem).where(InventoryItem.id == inv_id)
+            select(InventoryItem)
+            .where(InventoryItem.id == inv_id)
+            .options(selectinload(InventoryItem.instance))
         )
         inv_item = result.scalar_one_or_none()
         if inv_item:
+            instance = inv_item.instance
             await session.delete(inv_item)
+            # Уникальный экземпляр умирает вместе со строкой инвентаря
+            if instance is not None:
+                await session.delete(instance)
             await session.commit()
     await callback.answer("Предмет выброшен.")
     await inventory(callback)

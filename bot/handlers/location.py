@@ -3,14 +3,18 @@ from aiogram.types import CallbackQuery, FSInputFile
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from datetime import datetime, timedelta
+
 from core.database import async_session
+from core.loot import give_chest_loot
 from core.models import User, Character, Location, Cell, VisitedCell
+from core.spawns import spawn_at_cell
 from core.map_renderer import ensure_cell_image, render_player_map, get_player_map_path
 from bot.keyboards.inline import (
     cell_movement_keyboard, inspect_keyboard,
     main_menu_keyboard, back_to_main_keyboard, map_view_keyboard,
 )
-from bot.utils.texts import location_text, cell_text
+from bot.utils.texts import location_text, cell_text, loot_text
 from bot.utils.photos import send_or_edit_photo, get_photo_input
 
 router = Router()
@@ -37,6 +41,15 @@ DIRECTIONS = {
     "north": (-1, 0), "south": (1, 0), "west": (0, -1), "east": (0, 1),
     "nw": (-1, -1), "ne": (-1, 1), "sw": (1, -1), "se": (1, 1),
 }
+
+
+async def is_chest_available(session, cell: Cell) -> bool:
+    """Сундук доступен, если он есть на клетке и таймер восстановления вышел."""
+    if not cell or not cell.has_chest:
+        return False
+    if cell.chest_respawn_at and cell.chest_respawn_at > datetime.utcnow():
+        return False
+    return True
 
 
 async def mark_visited(session, character: Character, cell: Cell):
@@ -136,7 +149,7 @@ async def inspect_cell(callback: CallbackQuery):
         result = await session.execute(
             select(Character)
             .where(Character.user_id == user.id)
-            .options(selectinload(Character.cell).selectinload(Cell.mob))
+            .options(selectinload(Character.cell))
         )
         character = result.scalar_one_or_none()
         if not character or not character.cell:
@@ -144,16 +157,31 @@ async def inspect_cell(callback: CallbackQuery):
             return
 
         cell = character.cell
+        # Мобы теперь ходят по карте — смотрим живые спавны на этой клетке
+        spawn = await spawn_at_cell(session, cell)
+        chest_ready = await is_chest_available(session, cell)
+
         lines = [f"🔍 <b>Осмотр клетки [{cell.x},{cell.y}]</b>\n"]
         lines.append(f"<i>{cell.name}</i>\n")
         lines.append(f"{cell.description}\n")
 
         found = []
-        if cell.mob_id:
-            found.append(f"👾 Ты заметил врага: {cell.mob.name}!")
+        if spawn and spawn.mob:
+            hp_note = ""
+            if spawn.current_hp and spawn.current_hp < spawn.mob.hp:
+                hp_note = f" <i>(ранен: {spawn.current_hp}/{spawn.mob.hp} HP)</i>"
+            found.append(
+                f"👾 Ты заметил врага: <b>{spawn.mob.name}</b> "
+                f"(ур. {spawn.mob.level}){hp_note}"
+            )
         if cell.has_npc:
-            found.append(f"💬 Здесь кто-то есть: {cell.npc_name}")
-        if cell.has_chest:
+            role = {
+                "crafter": " — ремесленник",
+                "auctioneer": " — скупщик",
+                "merchant": " — торговец",
+            }.get(cell.npc_type, "")
+            found.append(f"💬 Здесь кто-то есть: {cell.npc_name}{role}")
+        if chest_ready:
             found.append("📦 Ты нашёл сундук!")
 
         if found:
@@ -164,9 +192,11 @@ async def inspect_cell(callback: CallbackQuery):
         await callback.message.edit_text(
             "\n".join(lines),
             reply_markup=inspect_keyboard(
-                has_mob=bool(cell.mob_id),
+                has_mob=bool(spawn),
                 has_npc=cell.has_npc,
-                has_chest=cell.has_chest,
+                has_chest=chest_ready,
+                is_crafter=cell.npc_type == "crafter",
+                is_auctioneer=cell.npc_type == "auctioneer",
             ),
             parse_mode="HTML",
         )
@@ -285,6 +315,10 @@ async def talk_npc(callback: CallbackQuery):
 
         if cell.npc_type == "merchant":
             builder.button(text="🛒 Торговать", callback_data="shop")
+        if cell.npc_type == "crafter":
+            builder.button(text="🔨 Ремесло и заточка", callback_data="craft_menu")
+        if cell.npc_type == "auctioneer":
+            builder.button(text="⚖️ Аукцион", callback_data="auction_menu")
         builder.button(text="◀️ Назад", callback_data="back_to_cell")
         builder.adjust(1)
 
@@ -313,14 +347,33 @@ async def open_chest(callback: CallbackQuery):
             await callback.answer("Здесь нет сундука.", show_alert=True)
             return
 
+        cell = character.cell
+        if not await is_chest_available(session, cell):
+            await callback.answer("Сундук уже пуст. Загляни позже.", show_alert=True)
+            return
+
         import random
-        gold = random.randint(5, 25)
+        tier = max(1, cell.chest_tier or 1)
+        gold = random.randint(5 * tier, 25 * tier)
         character.gold += gold
-        character.cell.has_chest = False
+
+        # Уникальный лут: статы предметов катаются в момент открытия
+        loot = await give_chest_loot(session, character, cell.location_id, tier)
+
+        # Сундук не исчезает навсегда — восстановится через некоторое время
+        cell.chest_respawn_at = datetime.utcnow() + timedelta(
+            minutes=random.randint(20, 60)
+        )
         await session.commit()
 
+        text = f"📦 <b>Сундук открыт!</b>\n\nВнутри ты нашёл {gold}🪙 золота."
+        if loot:
+            text += "\n\n" + loot_text(loot)
+        else:
+            text += "\n\n<i>Больше в нём ничего не оказалось.</i>"
+
         await callback.message.edit_text(
-            f"📦 <b>Сундук открыт!</b>\n\nВнутри ты нашёл {gold}🪙 золота.",
+            text,
             reply_markup=back_to_main_keyboard(),
             parse_mode="HTML",
         )

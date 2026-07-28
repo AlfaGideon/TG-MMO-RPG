@@ -6,17 +6,42 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from core.classes import get_class, level_up_gains
 from core.database import async_session
+from core.enums import ItemSource
+from core.loot import roll_drops, grant_item
 from core.models import User, Character, DungeonRun, DungeonCell, DungeonTemplate, Cell
+from core.stats import attack_power, combat_stats, damage_reduction
 from bot.keyboards.inline import (
     dungeon_menu_keyboard, dungeon_movement_keyboard, dungeon_combat_keyboard,
     dungeon_map_keyboard, back_to_main_keyboard, main_menu_keyboard,
 )
 from core.map_renderer import render_dungeon_map, get_dungeon_map_path
+from bot.utils.texts import loot_text
 
 router = Router()
 
 dungeon_combat_state = {}
+
+
+async def _dungeon_loot(session, character, run_template_id=None, is_chest=False):
+    """Лут в подземелье: таблица шаблона данжа, иначе общий пул сундуков."""
+    drops = []
+    if run_template_id:
+        drops = await roll_drops(session, "dungeon", run_template_id, luck=character.luck)
+    if not drops:
+        drops = await roll_drops(session, "chest", None, luck=character.luck)
+
+    granted = []
+    for item, qty, variance in drops:
+        granted += await grant_item(
+            session, character, item, qty,
+            source=ItemSource.DUNGEON.value,
+            source_detail="Подземелье",
+            # В данже статы гуляют сильнее — оттуда приходят самые интересные вещи
+            extra_variance=variance + (0.05 if not is_chest else 0.08),
+        )
+    return granted
 
 DUNGEON_NAMES = [
     ("Тёмный коридор", "Влажные стены сияют слизью...", "cave"),
@@ -471,6 +496,7 @@ async def dungeon_attack(callback: CallbackQuery):
             "mob_exp": current.mob_exp,
             "char_hp": character.current_hp,
             "rounds": 0,
+            "template_id": run.template_id,
         }
 
         await callback.message.edit_text(
@@ -509,8 +535,10 @@ async def dungeon_combat_attack(callback: CallbackQuery):
         )
         character = result.scalar_one_or_none()
 
-        char_dmg = max(1, character.strength + random.randint(-2, 4))
-        mob_dmg = max(0, state["mob_damage"] - character.endurance // 5 + random.randint(-1, 2))
+        # Урон считается с учётом надетых уникальных предметов
+        stats = await combat_stats(session, character)
+        char_dmg = max(1, attack_power(stats, character) + random.randint(-2, 4))
+        mob_dmg = max(0, state["mob_damage"] - damage_reduction(stats) + random.randint(-1, 2))
 
         state["mob_hp"] -= char_dmg
         state["char_hp"] -= mob_dmg
@@ -521,16 +549,25 @@ async def dungeon_combat_attack(callback: CallbackQuery):
             character.experience += state["mob_exp"]
             character.current_hp = max(1, state["char_hp"])
 
+            cls_def = await get_class(session, character.character_class)
+            gains = level_up_gains(cls_def)
+            leveled = 0
             needed = character.level * 100
             while character.experience >= needed:
                 character.experience -= needed
                 character.level += 1
-                character.max_hp += 10
-                character.max_mp += 5
-                character.strength += 1
-                character.agility += 1
-                character.endurance += 1
+                leveled += 1
+                character.max_hp += gains["max_hp"]
+                character.max_mp += gains["max_mp"]
+                character.strength += gains["strength"]
+                character.agility += gains["agility"]
+                character.intelligence += gains["intelligence"]
+                character.endurance += gains["endurance"]
+                character.luck += gains["luck"]
                 needed = character.level * 100
+            if leveled:
+                character.current_hp = character.max_hp
+                character.current_mp = character.max_mp
 
             result = await session.execute(
                 select(DungeonCell).where(DungeonCell.id == state["cell_id"])
@@ -539,13 +576,23 @@ async def dungeon_combat_attack(callback: CallbackQuery):
             if cell:
                 cell.has_mob = False
 
+            loot = await _dungeon_loot(session, character, run_template_id=state.get("template_id"))
+
             await session.commit()
             del dungeon_combat_state[callback.from_user.id]
 
-            await callback.message.edit_text(
+            text = (
                 f"🎉 <b>Победа в подземелье!</b>\n\n"
                 f"Ты поверг {state['mob_name']}!\n"
-                f"💰 +{state['mob_gold']}🪙 | ⭐ +{state['mob_exp']} опыта",
+                f"💰 +{state['mob_gold']}🪙 | ⭐ +{state['mob_exp']} опыта"
+            )
+            if leveled:
+                text += f"\n\n🎖 <b>Новый уровень: {character.level}!</b>"
+            if loot:
+                text += "\n\n" + loot_text(loot)
+
+            await callback.message.edit_text(
+                text,
                 reply_markup=main_menu_keyboard(has_character=True),
                 parse_mode="HTML",
             )
@@ -610,10 +657,17 @@ async def dungeon_open_chest(callback: CallbackQuery):
 
         character.gold += current.chest_gold
         current.has_chest = False
+
+        # Уникальный лут: сначала таблица подземелья, потом общий пул сундуков
+        loot = await _dungeon_loot(session, character, run.template_id, is_chest=True)
         await session.commit()
 
+        text = f"📦 <b>Сундук открыт!</b>\n\nВнутри {current.chest_gold}🪙 золота."
+        if loot:
+            text += "\n\n" + loot_text(loot)
+
         await callback.message.edit_text(
-            f"📦 <b>Сундук открыт!</b>\n\nВнутри {current.chest_gold}🪙 золота.",
+            text,
             reply_markup=back_to_main_keyboard(),
             parse_mode="HTML",
         )

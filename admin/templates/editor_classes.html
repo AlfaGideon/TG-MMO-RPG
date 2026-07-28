@@ -1,0 +1,262 @@
+{% extends "base.html" %}
+
+{% block title %}Классы — Shadow Lands{% endblock %}
+{% block page_title %}🎭 Классы персонажей{% endblock %}
+{% block topbar_actions %}<a href="#new-class" class="btn btn-primary">➕ Новый класс</a>{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>🎭 Классы ({{ classes|length }})</h2>
+    <p class="section-sub">
+        Список классов, из которых игрок выбирает героя в боте. Новый класс
+        появляется у игроков сразу после сохранения — перезапуск не нужен.
+    </p>
+
+    <div class="table-wrap">
+    <table>
+        <thead>
+            <tr>
+                <th>Ключ</th><th>Класс</th>
+                <th title="Сила/Ловкость/Интеллект/Выносливость/Удача">Статы (С/Л/И/В/У)</th>
+                <th>HP / MP</th><th>Прирост за ур.</th>
+                <th>Магия</th><th>Игроков</th><th>Вкл</th><th>Действия</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for c in classes %}
+            <tr>
+                <td><code>{{ c.key }}</code></td>
+                <td>{{ c.icon }} <b>{{ c.name }}</b></td>
+                <td>{{ c.base_strength }}/{{ c.base_agility }}/{{ c.base_intelligence }}/{{ c.base_endurance }}/{{ c.base_luck }}</td>
+                <td>{{ c.base_hp }} / {{ c.base_mp }}</td>
+                <td style="font-size:0.78rem; color:var(--text-muted);">
+                    +{{ c.growth_strength }}/{{ c.growth_agility }}/{{ c.growth_intelligence }}/{{ c.growth_endurance }}/{{ c.growth_luck }}
+                    · ❤️+{{ c.growth_hp }} 💙+{{ c.growth_mp }}
+                </td>
+                <td style="font-size:0.78rem;">
+                    {{ (c.affinity_chance * 100)|int }}%
+                    {% if c.preferred_school_list() %}
+                    <br><span style="color:var(--text-muted)">
+                        {% for k in c.preferred_school_list() %}{{ {'fire':'🔥','frost':'❄️','storm':'⚡','shadow':'🌑','nature':'🌿','light':'✨'}.get(k, k) }}{% endfor %}
+                    </span>
+                    {% endif %}
+                </td>
+                <td>{{ usage.get(c.key, 0) }}</td>
+                <td>{{ '✅' if c.is_enabled else '🚫' }}</td>
+                <td>
+                    <button class="btn btn-primary btn-sm" onclick="toggleForm('cls-{{ c.id }}')">✏️</button>
+                    <form action="/editor/classes/{{ c.id }}/delete" method="post" style="display:inline"
+                          onsubmit="return confirm({% if usage.get(c.key, 0) %}'Классом играют {{ usage.get(c.key) }} героев — он будет просто выключен. Продолжить?'{% else %}'Удалить класс?'{% endif %})">
+                        <button type="submit" class="btn btn-danger btn-sm">🗑</button>
+                    </form>
+                </td>
+            </tr>
+            <tr id="cls-{{ c.id }}" style="display:none;">
+                <td colspan="9">
+                    <form action="/editor/classes/{{ c.id }}/edit" method="post">
+                        <fieldset class="field-group">
+                            <span class="group-title">Основное</span>
+                            <div class="field-row">
+                                <div><label class="form-label">Название</label>
+                                    <input type="text" name="name" value="{{ c.name }}" class="search-box" required></div>
+                                <div><label class="form-label">Иконка</label>
+                                    <input type="text" name="icon" value="{{ c.icon }}" class="search-box"></div>
+                                <div><label class="form-label">Порядок</label>
+                                    <input type="number" name="sort_order" value="{{ c.sort_order }}" class="search-box"></div>
+                                <div><label class="form-label">URL картинки</label>
+                                    <input type="text" name="image_url" value="{{ c.image_url or '' }}" class="search-box"></div>
+                            </div>
+                            <div style="margin-top:0.6rem;">
+                                <label class="form-label">Описание (видит игрок при выборе)</label>
+                                <textarea name="description" class="search-box" style="width:100%; min-height:60px;">{{ c.description }}</textarea>
+                            </div>
+                        </fieldset>
+
+                        <fieldset class="field-group">
+                            <span class="group-title">Стартовые характеристики</span>
+                            <div class="field-row cols-5">
+                                <div class="stat-input"><span class="stat-emoji">💪</span><span class="stat-name">Сила</span>
+                                    <input type="number" name="base_strength" value="{{ c.base_strength }}"></div>
+                                <div class="stat-input"><span class="stat-emoji">🏃</span><span class="stat-name">Ловк</span>
+                                    <input type="number" name="base_agility" value="{{ c.base_agility }}"></div>
+                                <div class="stat-input"><span class="stat-emoji">🧠</span><span class="stat-name">Инт</span>
+                                    <input type="number" name="base_intelligence" value="{{ c.base_intelligence }}"></div>
+                                <div class="stat-input"><span class="stat-emoji">🛡</span><span class="stat-name">Вын</span>
+                                    <input type="number" name="base_endurance" value="{{ c.base_endurance }}"></div>
+                                <div class="stat-input"><span class="stat-emoji">🍀</span><span class="stat-name">Удача</span>
+                                    <input type="number" name="base_luck" value="{{ c.base_luck }}"></div>
+                                <div class="stat-input"><span class="stat-emoji">❤️</span><span class="stat-name">HP</span>
+                                    <input type="number" name="base_hp" value="{{ c.base_hp }}"></div>
+                                <div class="stat-input"><span class="stat-emoji">💙</span><span class="stat-name">MP</span>
+                                    <input type="number" name="base_mp" value="{{ c.base_mp }}"></div>
+                            </div>
+                        </fieldset>
+
+                        <fieldset class="field-group">
+                            <span class="group-title">Прирост за уровень</span>
+                            <div class="field-row cols-5">
+                                <div class="stat-input"><span class="stat-emoji">💪</span><span class="stat-name">Сила</span>
+                                    <input type="number" name="growth_strength" value="{{ c.growth_strength }}"></div>
+                                <div class="stat-input"><span class="stat-emoji">🏃</span><span class="stat-name">Ловк</span>
+                                    <input type="number" name="growth_agility" value="{{ c.growth_agility }}"></div>
+                                <div class="stat-input"><span class="stat-emoji">🧠</span><span class="stat-name">Инт</span>
+                                    <input type="number" name="growth_intelligence" value="{{ c.growth_intelligence }}"></div>
+                                <div class="stat-input"><span class="stat-emoji">🛡</span><span class="stat-name">Вын</span>
+                                    <input type="number" name="growth_endurance" value="{{ c.growth_endurance }}"></div>
+                                <div class="stat-input"><span class="stat-emoji">🍀</span><span class="stat-name">Удача</span>
+                                    <input type="number" name="growth_luck" value="{{ c.growth_luck }}"></div>
+                                <div class="stat-input"><span class="stat-emoji">❤️</span><span class="stat-name">HP</span>
+                                    <input type="number" name="growth_hp" value="{{ c.growth_hp }}"></div>
+                                <div class="stat-input"><span class="stat-emoji">💙</span><span class="stat-name">MP</span>
+                                    <input type="number" name="growth_mp" value="{{ c.growth_mp }}"></div>
+                            </div>
+                        </fieldset>
+
+                        <fieldset class="field-group">
+                            <span class="group-title">🔮 Предрасположенность к магии</span>
+                            <div class="field-row">
+                                <div><label class="form-label">Шанс дара (0–1)</label>
+                                    <input type="number" name="affinity_chance" step="0.05" min="0" max="1"
+                                           value="{{ '%.2f'|format(c.affinity_chance or 0) }}" class="search-box"></div>
+                                <div><label class="form-label">Шанс двух школ (0–1)</label>
+                                    <input type="number" name="dual_affinity_chance" step="0.01" min="0" max="1"
+                                           value="{{ '%.2f'|format(c.dual_affinity_chance or 0) }}" class="search-box"></div>
+                            </div>
+                            <label class="form-label" style="margin-top:0.6rem;">Склонность к школам</label>
+                            <div class="field-row cols-2">
+                                {% set prefs = c.preferred_school_list() %}
+                                {% for key, icon, title in schools %}
+                                <label style="display:flex; align-items:center; gap:0.4rem; font-size:0.82rem;">
+                                    <input type="checkbox" name="preferred_schools" value="{{ key }}"
+                                           {% if key in prefs %}checked{% endif %}>
+                                    {{ icon }} {{ title }}
+                                </label>
+                                {% endfor %}
+                            </div>
+                            <p class="hint">
+                                Отмеченные школы выпадают этому классу в 4 раза чаще прочих.
+                                Ничего не отмечено — все шесть равновероятны.
+                            </p>
+                        </fieldset>
+
+                        <label style="display:flex; align-items:center; gap:0.4rem; font-size:0.85rem; margin-bottom:0.6rem;">
+                            <input type="checkbox" name="is_enabled" value="true" {% if c.is_enabled %}checked{% endif %}>
+                            Доступен игрокам при создании героя
+                        </label>
+                        <button type="submit" class="btn btn-primary">💾 Сохранить</button>
+                    </form>
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="9">
+                <div class="empty-state"><div class="empty-icon">🎭</div>Классов пока нет.</div>
+            </td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</div>
+
+<div class="card" id="new-class">
+    <h3>➕ Создать класс</h3>
+    <form action="/editor/classes/new" method="post">
+        <fieldset class="field-group">
+            <span class="group-title">Основное</span>
+            <div class="field-row">
+                <div><label class="form-label">Ключ (латиницей)</label>
+                    <input type="text" name="key" class="search-box" placeholder="warlock" required></div>
+                <div><label class="form-label">Название</label>
+                    <input type="text" name="name" class="search-box" placeholder="Чернокнижник" required></div>
+                <div><label class="form-label">Иконка</label>
+                    <input type="text" name="icon" value="⚔️" class="search-box"></div>
+                <div><label class="form-label">Порядок в списке</label>
+                    <input type="number" name="sort_order" value="100" class="search-box"></div>
+            </div>
+            <div style="margin-top:0.6rem;">
+                <label class="form-label">Описание для игрока</label>
+                <textarea name="description" class="search-box" style="width:100%; min-height:70px;"
+                          placeholder="Что видит игрок на экране выбора класса..."></textarea>
+            </div>
+            <p class="hint">Ключ должен быть уникальным — по нему класс хранится у персонажей.</p>
+        </fieldset>
+
+        <fieldset class="field-group">
+            <span class="group-title">Стартовые характеристики</span>
+            <div class="field-row cols-5">
+                <div class="stat-input"><span class="stat-emoji">💪</span><span class="stat-name">Сила</span>
+                    <input type="number" name="base_strength" value="10"></div>
+                <div class="stat-input"><span class="stat-emoji">🏃</span><span class="stat-name">Ловк</span>
+                    <input type="number" name="base_agility" value="10"></div>
+                <div class="stat-input"><span class="stat-emoji">🧠</span><span class="stat-name">Инт</span>
+                    <input type="number" name="base_intelligence" value="10"></div>
+                <div class="stat-input"><span class="stat-emoji">🛡</span><span class="stat-name">Вын</span>
+                    <input type="number" name="base_endurance" value="10"></div>
+                <div class="stat-input"><span class="stat-emoji">🍀</span><span class="stat-name">Удача</span>
+                    <input type="number" name="base_luck" value="10"></div>
+                <div class="stat-input"><span class="stat-emoji">❤️</span><span class="stat-name">HP</span>
+                    <input type="number" name="base_hp" value="100"></div>
+                <div class="stat-input"><span class="stat-emoji">💙</span><span class="stat-name">MP</span>
+                    <input type="number" name="base_mp" value="50"></div>
+            </div>
+        </fieldset>
+
+        <fieldset class="field-group">
+            <span class="group-title">Прирост за уровень</span>
+            <div class="field-row cols-5">
+                <div class="stat-input"><span class="stat-emoji">💪</span><span class="stat-name">Сила</span>
+                    <input type="number" name="growth_strength" value="1"></div>
+                <div class="stat-input"><span class="stat-emoji">🏃</span><span class="stat-name">Ловк</span>
+                    <input type="number" name="growth_agility" value="1"></div>
+                <div class="stat-input"><span class="stat-emoji">🧠</span><span class="stat-name">Инт</span>
+                    <input type="number" name="growth_intelligence" value="1"></div>
+                <div class="stat-input"><span class="stat-emoji">🛡</span><span class="stat-name">Вын</span>
+                    <input type="number" name="growth_endurance" value="1"></div>
+                <div class="stat-input"><span class="stat-emoji">🍀</span><span class="stat-name">Удача</span>
+                    <input type="number" name="growth_luck" value="0"></div>
+                <div class="stat-input"><span class="stat-emoji">❤️</span><span class="stat-name">HP</span>
+                    <input type="number" name="growth_hp" value="10"></div>
+                <div class="stat-input"><span class="stat-emoji">💙</span><span class="stat-name">MP</span>
+                    <input type="number" name="growth_mp" value="5"></div>
+            </div>
+        </fieldset>
+
+        <fieldset class="field-group">
+            <span class="group-title">🔮 Предрасположенность к магии</span>
+            <div class="field-row">
+                <div><label class="form-label">Шанс дара (0–1)</label>
+                    <input type="number" name="affinity_chance" step="0.05" min="0" max="1"
+                           value="0.50" class="search-box"></div>
+                <div><label class="form-label">Шанс двух школ (0–1)</label>
+                    <input type="number" name="dual_affinity_chance" step="0.01" min="0" max="1"
+                           value="0.12" class="search-box"></div>
+            </div>
+            <label class="form-label" style="margin-top:0.6rem;">Склонность к школам</label>
+            <div class="field-row cols-2">
+                {% for key, icon, title in schools %}
+                <label style="display:flex; align-items:center; gap:0.4rem; font-size:0.82rem;">
+                    <input type="checkbox" name="preferred_schools" value="{{ key }}"> {{ icon }} {{ title }}
+                </label>
+                {% endfor %}
+            </div>
+            <p class="hint">
+                Дар бросается один раз при создании героя и перекатом статов не меняется.
+            </p>
+        </fieldset>
+
+        <label style="display:flex; align-items:center; gap:0.4rem; font-size:0.85rem; margin-bottom:0.6rem;">
+            <input type="checkbox" name="is_enabled" value="true" checked>
+            Сразу доступен игрокам
+        </label>
+        <button type="submit" class="btn btn-primary">💾 Создать класс</button>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleForm(id) {
+    const row = document.getElementById(id);
+    row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+}
+</script>
+{% endblock %}

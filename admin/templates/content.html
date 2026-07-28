@@ -34,8 +34,32 @@
             <div class="content-desc">Монстры, боссы, характеристики и награды за убийство.</div>
             <span class="content-count">{{ total_mobs }} шт.</span>
         </a>
-        <a href="/editor/npcs" class="content-card">
+        <a href="/editor/spawns" class="content-card">
+            <div class="content-icon">👣</div>
+            <div class="content-title">Популяция</div>
+            <div class="content-desc">Живые мобы на карте: лимиты, респавн и передвижение по локациям.</div>
+            <span class="content-count">{{ total_spawns }} живых</span>
+        </a>
+        <a href="/editor/drops" class="content-card">
+            <div class="content-icon">🎁</div>
+            <div class="content-title">Таблицы лута</div>
+            <div class="content-desc">Что выпадает из мобов и сундуков. Статы катаются с разбросом.</div>
+            <span class="content-count">{{ total_drops }} записей</span>
+        </a>
+        <a href="/editor/craft" class="content-card">
+            <div class="content-icon">🔨</div>
+            <div class="content-title">Крафт и заточка</div>
+            <div class="content-desc">Рецепты ремесленников и правила улучшения предметов гриндом.</div>
+            <span class="content-count">{{ total_recipes }} рецептов</span>
+        </a>
+        <a href="/editor/classes" class="content-card">
             <div class="content-icon">🎭</div>
+            <div class="content-title">Классы</div>
+            <div class="content-desc">Классы героев: стартовые статы, прирост за уровень, описание.</div>
+            <span class="content-count">{{ total_classes }} шт.</span>
+        </a>
+        <a href="/editor/npcs" class="content-card">
+            <div class="content-icon">💬</div>
             <div class="content-title">NPC</div>
             <div class="content-desc">Торговцы, квестодатели и рассказчики на клетках карты.</div>
             <span class="content-count">{{ total_npcs }} шт.</span>
@@ -45,6 +69,18 @@
             <div class="content-title">Квесты</div>
             <div class="content-desc">Задания игроков: цели, условия и награды.</div>
             <span class="content-count">{{ total_quests }} шт.</span>
+        </a>
+        <a href="/editor/events" class="content-card">
+            <div class="content-icon">🎄</div>
+            <div class="content-title">События и реликвии</div>
+            <div class="content-desc">Праздничные трофеи и вещи в единственном экземпляре.</div>
+            <span class="content-count">{{ total_unique }} реликвий</span>
+        </a>
+        <a href="/editor/instances" class="content-card">
+            <div class="content-icon">🆔</div>
+            <div class="content-title">Экземпляры</div>
+            <div class="content-desc">Все именные вещи с их ID, историей и владельцами.</div>
+            <span class="content-count">{{ total_instances }} шт.</span>
         </a>
         <a href="/items" class="content-card">
             <div class="content-icon">🎒</div>

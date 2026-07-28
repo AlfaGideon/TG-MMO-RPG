@@ -1,0 +1,305 @@
+{% extends "base.html" %}
+
+{% block title %}Крафт — Shadow Lands{% endblock %}
+{% block page_title %}🔨 Крафт и заточка{% endblock %}
+{% block topbar_actions %}<a href="#new-recipe" class="btn btn-primary">➕ Новый рецепт</a>{% endblock %}
+
+{% block content %}
+
+<div class="tabs">
+    <button class="tab-btn active" data-tab="tab-recipes">📜 Рецепты ({{ recipes|length }})</button>
+    <button class="tab-btn" data-tab="tab-rules">⚡ Заточка ({{ rules|length }})</button>
+    <button class="tab-btn" data-tab="tab-npcs">🎭 Ремесленники ({{ crafters|length }})</button>
+</div>
+
+<!-- ══════ РЕЦЕПТЫ ══════ -->
+<div class="tab-panel active" id="tab-recipes">
+<div class="card">
+    <h2>📜 Рецепты крафта</h2>
+    <p class="section-sub">
+        Игрок приносит материалы ремесленнику нужного типа и получает
+        <b>уникальный</b> предмет: статы катаются заново, как при выпадении из моба.
+    </p>
+
+    <div class="table-wrap">
+    <table>
+        <thead>
+            <tr>
+                <th>Станок</th><th>Рецепт</th><th>Результат</th>
+                <th>Материалы</th><th>🪙</th><th>Ур.</th><th>Шанс</th><th>Вкл</th><th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in recipes %}
+            <tr>
+                <td>{{ {'forge':'🔨','alchemy':'⚗️','jewelry':'💎','any':'🛠'}.get(r.station, '🛠') }}</td>
+                <td><b>{{ r.name }}</b></td>
+                <td>{{ r.result_item.icon }} {{ r.result_item.name }}{% if r.result_quantity > 1 %} ×{{ r.result_quantity }}{% endif %}</td>
+                <td style="font-size:0.78rem;">
+                    {% for ing in r.ingredients %}
+                    {{ ing.item.icon }}{{ ing.item.name }}×{{ ing.quantity }}{% if not loop.last %}, {% endif %}
+                    {% else %}<span style="color:var(--danger)">нет ингредиентов</span>{% endfor %}
+                </td>
+                <td>{{ r.gold_cost }}</td>
+                <td>{{ r.min_level }}</td>
+                <td>{{ (r.success_chance * 100)|int }}%</td>
+                <td>{{ '✅' if r.is_enabled else '🚫' }}</td>
+                <td>
+                    <button class="btn btn-primary btn-sm" onclick="toggleRow('rec-{{ r.id }}')">✏️</button>
+                    <form action="/editor/craft/{{ r.id }}/delete" method="post" style="display:inline"
+                          onsubmit="return confirm('Удалить рецепт?')">
+                        <button type="submit" class="btn btn-danger btn-sm">🗑</button>
+                    </form>
+                </td>
+            </tr>
+            <tr id="rec-{{ r.id }}" style="display:none;">
+                <td colspan="9">
+                    <form action="/editor/craft/{{ r.id }}/edit" method="post">
+                        <fieldset class="field-group">
+                            <span class="group-title">Параметры рецепта</span>
+                            <div class="field-row">
+                                <div><label class="form-label">Название</label>
+                                    <input type="text" name="name" value="{{ r.name }}" class="search-box" required></div>
+                                <div><label class="form-label">Станок</label>
+                                    <select name="station" class="search-box">
+                                        {% for val, label in stations %}
+                                        <option value="{{ val }}" {% if r.station == val %}selected{% endif %}>{{ label }}</option>
+                                        {% endfor %}
+                                    </select></div>
+                                <div><label class="form-label">Результат</label>
+                                    <select name="result_item_id" class="search-box">
+                                        {% for it in items %}
+                                        <option value="{{ it.id }}" {% if r.result_item_id == it.id %}selected{% endif %}>{{ it.icon }} {{ it.name }}</option>
+                                        {% endfor %}
+                                    </select></div>
+                                <div><label class="form-label">Кол-во</label>
+                                    <input type="number" name="result_quantity" value="{{ r.result_quantity }}" min="1" class="search-box"></div>
+                                <div><label class="form-label">Золото</label>
+                                    <input type="number" name="gold_cost" value="{{ r.gold_cost }}" min="0" class="search-box"></div>
+                                <div><label class="form-label">Мин. уровень</label>
+                                    <input type="number" name="min_level" value="{{ r.min_level }}" min="1" class="search-box"></div>
+                                <div><label class="form-label">Шанс успеха</label>
+                                    <input type="number" name="success_chance" value="{{ '%.2f'|format(r.success_chance) }}" step="0.05" min="0.05" max="1" class="search-box"></div>
+                                <div><label class="form-label">Разброс качества</label>
+                                    <input type="number" name="quality_bonus" value="{{ '%.2f'|format(r.quality_bonus or 0) }}" step="0.01" class="search-box"></div>
+                            </div>
+                            <div style="margin-top:0.6rem;">
+                                <label class="form-label">Описание</label>
+                                <input type="text" name="description" value="{{ r.description or '' }}" class="search-box" style="width:100%">
+                            </div>
+                            <label style="display:flex; align-items:center; gap:0.4rem; font-size:0.85rem; margin-top:0.6rem;">
+                                <input type="checkbox" name="is_enabled" value="true" {% if r.is_enabled %}checked{% endif %}> Рецепт доступен игрокам
+                            </label>
+                            <button type="submit" class="btn btn-primary" style="margin-top:0.6rem">💾 Сохранить</button>
+                        </fieldset>
+                    </form>
+
+                    <fieldset class="field-group">
+                        <span class="group-title">Ингредиенты</span>
+                        {% for ing in r.ingredients %}
+                        <div class="inline-form" style="margin-bottom:0.35rem;">
+                            <span style="min-width:220px;">{{ ing.item.icon }} {{ ing.item.name }} × {{ ing.quantity }}</span>
+                            <form action="/editor/craft/ingredient/{{ ing.id }}/delete" method="post">
+                                <button type="submit" class="btn btn-danger btn-sm">🗑</button>
+                            </form>
+                        </div>
+                        {% endfor %}
+                        <form action="/editor/craft/{{ r.id }}/ingredient/add" method="post" class="inline-form" style="margin-top:0.5rem;">
+                            <select name="item_id" class="search-box wide" style="max-width:250px">
+                                {% for it in items %}
+                                <option value="{{ it.id }}">{{ it.icon }} {{ it.name }}</option>
+                                {% endfor %}
+                            </select>
+                            <input type="number" name="quantity" value="1" min="1">
+                            <button type="submit" class="btn btn-primary btn-sm">➕ Добавить</button>
+                        </form>
+                    </fieldset>
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="9">
+                <div class="empty-state"><div class="empty-icon">📜</div>Рецептов пока нет.</div>
+            </td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</div>
+
+<div class="card" id="new-recipe">
+    <h3>➕ Новый рецепт</h3>
+    <form action="/editor/craft/new" method="post">
+        <div class="field-row">
+            <div><label class="form-label">Название</label>
+                <input type="text" name="name" class="search-box" placeholder="Ковка топора" required></div>
+            <div><label class="form-label">Станок</label>
+                <select name="station" class="search-box">
+                    {% for val, label in stations %}<option value="{{ val }}">{{ label }}</option>{% endfor %}
+                </select></div>
+            <div><label class="form-label">Результат</label>
+                <select name="result_item_id" class="search-box" required>
+                    {% for it in items %}<option value="{{ it.id }}">{{ it.icon }} {{ it.name }}</option>{% endfor %}
+                </select></div>
+            <div><label class="form-label">Кол-во</label>
+                <input type="number" name="result_quantity" value="1" min="1" class="search-box"></div>
+            <div><label class="form-label">Золото</label>
+                <input type="number" name="gold_cost" value="0" min="0" class="search-box"></div>
+            <div><label class="form-label">Мин. уровень</label>
+                <input type="number" name="min_level" value="1" min="1" class="search-box"></div>
+            <div><label class="form-label">Шанс успеха</label>
+                <input type="number" name="success_chance" value="1.00" step="0.05" min="0.05" max="1" class="search-box"></div>
+            <div><label class="form-label">Разброс качества</label>
+                <input type="number" name="quality_bonus" value="0.05" step="0.01" class="search-box"></div>
+        </div>
+        <div style="margin-top:0.6rem;">
+            <label class="form-label">Описание</label>
+            <input type="text" name="description" class="search-box" style="width:100%">
+        </div>
+        <p class="hint">Ингредиенты добавляются после создания — кнопкой ✏️ в списке.</p>
+        <button type="submit" class="btn btn-primary" style="margin-top:0.6rem">💾 Создать рецепт</button>
+    </form>
+</div>
+</div>
+
+<!-- ══════ ЗАТОЧКА ══════ -->
+<div class="tab-panel" id="tab-rules">
+<div class="card">
+    <h2>⚡ Правила заточки</h2>
+    <p class="section-sub">
+        Одна строка описывает диапазон уровней заточки. Игрок гриндит материалы,
+        платит золотом и повышает статы предмета. При неудаче ресурсы сгорают,
+        а уровень остаётся прежним.
+    </p>
+
+    <div class="table-wrap">
+    <table>
+        <thead>
+            <tr><th>Диапазон</th><th>Золото</th><th>Материал</th><th>Кол-во</th>
+                <th>Шанс</th><th>Прирост</th><th>Мин.</th><th></th></tr>
+        </thead>
+        <tbody>
+            {% for rule in rules %}
+            <tr>
+                <td colspan="7">
+                    <form action="/editor/craft/rules/{{ rule.id }}/edit" method="post" class="inline-form">
+                        <span style="font-size:0.78rem; color:var(--text-muted)">от</span>
+                        <input type="number" name="from_level" value="{{ rule.from_level }}" min="0" style="max-width:60px">
+                        <span style="font-size:0.78rem; color:var(--text-muted)">до</span>
+                        <input type="number" name="to_level" value="{{ rule.to_level }}" min="1" style="max-width:60px">
+                        <input type="number" name="gold_cost" value="{{ rule.gold_cost }}" min="0" title="Золото">
+                        <select name="material_item_id" class="search-box" style="max-width:200px">
+                            <option value="">— без материала —</option>
+                            {% for it in items %}
+                            <option value="{{ it.id }}" {% if rule.material_item_id == it.id %}selected{% endif %}>{{ it.icon }} {{ it.name }}</option>
+                            {% endfor %}
+                        </select>
+                        <input type="number" name="material_quantity" value="{{ rule.material_quantity }}" min="0" style="max-width:60px" title="Кол-во материала">
+                        <input type="number" name="success_chance" value="{{ '%.2f'|format(rule.success_chance) }}" step="0.05" min="0.05" max="1" title="Шанс успеха">
+                        <input type="number" name="stat_gain_percent" value="{{ '%.2f'|format(rule.stat_gain_percent) }}" step="0.01" title="Прирост, доля от базы">
+                        <input type="number" name="min_stat_gain" value="{{ rule.min_stat_gain }}" min="0" style="max-width:60px" title="Мин. абсолютный прирост">
+                        <button type="submit" class="btn btn-primary btn-sm">💾</button>
+                    </form>
+                </td>
+                <td>
+                    <form action="/editor/craft/rules/{{ rule.id }}/delete" method="post" onsubmit="return confirm('Удалить правило?')">
+                        <button type="submit" class="btn btn-danger btn-sm">🗑</button>
+                    </form>
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="8">
+                <div class="empty-state"><div class="empty-icon">⚡</div>Правил заточки нет — улучшение недоступно.</div>
+            </td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+
+    <fieldset class="field-group" style="margin-top:1rem;">
+        <span class="group-title">➕ Новое правило</span>
+        <form action="/editor/craft/rules/new" method="post">
+            <div class="field-row">
+                <div><label class="form-label">От уровня</label>
+                    <input type="number" name="from_level" value="0" min="0" class="search-box"></div>
+                <div><label class="form-label">До уровня</label>
+                    <input type="number" name="to_level" value="3" min="1" class="search-box"></div>
+                <div><label class="form-label">Золото</label>
+                    <input type="number" name="gold_cost" value="50" min="0" class="search-box"></div>
+                <div><label class="form-label">Материал</label>
+                    <select name="material_item_id" class="search-box">
+                        <option value="">— без материала —</option>
+                        {% for it in items %}<option value="{{ it.id }}">{{ it.icon }} {{ it.name }}</option>{% endfor %}
+                    </select></div>
+                <div><label class="form-label">Кол-во</label>
+                    <input type="number" name="material_quantity" value="1" min="0" class="search-box"></div>
+                <div><label class="form-label">Шанс</label>
+                    <input type="number" name="success_chance" value="0.90" step="0.05" min="0.05" max="1" class="search-box"></div>
+                <div><label class="form-label">Прирост (доля)</label>
+                    <input type="number" name="stat_gain_percent" value="0.08" step="0.01" class="search-box"></div>
+                <div><label class="form-label">Мин. прирост</label>
+                    <input type="number" name="min_stat_gain" value="1" min="0" class="search-box"></div>
+            </div>
+            <p class="hint">
+                Прирост 0.08 = +8 % от базового стата шаблона за уровень, но не меньше
+                «мин. прироста». Диапазоны не должны перекрываться.
+            </p>
+            <button type="submit" class="btn btn-primary" style="margin-top:0.6rem">➕ Добавить правило</button>
+        </form>
+    </fieldset>
+</div>
+</div>
+
+<!-- ══════ РЕМЕСЛЕННИКИ ══════ -->
+<div class="tab-panel" id="tab-npcs">
+<div class="card">
+    <h2>🎭 NPC-ремесленники на карте</h2>
+    <p class="section-sub">
+        Игрок открывает крафт, встав на клетку с таким NPC. Чтобы сделать нового —
+        зайди в редактор клетки, включи NPC и выбери тип «ремесленник» с нужным станком.
+    </p>
+
+    <div class="table-wrap">
+    <table>
+        <thead><tr><th>NPC</th><th>Станок</th><th>Локация</th><th>Клетка</th><th></th></tr></thead>
+        <tbody>
+            {% for c in crafters %}
+            <tr>
+                <td>💬 <b>{{ c.npc_name }}</b></td>
+                <td>{{ {'forge':'🔨 Кузница','alchemy':'⚗️ Алхимия','jewelry':'💎 Ювелир','any':'🛠 Любой'}.get(c.npc_station, c.npc_station) }}</td>
+                <td>{{ c.location.name if c.location else '—' }}</td>
+                <td>[{{ c.x }},{{ c.y }}]{% if c.floor %} эт.{{ c.floor }}{% endif %}</td>
+                <td><a href="/editor/cell/{{ c.id }}" class="btn btn-sm">✏️ Клетка</a></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5">
+                <div class="empty-state"><div class="empty-icon">🎭</div>
+                    Ремесленников нет — игроки не смогут крафтить и точить.
+                </div>
+            </td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleRow(id) {
+    const row = document.getElementById(id);
+    row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+}
+
+(function initTabs() {
+    const buttons = document.querySelectorAll('.tab-btn');
+    buttons.forEach(b => b.addEventListener('click', () => {
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === b.dataset.tab));
+        buttons.forEach(x => x.classList.toggle('active', x === b));
+    }));
+    // Прямая ссылка вида /editor/craft#rules открывает нужную вкладку
+    if (location.hash === '#rules') document.querySelector('[data-tab="tab-rules"]').click();
+})();
+</script>
+{% endblock %}

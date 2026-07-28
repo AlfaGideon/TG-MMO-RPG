@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block title %}Экземпляры — Shadow Lands{% endblock %}
+{% block page_title %}🆔 Экземпляры предметов{% endblock %}
+{% block topbar_actions %}<a href="/editor/events" class="btn">🎄 События</a>{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>🆔 Все именные вещи в игре</h2>
+    <p class="section-sub">
+        У каждого снаряжения свой ID со значком способа получения. Ресурсы и
+        расходники сюда не попадают — они складываются в стопки и своего ID
+        не имеют.
+    </p>
+
+    <div class="stats-grid" style="margin-bottom:1rem;">
+        <div class="stat-box"><div class="stat-icon">📦</div>
+            <div class="value">{{ total }}</div><div class="label">всего экземпляров</div></div>
+        <div class="stat-box"><div class="stat-icon">🌟</div>
+            <div class="value">{{ uniques }}</div><div class="label">единственных в мире</div></div>
+        <div class="stat-box"><div class="stat-icon">🎄</div>
+            <div class="value">{{ festive }}</div><div class="label">праздничных</div></div>
+        <div class="stat-box"><div class="stat-icon">🔁</div>
+            <div class="value">{{ traded }}</div><div class="label">прошли через аукцион</div></div>
+    </div>
+
+    <div class="tabs">
+        <a href="/editor/instances" class="tab-btn {% if not source %}active{% endif %}"
+           style="text-decoration:none;">Все</a>
+        {% for key, badge in badges.items() %}
+        {% if by_source.get(key) %}
+        <a href="/editor/instances?source={{ key }}"
+           class="tab-btn {% if source == key %}active{% endif %}" style="text-decoration:none;">
+            {{ badge }} {{ source_labels.get(key, key) }} ({{ by_source.get(key) }})
+        </a>
+        {% endif %}
+        {% endfor %}
+    </div>
+
+    <form method="get" action="/editor/instances" class="inline-form" style="margin-bottom:1rem;">
+        {% if source %}<input type="hidden" name="source" value="{{ source }}">{% endif %}
+        <input type="text" name="q" value="{{ q }}" class="search-box wide"
+               placeholder="ID предмета или название..." style="max-width:280px">
+        <button type="submit" class="btn btn-primary btn-sm">🔍 Найти</button>
+        {% if q %}<a href="/editor/instances" class="btn btn-sm">✖ Сбросить</a>{% endif %}
+    </form>
+
+    <div class="table-wrap">
+    <table>
+        <thead>
+            <tr><th>ID предмета</th><th>Название</th><th>Кач.</th><th>Зат.</th>
+                <th>Редкость</th><th>Источник</th><th>Сделок</th>
+                <th>Владелец</th><th></th></tr>
+        </thead>
+        <tbody>
+            {% for inst, item, owner in rows %}
+            <tr>
+                <td><code>{{ inst.badge() }}{{ inst.uid }}</code></td>
+                <td>
+                    {{ item.icon }} {{ inst.display_name(item) }}
+                    {% if inst.is_one_of_a_kind %}<span class="badge badge-legendary">🌟 одна такая</span>{% endif %}
+                    {% if inst.is_festive %}<span class="badge badge-epic">🎄 {{ inst.festive_event }}</span>{% endif %}
+                </td>
+                <td>{{ inst.quality }}%</td>
+                <td>{% if inst.upgrade_level %}+{{ inst.upgrade_level }}{% else %}—{% endif %}</td>
+                <td><span class="badge badge-{{ inst.rarity.value }}">{{ inst.rarity.value }}</span></td>
+                <td style="font-size:0.78rem;">{{ source_labels.get(inst.source, inst.source) }}
+                    {% if inst.source_detail %}<br><span style="color:var(--text-muted)">{{ inst.source_detail }}</span>{% endif %}
+                </td>
+                <td>{{ inst.trade_count or '—' }}</td>
+                <td>{% if owner %}<a href="/player/{{ owner.id }}">{{ owner.name }}</a>
+                    {% else %}<span style="color:var(--text-muted)">на витрине / ничей</span>{% endif %}</td>
+                <td><a href="/instance/{{ inst.id }}" class="btn btn-sm">📖 История</a></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="9">
+                <div class="empty-state"><div class="empty-icon">🆔</div>Ничего не найдено.</div>
+            </td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% if rows|length >= 300 %}
+    <p class="hint">Показаны последние 300 записей — уточни поиск, чтобы увидеть остальные.</p>
+    {% endif %}
+</div>
+{% endblock %}

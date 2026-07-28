@@ -4,6 +4,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from core.database import async_session
+from core.enums import ItemSource
+from core.loot import grant_item
 from core.models import User, Character, ShopItem, InventoryItem
 from bot.keyboards.inline import shop_keyboard, main_menu_keyboard
 
@@ -84,22 +86,14 @@ async def buy_item(callback: CallbackQuery):
         if shop_item.stock > 0:
             shop_item.stock -= 1
 
-        # Add to inventory
-        result = await session.execute(
-            select(InventoryItem)
-            .where(InventoryItem.character_id == character.id)
-            .where(InventoryItem.item_id == shop_item.item_id)
+        # Купленное снаряжение — тоже уникальный экземпляр со своим ID,
+        # но с меньшим разбросом: товар лавки заведомо «стандартный».
+        await grant_item(
+            session, character, shop_item.item, 1,
+            source=ItemSource.SHOP.value,
+            source_detail="Лавка торговца",
+            extra_variance=-0.05,
         )
-        existing = result.scalar_one_or_none()
-        if existing:
-            existing.quantity += 1
-        else:
-            inv = InventoryItem(
-                character_id=character.id,
-                item_id=shop_item.item_id,
-                quantity=1,
-            )
-            session.add(inv)
 
         await session.commit()
 

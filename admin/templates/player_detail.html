@@ -5,81 +5,449 @@
 {% block topbar_actions %}<a href="/players" class="btn">◀️ Назад</a>{% endblock %}
 
 {% block content %}
+
+<div class="tabs">
+    <button class="tab-btn active" data-tab="tab-overview">📊 Обзор</button>
+    <button class="tab-btn" data-tab="tab-stats">✏️ Характеристики</button>
+    <button class="tab-btn" data-tab="tab-inventory">🎒 Инвентарь ({{ inventory|length }})</button>
+    <button class="tab-btn" data-tab="tab-access">👑 VIP и доступ</button>
+    <button class="tab-btn" data-tab="tab-chat">💬 Чат</button>
+</div>
+
+<!-- ══════════════ ОБЗОР ══════════════ -->
+<div class="tab-panel active" id="tab-overview">
 <div class="card">
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
+    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:2rem;">
         <div>
-            <h3>📊 Статистика</h3>
-            <table style="font-size: 0.9rem;">
-                <tr><td>Telegram ID</td><td>{{ char.user.telegram_id }}</td></tr>
+            <h3>📊 Сводка</h3>
+            <table style="font-size:0.9rem;">
+                <tr><td>Telegram ID</td><td><code>{{ char.user.telegram_id }}</code></td></tr>
                 <tr><td>Username</td><td>{{ char.user.username or '—' }}</td></tr>
-                <tr><td>Класс</td><td>{{ char.character_class.value }}</td></tr>
-                <tr><td>Уровень</td><td>{{ char.level }}</td></tr>
-                <tr><td>Опыт</td><td>{{ char.experience }}</td></tr>
-                <tr><td>Золото</td><td>{{ char.gold }}</td></tr>
-                <tr><td>HP</td><td>{{ char.current_hp }}/{{ char.max_hp }}</td></tr>
-                <tr><td>MP</td><td>{{ char.current_mp }}/{{ char.max_mp }}</td></tr>
-                <tr><td>Сила</td><td>{{ char.strength }}</td></tr>
-                <tr><td>Ловкость</td><td>{{ char.agility }}</td></tr>
-                <tr><td>Интеллект</td><td>{{ char.intelligence }}</td></tr>
-                <tr><td>Выносливость</td><td>{{ char.endurance }}</td></tr>
-                <tr><td>Удача</td><td>{{ char.luck }}</td></tr>
+                <tr><td>Класс</td><td>
+                    {% if class_def %}{{ class_def.icon }} <b>{{ class_def.name }}</b>
+                    <span style="color:var(--text-muted)">({{ class_def.key }})</span>
+                    {% else %}<code>{{ char.character_class }}</code>{% endif %}
+                </td></tr>
+                <tr><td>Уровень</td><td><b>{{ char.level }}</b> ({{ char.experience }}/{{ char.level * 100 }} опыта)</td></tr>
+                <tr><td>Золото</td><td>{{ char.gold }} 🪙</td></tr>
                 <tr><td>Локация</td><td>{{ char.location.name if char.location else '—' }}{% if char.floor %} (этаж {{ char.floor }}){% endif %}</td></tr>
                 <tr><td>VIP</td><td>{{ '✅ до ' + char.vip_until.strftime('%Y-%m-%d') if char.vip_until else '❌' }}</td></tr>
                 <tr><td>Веб-админка</td><td>
-                    {% if char.user.is_web_admin %}
-                        ✅ {{ role_labels.get(char.user.web_admin_role, char.user.web_admin_role) }}
+                    {% if char.user.is_web_admin %}✅ {{ role_labels.get(char.user.web_admin_role, char.user.web_admin_role) }}
                     {% else %}❌{% endif %}
                 </td></tr>
             </table>
         </div>
         <div>
-            <h3>✏️ Редактировать</h3>
-            <form action="/player/{{ char.id }}/edit" method="post" enctype="multipart/form-data">
-                {% if char.image_url %}
-                <div style="margin-bottom: 0.75rem; text-align: center;">
-                    <img src="{{ char.image_url }}" style="max-width: 150px; max-height: 150px; border-radius: 8px; border: 1px solid var(--border);">
-                </div>
-                {% endif %}
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
-                    <div><label class="form-label">Имя</label><input type="text" name="name" value="{{ char.name }}" class="search-box" style="max-width:100%"></div>
-                    <div><label class="form-label">Уровень</label><input type="number" name="level" value="{{ char.level }}" class="search-box" style="max-width:100%"></div>
-                    <div><label class="form-label">Золото</label><input type="number" name="gold" value="{{ char.gold }}" class="search-box" style="max-width:100%"></div>
-                    <div><label class="form-label">Опыт</label><input type="number" name="experience" value="{{ char.experience }}" class="search-box" style="max-width:100%"></div>
-                    <div><label class="form-label">Сила</label><input type="number" name="strength" value="{{ char.strength }}" class="search-box" style="max-width:100%"></div>
-                    <div><label class="form-label">Ловкость</label><input type="number" name="agility" value="{{ char.agility }}" class="search-box" style="max-width:100%"></div>
-                    <div><label class="form-label">Интеллект</label><input type="number" name="intelligence" value="{{ char.intelligence }}" class="search-box" style="max-width:100%"></div>
-                    <div><label class="form-label">Выносливость</label><input type="number" name="endurance" value="{{ char.endurance }}" class="search-box" style="max-width:100%"></div>
-                    <div><label class="form-label">Удача</label><input type="number" name="luck" value="{{ char.luck }}" class="search-box" style="max-width:100%"></div>
-                    <div><label class="form-label">Макс HP</label><input type="number" name="max_hp" value="{{ char.max_hp }}" class="search-box" style="max-width:100%"></div>
-                    <div><label class="form-label">Макс MP</label><input type="number" name="max_mp" value="{{ char.max_mp }}" class="search-box" style="max-width:100%"></div>
-                    <div><label class="form-label">Тек HP</label><input type="number" name="current_hp" value="{{ char.current_hp }}" class="search-box" style="max-width:100%"></div>
-                    <div><label class="form-label">Тек MP</label><input type="number" name="current_mp" value="{{ char.current_mp }}" class="search-box" style="max-width:100%"></div>
-                </div>
-                <input type="hidden" name="is_vip" value="{{ 'true' if char.is_vip else '' }}">
-                <input type="hidden" name="vip_days" value="0">
-                <div style="margin-top: 0.75rem;">
-                    <label class="form-label">🖼 Файл картинки (аватар)</label>
-                    <input type="file" name="image" accept="image/*" class="search-box" style="max-width:100%">
-                </div>
-                <div style="margin-top: 0.5rem;">
-                    <label class="form-label">Или URL картинки</label>
-                    <input type="text" name="image_url" value="{{ char.image_url or '' }}" class="search-box" style="max-width:100%" placeholder="https://...">
-                </div>
-                <button type="submit" class="btn btn-primary" style="margin-top:0.75rem">💾 Сохранить</button>
-            </form>
+            <h3>⚔️ Итоговые характеристики</h3>
+            <p class="section-sub">База персонажа + бонусы от надетых предметов.</p>
+            <table style="font-size:0.9rem;">
+                <tr><td>❤️ HP</td><td>{{ char.current_hp }} / <b>{{ totals.max_hp }}</b>
+                    {% if totals.bonus.max_hp %}<span style="color:var(--success)">(+{{ totals.bonus.max_hp }})</span>{% endif %}</td></tr>
+                <tr><td>💙 MP</td><td>{{ char.current_mp }} / <b>{{ totals.max_mp }}</b>
+                    {% if totals.bonus.max_mp %}<span style="color:var(--success)">(+{{ totals.bonus.max_mp }})</span>{% endif %}</td></tr>
+                <tr><td>💪 Сила</td><td><b>{{ totals.strength }}</b>
+                    {% if totals.bonus.strength %}<span style="color:var(--success)">(+{{ totals.bonus.strength }})</span>{% endif %}</td></tr>
+                <tr><td>🏃 Ловкость</td><td><b>{{ totals.agility }}</b>
+                    {% if totals.bonus.agility %}<span style="color:var(--success)">(+{{ totals.bonus.agility }})</span>{% endif %}</td></tr>
+                <tr><td>🧠 Интеллект</td><td><b>{{ totals.intelligence }}</b>
+                    {% if totals.bonus.intelligence %}<span style="color:var(--success)">(+{{ totals.bonus.intelligence }})</span>{% endif %}</td></tr>
+                <tr><td>🛡 Выносливость</td><td><b>{{ totals.endurance }}</b>
+                    {% if totals.bonus.endurance %}<span style="color:var(--success)">(+{{ totals.bonus.endurance }})</span>{% endif %}</td></tr>
+                <tr><td>🍀 Удача</td><td><b>{{ totals.luck }}</b>
+                    {% if totals.bonus.luck %}<span style="color:var(--success)">(+{{ totals.bonus.luck }})</span>{% endif %}</td></tr>
+                <tr><td>⚔️ Урон оружия</td><td><b>+{{ totals.damage }}</b></td></tr>
+                <tr><td>🛡 Защита брони</td><td><b>+{{ totals.defense }}</b></td></tr>
+            </table>
         </div>
     </div>
+
+    <h3 style="margin-top:1.5rem;">🔮 Магический дар</h3>
+    <p class="section-sub">
+        Бросается один раз при создании героя. Влияет на силу умений и на
+        бонусы от предметов соответствующей школы.
+    </p>
+    {% if affinities %}
+    <p style="margin-bottom:0.75rem;">
+        {% for a in affinities %}
+        <span class="badge badge-rare" style="margin-right:0.35rem;">
+            {{ {'fire':'🔥','frost':'❄️','storm':'⚡','shadow':'🌑','nature':'🌿','light':'✨'}.get(a.school, '🔮') }}
+            {{ {'fire':'Огонь','frost':'Лёд','storm':'Гроза','shadow':'Тьма','nature':'Природа','light':'Свет'}.get(a.school, a.school) }}
+            — {{ {'weak':'Искра','normal':'Дар','strong':'Сильный дар','gifted':'Талант'}.get(a.grade, a.grade) }}
+        </span>
+        {% endfor %}
+    </p>
+    {% else %}
+    <p style="margin-bottom:0.75rem; color:var(--text-muted);">🚫 Магического дара нет.</p>
+    {% endif %}
+
+    <form action="/player/{{ char.id }}/affinities" method="post" class="inline-form">
+        {% set a1 = affinities[0] if affinities|length > 0 else None %}
+        {% set a2 = affinities[1] if affinities|length > 1 else None %}
+        <select name="school1" class="search-box" style="max-width:150px">
+            <option value="">— нет —</option>
+            {% for key, icon, title in schools %}
+            <option value="{{ key }}" {% if a1 and a1.school == key %}selected{% endif %}>{{ icon }} {{ title }}</option>
+            {% endfor %}
+        </select>
+        <select name="grade1" class="search-box" style="max-width:130px">
+            {% for key, title in grades %}
+            <option value="{{ key }}" {% if a1 and a1.grade == key %}selected{% endif %}>{{ title }}</option>
+            {% endfor %}
+        </select>
+        <span style="color:var(--text-muted)">+</span>
+        <select name="school2" class="search-box" style="max-width:150px">
+            <option value="">— нет —</option>
+            {% for key, icon, title in schools %}
+            <option value="{{ key }}" {% if a2 and a2.school == key %}selected{% endif %}>{{ icon }} {{ title }}</option>
+            {% endfor %}
+        </select>
+        <select name="grade2" class="search-box" style="max-width:130px">
+            {% for key, title in grades %}
+            <option value="{{ key }}" {% if a2 and a2.grade == key %}selected{% endif %}>{{ title }}</option>
+            {% endfor %}
+        </select>
+        <button type="submit" class="btn btn-primary btn-sm">💾 Сохранить дар</button>
+    </form>
+
+    <h3 style="margin-top:1.5rem;">🎽 Слоты экипировки</h3>
+    <div class="slot-grid">
+        {% for slot, label in slot_labels.items() %}
+        {% set inv = equipped_by_slot.get(slot) %}
+        <div class="slot-box {% if inv %}filled{% endif %}">
+            <div class="slot-label">{{ label }}</div>
+            {% if inv %}
+            <div class="slot-item">{{ inv.item.icon }} {{ inv.display_name() }}</div>
+            {% if inv.instance %}<div class="inv-uid">{{ inv.instance.uid }}</div>{% endif %}
+            {% else %}
+            <div class="slot-item" style="color:var(--text-muted); font-weight:400;">пусто</div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</div>
 </div>
 
+<!-- ══════════════ ХАРАКТЕРИСТИКИ ══════════════ -->
+<div class="tab-panel" id="tab-stats">
+<div class="card">
+    <h3>✏️ Редактирование персонажа</h3>
+    <p class="section-sub">Поля сгруппированы по смыслу: личность, прокачка, характеристики, витальность.</p>
+
+    <form action="/player/{{ char.id }}/edit" method="post" enctype="multipart/form-data">
+        <fieldset class="field-group">
+            <span class="group-title">👤 Личность</span>
+            <div class="field-row cols-2">
+                <div>
+                    <label class="form-label">Имя героя</label>
+                    <input type="text" name="name" value="{{ char.name }}" class="search-box">
+                </div>
+                <div>
+                    <label class="form-label">Класс</label>
+                    <select name="character_class" class="search-box">
+                        {% for c in all_classes %}
+                        <option value="{{ c.key }}" {% if char.character_class == c.key %}selected{% endif %}>
+                            {{ c.icon }} {{ c.name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+        </fieldset>
+
+        <fieldset class="field-group">
+            <span class="group-title">📈 Прогресс</span>
+            <div class="field-row">
+                <div>
+                    <label class="form-label">Уровень</label>
+                    <input type="number" name="level" value="{{ char.level }}" min="1" class="search-box">
+                </div>
+                <div>
+                    <label class="form-label">Опыт</label>
+                    <input type="number" name="experience" value="{{ char.experience }}" min="0" class="search-box">
+                </div>
+                <div>
+                    <label class="form-label">Золото</label>
+                    <input type="number" name="gold" value="{{ char.gold }}" min="0" class="search-box">
+                </div>
+            </div>
+        </fieldset>
+
+        <fieldset class="field-group">
+            <span class="group-title">💪 Базовые характеристики</span>
+            <div class="field-row cols-5">
+                <div class="stat-input"><span class="stat-emoji">💪</span><span class="stat-name">Сила</span>
+                    <input type="number" name="strength" value="{{ char.strength }}"></div>
+                <div class="stat-input"><span class="stat-emoji">🏃</span><span class="stat-name">Ловк</span>
+                    <input type="number" name="agility" value="{{ char.agility }}"></div>
+                <div class="stat-input"><span class="stat-emoji">🧠</span><span class="stat-name">Инт</span>
+                    <input type="number" name="intelligence" value="{{ char.intelligence }}"></div>
+                <div class="stat-input"><span class="stat-emoji">🛡</span><span class="stat-name">Вын</span>
+                    <input type="number" name="endurance" value="{{ char.endurance }}"></div>
+                <div class="stat-input"><span class="stat-emoji">🍀</span><span class="stat-name">Удача</span>
+                    <input type="number" name="luck" value="{{ char.luck }}"></div>
+            </div>
+            <p class="hint">Это база без экипировки. Итог с бонусами предметов — на вкладке «Обзор».</p>
+        </fieldset>
+
+        <fieldset class="field-group">
+            <span class="group-title">❤️ Витальность</span>
+            <div class="field-row">
+                <div class="stat-input"><span class="stat-emoji">❤️</span><span class="stat-name">HP</span>
+                    <input type="number" name="current_hp" value="{{ char.current_hp }}"></div>
+                <div class="stat-input"><span class="stat-emoji">🔺</span><span class="stat-name">Макс</span>
+                    <input type="number" name="max_hp" value="{{ char.max_hp }}"></div>
+                <div class="stat-input"><span class="stat-emoji">💙</span><span class="stat-name">MP</span>
+                    <input type="number" name="current_mp" value="{{ char.current_mp }}"></div>
+                <div class="stat-input"><span class="stat-emoji">🔷</span><span class="stat-name">Макс</span>
+                    <input type="number" name="max_mp" value="{{ char.max_mp }}"></div>
+            </div>
+        </fieldset>
+
+        <fieldset class="field-group">
+            <span class="group-title">📍 Положение в мире</span>
+            <div class="field-row">
+                <div>
+                    <label class="form-label">Локация</label>
+                    <select name="location_id" class="search-box">
+                        {% for loc in all_locations %}
+                        <option value="{{ loc.id }}" {% if char.location_id == loc.id %}selected{% endif %}>
+                            {{ loc.name }} (ур. {{ loc.min_level }}+)
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label">Этаж</label>
+                    <input type="number" name="floor" value="{{ char.floor or 0 }}" min="0" class="search-box">
+                </div>
+                <div>
+                    <label class="form-label">X</label>
+                    <input type="number" name="cell_x" value="{{ char.cell.x if char.cell else 5 }}" min="0" class="search-box">
+                </div>
+                <div>
+                    <label class="form-label">Y</label>
+                    <input type="number" name="cell_y" value="{{ char.cell.y if char.cell else 5 }}" min="0" class="search-box">
+                </div>
+            </div>
+            <p class="hint">Смена локации переносит героя на указанную клетку. Если клетки нет — на ближайшую проходимую.</p>
+        </fieldset>
+
+        <fieldset class="field-group">
+            <span class="group-title">🖼 Аватар</span>
+            {% if char.image_url %}
+            <div style="margin-bottom:0.6rem;">
+                <img src="{{ char.image_url }}" style="max-width:120px; max-height:120px; border-radius:8px; border:1px solid var(--border);">
+            </div>
+            {% endif %}
+            <div class="field-row cols-2">
+                <div>
+                    <label class="form-label">Файл картинки</label>
+                    <input type="file" name="image" accept="image/*" class="search-box">
+                </div>
+                <div>
+                    <label class="form-label">Или URL</label>
+                    <input type="text" name="image_url" value="{{ char.image_url or '' }}" class="search-box" placeholder="https://...">
+                </div>
+            </div>
+        </fieldset>
+
+        <input type="hidden" name="is_vip" value="{{ 'true' if char.is_vip else '' }}">
+        <input type="hidden" name="vip_days" value="0">
+        <button type="submit" class="btn btn-primary">💾 Сохранить изменения</button>
+        <a href="/player/{{ char.id }}/heal" class="btn">✨ Полностью восстановить</a>
+    </form>
+
+    <fieldset class="field-group" style="margin-top:1.25rem;">
+        <span class="group-title">🎲 Перекат стартовых статов</span>
+        <p class="hint" style="margin-top:0;">
+            При создании героя статы катаются от базы класса в диапазоне
+            −10 %…+20 %. Осталось попыток у игрока:
+            <b>{{ char.rerolls_left or 0 }}</b>{% if char.stats_locked %}
+            (статы зафиксированы){% endif %}.
+        </p>
+        <div class="inline-form" style="margin-top:0.5rem;">
+            <form action="/player/{{ char.id }}/reroll-stats" method="post" class="inline-form"
+                  onsubmit="return confirm('Перекатить статы прямо сейчас? Текущие значения будут потеряны.')">
+                <input type="hidden" name="grant" value="0">
+                <button type="submit" class="btn btn-sm">🎲 Перекатить сейчас</button>
+            </form>
+            <form action="/player/{{ char.id }}/reroll-stats" method="post" class="inline-form">
+                <input type="number" name="grant" value="10" min="1" max="50" title="Сколько попыток выдать">
+                <button type="submit" class="btn btn-primary btn-sm">🎁 Выдать попытки</button>
+            </form>
+        </div>
+    </fieldset>
+</div>
+</div>
+
+<!-- ══════════════ ИНВЕНТАРЬ ══════════════ -->
+<div class="tab-panel" id="tab-inventory">
+<div class="card">
+    <div class="toolbar">
+        <h3 style="margin-bottom:0;">🎒 Инвентарь ({{ inventory|length }})</h3>
+        <form action="/player/{{ char.id }}/clear-inventory" method="post"
+              onsubmit="return confirm('Удалить ВЕСЬ инвентарь игрока? Это необратимо.')">
+            <button type="submit" class="btn btn-danger btn-sm">🗑 Очистить всё</button>
+        </form>
+    </div>
+    <p class="section-sub">
+        У каждого снаряжения свой уникальный ID и собственные статы — можно править
+        поштучно. Расходники и материалы складываются в стопки.
+    </p>
+
+    {% if inventory %}
+    <div class="inv-grid">
+        {% for inv in inventory %}
+        <div class="inv-card {% if inv.is_equipped %}equipped{% endif %}">
+            <div class="inv-head">
+                <span class="inv-icon">{{ inv.item.icon }}</span>
+                <span class="inv-name">{{ inv.display_name() }}</span>
+                {% if inv.is_equipped %}<span class="badge badge-success">надето</span>{% endif %}
+            </div>
+
+            <div style="font-size:0.75rem; color:var(--text-muted);">
+                {{ inv.item.item_type.value }} ·
+                <span class="badge badge-{{ (inv.instance.rarity if inv.instance else inv.item.rarity).value }}">
+                    {{ (inv.instance.rarity if inv.instance else inv.item.rarity).value }}
+                </span>
+                {% if (inv.quantity or 1) > 1 %} · ×{{ inv.quantity }}{% endif %}
+            </div>
+
+            {% if inv.instance %}
+            <div class="inv-uid">
+                <a href="/instance/{{ inv.instance.id }}" style="color:inherit;">
+                    🆔 {{ inv.instance.badge() }}{{ inv.instance.uid }}
+                </a>
+            </div>
+            {% if inv.instance.is_one_of_a_kind %}
+            <span class="badge badge-legendary">🌟 единственная в мире</span>
+            {% elif inv.instance.is_festive %}
+            <span class="badge badge-epic">🎄 {{ inv.instance.festive_event }}</span>
+            {% endif %}
+            {% if inv.instance.trade_count %}
+            <div style="font-size:0.7rem; color:var(--text-muted);">🔁 сделок: {{ inv.instance.trade_count }}</div>
+            {% endif %}
+            <div style="font-size:0.75rem;">
+                Качество: <b>{{ inv.instance.quality }}%</b>
+                {% if inv.instance.upgrade_level %} · Заточка <b>+{{ inv.instance.upgrade_level }}</b>{% endif %}
+            </div>
+            <div class="quality-bar">
+                <span style="width: {{ [inv.instance.quality, 150]|min / 1.5 }}%"></span>
+            </div>
+            {% if inv.instance.source_detail %}
+            <div style="font-size:0.7rem; color:var(--text-muted);">из: {{ inv.instance.source_detail }}</div>
+            {% endif %}
+            {% endif %}
+
+            {% set b = inv.bonuses() %}
+            {% set shown = [] %}
+            <div class="inv-bonuses">
+                {% for field, label in bonus_labels.items() %}{% if b.get(field) %}
+                {{ label }} +{{ b[field] }}{% if not loop.last %} · {% endif %}
+                {% endif %}{% endfor %}
+            </div>
+
+            <div class="inv-actions">
+                {% if inv.instance %}
+                <button type="button" class="btn btn-sm" onclick="toggleEdit({{ inv.id }})">✏️ Статы</button>
+                {% endif %}
+                <form action="/player/{{ char.id }}/inv/{{ inv.id }}/toggle-equip" method="post" style="display:inline">
+                    <button type="submit" class="btn btn-sm">{{ '🚫 Снять' if inv.is_equipped else '✅ Надеть' }}</button>
+                </form>
+                <form action="/player/{{ char.id }}/inv/{{ inv.id }}/delete" method="post" style="display:inline"
+                      onsubmit="return confirm('Удалить предмет?')">
+                    <button type="submit" class="btn btn-danger btn-sm">🗑</button>
+                </form>
+            </div>
+
+            {% if inv.instance %}
+            <form action="/player/{{ char.id }}/inv/{{ inv.id }}/edit" method="post"
+                  id="edit-{{ inv.id }}" style="display:none; margin-top:0.4rem;">
+                <div class="field-row cols-5" style="gap:0.4rem;">
+                    <div class="stat-input"><span class="stat-emoji">💪</span>
+                        <input type="number" name="bonus_strength" value="{{ inv.instance.bonus_strength }}"></div>
+                    <div class="stat-input"><span class="stat-emoji">🏃</span>
+                        <input type="number" name="bonus_agility" value="{{ inv.instance.bonus_agility }}"></div>
+                    <div class="stat-input"><span class="stat-emoji">🧠</span>
+                        <input type="number" name="bonus_intelligence" value="{{ inv.instance.bonus_intelligence }}"></div>
+                    <div class="stat-input"><span class="stat-emoji">🛡</span>
+                        <input type="number" name="bonus_endurance" value="{{ inv.instance.bonus_endurance }}"></div>
+                    <div class="stat-input"><span class="stat-emoji">🍀</span>
+                        <input type="number" name="bonus_luck" value="{{ inv.instance.bonus_luck }}"></div>
+                    <div class="stat-input"><span class="stat-emoji">❤️</span>
+                        <input type="number" name="bonus_hp" value="{{ inv.instance.bonus_hp }}"></div>
+                    <div class="stat-input"><span class="stat-emoji">💙</span>
+                        <input type="number" name="bonus_mp" value="{{ inv.instance.bonus_mp }}"></div>
+                    <div class="stat-input"><span class="stat-emoji">⚔️</span>
+                        <input type="number" name="bonus_damage" value="{{ inv.instance.bonus_damage }}"></div>
+                    <div class="stat-input"><span class="stat-emoji">🛡</span>
+                        <input type="number" name="bonus_defense" value="{{ inv.instance.bonus_defense }}"></div>
+                    <div class="stat-input"><span class="stat-emoji">⚖️</span><span class="stat-name">Кач%</span>
+                        <input type="number" name="quality" value="{{ inv.instance.quality }}"></div>
+                    <div class="stat-input"><span class="stat-emoji">🔨</span><span class="stat-name">Зато</span>
+                        <input type="number" name="upgrade_level" value="{{ inv.instance.upgrade_level }}"></div>
+                </div>
+                <div class="field-row cols-2" style="margin-top:0.4rem;">
+                    <div>
+                        <label class="form-label">Редкость</label>
+                        <select name="rarity" class="search-box">
+                            {% for r in rarities %}
+                            <option value="{{ r }}" {% if inv.instance.rarity.value == r %}selected{% endif %}>{{ r }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label class="form-label">Префикс</label>
+                        <input type="text" name="prefix" value="{{ inv.instance.prefix or '' }}" class="search-box">
+                    </div>
+                </div>
+                <div style="display:flex; gap:0.35rem; margin-top:0.4rem;">
+                    <button type="submit" class="btn btn-primary btn-sm">💾 Сохранить</button>
+                    <button type="submit" class="btn btn-sm" formaction="/player/{{ char.id }}/inv/{{ inv.id }}/reroll">🎲 Перекатать</button>
+                </div>
+            </form>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state"><div class="empty-icon">🎒</div>Инвентарь пуст.</div>
+    {% endif %}
+
+    <fieldset class="field-group" style="margin-top:1.25rem;">
+        <span class="group-title">🎁 Выдать предмет</span>
+        <form action="/player/{{ char.id }}/give-item" method="post" class="inline-form">
+            <select name="item_id" class="search-box wide" style="max-width:280px">
+                {% for it in all_items %}
+                <option value="{{ it.id }}">{{ it.icon }} {{ it.name }} ({{ it.item_type.value }})</option>
+                {% endfor %}
+            </select>
+            <input type="number" name="quantity" value="1" min="1" class="search-box" title="Количество">
+            <label style="font-size:0.8rem; display:flex; align-items:center; gap:0.3rem;">
+                <input type="checkbox" name="roll_stats" value="1" checked> 🎲 Уникальные статы
+            </label>
+            <button type="submit" class="btn btn-primary">🎁 Выдать</button>
+        </form>
+        <p class="hint">
+            С галочкой предмет получает свой ID и статы с разбросом — как выпавший из моба.
+            Без неё создаётся ровно по шаблону.
+        </p>
+    </fieldset>
+</div>
+</div>
+
+<!-- ══════════════ VIP И ДОСТУП ══════════════ -->
+<div class="tab-panel" id="tab-access">
 <div class="card">
     <h3>👑 VIP и доступ к веб-админке</h3>
-    <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:1.5rem;">
         <div>
-            <h4 style="margin-bottom:0.5rem; font-size:0.9rem; color: var(--text-muted);">⭐ VIP-статус</h4>
+            <h4 style="margin-bottom:0.5rem; font-size:0.9rem; color:var(--text-muted);">⭐ VIP-статус</h4>
             {% if char.is_vip %}
             <p style="margin-bottom:0.75rem; font-size:0.85rem;">Активен до <b>{{ char.vip_until.strftime('%Y-%m-%d') if char.vip_until else '—' }}</b></p>
             {% else %}
-            <p style="margin-bottom:0.75rem; font-size:0.85rem; color: var(--text-muted);">VIP не активен</p>
+            <p style="margin-bottom:0.75rem; font-size:0.85rem; color:var(--text-muted);">VIP не активен</p>
             {% endif %}
             <form action="/player/{{ char.id }}/grant-vip" method="post" style="display:flex; gap:0.5rem; align-items:flex-end; flex-wrap:wrap;">
                 <div>
@@ -95,7 +463,7 @@
             {% endif %}
         </div>
         <div>
-            <h4 style="margin-bottom:0.5rem; font-size:0.9rem; color: var(--text-muted);">🔑 Доступ к админ-панели</h4>
+            <h4 style="margin-bottom:0.5rem; font-size:0.9rem; color:var(--text-muted);">🔑 Доступ к админ-панели</h4>
             {% if char.user.is_web_admin %}
             <p style="margin-bottom:0.5rem; font-size:0.85rem;">
                 Ранг: <b>{{ role_labels.get(char.user.web_admin_role, char.user.web_admin_role) }}</b><br>
@@ -103,7 +471,7 @@
                 Пароль: <code>{{ char.user.web_admin_password or '— не задан —' }}</code>
             </p>
             {% else %}
-            <p style="margin-bottom:0.75rem; font-size:0.85rem; color: var(--text-muted);">Доступ не выдан</p>
+            <p style="margin-bottom:0.75rem; font-size:0.85rem; color:var(--text-muted);">Доступ не выдан</p>
             {% endif %}
             <form action="/player/{{ char.id }}/grant-admin" method="post" id="grantForm">
                 <div style="display:flex; gap:0.5rem; align-items:flex-end; flex-wrap:wrap;">
@@ -146,58 +514,22 @@
                 <button type="submit" class="btn btn-danger btn-sm">❌ Отозвать доступ</button>
             </form>
             {% endif %}
-            <script>
-            const RANK_PRESETS = {{ rank_presets|tojson }};
-            function applyPreset() {
-                const rank = document.getElementById('rankSelect').value;
-                const preset = RANK_PRESETS[rank] || [];
-                document.querySelectorAll('.cap-box').forEach(box => {
-                    box.checked = preset.includes(box.value);
-                });
-            }
-            </script>
         </div>
     </div>
 </div>
-
-<div class="card">
-    <h3>🎒 Инвентарь</h3>
-    {% if inventory %}
-    <table style="font-size: 0.85rem;">
-        <thead><tr><th>Предмет</th><th>Кол-во</th><th>Экип</th></tr></thead>
-        <tbody>
-            {% for inv in inventory %}
-            <tr>
-                <td>{{ inv.item.icon }} {{ inv.item.name }}</td>
-                <td>{{ inv.quantity }}</td>
-                <td>{{ '✅' if inv.is_equipped else '—' }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    {% else %}
-    <p style="color:var(--text-muted)">Инвентарь пуст.</p>
-    {% endif %}
-    <form action="/player/{{ char.id }}/give-item" method="post" style="margin-top:1rem;display:flex;gap:0.5rem; flex-wrap:wrap;">
-        <select name="item_id" class="search-box" style="max-width:260px">
-            {% for it in all_items %}
-            <option value="{{ it.id }}">{{ it.icon }} {{ it.name }}</option>
-            {% endfor %}
-        </select>
-        <input type="number" name="quantity" value="1" min="1" class="search-box" style="max-width:80px">
-        <button type="submit" class="btn btn-primary">🎁 Выдать</button>
-    </form>
 </div>
 
+<!-- ══════════════ ЧАТ ══════════════ -->
+<div class="tab-panel" id="tab-chat">
 <div class="card">
     <h3>💬 Чат с игроком</h3>
-    <div style="max-height: 400px; overflow-y: auto; background: var(--bg-dark); border-radius: 8px; padding: 1rem; margin-bottom: 1rem;">
+    <div style="max-height:400px; overflow-y:auto; background:var(--bg-dark); border-radius:8px; padding:1rem; margin-bottom:1rem;">
         {% for msg in messages|reverse %}
-        <div style="margin-bottom: 0.75rem; {% if msg.from_admin %}text-align: right;{% endif %}">
-            <div style="display: inline-block; padding: 0.5rem 0.75rem; border-radius: 8px; {% if msg.from_admin %}background: var(--accent); color: #fff;{% else %}background: var(--bg-hover);{% endif %} font-size: 0.9rem; max-width: 80%;">
+        <div style="margin-bottom:0.75rem; {% if msg.from_admin %}text-align:right;{% endif %}">
+            <div style="display:inline-block; padding:0.5rem 0.75rem; border-radius:8px; {% if msg.from_admin %}background:var(--accent); color:#fff;{% else %}background:var(--bg-hover);{% endif %} font-size:0.9rem; max-width:80%;">
                 {{ msg.text }}
             </div>
-            <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 0.25rem;">
+            <div style="font-size:0.7rem; color:var(--text-muted); margin-top:0.25rem;">
                 {{ msg.created_at.strftime('%Y-%m-%d %H:%M') if msg.created_at else '' }}
             </div>
         </div>
@@ -205,9 +537,45 @@
         <p style="color:var(--text-muted); text-align:center;">Нет сообщений</p>
         {% endfor %}
     </div>
-    <form action="/player/{{ char.id }}/send-message" method="post" style="display:flex;gap:0.5rem;">
+    <form action="/player/{{ char.id }}/send-message" method="post" style="display:flex; gap:0.5rem;">
         <input type="text" name="text" placeholder="Написать сообщение..." class="search-box" style="flex:1" required>
         <button type="submit" class="btn btn-primary">📨 Отправить</button>
     </form>
 </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const RANK_PRESETS = {{ rank_presets|tojson }};
+function applyPreset() {
+    const rank = document.getElementById('rankSelect').value;
+    const preset = RANK_PRESETS[rank] || [];
+    document.querySelectorAll('.cap-box').forEach(box => {
+        box.checked = preset.includes(box.value);
+    });
+}
+
+function toggleEdit(id) {
+    const form = document.getElementById('edit-' + id);
+    form.style.display = form.style.display === 'none' ? 'block' : 'none';
+}
+
+// Вкладки: запоминаем выбранную, чтобы после сохранения формы вернуться на неё
+(function initTabs() {
+    const KEY = 'playerTab:{{ char.id }}';
+    const buttons = document.querySelectorAll('.tab-btn');
+
+    function show(id) {
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === id));
+        buttons.forEach(b => b.classList.toggle('active', b.dataset.tab === id));
+        localStorage.setItem(KEY, id);
+    }
+
+    buttons.forEach(b => b.addEventListener('click', () => show(b.dataset.tab)));
+    const saved = localStorage.getItem(KEY);
+    if (saved && document.getElementById(saved)) show(saved);
+})();
+</script>
 {% endblock %}

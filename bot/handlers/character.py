@@ -3,7 +3,10 @@ from aiogram.types import CallbackQuery
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 
+from core import magic
+from core.classes import get_class
 from core.database import async_session
+from core.stats import combat_stats
 from core.models import User, Character, Battle
 from bot.keyboards.inline import main_menu_keyboard, leaderboard_keyboard
 from bot.utils.texts import profile_text
@@ -26,16 +29,24 @@ async def profile(callback: CallbackQuery):
         result = await session.execute(
             select(Character)
             .where(Character.user_id == user.id)
-            .options(selectinload(Character.location))
+            .options(
+                selectinload(Character.location),
+                selectinload(Character.cell),
+                selectinload(Character.party),
+            )
         )
         character = result.scalar_one_or_none()
         if not character:
             await callback.answer("Сначала создай персонажа!", show_alert=True)
             return
 
+        cls_def = await get_class(session, character.character_class)
+        stats = await combat_stats(session, character)
+        affinities = await magic.get_affinities(session, character.id)
+
         await send_or_edit_photo(
             callback,
-            profile_text(character),
+            profile_text(character, cls_def, stats, affinities),
             reply_markup=main_menu_keyboard(has_character=True),
             image_url=character.image_url,
         )

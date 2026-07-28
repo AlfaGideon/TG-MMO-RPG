@@ -9,7 +9,7 @@ import os
 from sqlalchemy import select
 
 from core.database import async_session
-from core.models import User, Character, Cell, DungeonRun
+from core.models import User, Character, Cell, DungeonRun, MobSpawn
 
 logger = logging.getLogger(__name__)
 
@@ -109,16 +109,22 @@ async def notify_resume_interrupted_actions(bot):
     already_notified = set()
     notified = 0
     async with async_session() as session:
-        # World combat: character is standing on a cell that still has a live mob
-        # (the mob is only cleared from the cell on victory, so if it's still
-        # there the fight was very likely interrupted mid-round).
+        # Бой в мире: моб помечен как «занят» этим персонажем, а состояние
+        # боя жило в памяти процесса и умерло при перезапуске. Освобождаем
+        # мобов и зовём игроков продолжить.
         result = await session.execute(
-            select(Character, User)
+            select(Character, User, MobSpawn)
             .join(User, Character.user_id == User.id)
-            .join(Cell, Character.cell_id == Cell.id)
-            .where(Cell.mob_id.isnot(None))
+            .join(MobSpawn, MobSpawn.engaged_by_id == Character.id)
+            .where(MobSpawn.is_alive == True)  # noqa: E712
         )
-        rows = result.all()
+        engaged = result.all()
+        for _, _, spawn in engaged:
+            spawn.engaged_by_id = None
+        if engaged:
+            await session.commit()
+
+        rows = [(character, user) for character, user, _ in engaged]
         for character, user in rows:
             if user.telegram_id in already_notified:
                 continue

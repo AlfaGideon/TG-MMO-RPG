@@ -39,8 +39,14 @@
             </a>
 
             <div class="nav-section-label">Экономика</div>
-            <a href="/items" class="nav-link {% if path.startswith('/item') %}active{% endif %}">
+            <a href="/items" class="nav-link {% if path.startswith('/item') and not path.startswith('/instance') %}active{% endif %}">
                 <span class="nav-icon">🎒</span> Предметы
+            </a>
+            <a href="/editor/instances" class="nav-link {% if path.startswith('/editor/instances') or path.startswith('/instance/') %}active{% endif %}">
+                <span class="nav-icon">🆔</span> Экземпляры
+            </a>
+            <a href="/editor/auction" class="nav-link {% if path == '/editor/auction' %}active{% endif %}">
+                <span class="nav-icon">⚖️</span> Аукцион
             </a>
 
             {% if role is none or role == 'admin' %}
@@ -59,7 +65,12 @@
                     <a href="/editor/locations" class="nav-sublink {% if path.startswith('/editor/location') %}active{% endif %}">🗺 Локации</a>
                     <a href="/editor/dungeons" class="nav-sublink {% if path == '/editor/dungeons' %}active{% endif %}">🕳 Подземелья</a>
                     <a href="/editor/mobs" class="nav-sublink {% if path == '/editor/mobs' %}active{% endif %}">👾 Мобы</a>
-                    <a href="/editor/npcs" class="nav-sublink {% if path == '/editor/npcs' %}active{% endif %}">🎭 NPC</a>
+                    <a href="/editor/spawns" class="nav-sublink {% if path == '/editor/spawns' %}active{% endif %}">👣 Популяция</a>
+                    <a href="/editor/drops" class="nav-sublink {% if path == '/editor/drops' %}active{% endif %}">🎁 Лут</a>
+                    <a href="/editor/craft" class="nav-sublink {% if path == '/editor/craft' %}active{% endif %}">🔨 Крафт</a>
+                    <a href="/editor/classes" class="nav-sublink {% if path == '/editor/classes' %}active{% endif %}">🎭 Классы</a>
+                    <a href="/editor/events" class="nav-sublink {% if path == '/editor/events' %}active{% endif %}">🎄 События</a>
+                    <a href="/editor/npcs" class="nav-sublink {% if path == '/editor/npcs' %}active{% endif %}">💬 NPC</a>
                     <a href="/editor/quests" class="nav-sublink {% if path == '/editor/quests' %}active{% endif %}">📜 Квесты</a>
                 </div>
             </div>
