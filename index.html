@@ -56,25 +56,31 @@
 // Загрузчик админки. Забирает Python-модули из этого же репозитория.
 // __init__.py НЕ грузятся: GitHub Pages (Jekyll) вырезает файлы,
 // чьи имена начинаются с подчёркивания. Пакеты создаём сами.
-const MODULES = [
-  "engine/data.py","engine/models.py","engine/world.py","engine/rules.py",
-  "engine/permissions.py","engine/texts.py","engine/mapview.py",
-  "engine/audit.py","engine/adminops.py","engine/adminmenu.py",
-  "engine/adminbot.py","engine/adminroute.py",
-  "engine/combat.py","engine/itemui.py","engine/inventory.py","engine/shop.py",
-  "engine/game.py","engine/storage.py",
-  "webapp/html.py","webapp/backend.py","webapp/dom.py","webapp/session.py",
-  "webapp/transport.py","webapp/telegram.py",
-  "webapp/pages/dashboard.py","webapp/pages/bot.py","webapp/pages/players.py",
-  "webapp/pages/dungeons.py","webapp/pages/world.py","webapp/pages/content.py",
-  "webapp/pages/audit.py","webapp/pages/settings.py",
-  "webapp/actions/audit_actions.py","webapp/actions/bot_actions.py",
-  "webapp/actions/content_actions.py",
-  "webapp/actions/player_actions.py",
-  "webapp/actions/world_actions.py",
-  "webapp/app.py","webapp/boot.py",
-];
-const PACKAGES = ["engine","webapp","webapp/pages","webapp/actions"];
+//
+// Список модулей живёт в modules.json, а не здесь. Так новый модуль
+// подхватывается, даже если сам index.html отдан из старого кеша.
+// FALLBACK — аварийная копия на случай, если modules.json недоступен.
+const FALLBACK = {
+  packages: ["engine","webapp","webapp/pages","webapp/actions"],
+  modules: [
+    "engine/data.py","engine/models.py","engine/world.py","engine/rules.py",
+    "engine/permissions.py","engine/texts.py","engine/mapview.py",
+    "engine/audit.py","engine/adminops.py","engine/adminmenu.py",
+    "engine/adminbot.py","engine/adminroute.py",
+    "engine/combat.py","engine/itemui.py","engine/inventory.py","engine/shop.py",
+    "engine/game.py","engine/storage.py",
+    "webapp/html.py","webapp/backend.py","webapp/dom.py","webapp/session.py",
+    "webapp/transport.py","webapp/telegram.py",
+    "webapp/pages/dashboard.py","webapp/pages/bot.py","webapp/pages/players.py",
+    "webapp/pages/dungeons.py","webapp/pages/world.py","webapp/pages/content.py",
+    "webapp/pages/audit.py","webapp/pages/settings.py",
+    "webapp/actions/audit_actions.py","webapp/actions/bot_actions.py",
+    "webapp/actions/content_actions.py",
+    "webapp/actions/player_actions.py",
+    "webapp/actions/world_actions.py",
+    "webapp/app.py","webapp/boot.py",
+  ],
+};
 
 const RUNTIMES = [
   "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/",
@@ -125,9 +131,26 @@ async function bootRuntime() {
       "Нужен интернет — среда грузится с CDN. Проверь соединение и обнови страницу.");
   }
 
+  const stamp = Date.now();
   try {
     const ROOT = "/app";
     py.FS.mkdirTree(ROOT);
+
+    // Манифест грузим первым и мимо кеша. Если он недоступен — берём
+    // аварийную копию, вшитую в страницу.
+    let manifest = FALLBACK;
+    try {
+      say("Читаю список модулей…");
+      const r = await fetch("modules.json?v=" + stamp, { cache: "reload" });
+      if (r.ok) {
+        const parsed = await r.json();
+        if (Array.isArray(parsed.modules) && parsed.modules.length) manifest = parsed;
+      }
+    } catch (e) { console.warn("modules.json недоступен, беру запасной список", e); }
+
+    const MODULES = manifest.modules;
+    const PACKAGES = manifest.packages || FALLBACK.packages;
+
     // Пакеты и их __init__.py создаём локально, из сети не тянем.
     for (const pkg of PACKAGES) {
       py.FS.mkdirTree(ROOT + "/" + pkg);
@@ -135,7 +158,6 @@ async function bootRuntime() {
     }
 
     // Модули тянем параллельно и мимо кеша: иначе браузер/CDN отдаёт старую сборку.
-    const stamp = Date.now();
     let done = 0;
     const sources = await Promise.all(MODULES.map(async (path) => {
       const r = await fetch(path + "?v=" + stamp, { cache: "reload" });
@@ -147,7 +169,13 @@ async function bootRuntime() {
       say("Загружаю модули… " + (++done) + "/" + MODULES.length);
       return src;
     }));
+    // Каталоги под вложенные модули создаём заранее — иначе writeFile упадёт.
+    MODULES.forEach((path) => {
+      const dir = path.slice(0, path.lastIndexOf("/"));
+      if (dir) py.FS.mkdirTree(ROOT + "/" + dir);
+    });
     MODULES.forEach((path, i) => py.FS.writeFile(ROOT + "/" + path, sources[i]));
+    window.__modules = MODULES;
 
     py.runPython(
       "import sys, builtins\n" +
@@ -162,11 +190,31 @@ async function bootRuntime() {
   } catch (err) {
     console.error(err);
     const local = location.protocol === "file:";
-    fail("Не удалось загрузить модули", err, local
-      ? "Файл открыт с диска (<code>file://</code>). Модули лежат рядом и грузятся по HTTP — " +
-        "включи GitHub Pages либо запусти <code>python3 -m http.server</code>."
-      : "Проверь, что папки <code>engine/</code> и <code>webapp/</code> есть в ветке " +
-        "<code>main</code> и что Pages опубликован из корня <code>/ (root)</code>.");
+    // ImportError вида "cannot import name 'X' from 'webapp'" почти всегда
+    // означает не отсутствие файла в репозитории, а устаревший список модулей:
+    // страница отдана из кеша и про новый модуль просто не знает.
+    const text = String(err);
+    const miss = text.match(/cannot import name '([\w.]+)' from '([\w.]+)'/);
+    let hint;
+    if (miss) {
+      const path = miss[2].replace(/\./g, "/") + "/" + miss[1] + ".py";
+      const known = (window.__modules || []).includes(path);
+      hint = known
+        ? "Модуль <code>" + path + "</code> загружен, но импорт всё равно упал — " +
+          "скорее всего он идёт в <code>modules.json</code> позже зависимого файла. " +
+          "Проверь порядок: зависимость должна быть выше."
+        : "Страница загрузила старый список модулей: <code>" + path + "</code> в нём нет. " +
+          "Это кеш, а не репозиторий. Обнови страницу с <code>Ctrl+F5</code> " +
+          "(на телефоне — очисти данные сайта). Если не помогло — добавь " +
+          "<code>" + path + "</code> в <code>modules.json</code>.";
+    } else if (local) {
+      hint = "Файл открыт с диска (<code>file://</code>). Модули лежат рядом и грузятся по HTTP — " +
+        "включи GitHub Pages либо запусти <code>python3 -m http.server</code>.";
+    } else {
+      hint = "Проверь, что папки <code>engine/</code> и <code>webapp/</code> есть в ветке " +
+        "<code>main</code> и что Pages опубликован из корня <code>/ (root)</code>.";
+    }
+    fail("Не удалось загрузить модули", err, hint);
   }
 })();
 </script>
