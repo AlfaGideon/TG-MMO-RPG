@@ -88,3 +88,11 @@ code{background:var(--bg-input);padding:.1rem .35rem;border-radius:4px;font-size
 .toast{position:fixed;bottom:1.2rem;left:50%;transform:translateX(-50%) translateY(180%);background:var(--bg-card);border:1px solid var(--success);color:var(--text);padding:.6rem 1.1rem;border-radius:9px;font-size:.85rem;transition:transform .25s;z-index:60}
 .toast.show{transform:translateX(-50%) translateY(0)}
 .toast.err{border-color:var(--danger)}
+/* ── Кликабельные строки таблиц (контент, экземпляры) ── */
+tr.clickable{cursor:pointer}
+tr.clickable:hover td{background:var(--accent-soft)}
+/* ── Летопись предмета: кто добыл, у кого побывал ── */
+.story{background:#0a0a0f;border:1px solid var(--border);border-radius:8px;padding:.6rem .7rem;max-height:260px;overflow:auto;font-size:.8rem}
+.story .logline{padding:.28rem 0;border-bottom:1px solid #15151f;color:var(--text-muted)}
+.story .logline:last-child{border-bottom:none}
+.story .logline:first-child{color:var(--text)}

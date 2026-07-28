@@ -14,17 +14,31 @@ def item(idx):
                 price=price, icon=icon, bonus=bonus)
 
 
-def bonuses(player):
-    """Суммарные бонусы надетых предметов."""
+def bonuses(player, store=None):
+    """Суммарные бонусы надетых предметов.
+
+    Если у слота надет именной экземпляр (`player.worn`), берутся его
+    откатанные статы, а не значения шаблона: два одинаковых меча дают
+    разный бонус. Без store и без экземпляров работает по шаблонам.
+    """
+    worn = getattr(player, "worn", None) or {}
     total = {}
-    for idx in player.equipped.values():
-        for k, v in data.ITEMS[idx][5].items():
+    for slot, idx in player.equipped.items():
+        stats_src = None
+        if store is not None and worn.get(slot):
+            from engine import items
+            inst = items.get(store, worn[slot])
+            if inst is not None and int(inst.get("idx", -1)) == int(idx):
+                stats_src = inst.get("stats") or {}
+        if stats_src is None:
+            stats_src = data.ITEMS[idx][5]
+        for k, v in stats_src.items():
             total[k] = total.get(k, 0) + v
     return total
 
 
-def stats(player):
-    b = bonuses(player)
+def stats(player, store=None):
+    b = bonuses(player, store)
     return dict(
         strength=player.strength + b.get("strength", 0),
         agility=player.agility + b.get("agility", 0),
@@ -43,17 +57,19 @@ def exp_needed(level):
 
 
 def add_exp(player, amount):
-    """Начисляет опыт, возвращает число новых уровней."""
+    """Начисляет опыт, возвращает число новых уровней.
+
+    Прирост статов у каждого класса свой (engine.data.CLASS_GROWTH):
+    берсерк растёт в силе, некромант — в интеллекте и мане.
+    """
+    from engine import hero
     player.exp += amount
     gained = 0
     while player.exp >= exp_needed(player.level):
         player.exp -= exp_needed(player.level)
         player.level += 1
-        player.max_hp += 10
-        player.max_mp += 5
-        player.strength += 1
-        player.agility += 1
-        player.endurance += 1
+        for key, step in hero.growth(player.cls).items():
+            setattr(player, key, getattr(player, key, 0) + int(step))
         player.hp = player.max_hp
         gained += 1
     return gained

@@ -1,5 +1,5 @@
 """Тексты интерфейса бота."""
-from engine import data, permissions, rules
+from engine import data, hero, permissions, rules
 
 WELCOME = (
     "🌑 <b>Теневые Земли</b>\n\n"
@@ -62,13 +62,51 @@ def admin_revoked():
             "<i>Кнопка «🛠 Админка» больше не доступна.</i>")
 
 
-def profile(p):
-    s = rules.stats(p)
+def roll_view(p, cls, rolled, magic):
+    """Предпросмотр броска статов при создании героя."""
+    title, desc, _base = data.CLASSES[cls]
+    q = hero.quality(cls, rolled)
+    left = int(getattr(p, "rolls", 0) or 0)
+    lines = [f"<b>{title}</b>", f"<i>{desc}</i>", "",
+             f"🎲 <b>Бросок судьбы</b> · {hero.verdict(q)} ({q} %)", ""]
+    for key, label in (("strength", "💪 Сила"), ("agility", "🏃 Ловкость"),
+                       ("intelligence", "🧠 Интеллект"),
+                       ("endurance", "🛡 Выносливость"), ("luck", "🍀 Удача")):
+        lines.append(f"{label}: <b>{rolled.get(key, 0)}</b>{hero.diff(cls, rolled, key)}")
+    lines.append(f"❤️ HP: <b>{rolled.get('max_hp', 0)}</b>{hero.diff(cls, rolled, 'max_hp')}"
+                 f"   💙 MP: <b>{rolled.get('max_mp', 0)}</b>{hero.diff(cls, rolled, 'max_mp')}")
+    lines.append("")
+    if magic:
+        lines.append("✨ <b>Дар к магии</b>")
+        lines += hero.magic_lines(magic)
+    else:
+        lines.append("🚫 <i>Магического дара нет — не всем он нужен.</i>")
+    lines.append("")
+    lines.append(f"<i>Осталось перекатов: {left}. Принятый бросок фиксируется.</i>")
+    return "\n".join(lines)
+
+
+def hero_created(p, cls):
+    magic = hero.magic_lines(getattr(p, "magic", []))
+    body = "\n".join(magic) if magic else "<i>Магического дара нет.</i>"
+    return (f"✅ Герой <b>{p.name}</b> создан!\n\n"
+            f"Класс: {data.CLASSES[cls][0]}\n"
+            f"💪 {p.strength} · 🏃 {p.agility} · 🧠 {p.intelligence} · "
+            f"🛡 {p.endurance} · 🍀 {p.luck}\n"
+            f"❤️ {p.max_hp} HP · 💙 {p.max_mp} MP\n\n"
+            f"✨ <b>Дар</b>\n{body}\n\n"
+            f"Добро пожаловать в Теневые Земли, изгнанник.")
+
+
+def profile(p, store=None):
+    s = rules.stats(p, store)
     icon = data.CLASSES[p.cls][0].split()[0] if p.cls in data.CLASSES else "👤"
     eq = []
     for slot, idx in p.equipped.items():
         it = rules.item(idx)
         eq.append(f"{it['icon']} {it['name']}")
+    magic = hero.magic_lines(getattr(p, "magic", []))
+    magic_body = "\n".join(magic) if magic else "<i>дара нет</i>"
     return (
         f"{icon} <b>{p.name}</b> · ур. {p.level}\n"
         f"Класс: <code>{p.cls}</code> · Золото: <code>{p.gold}</code> 🪙\n\n"
@@ -79,6 +117,7 @@ def profile(p):
         f"🧠 Интеллект {s['intelligence']}   🛡 Выносливость {s['endurance']}\n"
         f"🍀 Удача {s['luck']}\n"
         f"⚔️ Урон +{s['damage']}   🛡 Защита +{s['defense']}\n\n"
+        f"✨ <b>Магия</b>\n{magic_body}\n\n"
         f"🗡 Экипировка: {', '.join(eq) if eq else '—'}\n"
         f"☠️ Убито врагов: {p.kills}"
     )

@@ -9,6 +9,46 @@ CLASSES = {
               dict(strength=10, agility=16, intelligence=8, endurance=8, luck=14, max_hp=100, max_mp=50)),
     "cleric": ("✨ Жрец", "Последний свет. Исцеляет союзников, жжёт нежить.",
                dict(strength=8, agility=8, intelligence=14, endurance=12, luck=10, max_hp=110, max_mp=90)),
+    "paladin": ("⚜️ Паладин", "Латы, молот и клятва. Стоит между тьмой и живыми.",
+                dict(strength=13, agility=7, intelligence=10, endurance=15, luck=9, max_hp=150, max_mp=60)),
+    "ranger": ("🏹 Следопыт", "Лес читается как книга. Стрела находит горло первой.",
+               dict(strength=11, agility=15, intelligence=9, endurance=11, luck=12, max_hp=110, max_mp=60)),
+    "necromancer": ("💀 Некромант", "Смерть — не конец, а материал. Поднимает павших.",
+                    dict(strength=6, agility=8, intelligence=17, endurance=7, luck=11, max_hp=75, max_mp=130)),
+    "berserker": ("🪓 Берсерк", "Боли нет — есть ярость. Чем меньше HP, тем страшнее удар.",
+                  dict(strength=18, agility=11, intelligence=4, endurance=10, luck=7, max_hp=130, max_mp=20)),
+    "druid": ("🌿 Друид", "Слышит шёпот корней. Природа мстит его руками.",
+              dict(strength=9, agility=11, intelligence=14, endurance=12, luck=11, max_hp=115, max_mp=95)),
+    "assassin": ("🩸 Убийца", "Один удар — один труп. Работа, а не сражение.",
+                 dict(strength=12, agility=18, intelligence=9, endurance=7, luck=16, max_hp=95, max_mp=45)),
+}
+
+# Прирост статов за уровень: у каждого класса свой. {ключ: {стат: прирост}}
+CLASS_GROWTH = {
+    "warrior":     dict(strength=2, agility=1, intelligence=0, endurance=2, luck=0, max_hp=14, max_mp=3),
+    "mage":        dict(strength=0, agility=1, intelligence=3, endurance=1, luck=1, max_hp=7, max_mp=12),
+    "rogue":       dict(strength=1, agility=3, intelligence=1, endurance=1, luck=2, max_hp=9, max_mp=5),
+    "cleric":      dict(strength=1, agility=1, intelligence=2, endurance=2, luck=1, max_hp=11, max_mp=9),
+    "paladin":     dict(strength=2, agility=1, intelligence=1, endurance=3, luck=0, max_hp=15, max_mp=6),
+    "ranger":      dict(strength=1, agility=3, intelligence=1, endurance=2, luck=1, max_hp=11, max_mp=6),
+    "necromancer": dict(strength=0, agility=1, intelligence=3, endurance=1, luck=1, max_hp=6, max_mp=13),
+    "berserker":   dict(strength=3, agility=2, intelligence=0, endurance=1, luck=0, max_hp=13, max_mp=2),
+    "druid":       dict(strength=1, agility=2, intelligence=2, endurance=2, luck=1, max_hp=11, max_mp=9),
+    "assassin":    dict(strength=2, agility=3, intelligence=1, endurance=1, luck=2, max_hp=8, max_mp=4),
+}
+
+# Магическая предрасположенность класса: (шанс дара, шанс второй школы, любимые школы)
+CLASS_MAGIC = {
+    "warrior":     (0.18, 0.03, []),
+    "mage":        (1.00, 0.35, ["fire", "frost", "storm"]),
+    "rogue":       (0.35, 0.06, ["shadow", "storm"]),
+    "cleric":      (0.95, 0.25, ["light", "nature"]),
+    "paladin":     (0.70, 0.12, ["light"]),
+    "ranger":      (0.50, 0.10, ["nature", "storm"]),
+    "necromancer": (1.00, 0.40, ["shadow"]),
+    "berserker":   (0.12, 0.02, ["fire"]),
+    "druid":       (0.95, 0.30, ["nature", "frost"]),
+    "assassin":    (0.30, 0.05, ["shadow"]),
 }
 
 # (name, description, type, min_level)
@@ -108,3 +148,114 @@ TILE_COLORS = {
     "grass": "#2f5d3a", "forest": "#1f4429", "road": "#6b5a3e", "water": "#1f3f5d",
     "wall": "#14141c", "village": "#5d4a2f", "cave": "#25252f",
 }
+
+# ── Уникальные предметы: источники, качество, редкость ──────
+# Значок способа получения печатается перед ID экземпляра, поэтому
+# происхождение вещи видно с одного взгляда: ⚔️IT-D55CA5C1.
+
+# ключ -> (значок, подпись)
+SOURCES = {
+    "mob":      ("⚔️", "Выбито в бою"),
+    "chest":    ("📦", "Найдено в сундуке"),
+    "dungeon":  ("🕳", "Добыто в подземелье"),
+    "craft":    ("🔨", "Изготовлено"),
+    "shop":     ("🏪", "Куплено в лавке"),
+    "auction":  ("🔁", "С аукциона"),
+    "quest":    ("📜", "Награда за задание"),
+    "festive":  ("🎄", "Праздничное"),
+    "unique":   ("🌟", "Единственное в мире"),
+    "admin":    ("🛠", "Выдано администратором"),
+    "starter":  ("🎒", "Стартовое снаряжение"),
+}
+
+# Событие летописи предмета: ключ -> (значок, подпись)
+EVENTS = {
+    "created":  ("✨", "создан"),
+    "looted":   ("⚔️", "выбит в бою"),
+    "chest":    ("📦", "найден в сундуке"),
+    "dungeon":  ("🕳", "добыт в подземелье"),
+    "crafted":  ("🔨", "изготовлен"),
+    "bought":   ("🏪", "куплен в лавке"),
+    "listed":   ("📢", "выставлен на аукцион"),
+    "sold":     ("🔁", "продан на аукционе"),
+    "expired":  ("⌛", "вернулся с аукциона"),
+    "upgraded": ("⚡", "заточен"),
+    "granted":  ("🛠", "выдан администратором"),
+}
+
+# Источник экземпляра -> событие, которым открывается летопись
+SOURCE_EVENTS = {
+    "mob": "looted", "chest": "chest", "dungeon": "dungeon", "craft": "crafted",
+    "shop": "bought", "quest": "created", "admin": "granted",
+    "starter": "created", "festive": "created", "unique": "created",
+}
+
+# Множитель статов по редкости
+RARITY_MULT = {
+    "common": 1.0, "uncommon": 1.15, "rare": 1.35, "epic": 1.6, "legendary": 2.0,
+}
+
+RARITY_ORDER = ["common", "uncommon", "rare", "epic", "legendary"]
+
+# Префикс по качеству экземпляра: (верхняя граница, варианты)
+QUALITY_PREFIXES = [
+    (70,  ["Ржавый", "Треснувший", "Щербатый", "Потёртый"]),
+    (90,  ["Простой", "Обычный", "Походный"]),
+    (110, ["Крепкий", "Добротный", "Выверенный"]),
+    (125, ["Закалённый", "Отменный", "Мастерский"]),
+    (999, ["Легендарный", "Безупречный", "Проклятый", "Совершенный"]),
+]
+
+# Шесть школ магии: ключ -> (значок, название, описание)
+MAGIC_SCHOOLS = {
+    "fire":   ("🔥", "Огонь", "Пламя выжигает всё живое. Чистый разрушительный урон."),
+    "frost":  ("❄️", "Лёд", "Холод сковывает движения. Замедление и контроль."),
+    "storm":  ("⚡", "Гроза", "Молния бьёт быстрее мысли. Скорость и криты."),
+    "shadow": ("🌑", "Тьма", "Проклятия и вытягивание жизни. Цена — своя кровь."),
+    "nature": ("🌿", "Природа", "Яды, шипы и восстановление. Медленно, но верно."),
+    "light":  ("✨", "Свет", "Исцеление союзников и испепеление нежити."),
+}
+
+# Ступень дара: ключ -> (название, множитель, значок)
+AFFINITY_GRADES = {
+    "weak":   ("Искра", 0.6, "◦"),
+    "normal": ("Дар", 1.0, "•"),
+    "strong": ("Сильный дар", 1.4, "✦"),
+    "gifted": ("Талант", 1.8, "✸"),
+}
+
+# Материалы для крафта: (название, иконка, редкость, цена)
+MATERIALS = [
+    ("Железный лом", "🔩", "common", 4),
+    ("Кожаный лоскут", "🟫", "common", 3),
+    ("Кость нежити", "🦴", "common", 5),
+    ("Стальной слиток", "⬜", "uncommon", 12),
+    ("Волчья шкура", "🐺", "uncommon", 10),
+    ("Теневая эссенция", "🌑", "rare", 30),
+    ("Осколок души", "💎", "epic", 75),
+]
+
+# Рецепты крафта: (название, иконка, станок, предмет-результат, {материал: сколько}, цена, мин.уровень)
+RECIPES = [
+    ("Стальной меч", "⚔️", "forge", 0, {0: 3, 3: 1}, 30, 1),
+    ("Укреплённая кольчуга", "🦺", "forge", 3, {0: 2, 3: 2, 4: 1}, 45, 2),
+    ("Шлем следопыта", "🪖", "forge", 5, {1: 2, 3: 1}, 35, 2),
+    ("Сапоги теней", "👢", "forge", 6, {1: 3, 5: 1}, 60, 4),
+    ("Кольцо удачи", "💍", "jewelry", 7, {5: 1, 6: 1}, 120, 6),
+    ("Зелье здоровья", "🧪", "alchemy", 8, {2: 1, 1: 1}, 8, 1),
+    ("Зелье маны", "🧪", "alchemy", 9, {2: 1, 5: 1}, 12, 3),
+]
+
+# Станки крафта: ключ -> (значок, название)
+STATIONS = {
+    "forge":   ("🔨", "Кузница"),
+    "alchemy": ("⚗️", "Алхимия"),
+    "jewelry": ("💍", "Ювелир"),
+}
+
+# Стоимость заточки: уровень -> (шанс успеха, множитель цены)
+UPGRADE_ODDS = [
+    (1.00, 1), (0.90, 2), (0.75, 3), (0.60, 5),
+    (0.45, 8), (0.30, 12), (0.20, 18), (0.12, 26),
+]
+MAX_UPGRADE = len(UPGRADE_ODDS)

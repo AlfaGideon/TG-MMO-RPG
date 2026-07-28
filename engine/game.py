@@ -1,8 +1,8 @@
 """Роутер бота: команда/callback -> Reply. Не знает ничего про Telegram."""
 import random
 
-from engine import (adminbot, adminroute, combat, data, inventory, mapview,
-                    rules, shop, texts, world)
+from engine import (adminbot, adminroute, combat, data, hero, inventory,
+                    items, mapview, rules, shop, texts, trade, world)
 from engine.models import Reply
 
 
@@ -16,6 +16,8 @@ class Game:
         if action in ("start", "menu"):
             return self.menu(p)
         head, _, arg = action.partition(":")
+        if trade.handles(head):            # мастерская, заточка, аукцион
+            return trade.route(self.store, p, head, arg)
         fn = getattr(self, f"do_{head}", None)
         if fn is None:
             return Reply(alert="Неизвестная команда.")
@@ -29,6 +31,7 @@ class Game:
         rows = [
             [("🧭 В мир", "world"), ("🧙 Профиль", "profile")],
             [("🎒 Инвентарь", "bag"), ("🏪 Лавка", "shop")],
+            [("🔨 Мастерская", "craft"), ("🏛 Аукцион", "auc:0")],
             [("🏆 Топ", "top"), ("❓ Помощь", "help")],
         ]
         if p.is_web_admin:
@@ -61,32 +64,59 @@ class Game:
         return Reply(text="Выбери класс своего героя:", keyboard=rows)
 
     def do_pick(self, p, cls):
+        """Выбран класс — сразу катаем стартовые статы и дар к магии."""
         if cls not in data.CLASSES:
             return Reply(alert="Нет такого класса.")
-        title, desc, _ = data.CLASSES[cls]
-        return Reply(text=f"<b>{title}</b>\n\n{desc}", keyboard=[
-            [("✅ Подтвердить", f"make:{cls}")], [("◀️ Другой класс", "new")]])
+        p.rolls = hero.DEFAULT_REROLLS
+        return self._roll(p, cls)
+
+    def do_reroll(self, p, cls):
+        """Перекат статов: тратим попытку, пока они есть."""
+        if p.created_char:
+            return Reply(alert="Герой уже создан!")
+        if int(getattr(p, "rolls", 0) or 0) <= 0:
+            return Reply(alert="Попытки переката кончились.")
+        p.rolls = int(p.rolls) - 1
+        return self._roll(p, cls)
+
+    def _roll(self, p, cls):
+        """Новый бросок статов и магии, показ карточки предпросмотра."""
+        rolled = hero.roll_stats(cls)
+        magic = hero.roll_magic(cls)
+        p.roll_state = {"cls": cls, "stats": rolled, "magic": magic}
+        self.store.save_player(p)
+        return Reply(text=texts.roll_view(p, cls, rolled, magic),
+                     keyboard=self._roll_keys(p, cls))
+
+    @staticmethod
+    def _roll_keys(p, cls):
+        left = int(getattr(p, "rolls", 0) or 0)
+        rows = [[("✅ Принять судьбу", f"make:{cls}")]]
+        if left > 0:
+            rows.append([(f"🎲 Перекатить ({left})", f"reroll:{cls}")])
+        rows.append([("◀️ Другой класс", "new")])
+        return rows
 
     def do_make(self, p, cls):
         if p.created_char:
             return Reply(alert="Герой уже создан!")
-        st = data.CLASSES[cls][2]
-        for k, v in st.items():
-            setattr(p, k, v)
-        p.cls = cls
-        p.hp, p.mp = p.max_hp, p.max_mp
-        p.loc, p.x, p.y = 0, 5, 5
+        if cls not in data.CLASSES:
+            return Reply(alert="Нет такого класса.")
+        state = getattr(p, "roll_state", None) or {}
+        if state.get("cls") != cls:
+            # Прямой заход мимо переката (тесты, админ-выдача): берём базу
+            # класса как есть — без случайности, чтобы результат был предсказуем.
+            state = {"stats": hero.base_stats(cls), "magic": hero.roll_magic(cls)}
+        hero.apply(p, cls, state.get("stats") or {}, state.get("magic") or [])
         mapview.mark_visited(p)
         self.store.save_player(p)
-        return Reply(text=(f"✅ Герой <b>{p.name}</b> создан!\n\n"
-                           f"Класс: {data.CLASSES[cls][0]}\n\n"
-                           f"Добро пожаловать в Теневые Земли, изгнанник."),
+        return Reply(text=texts.hero_created(p, cls),
                      keyboard=[[("🧭 В мир", "world")], [("◀️ Меню", "menu")]])
 
     def do_profile(self, p, arg=""):
         if not p.created_char:
             return Reply(alert="Сначала создай героя!")
-        return Reply(text=texts.profile(p), keyboard=[
+        return Reply(text=texts.profile(p, self.store), keyboard=[
             [("🎒 Инвентарь", "bag"), ("🧭 В мир", "world")], [("◀️ Меню", "menu")]])
 
     # ── мир ─────────────────────────────────────────────────
@@ -169,7 +199,7 @@ class Game:
         return combat.start(p, cell.mob)
 
     def do_fight(self, p, what):
-        return combat.action(p, what, self.world)
+        return combat.action(p, what, self.world, self.store)
 
     def do_talk(self, p, arg):
         n = data.NPCS[int(arg)]
@@ -199,7 +229,14 @@ class Game:
         if random.random() < 0.5:
             idx = random.randrange(len(data.ITEMS))
             p.inventory.append(idx)
-            lines.append(f"И ещё: {rules.item(idx)['icon']} {rules.item(idx)['name']}")
+            inst = items.create(self.store, idx, source="chest", owner=p.tg_id,
+                                luck=p.luck, detail="сундук")
+            if inst is not None:
+                lines.append(f"И ещё: {inst['icon']} <b>{items.title(inst)}</b>")
+                lines.append(f"   <code>{items.tag(inst)}</code> · {items.stats_line(inst)}")
+            else:
+                it = rules.item(idx)
+                lines.append(f"И ещё: {it['icon']} {it['name']}")
         return Reply(text="\n".join(lines), keyboard=[[("◀️ В мир", "world")]])
 
     def do_rest(self, p, arg=""):

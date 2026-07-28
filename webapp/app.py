@@ -3,12 +3,13 @@ from engine import permissions
 from engine.storage import Store
 from webapp import dom, session
 from webapp.actions import (audit_actions, bot_actions, content_actions,
-                            player_actions, world_actions)
+                            economy_actions, player_actions, world_actions)
 from webapp.backend import LocalStorage
 from webapp.pages import audit as page_audit
 from webapp.pages import bot as page_bot
 from webapp.pages import content as page_content
 from webapp.pages import dashboard as page_dash
+from webapp.pages import economy as page_economy
 from webapp.pages import players as page_players
 from webapp.pages import settings as page_settings
 from webapp.pages import world as page_world
@@ -16,7 +17,8 @@ from webapp.telegram import TelegramBot
 
 PAGES = [
     ("dash", page_dash), ("bot", page_bot), ("players", page_players),
-    ("world", page_world), ("content", page_content), ("audit", page_audit),
+    ("world", page_world), ("content", page_content),
+    ("economy", page_economy), ("audit", page_audit),
     ("settings", page_settings),
 ]
 
@@ -24,19 +26,20 @@ PAGES = [
 NAV_SECTIONS = [
     ("", ["dash"]),
     ("Игроки", ["players"]),
-    ("Контент мира", ["world", "content"]),
+    ("Контент мира", ["world", "content", "economy"]),
     ("Система", ["audit", "bot", "settings"]),
 ]
 
 # Какое право нужно, чтобы видеть страницу (владелец видит всё).
 PAGE_CAPS = {
     "dash": "view_dash", "players": "view_players", "world": "view_world",
-    "content": "view_content", "bot": "bot_control", "settings": "settings",
+    "content": "view_content", "economy": "view_content",
+    "bot": "bot_control", "settings": "settings",
     "audit": "",                     # журнал доступен любому админу
 }
 
 ACTION_MODULES = [audit_actions, bot_actions, content_actions,
-                  player_actions, world_actions]
+                  economy_actions, player_actions, world_actions]
 
 
 class App:
