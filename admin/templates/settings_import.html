@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block title %}Импорт контента — Shadow Lands{% endblock %}
+{% block page_title %}📥 Импорт контента{% endblock %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+    <a href="/">Dashboard</a><span class="sep">/</span>
+    <a href="/settings">Настройки</a><span class="sep">/</span>
+    <span class="current">Импорт</span>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>📥 Импорт JSON</h2>
+    <p class="section-sub">
+        Загрузи файл, экспортированный из этой же панели. Перед применением
+        покажем diff: сколько локаций, мобов, предметов и классов будет
+        создано и обновлено.
+    </p>
+
+    {% if error %}
+    <div class="hint warn" style="margin-bottom:1rem;">❌ {{ error }}</div>
+    {% endif %}
+
+    {% if request.query_params.get('ok') %}
+    <div class="hint" style="margin-bottom:1rem;">✅ Импорт применён.</div>
+    {% endif %}
+
+    <form action="/settings/import-preview" method="post" enctype="multipart/form-data">
+        <div style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:flex-end;">
+            <div>
+                <label class="form-label">Файл JSON</label>
+                <input type="file" name="file" accept="application/json,.json" class="search-box" style="max-width:320px" required>
+            </div>
+            <button type="submit" class="btn btn-primary">🔍 Показать diff</button>
+            <a href="/settings/export" class="btn">📤 Скачать текущий экспорт</a>
+        </div>
+    </form>
+
+    {% if preview %}
+    <h3 style="margin-top:1.25rem;">Diff для {{ filename }}</h3>
+    <div class="table-wrap">
+    <table>
+        <thead>
+            <tr><th>Раздел</th><th>Новых</th><th>Обновится</th></tr>
+        </thead>
+        <tbody>
+            <tr><td>Локации</td><td>{{ preview.locations.new }}</td><td>{{ preview.locations.updated }}</td></tr>
+            <tr><td>Мобы</td><td>{{ preview.mobs.new }}</td><td>{{ preview.mobs.updated }}</td></tr>
+            <tr><td>Предметы</td><td>{{ preview.items.new }}</td><td>{{ preview.items.updated }}</td></tr>
+            <tr><td>Классы</td><td>{{ preview.classes.new }}</td><td>{{ preview.classes.updated }}</td></tr>
+        </tbody>
+    </table>
+    </div>
+    <form action="/settings/import-apply" method="post" style="margin-top:1rem;">
+        <input type="hidden" name="import_json" value="{{ import_json | e }}">
+        <button type="submit" class="btn btn-primary" onclick="return confirm('Применить импорт? Существующие записи обновятся.')">✅ Применить</button>
+        <a href="/settings/import" class="btn">Отмена</a>
+    </form>
+    {% endif %}
+</div>
+{% endblock %}

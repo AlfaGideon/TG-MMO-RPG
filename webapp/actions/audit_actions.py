@@ -5,7 +5,7 @@ from webapp import dom
 
 def register(app, A):
     A("audit-src", lambda arg: _src(app, arg))
-    A("audit-who", lambda _="": _who(app))
+    A("audit-filter", lambda _="": _filter(app))
     A("audit-clear", lambda _="": _clear(app))
 
 
@@ -14,8 +14,11 @@ def _src(app, src):
     app.render()
 
 
-def _who(app):
+def _filter(app):
     app.state["audit_who"] = dom.value("#auditWho", "0")
+    app.state["audit_search"] = dom.value("#auditSearch", "")
+    app.state["audit_from"] = dom.value("#auditFrom", "")
+    app.state["audit_to"] = dom.value("#auditTo", "")
     app.render()
 
 

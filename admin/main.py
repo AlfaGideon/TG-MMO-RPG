@@ -3422,6 +3422,224 @@ async def reset_unique(request: Request, item_id: int):
     return RedirectResponse(url="/editor/events", status_code=303)
 
 
+# ── DevOps: JSON export/import ─────────────────────────────
+
+@app.get("/settings/export")
+async def settings_export(request: Request):
+    """Экспорт контента мира в JSON."""
+    guard(request, "settings")
+    async with async_session() as session:
+        locations = [
+            {
+                "id": loc.id, "name": loc.name, "description": loc.description,
+                "location_type": loc.location_type.value if loc.location_type else "safe",
+                "min_level": loc.min_level, "grid_size": loc.grid_size,
+                "floors_count": loc.floors_count or 1,
+                "world_x": loc.world_x, "world_y": loc.world_y,
+                "image_url": loc.image_url,
+            }
+            for loc in (await session.execute(select(Location).order_by(Location.id))).scalars().all()
+        ]
+        mobs = [
+            {
+                "id": m.id, "name": m.name, "description": m.description,
+                "level": m.level, "hp": m.hp, "damage": m.damage, "defense": m.defense,
+                "gold_reward": m.gold_reward, "exp_reward": m.exp_reward,
+                "location_id": m.location_id, "is_boss": m.is_boss,
+                "population": m.population, "respawn_seconds": m.respawn_seconds,
+                "image_url": m.image_url,
+            }
+            for m in (await session.execute(select(Mob).order_by(Mob.id))).scalars().all()
+        ]
+        items = [
+            {
+                "id": it.id, "name": it.name, "description": it.description,
+                "item_type": it.item_type.value if it.item_type else "material",
+                "rarity": it.rarity.value if it.rarity else "common",
+                "level_requirement": it.level_requirement, "price": it.price,
+                "icon": it.icon, "is_unique_roll": it.is_unique_roll,
+                "image_url": it.image_url,
+            }
+            for it in (await session.execute(select(Item).order_by(Item.id))).scalars().all()
+        ]
+        classes = [
+            {
+                "key": cls.key, "name": cls.name, "description": cls.description,
+                "icon": cls.icon, "is_enabled": cls.is_enabled,
+                "base_strength": cls.base_strength, "base_agility": cls.base_agility,
+                "base_intelligence": cls.base_intelligence,
+                "base_endurance": cls.base_endurance, "base_luck": cls.base_luck,
+                "base_hp": cls.base_hp, "base_mp": cls.base_mp,
+            }
+            for cls in (await session.execute(select(CharacterClassDef).order_by(CharacterClassDef.id))).scalars().all()
+        ]
+
+    import json
+    data = {
+        "meta": {"exported_at": datetime.utcnow().isoformat()},
+        "locations": locations, "mobs": mobs, "items": items, "classes": classes,
+    }
+    return Response(
+        content=json.dumps(data, ensure_ascii=False, indent=2),
+        media_type="application/json",
+        headers={"Content-Disposition": "attachment; filename=shadowlands_export.json"},
+    )
+
+
+@app.get("/settings/import")
+async def settings_import_page(request: Request, preview: str = ""):
+    """Страница импорта контента из JSON с превью diff."""
+    guard(request, "settings")
+    return templates.TemplateResponse(request, "settings_import.html", {"preview": None})
+
+
+@app.post("/settings/import-preview")
+async def settings_import_preview(request: Request, file: UploadFile = File(...)):
+    """Показывает diff перед импортом JSON."""
+    guard(request, "settings")
+    import json
+
+    content = await file.read()
+    try:
+        data = json.loads(content.decode("utf-8"))
+    except Exception as e:
+        return templates.TemplateResponse(request, "settings_import.html", {"error": str(e), "preview": None})
+
+    async with async_session() as session:
+        locs = {loc.name: loc for loc in (await session.execute(select(Location))).scalars().all()}
+        mobs = {m.name: m for m in (await session.execute(select(Mob))).scalars().all()}
+        items_map = {it.name: it for it in (await session.execute(select(Item))).scalars().all()}
+        classes_map = {cls.key: cls for cls in (await session.execute(select(CharacterClassDef))).scalars().all()}
+
+    diff = {
+        "locations": {"new": 0, "updated": 0},
+        "mobs": {"new": 0, "updated": 0},
+        "items": {"new": 0, "updated": 0},
+        "classes": {"new": 0, "updated": 0},
+    }
+    for loc in data.get("locations", []):
+        if loc.get("name") in locs:
+            diff["locations"]["updated"] += 1
+        else:
+            diff["locations"]["new"] += 1
+    for mob in data.get("mobs", []):
+        if mob.get("name") in mobs:
+            diff["mobs"]["updated"] += 1
+        else:
+            diff["mobs"]["new"] += 1
+    for it in data.get("items", []):
+        if it.get("name") in items_map:
+            diff["items"]["updated"] += 1
+        else:
+            diff["items"]["new"] += 1
+    for cls in data.get("classes", []):
+        if cls.get("key") in classes_map:
+            diff["classes"]["updated"] += 1
+        else:
+            diff["classes"]["new"] += 1
+
+    return templates.TemplateResponse(request, "settings_import.html", {"preview": diff, "filename": file.filename, "import_json": json.dumps(data, ensure_ascii=False)})
+
+
+@app.post("/settings/import-apply")
+async def settings_import_apply(request: Request, import_json: str = Form("")):
+    """Применяет ранее загруженный JSON-импорт."""
+    guard(request, "settings")
+    import json
+
+    raw = import_json
+    if not raw:
+        return RedirectResponse(url="/settings/import", status_code=303)
+    try:
+        data = json.loads(raw)
+    except Exception:
+        return RedirectResponse(url="/settings/import", status_code=303)
+
+    async with async_session() as session:
+        for loc in data.get("locations", []):
+            existing = await session.execute(select(Location).where(Location.name == loc.get("name")))
+            obj = existing.scalar_one_or_none()
+            if obj is None:
+                obj = Location(name=loc.get("name"))
+                session.add(obj)
+            obj.description = loc.get("description", "")
+            obj.location_type = LocationType(loc.get("location_type", "safe"))
+            obj.min_level = loc.get("min_level", 1)
+            obj.grid_size = loc.get("grid_size", 10)
+            obj.floors_count = loc.get("floors_count", 1)
+            obj.world_x = loc.get("world_x", 0)
+            obj.world_y = loc.get("world_y", 0)
+            obj.image_url = loc.get("image_url", "")
+
+        for mob in data.get("mobs", []):
+            existing = await session.execute(select(Mob).where(Mob.name == mob.get("name")))
+            obj = existing.scalar_one_or_none()
+            if obj is None:
+                obj = Mob(name=mob.get("name"))
+                session.add(obj)
+            for k, v in mob.items():
+                if k == "id":
+                    continue
+                if hasattr(obj, k):
+                    setattr(obj, k, v)
+
+        for it in data.get("items", []):
+            existing = await session.execute(select(Item).where(Item.name == it.get("name")))
+            obj = existing.scalar_one_or_none()
+            if obj is None:
+                obj = Item(name=it.get("name"))
+                session.add(obj)
+            for k, v in it.items():
+                if k == "id":
+                    continue
+                if k in ("item_type", "rarity"):
+                    try:
+                        setattr(obj, k, {"item_type": ItemType, "rarity": ItemRarity}[k](v))
+                    except ValueError:
+                        pass
+                elif hasattr(obj, k):
+                    setattr(obj, k, v)
+
+        await session.commit()
+    return RedirectResponse(url="/settings/import?ok=1", status_code=303)
+
+
+# ── DevOps: SQL sandbox ────────────────────────────────────
+
+@app.get("/settings/sql")
+async def settings_sql_page(request: Request):
+    guard(request, "settings")
+    return templates.TemplateResponse(request, "settings_sql.html", {"rows": None, "cols": [], "query": "", "error": None})
+
+
+@app.post("/settings/sql")
+async def settings_sql_run(request: Request, query: str = Form("")):
+    guard(request, "settings")
+    import re
+
+    q = (query or "").strip()
+    forbidden = re.compile(r"\b(drop|delete|update|insert|alter|create|truncate|replace)\b", re.I)
+    error = None
+    rows = None
+    cols = []
+
+    if not q.lower().startswith("select") or forbidden.search(q):
+        error = "Разрешены только SELECT-запросы."
+    else:
+        try:
+            async with async_session() as session:
+                result = await session.execute(q)
+                cols = list(result.keys())
+                rows = [tuple(row) for row in result.all()]
+        except Exception as e:
+            error = str(e)
+
+    return templates.TemplateResponse(
+        request, "settings_sql.html",
+        {"rows": rows, "cols": cols, "query": q, "error": error},
+    )
+
+
 # ── Players Map (who is where) ──────────────────────────────
 
 @app.get("/map")
