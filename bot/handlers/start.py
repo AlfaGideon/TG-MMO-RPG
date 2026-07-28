@@ -39,7 +39,10 @@ async def cmd_start(message: Message):
 
         await message.answer(
             WELCOME_TEXT,
-            reply_markup=main_menu_keyboard(has_character=bool(character)),
+            reply_markup=main_menu_keyboard(
+                has_character=bool(character),
+                is_admin=bool(user.is_web_admin),
+            ),
             parse_mode="HTML",
         )
 
@@ -86,6 +89,7 @@ async def main_menu(callback: CallbackQuery):
         )
         user = result.scalar_one_or_none()
         has_char = False
+        is_admin = bool(user and user.is_web_admin)
         if user:
             result = await session.execute(
                 select(Character).where(Character.user_id == user.id)
@@ -94,7 +98,7 @@ async def main_menu(callback: CallbackQuery):
 
     await callback.message.edit_text(
         WELCOME_TEXT,
-        reply_markup=main_menu_keyboard(has_character=has_char),
+        reply_markup=main_menu_keyboard(has_character=has_char, is_admin=is_admin),
         parse_mode="HTML",
     )
 

@@ -47,8 +47,12 @@ class Player:
     combat: dict = field(default_factory=dict)      # активный бой
     msg_id: int = 0                                 # id сообщения для edit
     created: str = ""
+    visited: list = field(default_factory=list)     # ["loc:x:y", ...] туман войны
     is_web_admin: bool = False
-    web_admin_role: str = "viewer"
+    web_admin_role: str = "viewer"                  # ранг-пресет прав
+    web_admin_caps: list = field(default_factory=list)   # точечные права
+    web_admin_password: str = ""                    # пароль входа в панель
+    admin_notified: bool = False                    # уже получил доступ в боте
 
     @property
     def created_char(self):

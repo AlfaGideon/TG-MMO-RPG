@@ -105,6 +105,47 @@ def ensure_cell_image(cell, cells, player_x: int, player_y: int) -> str:
     return render_cell_image(cell, cells, player_x, player_y, path)
 
 
+def render_dungeon_map(cells, player_x: int, player_y: int, grid_size: int,
+                       output_path: str, cell_px: int = 20) -> str:
+    """Карта подземелья: только посещённые клетки, стены, сундуки, выход.
+
+    Раньше в подземельях карты не было вообще — игрок бродил вслепую.
+    """
+    size = grid_size * cell_px
+    img = Image.new("RGB", (size, size), FOG_COLOR)
+    draw = ImageDraw.Draw(img)
+
+    for c in cells:
+        if not getattr(c, "is_visited", False):
+            continue
+        px, py = c.y * cell_px, c.x * cell_px
+        if not c.is_passable:
+            color = TILE_COLORS["wall"]
+        elif getattr(c, "has_exit", False):
+            color = (61, 26, 92)          # лестница вниз — фиолетовый
+        elif getattr(c, "has_chest", False):
+            color = (120, 90, 30)         # сундук — золотистый
+        elif getattr(c, "has_mob", False):
+            color = (110, 35, 35)         # монстр — красный
+        else:
+            color = TILE_COLORS.get(c.tile_type, TILE_COLORS["cave"])
+        draw.rectangle([px, py, px + cell_px - 1, py + cell_px - 1], fill=color)
+
+    cx = player_y * cell_px + cell_px // 2
+    cy = player_x * cell_px + cell_px // 2
+    r = max(3, cell_px // 4)
+    draw.ellipse([cx - r - 2, cy - r - 2, cx + r + 2, cy + r + 2], fill=PLAYER_RING)
+    draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=PLAYER_COLOR)
+
+    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+    img.save(output_path, "PNG")
+    return output_path
+
+
+def get_dungeon_map_path(run_id: int, floor: int) -> str:
+    return f"data/dungeon_maps/{run_id}_{floor}.png"
+
+
 def render_player_map(cells, visited: set, player_x: int, player_y: int, grid_size: int,
                        output_path: str, cell_px: int = 32) -> str:
     """

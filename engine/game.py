@@ -1,7 +1,7 @@
 """Роутер бота: команда/callback -> Reply. Не знает ничего про Telegram."""
 import random
 
-from engine import combat, data, rules, texts, world
+from engine import adminbot, combat, data, mapview, rules, texts, world
 from engine.models import Reply
 
 
@@ -25,11 +25,21 @@ class Game:
         if not p.created_char:
             return Reply(text=texts.WELCOME, keyboard=[
                 [("⚔️ Создать героя", "new")], [("❓ Помощь", "help")]])
-        return Reply(text=texts.WELCOME + f"\n\n👤 {p.name}, ур. {p.level}", keyboard=[
+        rows = [
             [("🧭 В мир", "world"), ("🧙 Профиль", "profile")],
             [("🎒 Инвентарь", "bag"), ("🏪 Лавка", "shop")],
             [("🏆 Топ", "top"), ("❓ Помощь", "help")],
-        ])
+        ]
+        if p.is_web_admin:
+            rows.insert(0, [("🛠 Админка", "admin")])
+        return Reply(text=texts.WELCOME + f"\n\n👤 {p.name}, ур. {p.level}", keyboard=rows)
+
+    # ── админский доступ внутри бота ────────────────────────
+    def do_admin(self, p, arg=""):
+        return adminbot.panel(p, self.store)
+
+    def do_adminpass(self, p, arg=""):
+        return adminbot.password(p, self.store)
 
     def do_help(self, p, arg=""):
         return Reply(text=texts.HELP, keyboard=[[("◀️ Меню", "menu")]])
@@ -57,6 +67,7 @@ class Game:
         p.cls = cls
         p.hp, p.mp = p.max_hp, p.max_mp
         p.loc, p.x, p.y = 0, 5, 5
+        mapview.mark_visited(p)
         self.store.save_player(p)
         return Reply(text=(f"✅ Герой <b>{p.name}</b> создан!\n\n"
                            f"Класс: {data.CLASSES[cls][0]}\n\n"
@@ -82,6 +93,7 @@ class Game:
         if not cell:
             p.loc, p.x, p.y = 0, 5, 5
             cell = self._cell(p)
+        mapview.mark_visited(p)
         ok = world.neighbours(self.world, p.loc, p.x, p.y)
         rows = []
         for line in (("nw", "n", "ne"), ("w", None, "e"), ("sw", "s", "se")):
@@ -112,28 +124,16 @@ class Game:
             p.loc, p.x, p.y = target.link
         else:
             p.x, p.y = target.x, target.y
+        mapview.mark_visited(p)
         cell = self._cell(p)
         if cell.mob >= 0 and random.random() < 0.75:
             return combat.start(p, cell.mob)
         return self.do_world(p)
 
     def do_map(self, p, arg=""):
-        lines = [f"🗺 <b>{data.LOCATIONS[p.loc][0]}</b>\n<code>"]
-        for x in range(world.SIZE):
-            row = ""
-            for y in range(world.SIZE):
-                c = world.cell_at(self.world, p.loc, x, y)
-                if (x, y) == (p.x, p.y):
-                    row += "@"
-                elif not c or not c.passable:
-                    row += "#"
-                elif c.link:
-                    row += "="
-                else:
-                    row += "."
-            lines.append(row)
-        lines.append("</code>\n@ ты · # стена · = переход")
-        return Reply(text="\n".join(lines), keyboard=[[("◀️ Назад", "world")]])
+        mapview.mark_visited(p)
+        self.store.save_player(p)
+        return mapview.render(p, self.world, self.store)
 
     def do_look(self, p, arg=""):
         cell = self._cell(p)

@@ -1,7 +1,7 @@
 """Каркас админки: навигация, рендер, подключение обработчиков."""
 from engine.storage import Store
 from webapp import dom
-from webapp.actions import bot_actions, player_actions, world_actions
+from webapp.actions import bot_actions, content_actions, player_actions, world_actions
 from webapp.backend import LocalStorage
 from webapp.pages import bot as page_bot
 from webapp.pages import content as page_content
@@ -24,12 +24,13 @@ NAV_SECTIONS = [
     ("Система", ["bot", "settings"]),
 ]
 
-ACTION_MODULES = [bot_actions, player_actions, world_actions]
+ACTION_MODULES = [bot_actions, content_actions, player_actions, world_actions]
 
 
 class App:
     def __init__(self):
         self.store = Store(LocalStorage())
+        content_actions.restore(self.store)
         self.log_lines = []
         self.bot = TelegramBot(self.store, self.log)
         self.page = "dash"

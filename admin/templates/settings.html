@@ -52,6 +52,53 @@
 </div>
 
 <div class="card">
+    <h2>🔗 Адрес админ-панели</h2>
+    <p class="section-sub">
+        Ссылка, по которой панель открывается снаружи. Именно её бот подставляет
+        в кнопку <b>🌐 Открыть панель</b> при выдаче доступа игроку.
+        Без неё игрок получит только логин и пароль.
+    </p>
+
+    <form action="/settings/save-panel-url" method="post">
+        <label style="display: block; margin-bottom: 0.5rem; font-size: 0.875rem; color: var(--text-muted);">
+            Публичный адрес панели
+        </label>
+        <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+            <input
+                type="text"
+                name="panel_url"
+                class="search-box"
+                style="flex: 1; min-width: 280px; max-width: 600px;"
+                placeholder="https://my-game.onrender.com"
+                value="{{ panel_url }}"
+            >
+            <button type="submit" class="btn btn-primary">💾 Сохранить ссылку</button>
+        </div>
+    </form>
+
+    <div style="margin-top: 0.9rem; font-size: 0.85rem; color: var(--text-muted); line-height: 1.7;">
+        {% if panel_url %}
+        <div>Текущий адрес: <code>{{ panel_url }}</code></div>
+        <div>Кнопка в боте ведёт на: <code>{{ example_login_url }}</code></div>
+        {% else %}
+        <div style="color: var(--warning);">
+            ⚠️ Адрес не задан — в боте кнопка «Открыть панель» не показывается.
+        </div>
+        {% endif %}
+        <div style="margin-top: 0.5rem;">
+            Сейчас ты открыл панель по адресу <code>{{ detected_url }}</code>
+            <button type="button" class="btn btn-sm" style="margin-left: 0.4rem; background: var(--bg-hover); color: var(--text);"
+                    onclick="useDetected()">📋 Подставить</button>
+        </div>
+        <div style="margin-top: 0.5rem;">
+            Схема <code>https://</code> добавляется автоматически. На Replit/Render
+            это адрес твоего проекта, для локального запуска — ссылка туннеля.
+            <b>localhost работать не будет</b>: Telegram требует публичный HTTPS-адрес.
+        </div>
+    </div>
+</div>
+
+<div class="card">
     <h2>🚀 Replit — обновление в 1 клик</h2>
     <ol style="padding-left: 1.25rem; color: var(--text-muted); line-height: 1.8;">
         <li>Нажми кнопку <b>🔄 Обновить с GitHub</b> выше.</li>
@@ -74,6 +121,14 @@
 </div>
 
 <script>
+function useDetected() {
+    const field = document.querySelector('input[name="panel_url"]');
+    if (field) {
+        field.value = {{ detected_url|tojson }};
+        field.focus();
+    }
+}
+
 async function startBot() {
     const msg = document.getElementById('msg');
     msg.style.color = 'var(--text-muted)';

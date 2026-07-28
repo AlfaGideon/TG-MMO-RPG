@@ -1,5 +1,5 @@
 """Действия вкладки «Игроки»."""
-from engine import rules
+from engine import adminbot, permissions, rules
 from webapp import dom
 from webapp.pages import players as page
 
@@ -14,6 +14,11 @@ def register(app, A):
     A("player-heal", lambda arg: _heal(app, arg))
     A("player-give", lambda arg: _give(app, arg))
     A("players-wipe", lambda _="": _wipe(app))
+    A("player-access", lambda arg: app.modal(page.access_form(app, arg)))
+    A("access-preset", lambda arg: _preset(app, arg))
+    A("access-newpass", lambda arg: _newpass(app, arg))
+    A("access-save", lambda arg: _access_save(app, arg))
+    A("access-revoke", lambda arg: _access_revoke(app, arg))
 
 
 def _get(app, tg_id):
@@ -31,10 +36,6 @@ def _save(app, tg_id):
         except (ValueError, TypeError):
             pass
     
-    node_admin = dom.el("#pf_is_admin")
-    p.is_web_admin = bool(node_admin.checked) if node_admin is not None else False
-    p.web_admin_role = dom.value("#pf_role", "viewer")
-
     app.store.save_player(p)
     app.close_modal()
     dom.toast("Сохранено")
@@ -78,3 +79,85 @@ def _wipe(app):
     app.store.wipe_players()
     dom.toast("Игроки удалены")
     app.render()
+
+
+# ── доступ к админке ────────────────────────────────────────
+
+def _checked_caps():
+    """Считывает галочки функций из формы доступа."""
+    out = []
+    for key in permissions.CAP_KEYS:
+        node = dom.el(f"#cap_{key}")
+        if node is not None and node.checked:
+            out.append(key)
+    return out
+
+
+def _preset(app, tg_id):
+    """Проставляет галочки по выбранному рангу, не сохраняя."""
+    rank = dom.value("#acc_rank", "viewer")
+    preset = set(permissions.rank_caps(rank))
+    for key in permissions.CAP_KEYS:
+        node = dom.el(f"#cap_{key}")
+        if node is not None:
+            node.checked = key in preset
+    dom.toast(f"Пресет: {permissions.rank_title(rank)}")
+
+
+def _newpass(app, tg_id):
+    p = _get(app, tg_id)
+    if not p:
+        return
+    p.web_admin_password = permissions.new_password()
+    app.store.save_player(p)
+    app.modal(page.access_form(app, tg_id))
+    dom.toast("Пароль сгенерирован")
+
+
+def _access_save(app, tg_id):
+    p = _get(app, tg_id)
+    if not p:
+        return
+    rank = dom.value("#acc_rank", "viewer")
+    caps = _checked_caps()
+    if not caps:
+        dom.toast("Отметь хотя бы одно право", "err")
+        return
+
+    keep = bool(p.web_admin_password)
+    text = adminbot.grant(app.store, p, rank, caps, reset_password=not keep)
+    app.close_modal()
+    dom.toast(f"Доступ выдан: {permissions.rank_title(rank)}")
+    app.render()
+    _notify(app, p, text)
+
+
+def _access_revoke(app, tg_id):
+    p = _get(app, tg_id)
+    if not p:
+        return
+    text = adminbot.revoke(app.store, p)
+    app.close_modal()
+    dom.toast("Доступ отозван")
+    app.render()
+    _notify(app, p, text)
+
+
+def _notify(app, p, text):
+    """Шлёт игроку сообщение в бот, если бот запущен."""
+    if not getattr(app.bot, "running", False):
+        app.log("sys", f"Бот остановлен — {p.name} узнает о доступе при запуске бота")
+        return
+    import asyncio
+
+    async def send():
+        res = await app.bot.call("sendMessage", chat_id=p.tg_id, text=text,
+                                 parse_mode="HTML")
+        if res.get("ok"):
+            p.admin_notified = True
+            app.store.save_player(p)
+            app.log("out", f"Доступ: уведомлён {p.name}")
+        else:
+            app.log("err", f"Не доставлено {p.name}: {res.get('description', '?')}")
+
+    asyncio.ensure_future(send())

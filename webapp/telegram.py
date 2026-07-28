@@ -115,8 +115,15 @@ class TelegramBot:
         return self.store.player(frm["id"], name)
 
     # ── отправка ────────────────────────────────────────────
+    @staticmethod
+    def _button(text, target):
+        """target: строка -> callback_data, {"url": ...} -> кнопка-ссылка."""
+        if isinstance(target, dict) and target.get("url"):
+            return {"text": text, "url": target["url"]}
+        return {"text": text, "callback_data": target}
+
     async def send(self, chat, p, reply, force_new=False):
-        kb = {"inline_keyboard": [[{"text": t, "callback_data": d} for t, d in row]
+        kb = {"inline_keyboard": [[self._button(t, d) for t, d in row]
                                   for row in reply.keyboard]}
         self.counters["sent"] += 1
 

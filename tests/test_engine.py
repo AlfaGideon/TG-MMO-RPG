@@ -50,7 +50,9 @@ def main():
     game.handle(p, f"go:{d}")
     check((p.x, p.y) != before, f"шаг на {d}: {before} → {(p.x, p.y)}")
     check("⬛" in str(game.handle(p, "world").keyboard) or True, "клавиатура мира")
-    check("@" in game.handle(p, "map").text, "ascii-карта")
+    check("🔴" in game.handle(p, "map").text, "карта из плиток, игрок отмечен")
+    check("⬜" in game.handle(p, "map").text, "туман войны на карте")
+    check("#" not in game.handle(p, "map").text, "решёток и точек на карте нет")
     check(game.handle(p, "look").text.startswith("🔍"), "осмотр клетки")
 
     print("\n— Бой —")

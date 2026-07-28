@@ -95,29 +95,67 @@
             {% endif %}
         </div>
         <div>
-            <h4 style="margin-bottom:0.5rem; font-size:0.9rem; color: var(--text-muted);">🔑 Доступ к веб-админке</h4>
+            <h4 style="margin-bottom:0.5rem; font-size:0.9rem; color: var(--text-muted);">🔑 Доступ к админ-панели</h4>
             {% if char.user.is_web_admin %}
-            <p style="margin-bottom:0.75rem; font-size:0.85rem;">Роль: <b>{{ role_labels.get(char.user.web_admin_role, char.user.web_admin_role) }}</b></p>
+            <p style="margin-bottom:0.5rem; font-size:0.85rem;">
+                Ранг: <b>{{ role_labels.get(char.user.web_admin_role, char.user.web_admin_role) }}</b><br>
+                Логин: <code>{{ char.user.telegram_id }}</code><br>
+                Пароль: <code>{{ char.user.web_admin_password or '— не задан —' }}</code>
+            </p>
             {% else %}
             <p style="margin-bottom:0.75rem; font-size:0.85rem; color: var(--text-muted);">Доступ не выдан</p>
             {% endif %}
-            <form action="/player/{{ char.id }}/grant-admin" method="post" style="display:flex; gap:0.5rem; align-items:flex-end; flex-wrap:wrap;">
-                <div>
-                    <label class="form-label">Роль</label>
-                    <select name="role" class="search-box" style="max-width:220px">
-                        {% for r in roles %}
-                        <option value="{{ r }}" {% if char.user.web_admin_role == r %}selected{% endif %}>{{ role_labels.get(r, r) }}</option>
-                        {% endfor %}
-                    </select>
+            <form action="/player/{{ char.id }}/grant-admin" method="post" id="grantForm">
+                <div style="display:flex; gap:0.5rem; align-items:flex-end; flex-wrap:wrap;">
+                    <div>
+                        <label class="form-label">Ранг (пресет прав)</label>
+                        <select name="role" id="rankSelect" class="search-box" style="max-width:220px" onchange="applyPreset()">
+                            {% for r in roles %}
+                            <option value="{{ r }}" {% if char.user.web_admin_role == r %}selected{% endif %}>{{ role_labels.get(r, r) }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <label style="font-size:0.8rem; display:flex; align-items:center; gap:0.3rem;">
+                        <input type="checkbox" name="new_password" value="1"> 🎲 Новый пароль
+                    </label>
                 </div>
-                <button type="submit" class="btn btn-primary">👑 {{ 'Обновить доступ' if char.user.is_web_admin else 'Выдать доступ' }}</button>
+
+                <div style="margin-top:0.75rem;">
+                    <label class="form-label">Доступ к конкретным функциям</label>
+                    <p class="section-sub" style="margin:0 0 0.5rem;">Отметь только то, что игроку разрешено — как ранги в кланах.</p>
+                    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:0.75rem;">
+                        {% for group in cap_groups %}
+                        <div style="background:var(--bg-dark); border:1px solid var(--border); border-radius:8px; padding:0.5rem 0.6rem;">
+                            <div style="font-size:0.72rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); margin-bottom:0.35rem;">{{ group }}</div>
+                            {% for key, label, grp in caps %}{% if grp == group %}
+                            <label style="display:flex; align-items:center; gap:0.4rem; font-size:0.8rem; padding:0.15rem 0;">
+                                <input type="checkbox" class="cap-box" name="caps" value="{{ key }}" {% if key in active_caps %}checked{% endif %}>
+                                <span>{{ label }}</span>
+                            </label>
+                            {% endif %}{% endfor %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <button type="submit" class="btn btn-primary" style="margin-top:0.75rem">👑 {{ 'Обновить доступ' if char.user.is_web_admin else 'Выдать доступ' }}</button>
             </form>
-            <p class="section-sub" style="margin-top:0.5rem; margin-bottom:0;">Игроку придёт сообщение в боте с логином (Telegram ID), паролем и кнопкой входа.</p>
+            <p class="section-sub" style="margin-top:0.5rem; margin-bottom:0;">Игроку придёт сообщение в боте с логином, паролем, списком прав и кнопкой входа. В меню бота появится «🛠 Админка».</p>
             {% if char.user.is_web_admin %}
             <form action="/player/{{ char.id }}/revoke-admin" method="post" style="margin-top:0.5rem;">
                 <button type="submit" class="btn btn-danger btn-sm">❌ Отозвать доступ</button>
             </form>
             {% endif %}
+            <script>
+            const RANK_PRESETS = {{ rank_presets|tojson }};
+            function applyPreset() {
+                const rank = document.getElementById('rankSelect').value;
+                const preset = RANK_PRESETS[rank] || [];
+                document.querySelectorAll('.cap-box').forEach(box => {
+                    box.checked = preset.includes(box.value);
+                });
+            }
+            </script>
         </div>
     </div>
 </div>

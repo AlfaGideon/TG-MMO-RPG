@@ -4,7 +4,32 @@ TITLE = "⚙️ Настройки"
 
 def render(ctx):
     s = ctx.store.settings
+    panel_url = s.get("panel_url", "")
+    if panel_url:
+        hint = (f"<div>Кнопка в боте ведёт на: "
+                f"<code>{panel_url}/admin-login?uid=123456789</code></div>")
+    else:
+        hint = ("<div class='muted' style='color:var(--warning)'>⚠️ Адрес не задан — "
+                "в боте кнопка «Открыть панель» не показывается.</div>")
+
     return f"""
+<div class="card">
+  <h2>🔗 Адрес админ-панели</h2>
+  <p class="muted">Ссылка, по которой панель открывается снаружи. Её бот подставляет
+     в кнопку <b>🌐 Открыть панель</b> при выдаче доступа игроку.</p>
+  <div class="row" style="margin-top:.6rem">
+    <div style="flex:3"><label>Публичный адрес панели</label>
+      <input id="panelUrl" value="{panel_url}" placeholder="https://my-game.onrender.com"></div>
+    <div style="flex:0 0 auto"><label>&nbsp;</label>
+      <button class="btn primary" data-act="panel-url-save">💾 Сохранить</button></div>
+  </div>
+  <div class="muted" style="margin-top:.5rem;line-height:1.7">
+    {hint}
+    <div>Схема <code>https://</code> добавится сама. <b>localhost не подойдёт</b> —
+       Telegram требует публичный HTTPS-адрес.</div>
+  </div>
+</div>
+
 <div class="card">
   <h2>🔄 Обновление проекта с GitHub</h2>
   <p class="muted">Нажми кнопку ниже, чтобы подтянуть последнюю версию интерфейса, функций бота и админки с GitHub.</p>
