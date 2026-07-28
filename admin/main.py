@@ -14,6 +14,7 @@ from sqlalchemy.orm import selectinload
 
 from core.database import init_db, async_session
 from core.migrations import run_migrations
+from core import worldgen as W, worldops as WO
 from core.models import (
     User, Character, Location, Mob, Item, ShopItem, Battle, AppSetting, Cell,
     Quest, AdminMessage, InventoryItem, VisitedCell, DungeonTemplate, DungeonRun,
@@ -1582,7 +1583,7 @@ async def content_hub(request: Request):
 # ── Location Editor ────────────────────────────────────────
 
 @app.get("/editor/locations")
-async def editor_locations(request: Request):
+async def editor_locations(request: Request, deleted: str = ""):
     guard(request, "manage_content")
     async with async_session() as session:
         result = await session.execute(select(Location).order_by(Location.id))
@@ -1590,14 +1591,20 @@ async def editor_locations(request: Request):
     return templates.TemplateResponse(
         request,
         "editor_locations.html",
-        {"locations": locations},
+        {"locations": locations, "deleted": deleted},
     )
 
 
 @app.get("/editor/location/new")
-async def editor_location_new_page(request: Request, world_x: int = 0, world_y: int = 0):
+async def editor_location_new_page(request: Request, world_x: int = 0, world_y: int = 0, error: str = ""):
     guard(request, "manage_content")
-    return templates.TemplateResponse(request, "editor_location_new.html", {"world_x": world_x, "world_y": world_y})
+    # Подсказываем свободную клетку мировой карты — по ней дефолтятся координаты.
+    async with async_session() as session:
+        free = await WO.find_free_spot(session)
+    suggested = free or (world_x, world_y)
+    return templates.TemplateResponse(request, "editor_location_new.html", {
+        "world_x": suggested[0], "world_y": suggested[1], "error": error,
+    })
 
 
 @app.post("/editor/location/new")
@@ -1611,81 +1618,130 @@ async def editor_location_new(
     floors_count: int = Form(1),
     world_x: int = Form(0),
     world_y: int = Form(0),
+    autolink: bool = Form(False),
+    pick_spot: bool = Form(False),
 ):
     guard(request, "manage_content")
     from core.seed import CELL_STORIES
+    grid_size = max(5, min(25, grid_size))
     async with async_session() as session:
+        # Защита от коллизии на мировой карте: либо автоподбор свободной
+        # клетки, либо явная ошибка — тихих наложений больше не бывает.
+        occupant = await WO.world_occupant(session, world_x, world_y)
+        if occupant:
+            if pick_spot:
+                free = await WO.find_free_spot(session)
+                if not free:
+                    return RedirectResponse(
+                        url="/editor/location/new?error=Мир+полностью+занят",
+                        status_code=303)
+                world_x, world_y = free
+            else:
+                msg = (f"Клетка+[{world_x},{world_y}]+уже+занята+"
+                       f"локацией+«{occupant.name}».+Включите+автоподбор+или+выберите+другую.")
+                return RedirectResponse(
+                    url=f"/editor/location/new?world_x={world_x}&world_y={world_y}&error={msg}",
+                    status_code=303)
+
         loc = Location(
             name=name, description=description,
             location_type=LocationType(location_type),
             min_level=min_level, grid_size=grid_size,
-            floors_count=max(1, floors_count),
+            floors_count=max(1, min(10, floors_count)),
             world_x=world_x, world_y=world_y,
         )
         session.add(loc)
         await session.flush()
 
-        # Generate cells for every floor
-        story_idx = random.randint(0, len(CELL_STORIES) - 1)
-        for floor in range(loc.floors_count):
-            cells = []
-            for x in range(grid_size):
-                for y in range(grid_size):
-                    is_border = (x == 0 or x == grid_size - 1 or y == 0 or y == grid_size - 1)
-                    is_wall = is_border or (not is_border and random.random() < 0.15 and (x, y) != (5, 5))
-                    name_s, desc_s, tile = CELL_STORIES[story_idx % len(CELL_STORIES)]
-                    story_idx += 1
-                    cell = Cell(
-                        location_id=loc.id, x=x, y=y, floor=floor,
-                        name=name_s, description=desc_s,
-                        is_passable=not is_wall,
-                        tile_type=tile if not is_wall else "wall",
-                    )
-                    session.add(cell)
-                    cells.append(cell)
-            # Stairs between floors: place at spawn cell (5,5) if grid supports it
-            if loc.floors_count > 1 and grid_size > 6:
-                pass  # linked after all floors are flushed, below
-        await session.flush()
+        # Клетки всех этажей: связность гарантирована (BFS от центра),
+        # лестницы между этажами — двусторонние.
+        await W.build_cells(session, loc, CELL_STORIES)
 
-        # Link consecutive floors via a staircase at (5,5) <-> (5,5)
-        if loc.floors_count > 1:
-            for floor in range(loc.floors_count - 1):
-                result = await session.execute(
-                    select(Cell).where(Cell.location_id == loc.id).where(Cell.floor == floor)
-                    .where(Cell.x == 5).where(Cell.y == 5)
-                )
-                down_cell = result.scalar_one_or_none()
-                result = await session.execute(
-                    select(Cell).where(Cell.location_id == loc.id).where(Cell.floor == floor + 1)
-                    .where(Cell.x == 5).where(Cell.y == 5)
-                )
-                up_cell = result.scalar_one_or_none()
-                if down_cell and up_cell:
-                    down_cell.is_passable = True
-                    down_cell.tile_type = "road"
-                    down_cell.target_location_id = loc.id
-                    down_cell.target_x = 5
-                    down_cell.target_y = 5
-                    down_cell.target_floor = floor + 1
-                    up_cell.is_passable = True
-                    up_cell.tile_type = "road"
+        report = []
+        if autolink:
+            # Бесшовные швы со всеми соседями по мировой карте + дороги
+            # от центра до каждых ворот, чтобы переходы не упирались в стены.
+            report = await W.autolink(session, loc)
 
         await session.commit()
-    return RedirectResponse(url=f"/editor/location/{loc.id}", status_code=303)
+
+    url = f"/editor/location/{loc.id}"
+    if report:
+        url += "?linked=1"
+    return RedirectResponse(url=url, status_code=303)
+
+
+@app.get("/editor/location/{location_id}/delete")
+async def editor_location_delete_page(request: Request, location_id: int):
+    """Страница подтверждения: показываем, кто пострадает от удаления."""
+    guard(request, "manage_content")
+    async with async_session() as session:
+        location = await session.get(Location, location_id)
+        if not location:
+            return RedirectResponse(url="/editor/locations", status_code=303)
+        info = await WO.deps(session, location)
+    return templates.TemplateResponse(request, "editor_location_delete.html",
+                                      {"location": location, "deps": info})
 
 
 @app.post("/editor/location/{location_id}/delete")
 async def editor_location_delete(request: Request, location_id: int):
+    """Удаляет локацию, зачищая игроков, мобов, квесты и чужие переходы."""
     guard(request, "manage_content")
     async with async_session() as session:
-        await session.execute(delete(Location).where(Location.id == location_id))
+        location = await session.get(Location, location_id)
+        if not location:
+            return RedirectResponse(url="/editor/locations", status_code=303)
+        ok, report = await WO.safe_delete(session, location)
+        if not ok:
+            return RedirectResponse(
+                url=f"/editor/location/{location_id}?warn={report}", status_code=303)
         await session.commit()
-    return RedirectResponse(url="/editor/locations", status_code=303)
+    return RedirectResponse(url="/editor/locations?deleted=1", status_code=303)
+
+
+@app.post("/editor/location/{location_id}/autolink")
+async def editor_location_autolink(request: Request, location_id: int):
+    """Связывает локацию бесшовными переходами со всеми соседями по карте."""
+    guard(request, "manage_content")
+    async with async_session() as session:
+        location = await session.get(Location, location_id)
+        if not location:
+            return RedirectResponse(url="/editor/locations", status_code=303)
+        await W.autolink(session, location)
+        await session.commit()
+    return RedirectResponse(url=f"/editor/location/{location_id}?linked=1", status_code=303)
+
+
+@app.get("/editor/location/{location_id}/validate")
+async def editor_location_validate(request: Request, location_id: int):
+    """Диагностика: связность, швы, лестницы, коллизии координат."""
+    guard(request, "manage_content")
+    async with async_session() as session:
+        location = await session.get(Location, location_id)
+        if not location:
+            return RedirectResponse(url="/editor/locations", status_code=303)
+        issues = await WO.validate(session, location)
+    return templates.TemplateResponse(request, "editor_location_validate.html",
+                                      {"location": location, "issues": issues})
+
+
+@app.post("/editor/location/{location_id}/fix")
+async def editor_location_fix(request: Request, location_id: int):
+    """Автопочинка: карманы, лестницы, дороги к воротам, швы с соседями."""
+    guard(request, "manage_content")
+    async with async_session() as session:
+        location = await session.get(Location, location_id)
+        if not location:
+            return RedirectResponse(url="/editor/locations", status_code=303)
+        await WO.autofix(session, location)
+        await session.commit()
+    return RedirectResponse(url=f"/editor/location/{location_id}/validate?fixed=1", status_code=303)
 
 
 @app.get("/editor/location/{location_id}")
-async def editor_location(request: Request, location_id: int, floor: int = 0):
+async def editor_location(request: Request, location_id: int, floor: int = 0,
+                          linked: str = "", warn: str = "", note: str = ""):
     guard(request, "manage_content")
     async with async_session() as session:
         location = await session.get(Location, location_id)
@@ -1697,12 +1753,25 @@ async def editor_location(request: Request, location_id: int, floor: int = 0):
         )
         cells = result.scalars().all()
         cells_dict = {(c.x, c.y): c for c in cells}
+        # Соседи по мировой карте и факт наличия шва к каждому.
+        neighbors, linked_dirs = {}, set()
+        for d in ("n", "e", "s", "w"):
+            nb = await W.neighbor(session, location, d)
+            neighbors[d] = nb
+            if nb:
+                seams = await session.scalar(
+                    select(func.count(Cell.id)).where(Cell.location_id == location.id)
+                    .where(Cell.target_location_id == nb.id))
+                if seams:
+                    linked_dirs.add(d)
 
     return templates.TemplateResponse(
         request,
         "editor_location.html",
         {"location": location, "cells_dict": cells_dict, "current_floor": floor,
-         "floors_range": range(location.floors_count or 1)},
+         "floors_range": range(location.floors_count or 1),
+         "linked": linked, "warn": warn.replace("+", " "), "note": note.replace("+", " "),
+         "neighbors": neighbors, "linked_dirs": linked_dirs},
     )
 
 
@@ -1722,23 +1791,47 @@ async def editor_location_save(
     image: UploadFile = File(None),
 ):
     guard(request, "manage_content")
+    from core.seed import CELL_STORIES
+    notes = []
     async with async_session() as session:
         location = await session.get(Location, location_id)
-        if location:
-            location.name = name
-            location.description = description
-            location.location_type = LocationType(location_type)
-            location.min_level = min_level
-            location.grid_size = grid_size
-            location.floors_count = max(1, floors_count)
-            location.world_x = world_x
-            location.world_y = world_y
-            if image and image.filename:
-                location.image_url = save_uploaded_image(image, "location", location.id)
-            elif image_url.strip():
-                location.image_url = image_url.strip()
-            await session.commit()
-    return RedirectResponse(url=f"/editor/location/{location_id}", status_code=303)
+        if not location:
+            return RedirectResponse(url="/editor/locations", status_code=303)
+
+        location.name = name
+        location.description = description
+        location.location_type = LocationType(location_type)
+        location.min_level = min_level
+        if image and image.filename:
+            location.image_url = save_uploaded_image(image, "location", location.id)
+        elif image_url.strip():
+            location.image_url = image_url.strip()
+
+        # Смена мировых координат: переезд с обменом местами при коллизии,
+        # затем пересборка всех швов по новой карте соседства.
+        moved = (world_x, world_y) != (location.world_x, location.world_y)
+        if moved:
+            ok, msg = await WO.move_location(session, location, world_x, world_y)
+            notes.append(msg)
+            pairs = await W.relink_all(session)
+            notes.append(f"Пересобрано бесшовных швов: {pairs}.")
+
+        # Смена размера сетки/этажей: реальная миграция клеток.
+        resized, msg = await WO.resize(
+            session, location, new_size=grid_size,
+            new_floors=max(1, floors_count), stories=CELL_STORIES)
+        if not resized:
+            # Обрезать нельзя (игроки/переходы в зоне) — откатываем всё.
+            await session.rollback()
+            return RedirectResponse(
+                url=f"/editor/location/{location_id}?warn={msg}", status_code=303)
+        if "не изменились" not in msg:
+            notes.append(msg)
+
+        await session.commit()
+
+    suffix = ("?note=" + "+".join(notes)) if notes else ""
+    return RedirectResponse(url=f"/editor/location/{location_id}{suffix}", status_code=303)
 
 
 @app.get("/editor/cell/{cell_id}")
@@ -1891,14 +1984,27 @@ async def editor_world(request: Request):
 
 @app.post("/editor/world/place")
 async def editor_world_place(request: Request, location_id: int = Form(...), world_x: int = Form(...), world_y: int = Form(...)):
+    """Перестановка локации: при коллизии — обмен местами, затем перелинковка швов."""
     guard(request, "manage_content")
     async with async_session() as session:
         loc = await session.get(Location, location_id)
         if loc:
-            loc.world_x = max(0, min(WORLD_GRID_SIZE - 1, world_x))
-            loc.world_y = max(0, min(WORLD_GRID_SIZE - 1, world_y))
+            ok, msg = await WO.move_location(session, loc, world_x, world_y)
+            # Переходы между локациями обязаны соответствовать новой карте
+            # соседства — пересобираем все швы мира.
+            await W.relink_all(session)
             await session.commit()
-    return RedirectResponse(url="/editor/world", status_code=303)
+    return JSONResponse({"success": True, "message": msg})
+
+
+@app.post("/editor/world/relink")
+async def editor_world_relink(request: Request):
+    """Пересобрать все бесшовные переходы по текущим мировым координатам."""
+    guard(request, "manage_content")
+    async with async_session() as session:
+        pairs = await W.relink_all(session)
+        await session.commit()
+    return RedirectResponse(url=f"/editor/world?relinked={pairs}", status_code=303)
 
 
 # ── Mobs Editor ────────────────────────────────────────────

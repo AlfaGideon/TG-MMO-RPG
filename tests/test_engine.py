@@ -102,6 +102,50 @@ def main():
         except Exception as e:
             check(False, f"{act} → {e}")
 
+    print("\n— Динамические локации —")
+    n0 = len(data.LOCATIONS)
+    li, report = store.add_location("Мглистые топи", "Туман и топь.", "dangerous", 99, 5, 0)
+    check(li == n0, f"новая локация добавлена (индекс {li})")
+    check(len(data.LOCATIONS) == n0 + 1, "data.LOCATIONS вырос")
+    check(sum(1 for c in store.world.values() if c.loc == li) == 100, "100 клеток достроено")
+    seams = [c for c in store.world.values()
+             if c.loc == li and c.link and c.link[0] != li]
+    back = [c for c in store.world.values()
+            if c.loc == li - 1 and c.link and c.link[0] == li]
+    check(len(seams) == 8 and len(back) == 8, f"автошов с соседом: {len(seams)}/{len(back)} ворот")
+    check(any("↔" in r for r in report), f"отчёт связывания: {report}")
+    check(store.settings["locations"][-1][0] == "Мглистые топи",
+          "список локаций сохранён в настройках")
+
+    # перезагрузка: динамический список восстанавливается
+    store3 = Store(store.backend)
+    check(len(data.LOCATIONS) == n0 + 1, "после перезагрузки локаций столько же")
+    check(len(store3.world) == len(store.world), "мир восстановлен с новой локацией")
+
+    # предупреждение min_level при входе в опасную локацию
+    p.loc, p.x, p.y, p.combat = li - 1, 1, 8, None
+    r = game.handle(p, "go:e")
+    check(p.loc == li, "переход в новую локацию сработал")
+    check("опасно" in (r.alert or "").lower(), f"alert по min_level: {r.alert!r}")
+
+    # удаление последней: игрок эвакуируется, мир переиндексируется
+    msg = store.remove_location(li)
+    check("удалена" in msg, f"удаление: {msg}")
+    check(len(data.LOCATIONS) == n0, "список локаций вернулся к исходному")
+    check(p.loc == 0 and (p.x, p.y) == world.SPAWN, "игрок эвакуирован на спавн")
+    check(not any(c.loc >= n0 for c in store.world.values()), "клеток удалённой локации нет")
+
+    # удаление средней: реиндексация хвоста
+    a, _ = store.add_location("Остров А", "а", "dangerous", 1, 5, 0)
+    b, _ = store.add_location("Остров Б", "б", "dangerous", 1, 6, 0)
+    store.remove_location(a)
+    check(len(data.LOCATIONS) == n0 + 1 and data.LOCATIONS[-1][0] == "Остров Б",
+          "хвост реиндексирован после удаления средней")
+    check(any(c.loc == n0 for c in store.world.values()), "клетки бывшей «Б» теперь с новым индексом")
+    check(store.settings["world_grid"].get(str(n0)) == [6, 0], "сетка мира реиндексирована")
+    store.remove_location(n0)  # вернуть мир к исходному виду
+    check(len(data.LOCATIONS) == n0, "мир снова исходный")
+
     print("\n" + ("=" * 46))
     if FAILED:
         print(f"❌ ПРОВАЛЕНО {len(FAILED)}:")

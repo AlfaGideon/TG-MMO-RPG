@@ -5,6 +5,9 @@
 {% block topbar_actions %}<a href="/editor/location/new" class="btn btn-primary">➕ Новая локация</a>{% endblock %}
 
 {% block content %}
+{% if deleted %}
+<div class="banner ok">🗑 Локация удалена, мир зачищен от ссылок на неё.</div>
+{% endif %}
 <div class="card">
     <div class="table-wrap">
     <table>

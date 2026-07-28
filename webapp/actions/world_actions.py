@@ -28,6 +28,10 @@ def register(app, A):
     A("world-grid-edit", lambda arg: _grid_edit(app, arg))
     A("world-grid-save", lambda arg: _grid_save(app, arg))
     A("world-grid-remove", lambda arg: _grid_remove(app, arg))
+    A("world-loc-new", lambda _="": app.modal(page.loc_form(app)))
+    A("world-loc-add", lambda _="": _loc_add(app))
+    A("world-loc-del", lambda arg: _loc_del(app, int(arg)))
+    A("world-relink", lambda _="": _relink(app))
     A("dungeon-create", lambda _="": _dungeon_create(app))
     A("dungeon-open", lambda arg: _dungeon_open(app, arg))
     A("dungeon-close", lambda arg: _dungeon_close(app, arg))
@@ -162,6 +166,65 @@ def _grid_remove(app, loc_idx):
     app.store.save()
     app.close_modal()
     dom.toast("Локация убрана с сетки")
+    app.render()
+
+
+def _loc_add(app):
+    """Создать локацию: клетки + автошов с соседями по сетке мира."""
+    name = dom.value("#loc_name", "").strip()
+    if not name:
+        dom.toast("Введите название локации!", "err")
+        return
+    desc = dom.value("#loc_desc", "").strip() or "Новые земли ждут героев."
+    ltype = dom.value("#loc_type", "dangerous")
+    try:
+        lvl, wx, wy = (int(dom.value("#loc_level", "1")),
+                       int(dom.value("#loc_wx", "0")), int(dom.value("#loc_wy", "0")))
+    except ValueError:
+        dom.toast("Уровень и координаты — числа", "err")
+        return
+    grid = app.store.settings.setdefault("world_grid", {})
+    taken = {tuple(v) for v in grid.values()}
+    if (wx, wy) in taken:
+        dom.toast(f"Клетка [{wx},{wy}] уже занята — выберите другую", "err")
+        return
+    li, report = app.store.add_location(name, desc, ltype, lvl, wx, wy)
+    app.bot.game.world = app.store.world
+    app.state["loc"] = li
+    app.close_modal()
+    dom.toast(f"Локация «{name}» создана! " + " · ".join(report))
+    app.render()
+
+
+def _loc_del(app, li):
+    from js import window
+    from engine import data as D
+    if li >= len(D.LOCATIONS):
+        return
+    name = D.LOCATIONS[li][0]
+    if not window.confirm(f"Удалить локацию «{name}»? Игроки из неё будут "
+                          f"перенесены на спавн, мир переиндексируется."):
+        return
+    msg = app.store.remove_location(li)
+    app.bot.game.world = app.store.world
+    if app.state.get("loc", 0) >= len(D.LOCATIONS):
+        app.state["loc"] = 0
+    dom.toast(msg)
+    app.render()
+
+
+def _relink(app):
+    """Пересшить переходы всех локаций по текущей сетке мира."""
+    from engine import world as W
+    cells = app.store.world
+    for k, c in list(cells.items()):          # снять старые швы
+        if c.link:
+            c.link = ()
+    grid = app.store.settings.get("world_grid", {})
+    W._link_by_grid(cells, grid)
+    app.store.save()
+    app.bot.game.world = cells
+    dom.toast("Переходы пересшиты по сетке мира")
     app.render()
 
 

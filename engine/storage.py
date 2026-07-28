@@ -1,7 +1,8 @@
 """Хранилище состояния. Бэкенд подставляется снаружи (localStorage / файл)."""
 import json
+import random
 
-from engine import world
+from engine import data, world
 from engine.models import Cell, Player
 
 
@@ -16,6 +17,7 @@ class Store:
         # Шаблоны подземелий нужны и боту, и панели — заводим их здесь,
         # а не при рендере страницы, иначе бот их не увидит.
         self.settings.setdefault("dungeon_templates", default_dungeons())
+        self.settings.setdefault("world_grid", dict(world.DEFAULT_GRID))
 
     # ── загрузка/сохранение ─────────────────────────────────
     def load(self):
@@ -31,8 +33,25 @@ class Store:
                     c.link = tuple(c.link)
             except Exception:
                 self.players, self.world = {}, {}
+        self.sync_locations()
+        # Сетка мира должна существовать до первой генерации, иначе мир
+        # соберётся цепочкой, а панель покажет другую раскладку.
+        self.settings.setdefault("world_grid", dict(world.DEFAULT_GRID))
         if not self.world:
             self.regen_world()
+
+    def sync_locations(self):
+        """Список локаций — из настроек; data.LOCATIONS становится живым.
+
+        Все потребители читают data.LOCATIONS через атрибут модуля, поэтому
+        подмена содержимого видна сразу всему движку и панели.
+        """
+        saved = self.settings.get("locations")
+        if saved:
+            data.LOCATIONS[:] = [tuple(l) for l in saved]
+
+    def _persist_locations(self):
+        self.settings["locations"] = [list(l) for l in data.LOCATIONS]
 
     def save(self):
         blob = {
@@ -50,8 +69,87 @@ class Store:
     def regen_world(self, seed=None):
         if seed is not None:
             self.settings["seed"] = int(seed)
-        self.world = world.generate(self.settings["seed"])
+        grid = self.settings.get("world_grid")
+        self.world = world.generate(self.settings["seed"], grid=grid)
         self.save()
+
+    def add_location(self, name, desc, ltype, min_level, wx, wy):
+        """Добавить локацию: достроить её клетки и вшить в швы сетки мира.
+
+        Существующие локации и ручные правки их клеток не трогаются.
+        Возвращает (индекс, отчёт о связывании с соседями).
+        """
+        li = len(data.LOCATIONS)
+        data.LOCATIONS.append((name, desc, ltype, int(min_level)))
+        self._persist_locations()
+        grid = self.settings.setdefault("world_grid", dict(world.DEFAULT_GRID))
+        grid[str(li)] = [int(wx), int(wy)]
+        rnd = random.Random(self.settings.get("seed", 1337) * 31 + li * 7919)
+        batch, _ = world.gen_cells(li, rnd)
+        for c in batch:
+            self.world[c.key] = c
+        report = world.link_new_location(self.world, li, grid)
+        self.save()
+        return li, report
+
+    def remove_location(self, li):
+        """Удалить локацию: реиндексация клеток/игроков/швов/порталов.
+
+        Ручные правки остальных локаций сохраняются. Игроки из удалённой
+        локации переносятся на спавн нулевой. Возвращает текст отчёта.
+        """
+        if li < 0 or li >= len(data.LOCATIONS):
+            return "Локация не найдена."
+        if len(data.LOCATIONS) <= 1:
+            return "Нельзя удалить последнюю локацию мира."
+        name = data.LOCATIONS[li][0]
+
+        # игроки: из удаляемой — на спавн, из следующих — сдвиг индекса
+        moved = 0
+        for p in self.players.values():
+            if p.loc == li:
+                p.loc, p.x, p.y = 0, world.SPAWN[0], world.SPAWN[1]
+                moved += 1
+            elif p.loc > li:
+                p.loc -= 1
+
+        # клетки и швы
+        reborn = {}
+        for c in self.world.values():
+            if c.loc == li:
+                continue
+            if c.loc > li:
+                c.loc -= 1
+            if c.link:
+                l, x, y = c.link
+                if l == li:
+                    c.link = ()
+                elif l > li:
+                    c.link = (l - 1, x, y)
+            reborn[c.key] = c
+        self.world = reborn
+
+        # сетка мира: убрать удалённую, сдвинуть ключи
+        grid = self.settings.setdefault("world_grid", dict(world.DEFAULT_GRID))
+        grid.pop(str(li), None)
+        self.settings["world_grid"] = {
+            str(int(k) - 1 if int(k) > li else k): v for k, v in grid.items()}
+
+        # порталы подземелий, открытые в удалённой локации, закрываем
+        for t in self.settings.get("dungeon_templates", []):
+            key = t.get("portal_cell")
+            if key:
+                l = int(key.split(":")[0])
+                if l == li:
+                    t["portal_cell"] = None
+                elif l > li:
+                    t["portal_cell"] = f"{l - 1}:{key.split(':', 1)[1]}"
+
+        data.LOCATIONS.pop(li)
+        self._persist_locations()
+        self.save()
+        note = f" Игроки перенесены на спавн: {moved}." if moved else ""
+        return f"Локация «{name}» удалена, мир переиндексирован.{note}"
 
     def player(self, tg_id, name=""):
         p = self.players.get(tg_id)

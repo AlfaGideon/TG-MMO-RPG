@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block title %}Диагностика {{ location.name }} — Shadow Lands{% endblock %}
+{% block page_title %}✅ Диагностика локации{% endblock %}
+{% block topbar_actions %}<a href="/editor/location/{{ location.id }}" class="btn">◀️ Назад</a>{% endblock %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+    <a href="/">Dashboard</a><span class="sep">/</span>
+    <a href="/editor/locations">Локации</a><span class="sep">/</span>
+    <a href="/editor/location/{{ location.id }}">{{ location.name }}</a><span class="sep">/</span>
+    <span class="current">Диагностика</span>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>✅ Диагностика: {{ location.name }}</h2>
+    <p class="section-sub">
+        Проверяются: коллизии мировых координат, недосягаемые клетки, висячие и
+        односторонние переходы, лестницы, швы с соседями по мировой карте.
+    </p>
+
+    <ul style="list-style:none; padding:0; margin:0 0 1rem;">
+        {% for level, msg in issues %}
+        <li style="padding:0.5rem 0.75rem; margin-bottom:0.4rem; border-radius:6px;
+                   border:1px solid var(--border);
+                   {% if level == 'err' %}background:rgba(248,113,113,.08); border-color:var(--danger);
+                   {% elif level == 'warn' %}background:rgba(251,191,36,.08); border-color:#fbbf24;
+                   {% else %}background:rgba(74,222,128,.08); border-color:var(--success);{% endif %}">
+            {% if level == 'err' %}🔴{% elif level == 'warn' %}🟡{% else %}🟢{% endif %} {{ msg }}
+        </li>
+        {% endfor %}
+    </ul>
+
+    <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
+        <form action="/editor/location/{{ location.id }}/fix" method="post">
+            <button type="submit" class="btn btn-primary"
+                    title="Замуровать карманы, восстановить лестницы, прорубить дороги к воротам, пересоздать швы">
+                🔧 Починить автоматически
+            </button>
+        </form>
+        <a href="/editor/location/{{ location.id }}/validate" class="btn">🔄 Проверить заново</a>
+        <a href="/editor/location/{{ location.id }}" class="btn">◀️ К редактору</a>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+if (new URLSearchParams(location.search).get('fixed')) {
+    showToast('Автопочинка выполнена');
+}
+</script>
+{% endblock %}

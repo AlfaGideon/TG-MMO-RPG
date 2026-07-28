@@ -4,6 +4,7 @@ from sqlalchemy import select
 from core.database import async_session
 from core.models import Location, Mob, Item, ShopItem, Cell, Quest
 from core.enums import LocationType, ItemType, ItemRarity
+from core import worldgen as W
 
 LOCATION_IMAGES = {
     1: "https://raw.githubusercontent.com/AlfaGideon/TG-MMO-RPG/main/admin/static/loc1_safe.jpg",
@@ -113,36 +114,12 @@ CELL_STORIES = [
 ]
 
 
-def _ensure_connectivity(cells):
-    """Make sure all passable cells are reachable from spawn (5,5)."""
-    passable = {(c.x, c.y): c for c in cells if c.is_passable}
-    if not passable:
-        return
+def _ensure_connectivity(cells, grid_size: int = 10):
+    """Все проходимые клетки должны быть досягаемы из центра.
 
-    start = (5, 5)
-    if start not in passable:
-        for c in cells:
-            if c.x == 5 and c.y == 5:
-                c.is_passable = True
-                passable[start] = c
-                break
-
-    visited = set()
-    queue = deque([start])
-    visited.add(start)
-
-    while queue:
-        x, y = queue.popleft()
-        for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-            nx, ny = x + dx, y + dy
-            if (nx, ny) in passable and (nx, ny) not in visited:
-                visited.add((nx, ny))
-                queue.append((nx, ny))
-
-    for (x, y), cell in passable.items():
-        if (x, y) not in visited:
-            cell.is_passable = False
-            cell.tile_type = "wall"
+    Логика общая с админкой и ботом — живёт в `core/worldgen.py`.
+    """
+    W.ensure_connectivity(cells, grid_size)
 
 
 async def seed_database():
@@ -187,35 +164,14 @@ async def seed_database():
                     session.add(cell)
                     cells.append(cell)
 
-            _ensure_connectivity(cells)
+            _ensure_connectivity(cells, loc.grid_size)
             await session.flush()
 
-        # Link locations seamlessly: east-west borders
-        # loc1 (0,0) east border -> loc2 (1,0) west border
+        # Бесшовные швы между соседями по мировой карте: стартовые локации
+        # выстроены в ряд на восток, поэтому каждая пара — сосед с востока.
+        # Общие функции (ворота + прорубка дорог от центра) — в worldgen.
         for i in range(len(locations) - 1):
-            loc_a = locations[i]
-            loc_b = locations[i + 1]
-            for row in range(1, 9):
-                # A's east border (x=row, y=9) -> B's west border (x=row, y=0)
-                result = await session.execute(
-                    select(Cell).where(Cell.location_id == loc_a.id).where(Cell.x == row).where(Cell.y == 9)
-                )
-                cell_a = result.scalar_one_or_none()
-                result = await session.execute(
-                    select(Cell).where(Cell.location_id == loc_b.id).where(Cell.x == row).where(Cell.y == 0)
-                )
-                cell_b = result.scalar_one_or_none()
-                if cell_a and cell_b:
-                    cell_a.is_passable = True
-                    cell_a.tile_type = "road"
-                    cell_a.target_location_id = loc_b.id
-                    cell_a.target_x = row
-                    cell_a.target_y = 1
-                    cell_b.is_passable = True
-                    cell_b.tile_type = "road"
-                    cell_b.target_location_id = loc_a.id
-                    cell_b.target_x = row
-                    cell_b.target_y = 8
+            await W.link_pair(session, locations[i], locations[i + 1], "e")
 
         # Add NPCs to safe location
         result = await session.execute(

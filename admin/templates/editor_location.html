@@ -4,9 +4,12 @@
 {% block page_title %}✏️ {{ location.name }}{% endblock %}
 {% block topbar_actions %}
 <a href="/editor/locations" class="btn">◀️ Назад</a>
-<form action="/editor/location/{{ location.id }}/delete" method="post" style="display:inline" onsubmit="return confirm('Удалить локацию вместе со всеми клетками? Это необратимо.')">
-    <button type="submit" class="btn btn-danger">🗑 Удалить локацию</button>
+<form action="/editor/location/{{ location.id }}/autolink" method="post" style="display:inline"
+      title="Прорезать бесшовные переходы ко всем соседям по мировой карте">
+    <button type="submit" class="btn">🔗 Связать с соседями</button>
 </form>
+<a href="/editor/location/{{ location.id }}/validate" class="btn">✅ Диагностика</a>
+<a href="/editor/location/{{ location.id }}/delete" class="btn btn-danger">🗑 Удалить</a>
 {% endblock %}
 
 {% block breadcrumbs %}
@@ -19,6 +22,17 @@
 {% endblock %}
 
 {% block content %}
+{% if linked %}
+<div class="banner info">
+    🔗 Готово: переходы к соседям по мировой карте прорезаны, дороги от центра до ворот прорублены.
+</div>
+{% endif %}
+{% if warn %}
+<div class="banner warn">⚠️ {{ warn }}</div>
+{% endif %}
+{% if note %}
+<div class="banner info">📝 {{ note }}</div>
+{% endif %}
 <style>
 .cell-grid {
     display: grid;
@@ -122,6 +136,32 @@
         </div>
         <button type="submit" class="btn btn-primary">💾 Сохранить локацию</button>
     </form>
+    <p class="section-sub" style="margin:0">
+        🌍 Позиция на мировой карте: <b>[{{ location.world_x }},{{ location.world_y }}]</b>.
+        Смена координат или размера сетки при сохранении пересоберёт бесшовные швы автоматически;
+        при коллизии координат локации меняются местами.
+    </p>
+</div>
+
+<div class="card">
+    <h3>🧭 Соседи по мировой карте</h3>
+    <div style="display:flex; gap:0.6rem; flex-wrap:wrap; font-size:0.85rem;">
+        {% for d, label in [("n", "⬆️ Север"), ("e", "➡️ Восток"), ("s", "⬇️ Юг"), ("w", "⬅️ Запад")] %}
+            {% set nb = neighbors.get(d) %}
+            {% if nb %}
+                <a href="/editor/location/{{ nb.id }}" class="badge" style="text-decoration:none">
+                    {{ label }}: {{ nb.name }}
+                    {% if d in linked_dirs %}<span title="бесшовные переходы прорезаны">🔗</span>
+                    {% else %}<span title="переходов нет — нажмите «Связать с соседями»" style="color:var(--danger)">⚠️</span>{% endif %}
+                </a>
+            {% else %}
+                <span class="badge" style="opacity:.6">{{ label }}: —</span>
+            {% endif %}
+        {% endfor %}
+    </div>
+    <p class="section-sub" style="margin:0.6rem 0 0">
+        Нет соседа или нет значка 🔗 — нажмите «Связать с соседями» вверху, чтобы прорезать переходы.
+    </p>
 </div>
 
 <div class="card">

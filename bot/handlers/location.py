@@ -1,6 +1,6 @@
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, FSInputFile
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 
 from datetime import datetime, timedelta
@@ -13,6 +13,7 @@ from core.map_renderer import ensure_cell_image, render_player_map, get_player_m
 from bot.keyboards.inline import (
     cell_movement_keyboard, inspect_keyboard,
     main_menu_keyboard, back_to_main_keyboard, map_view_keyboard,
+    travel_keyboard,
 )
 from bot.utils.texts import location_text, cell_text, loot_text
 from bot.utils.photos import send_or_edit_photo, get_photo_input
@@ -119,6 +120,17 @@ async def move_direction(callback: CallbackQuery):
             )
             dest_cell = result.scalar_one_or_none()
             if dest_cell:
+                # Предупреждение по min_level: вход в локацию выше уровнем
+                # разрешён, но игрок видит alert — решение остаётся за ним.
+                if target.target_location_id != character.location_id:
+                    dest_loc = await session.get(Location, target.target_location_id)
+                    if dest_loc and (dest_loc.min_level or 1) > character.level:
+                        await callback.answer(
+                            f"⚠️ {dest_loc.name} — опасность! Рекомендуется "
+                            f"{dest_loc.min_level}+ уровень, у тебя {character.level}. "
+                            f"Ты входишь на свой страх и риск…",
+                            show_alert=True,
+                        )
                 character.location_id = target.target_location_id
                 character.floor = dest_floor
                 character.cell_id = dest_cell.id
@@ -273,6 +285,128 @@ async def show_map(callback: CallbackQuery):
                 photo=FSInputFile(map_path), caption=caption, parse_mode="HTML",
                 reply_markup=map_view_keyboard(),
             )
+
+
+@router.callback_query(F.data == "world_map")
+async def world_map(callback: CallbackQuery):
+    """Карта мира: посещённые локации, текущая позиция, туман войны."""
+    from core.map_renderer import render_world_map, get_world_map_path
+    from core.worldgen import WORLD_GRID_SIZE
+    from core.enums import LocationType
+
+    async with async_session() as session:
+        result = await session.execute(
+            select(User).where(User.telegram_id == callback.from_user.id)
+        )
+        user = result.scalar_one_or_none()
+        result = await session.execute(
+            select(Character)
+            .where(Character.user_id == user.id)
+            .options(selectinload(Character.location))
+        )
+        character = result.scalar_one_or_none()
+        if not character:
+            await callback.answer("Сначала создай героя.", show_alert=True)
+            return
+
+        locations = (await session.execute(select(Location))).scalars().all()
+        visited_rows = await session.execute(
+            select(VisitedCell.location_id)
+            .where(VisitedCell.character_id == character.id)
+            .distinct()
+        )
+        visited_ids = {row[0] for row in visited_rows.all()}
+        visited_ids.add(character.location_id)  # текущая всегда открыта
+
+        map_path = get_world_map_path(character.id)
+        render_world_map(locations, visited_ids, character.location_id,
+                         WORLD_GRID_SIZE, map_path)
+
+        total = len(locations)
+        caption = (f"🌍 <b>Карта мира</b>\n\n"
+                   f"Исследовано локаций: <b>{len(visited_ids)} из {total}</b>\n"
+                   f"📍 Ты здесь: <b>{character.location.name}</b>")
+
+        # Быстрый travel — только в посещённые безопасные локации.
+        safe_targets = [
+            l for l in locations
+            if l.location_type == LocationType.SAFE
+            and l.id in visited_ids and l.id != character.location_id
+        ]
+        kb = travel_keyboard(safe_targets)
+
+        photo = FSInputFile(map_path)
+        msg = callback.message
+        try:
+            if msg and msg.photo:
+                from aiogram.types import InputMediaPhoto
+                await msg.edit_media(
+                    media=InputMediaPhoto(media=photo),
+                    caption=caption, parse_mode="HTML", reply_markup=kb,
+                )
+            else:
+                if msg:
+                    try:
+                        await msg.delete()
+                    except Exception:
+                        pass
+                await callback.message.answer_photo(
+                    photo=photo, caption=caption, parse_mode="HTML", reply_markup=kb,
+                )
+        except Exception:
+            await callback.message.answer_photo(
+                photo=FSInputFile(map_path), caption=caption,
+                parse_mode="HTML", reply_markup=kb,
+            )
+
+
+@router.callback_query(F.data.startswith("travel:"))
+async def travel_to(callback: CallbackQuery):
+    """Быстрое перемещение в посещённую безопасную локацию."""
+    from core.enums import LocationType
+    from core import worldops as WO
+
+    loc_id = int(callback.data.split(":")[1])
+    async with async_session() as session:
+        result = await session.execute(
+            select(User).where(User.telegram_id == callback.from_user.id)
+        )
+        user = result.scalar_one_or_none()
+        result = await session.execute(
+            select(Character).where(Character.user_id == user.id)
+        )
+        character = result.scalar_one_or_none()
+        if not character:
+            await callback.answer("Ошибка.", show_alert=True)
+            return
+
+        loc = await session.get(Location, loc_id)
+        if not loc or loc.location_type != LocationType.SAFE:
+            await callback.answer("Путешествовать можно только в безопасные локации.",
+                                  show_alert=True)
+            return
+        visited = await session.scalar(
+            select(func.count(VisitedCell.id))
+            .where(VisitedCell.character_id == character.id)
+            .where(VisitedCell.location_id == loc_id)
+        )
+        if not visited and character.location_id != loc_id:
+            await callback.answer("Сначала нужно побывать там — мир не откроет "
+                                  "неизведанных дорог.", show_alert=True)
+            return
+
+        dest = await WO.spawn_cell_of(session, loc)
+        if not dest:
+            await callback.answer("В локации нет проходимых клеток.", show_alert=True)
+            return
+
+        character.location_id = loc.id
+        character.floor = 0
+        character.cell_id = dest.id
+        await mark_visited(session, character, dest)
+        await session.commit()
+        await callback.answer(f"🏠 Ты в локации «{loc.name}».")
+        await show_cell(callback, character, loc, session)
 
 
 @router.callback_query(F.data == "back_to_cell")

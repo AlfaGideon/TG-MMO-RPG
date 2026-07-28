@@ -1,21 +1,28 @@
 """Страница: карта мира, сетка мира и редактор подземелий."""
 from engine import data, world as W
 from webapp.pages import dungeons as page_dungeons
+from webapp.pages import world_forms as forms
 from webapp.html import esc
 
 TITLE = "🗺 Мир"
 CRUMBS = [("Мир", "world")]
 
+# Формы-модалки живут в world_forms.py; отсюда их забирают действия.
+cell_form = forms.cell_form
+grid_place_form = forms.grid_place_form
+grid_edit_form = forms.grid_edit_form
+loc_form = forms.loc_form
+
 
 def render(ctx):
     tab = ctx.state.setdefault("world_tab", "map")
-    
+
     # Sub-tab buttons
     tab_buttons = "".join(
         f"<button class='btn {'primary' if tab == t else ''}' data-act='world-tab' data-arg='{t}'>{label}</button> "
         for t, label in [("map", "🗺 Локации"), ("grid", "🌐 Сетка мира (10x10)"), ("dungeons", "🗝 Подземелья & Порталы")]
     )
-    
+
     content = ""
     if tab == "map":
         content = _render_map(ctx)
@@ -35,6 +42,8 @@ def render(ctx):
 
 def _render_map(ctx):
     li = ctx.state.get("loc", 0)
+    if li >= len(data.LOCATIONS):
+        li = 0
     tabs = "".join(
         f"<button class='btn {'primary' if i == li else ''}' data-act='world-loc' data-arg='{i}'>"
         f"{esc(l[0])}</button>" for i, l in enumerate(data.LOCATIONS))
@@ -50,13 +59,13 @@ def _render_map(ctx):
                 continue
             color = data.TILE_COLORS.get(c.tile, "#333")
             mark = ""
-            
+
             # Show players here
             player_here = []
             for p in ctx.store.players.values():
                 if p.created_char and p.loc == li and p.x == x and p.y == y:
                     player_here.append(p.name[:2])
-            
+
             if player_here:
                 mark = f"<span style='font-size:0.6rem;font-weight:bold;color:#fff;background:var(--accent);padding:1px 2px;border-radius:3px;'>{'|'.join(player_here)}</span>"
             elif c.link:
@@ -149,9 +158,12 @@ def _render_map(ctx):
 }})();
 </script>
 
+{_render_loc_manager(ctx)}
+
 <div class="card">
   <h2>🎲 Пересоздать мир</h2>
-  <div class="hint warn">Мир будет сгенерирован заново. Позиции игроков сбросятся на спавн.</div>
+  <div class="hint warn">Мир будет сгенерирован заново по текущему списку локаций
+     и сетке мира. Позиции игроков сбросятся на спавн, ручные правки клеток пропадут.</div>
   <div class="row">
     <div><label>Seed</label><input id="seedInput" value="{ctx.store.settings.get('seed',1337)}"></div>
     <div style="flex:0 0 auto"><button class="btn danger" data-act="world-regen">🎲 Перегенерировать</button></div>
@@ -160,11 +172,41 @@ def _render_map(ctx):
 """
 
 
+def _render_loc_manager(ctx):
+    """Список локаций мира: добавление и удаление."""
+    grid = ctx.store.settings.get("world_grid", {})
+    rows = ""
+    for i, l in enumerate(data.LOCATIONS):
+        wx, wy = grid.get(str(i), ["—", "—"])
+        linked = {c.link[0] for c in ctx.store.world.values()
+                  if c.loc == i and c.link and c.link[0] != i}
+        players = sum(1 for p in ctx.store.players.values()
+                      if p.created_char and p.loc == i)
+        rows += (f"<tr><td>{esc(l[0])}</td><td><span class='tag'>{l[2]}</span></td>"
+                 f"<td>{l[3]}+</td><td>[{wx},{wy}]</td>"
+                 f"<td>{'🔗 ' + str(len(linked)) if linked else '⚠️ нет'}</td>"
+                 f"<td>{players or ''}</td>"
+                 f"<td><button class='btn danger sm' data-act='world-loc-del' data-arg='{i}'>🗑</button></td></tr>")
+    return f"""
+<div class="card">
+  <h2>🧭 Локации мира ({len(data.LOCATIONS)})</h2>
+  <p class="muted">Новая локация сразу сшивается переходами с соседями по сетке
+     мира. Удаление переиндексирует мир, сохраняя правки остальных локаций.</p>
+  <table style="width:100%">
+    <thead><tr><th>Название</th><th>Тип</th><th>Ур.</th><th>Сетка</th>
+      <th>Швы</th><th>👥</th><th></th></tr></thead>
+    <tbody>{rows}</tbody>
+  </table>
+  <div style="margin-top:.8rem">
+    <button class="btn primary" data-act="world-loc-new">➕ Добавить локацию</button>
+  </div>
+</div>
+"""
+
+
 def _render_grid(ctx):
-    grid_settings = ctx.store.settings.setdefault("world_grid", {
-        "0": [2, 2], "1": [2, 3], "2": [3, 3], "3": [4, 3], "4": [4, 4]
-    })
-    
+    grid_settings = ctx.store.settings.setdefault("world_grid", dict(W.DEFAULT_GRID))
+
     cells = ""
     for wy in range(10):
         for wx in range(10):
@@ -173,11 +215,11 @@ def _render_grid(ctx):
                 if coords[0] == wx and coords[1] == wy:
                     loc_idx = int(idx)
                     break
-            
-            if loc_idx is not None:
+
+            if loc_idx is not None and loc_idx < len(data.LOCATIONS):
                 loc_name = data.LOCATIONS[loc_idx][0]
                 cells += (
-                    f"<div class='c loc-cell' style='background:var(--accent); color:#fff; font-size:0.7rem; border-radius:4px; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:2px; height:40px; cursor:pointer;' "
+                    f"<div class='c loc-cell' style='background:var(--accent); color:#fff; font-size:0.7rem; border-radius:4px; display:flex; flex-direction: column; align-items:center; justify-content:center; text-align:center; padding:2px; height:40px; cursor:pointer;' "
                     f"title='{esc(loc_name)} [{wx},{wy}]' data-act='world-grid-edit' data-arg='{wx}:{wy}:{loc_idx}'>"
                     f"<b>L{loc_idx}</b><span style='font-size:0.5rem; overflow:hidden; text-overflow:ellipsis; width:100%; white-space:nowrap;'>{esc(loc_name[:8])}</span>"
                     f"</div>"
@@ -193,8 +235,13 @@ def _render_grid(ctx):
     return f"""
 <div class="card">
   <h2>🌐 Глобальная координатная сетка мира (10x10)</h2>
-  <p class="muted" style="margin-bottom:1rem">Размещайте локации на глобальной карте. Перетаскивайте размещённые локации на пустые клетки.</p>
+  <p class="muted" style="margin-bottom:1rem">Сетка боевая: соседние по ней локации
+     сшиваются бесшовными переходами (по горизонтали — восток↔запад, по вертикали —
+     север↔юг). Перетаскивайте размещённые локации на пустые клетки.</p>
   <div class="mapgrid" id="worldGrid" style="grid-template-columns: repeat(10, 1fr); max-width:480px; gap:4px;">{cells}</div>
+  <div style="margin-top:.8rem">
+    <button class="btn" data-act="world-relink">🔗 Пересшить переходы по сетке</button>
+  </div>
 </div>
 <script>
 (function(){{
@@ -223,71 +270,4 @@ def _render_grid(ctx):
   }});
 }})();
 </script>
-"""
-
-
-def cell_form(ctx, key):
-    c = ctx.store.world.get(key)
-    if not c:
-        return "<p>Клетка не найдена.</p>"
-    tiles = "".join(f"<option {'selected' if t == c.tile else ''}>{t}</option>"
-                    for t in data.TILE_COLORS)
-    mobs = "<option value='-1'>— нет —</option>" + "".join(
-        f"<option value='{i}' {'selected' if i == c.mob else ''}>{esc(m[0])} (ур.{m[2]})</option>"
-        for i, m in enumerate(data.MOBS))
-    npcs = "<option value='-1'>— нет —</option>" + "".join(
-        f"<option value='{i}' {'selected' if i == c.npc else ''}>{esc(n[0])}</option>"
-        for i, n in enumerate(data.NPCS))
-    return f"""
-<h2>🔧 Клетка [{c.x},{c.y}] · {esc(data.LOCATIONS[c.loc][0])}</h2>
-<form data-validate data-autosave>
-<div style="margin-top:.7rem"><label>Название</label><input id="cf_name" value="{esc(c.name)}" required></div>
-<div style="margin-top:.5rem"><label>Описание</label><textarea id="cf_desc" rows="3">{esc(c.desc)}</textarea></div>
-<div class="row" style="margin-top:.5rem">
-  <div><label>Тайл</label><select id="cf_tile">{tiles}</select></div>
-  <div><label>Проходима</label><select id="cf_pass">
-     <option value="1" {'selected' if c.passable else ''}>да</option>
-     <option value="0" {'selected' if not c.passable else ''}>нет</option></select></div>
-  <div><label>Сундук</label><select id="cf_chest">
-     <option value="1" {'selected' if c.chest else ''}>есть</option>
-     <option value="0" {'selected' if not c.chest else ''}>нет</option></select></div>
-</div>
-<div class="row" style="margin-top:.5rem">
-  <div><label>Моб</label><select id="cf_mob">{mobs}</select></div>
-  <div><label>NPC</label><select id="cf_npc">{npcs}</select></div>
-</div>
-{"<p class='muted' style='margin-top:.5rem'>🚪 Клетка-переход в локацию " + esc(data.LOCATIONS[c.link[0]][0]) + "</p>" if c.link else ""}
-<div style="margin-top:1rem;display:flex;gap:.5rem">
-  <button class="btn primary" data-act="cell-save" data-arg="{key}">💾 Сохранить</button>
-  <button class="btn" data-act="modal-close">Отмена</button>
-</div>
-</form>
-"""
-
-
-def grid_place_form(ctx, wx, wy):
-    options = "".join(f"<option value='{i}'>{esc(l[0])}</option>"
-                      for i, l in enumerate(data.LOCATIONS))
-    return f"""
-<h2>🌐 Разместить локацию на сетке [{wx}, {wy}]</h2>
-<div style="margin-top:.7rem">
-  <label>Выберите локацию для привязки к координатам</label>
-  <select id="grid_loc_idx">{options}</select>
-</div>
-<div style="margin-top:1rem;display:flex;gap:.5rem">
-  <button class="btn primary" data-act="world-grid-save" data-arg="{wx}:{wy}">💾 Сохранить</button>
-  <button class="btn" data-act="modal-close">Отмена</button>
-</div>
-"""
-
-
-def grid_edit_form(ctx, wx, wy, loc_idx):
-    loc_name = data.LOCATIONS[int(loc_idx)][0]
-    return f"""
-<h2>🌐 Локация на сетке: {esc(loc_name)} [{wx}, {wy}]</h2>
-<p class="muted">Вы можете убрать эту локацию с координатной сетки.</p>
-<div style="margin-top:1.5rem;display:flex;gap:.5rem">
-  <button class="btn danger" data-act="world-grid-remove" data-arg="{loc_idx}">🗑 Убрать с сетки</button>
-  <button class="btn" data-act="modal-close">Отмена</button>
-</div>
 """

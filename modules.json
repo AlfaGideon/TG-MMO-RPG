@@ -41,6 +41,7 @@
         "webapp/pages/bot.py",
     "webapp/pages/players.py",
     "webapp/pages/dungeons.py",
+    "webapp/pages/world_forms.py",
     "webapp/pages/world.py",
     "webapp/pages/content.py",
     "webapp/pages/economy.py",
