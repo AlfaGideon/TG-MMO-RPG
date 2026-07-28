@@ -30,6 +30,11 @@ def _save(app, tg_id):
             setattr(p, k, int(dom.value(f"#pf_{k}", getattr(p, k))))
         except (ValueError, TypeError):
             pass
+    
+    node_admin = dom.el("#pf_is_admin")
+    p.is_web_admin = bool(node_admin.checked) if node_admin is not None else False
+    p.web_admin_role = dom.value("#pf_role", "viewer")
+
     app.store.save_player(p)
     app.close_modal()
     dom.toast("Сохранено")
