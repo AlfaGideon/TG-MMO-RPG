@@ -1973,6 +1973,48 @@ async def api_mob_drops(request: Request, mob_id: int):
     }
 
 
+@app.post("/api/cell/{cell_id}/paint")
+async def api_cell_paint(request: Request, cell_id: int, brush: str = Form("")):
+    """Быстрая покраска клетки из визуального редактора локации."""
+    guard(request, "manage_content")
+    tile_map = {
+        "wall": ("wall", False),
+        "grass": ("grass", True),
+        "forest": ("forest", True),
+        "water": ("water", False),
+        "road": ("road", True),
+        "village": ("village", True),
+        "cave": ("cave", True),
+        "portal": ("portal", True),
+    }
+    async with async_session() as session:
+        cell = await session.get(Cell, cell_id)
+        if not cell:
+            return JSONResponse({"success": False, "error": "Клетка не найдена"})
+
+        if brush in tile_map:
+            tile, passable = tile_map[brush]
+            cell.tile_type = tile
+            cell.is_passable = passable
+        elif brush == "npc":
+            cell.has_npc = True
+            if not cell.npc_name:
+                cell.npc_name = "Житель"
+                cell.npc_type = "storyteller"
+        elif brush == "chest":
+            cell.has_chest = True
+            cell.chest_tier = max(1, cell.chest_tier or 1)
+        elif brush == "clear":
+            cell.has_npc = False
+            cell.has_chest = False
+            cell.npc_name = None
+            cell.npc_type = None
+        else:
+            return JSONResponse({"success": False, "error": "Неизвестная кисть"})
+        await session.commit()
+    return JSONResponse({"success": True})
+
+
 @app.post("/editor/mobs/new")
 async def mob_new(
     request: Request,
