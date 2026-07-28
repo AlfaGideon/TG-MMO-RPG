@@ -89,9 +89,11 @@ def _proxy_save(app):
 
 
 def _git_update(app):
-    from js import location
-    dom.toast("Перезагрузка интерфейса...", "sys")
+    """Перезагружает страницу мимо кеша, чтобы подтянуть свежий код с GitHub."""
+    from js import Date, location
+    dom.toast("Обновляю интерфейс с GitHub…", "sys")
     try:
-        location.reload()
+        base = str(location.origin) + str(location.pathname)
+        location.replace(base + "?v=" + str(int(Date.now())))
     except Exception:
-        pass
+        location.reload()

@@ -16,6 +16,14 @@ PAGES = [
     ("world", page_world), ("content", page_content), ("settings", page_settings),
 ]
 
+# Разделы бокового меню: (подпись секции, [ключи страниц])
+NAV_SECTIONS = [
+    ("", ["dash"]),
+    ("Игроки", ["players"]),
+    ("Контент мира", ["world", "content"]),
+    ("Система", ["bot", "settings"]),
+]
+
 ACTION_MODULES = [bot_actions, player_actions, world_actions]
 
 
@@ -37,12 +45,26 @@ class App:
 
     # ── рендер ──────────────────────────────────────────────
     def render(self):
-        dom.html("#nav", "".join(
-            f"<button class='{'active' if key == self.page else ''}' "
-            f"data-act='nav' data-arg='{key}'>{mod.TITLE}</button>"
-            for key, mod in PAGES))
+        dom.html("#nav", self._nav_markup())
+        title = dict(PAGES)[self.page].TITLE
+        node = dom.el("#pageTitle")
+        if node is not None:
+            node.textContent = title
         dom.html("#view", dict(PAGES)[self.page].render(self))
         self._paint_status()
+
+    def _nav_markup(self):
+        pages = dict(PAGES)
+        out = ""
+        for label, keys in NAV_SECTIONS:
+            if label:
+                out += f"<div class='nav-section-label'>{label}</div>"
+            for key in keys:
+                icon, _, text = pages[key].TITLE.partition(" ")
+                active = " active" if key == self.page else ""
+                out += (f"<button class='nav-link{active}' data-act='nav' data-arg='{key}'>"
+                        f"<span class='nav-icon'>{icon}</span> {text or icon}</button>")
+        return out
 
     def _paint_status(self):
         dot, txt = dom.el("#botDot"), dom.el("#botText")
@@ -62,6 +84,9 @@ class App:
     def go(self, key):
         self.page = key or "dash"
         self.render()
+        node = dom.el("#layout")          # на мобильных закрываем выехавшее меню
+        if node is not None:
+            node.classList.remove("sidebar-open")
 
     # ── запуск ──────────────────────────────────────────────
     def wire(self):
