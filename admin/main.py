@@ -1245,6 +1245,11 @@ async def shop_delete(request: Request, shop_item_id: int):
 async def editor_dungeons(request: Request):
     guard(request, "manage_content")
     async with async_session() as session:
+        from core.dungeons import sweep_expired_portals, is_portal_open
+
+        await sweep_expired_portals(session)
+        await session.commit()
+
         result = await session.execute(select(DungeonTemplate).order_by(DungeonTemplate.id))
         templates_list = result.scalars().all()
 
@@ -1252,10 +1257,15 @@ async def editor_dungeons(request: Request):
             select(Cell).options(selectinload(Cell.location)).where(Cell.dungeon_template_id.isnot(None))
         )
         portal_by_template = {c.dungeon_template_id: c for c in result.scalars().all()}
+        portal_open_by_template = {tpl.id: is_portal_open(tpl) for tpl in templates_list}
     return templates.TemplateResponse(
         request,
         "editor_dungeons.html",
-        {"dungeon_templates": templates_list, "portal_by_template": portal_by_template},
+        {
+            "dungeon_templates": templates_list,
+            "portal_by_template": portal_by_template,
+            "portal_open_by_template": portal_open_by_template,
+        },
     )
 
 
@@ -1309,7 +1319,8 @@ async def dungeon_template_new(
 async def _open_dungeon_portal(session, template: DungeonTemplate):
     """Picks a random passable, otherwise-unremarkable cell somewhere in the
     world and turns it into this template's dungeon entrance. Returns the
-    chosen Cell (with .location eagerly usable) or None if no cell was free."""
+    chosen Cell (with .location eagerly usable) or None if no cell was free.
+    Marks the portal as freshly opened (resets the 2h auto-close timer)."""
     result = await session.execute(
         select(Cell)
         .options(selectinload(Cell.location))
@@ -1326,6 +1337,8 @@ async def _open_dungeon_portal(session, template: DungeonTemplate):
     cell = random.choice(candidates)
     cell.dungeon_template_id = template.id
     cell.tile_type = "portal"
+    template.portal_opened_at = datetime.utcnow()
+    template.portal_closed_at = None
     await session.flush()
     return cell
 
@@ -1369,8 +1382,35 @@ async def dungeon_template_edit(
     return RedirectResponse(url="/editor/dungeons", status_code=303)
 
 
+@app.post("/editor/dungeons/{template_id}/close-portal")
+async def dungeon_template_close_portal(request: Request, template_id: int):
+    """Soft-close: blocks new entries by removing the world-map portal cell,
+    but leaves the template (and everyone already inside a run) untouched.
+    Players already inside keep playing until they die or leave on their
+    own, or until the 2h hard limit is reached automatically."""
+    guard(request, "manage_content")
+    async with async_session() as session:
+        from core.dungeons import close_portal
+
+        tpl = await session.get(DungeonTemplate, template_id)
+        if tpl:
+            await close_portal(session, tpl)
+            await session.commit()
+
+            try:
+                from bot.broadcast import notify_dungeon_portal_closed
+                if bot_runner.is_running() and bot_runner.bot:
+                    await notify_dungeon_portal_closed(bot_runner.bot, tpl.name)
+            except Exception:
+                pass
+    return RedirectResponse(url="/editor/dungeons", status_code=303)
+
+
 @app.post("/editor/dungeons/{template_id}/delete")
 async def dungeon_template_delete(request: Request, template_id: int):
+    """Hard delete: removes the template entirely. Any characters currently
+    inside will find their dungeon gone next time they act (treated the same
+    as a portal that has fully expired)."""
     guard(request, "manage_content")
     async with async_session() as session:
         result = await session.execute(

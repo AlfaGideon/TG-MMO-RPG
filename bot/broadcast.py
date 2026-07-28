@@ -73,6 +73,19 @@ async def notify_dungeon_portal_opened(bot, location_name: str, x: int, y: int, 
     return await broadcast_to_all(bot, text, image_path)
 
 
+async def notify_dungeon_portal_closed(bot, template_name: str):
+    """Announces that a dungeon portal has sealed shut and no longer accepts
+    new adventurers (those already inside are unaffected)."""
+    text = (
+        "🕳 <b>Портал начал закрываться...</b>\n\n"
+        f"Подземелье «<b>{template_name}</b>» больше не принимает новых искателей — "
+        "трещина в завесе мира затягивается.\n\n"
+        "<i>Те, кто уже внутри, могут продолжать путь до конца.</i>"
+    )
+    image_path = "admin/static/notifications/portal_closing.jpg"
+    return await broadcast_to_all(bot, text, image_path)
+
+
 async def notify_update_deployed(bot):
     """Announces that the game world just got a fresh update, in-theme."""
     text = (

@@ -11,6 +11,8 @@
         Подземелья существуют отдельно от мировой сетки 100×100 — каждый заход игрока генерирует уникальный
         лабиринт по параметрам шаблона (25×25 по умолчанию, можно несколько этажей). При создании шаблона
         портал автоматически появляется в случайном месте карты, и все игроки получают уведомление с координатами.
+        Портал открыт для новых входов не дольше 2 часов, потом закрывается автоматически; «Закрыть портал»
+        сразу блокирует новые входы, но игроки, уже зашедшие внутрь, доигрывают до смерти или самостоятельного выхода.
     </p>
     <div class="table-wrap">
     <table>
@@ -34,8 +36,12 @@
                 <td>{{ '✅' if tpl.is_active else '—' }}</td>
                 <td>
                     {% set portal = portal_by_template.get(tpl.id) %}
-                    {% if portal %}
-                    🌀 {{ portal.location.name }} [{{ portal.x }},{{ portal.y }}]{% if portal.floor %} эт.{{ portal.floor }}{% endif %}
+                    {% set is_open = portal_open_by_template.get(tpl.id) %}
+                    {% if portal and is_open %}
+                    <span class="badge badge-success">🌀 открыт</span><br>
+                    <span style="font-size:0.78rem;">{{ portal.location.name }} [{{ portal.x }},{{ portal.y }}]{% if portal.floor %} эт.{{ portal.floor }}{% endif %}</span>
+                    {% elif tpl.portal_opened_at and not is_open %}
+                    <span class="badge badge-danger">🚫 закрыт</span>
                     {% else %}
                     <span style="color:var(--text-muted)">нет портала</span>
                     {% endif %}
@@ -45,7 +51,12 @@
                     <form action="/editor/dungeons/{{ tpl.id }}/open-portal" method="post" style="display:inline" onsubmit="return confirm('Открыть новый портал в случайном месте? Все игроки получат уведомление.')">
                         <button type="submit" class="btn btn-sm" style="background:var(--accent-soft); color:var(--accent);">🌀 {{ 'Открыть заново' if portal else 'Открыть портал' }}</button>
                     </form>
-                    <form action="/editor/dungeons/{{ tpl.id }}/delete" method="post" style="display:inline" onsubmit="return confirm('Удалить шаблон подземелья?')">
+                    {% if is_open %}
+                    <form action="/editor/dungeons/{{ tpl.id }}/close-portal" method="post" style="display:inline" onsubmit="return confirm('Закрыть портал для новых входов? Игроки внутри продолжат играть до смерти или выхода.')">
+                        <button type="submit" class="btn btn-sm" style="background:rgba(239,68,68,0.15); color:var(--danger);">🚫 Закрыть портал</button>
+                    </form>
+                    {% endif %}
+                    <form action="/editor/dungeons/{{ tpl.id }}/delete" method="post" style="display:inline" onsubmit="return confirm('Удалить шаблон подземелья полностью?')">
                         <button type="submit" class="btn btn-danger btn-sm">🗑</button>
                     </form>
                 </td>

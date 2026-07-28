@@ -107,5 +107,14 @@ async def run_migrations():
             if "image_url" not in cols:
                 await conn.execute(text("ALTER TABLE quests ADD COLUMN image_url VARCHAR(512)"))
 
+        # Add missing columns to dungeon_templates
+        if "dungeon_templates" in tables:
+            cols_result = await conn.execute(text("PRAGMA table_info(dungeon_templates)"))
+            cols = {row[1] for row in cols_result.fetchall()}
+            if "portal_opened_at" not in cols:
+                await conn.execute(text("ALTER TABLE dungeon_templates ADD COLUMN portal_opened_at DATETIME"))
+            if "portal_closed_at" not in cols:
+                await conn.execute(text("ALTER TABLE dungeon_templates ADD COLUMN portal_closed_at DATETIME"))
+
         # Create new tables if not exist
         await conn.run_sync(Base.metadata.create_all)

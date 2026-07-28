@@ -237,6 +237,11 @@ async def _enter_dungeon(callback: CallbackQuery, template_id: int):
             await callback.answer("Портал уже закрылся.", show_alert=True)
             return
 
+        from core.dungeons import is_portal_open
+        if not is_portal_open(template):
+            await callback.answer("Портал уже закрылся для новых искателей.", show_alert=True)
+            return
+
         seed = random.randint(1, 1000000)
         run = DungeonRun(
             character_id=character.id,

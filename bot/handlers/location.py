@@ -349,7 +349,8 @@ async def show_cell(callback, character, location, session):
         n = result.scalar_one_or_none()
         can_dirs[direction] = n is not None and n.is_passable
 
-    text = cell_text(cell, location.name)
+    portal_template_id = await _active_portal_template_id(session, cell)
+    text = cell_text(cell, location.name, portal_active=bool(portal_template_id))
 
     # Use custom cell/location image if provided and valid
     custom_img = cell.image_url or location.image_url
@@ -357,7 +358,7 @@ async def show_cell(callback, character, location, session):
         await send_or_edit_photo(
             callback,
             text,
-            reply_markup=cell_movement_keyboard(can_dirs, cell.dungeon_template_id),
+            reply_markup=cell_movement_keyboard(can_dirs, portal_template_id),
             image_url=custom_img,
         )
         return
@@ -370,7 +371,7 @@ async def show_cell(callback, character, location, session):
     cells = result.scalars().all()
 
     img_path = ensure_cell_image(cell, cells, cell.x, cell.y)
-    kb = cell_movement_keyboard(can_dirs, cell.dungeon_template_id)
+    kb = cell_movement_keyboard(can_dirs, portal_template_id)
 
     await send_or_edit_photo(
         callback,
@@ -378,3 +379,24 @@ async def show_cell(callback, character, location, session):
         reply_markup=kb,
         image_url=img_path,
     )
+
+
+async def _active_portal_template_id(session, cell: Cell):
+    """Returns cell.dungeon_template_id only if that portal is still open for
+    new entries (not expired/closed by admin); lazily tidies up the cell if
+    the portal has just expired so the entry button disappears immediately."""
+    if not cell.dungeon_template_id:
+        return None
+
+    from core.dungeons import is_portal_open, close_portal
+    from core.models import DungeonTemplate
+
+    template = await session.get(DungeonTemplate, cell.dungeon_template_id)
+    if template and is_portal_open(template):
+        return template.id
+
+    # Portal expired/closed but the cell link wasn't cleaned up yet — do it now.
+    if template:
+        await close_portal(session, template)
+        await session.commit()
+    return None

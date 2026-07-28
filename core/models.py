@@ -325,6 +325,13 @@ class DungeonTemplate(Base):
     image_url = Column(String(512), nullable=True)
     is_active = Column(Boolean, default=True)
 
+    # Portal lifecycle: when a portal is opened new entries are allowed; once
+    # closed (by admin or automatically after PORTAL_MAX_LIFETIME) no new
+    # characters may enter, but anyone already inside keeps playing until
+    # they die, leave on their own, or the hard timeout is reached.
+    portal_opened_at = Column(DateTime(timezone=True), nullable=True)
+    portal_closed_at = Column(DateTime(timezone=True), nullable=True)
+
     dungeon_runs = relationship("DungeonRun", back_populates="template")
 
 
