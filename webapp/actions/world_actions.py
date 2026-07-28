@@ -1,7 +1,8 @@
 """Действия вкладок «Мир» и «Настройки»."""
 import json
+import random
 
-from engine import world as W
+from engine import world as W, data
 from webapp import dom
 from webapp.pages import world as page
 
@@ -18,6 +19,18 @@ def register(app, A):
     A("data-import", lambda _="": _import(app))
     A("data-reset", lambda _="": _reset(app))
     A("settings-save", lambda _="": _settings_save(app))
+    
+    # New overhauled actions
+    A("world-tab", lambda arg: _pick_tab(app, arg))
+    A("world-fog-select", lambda _="": _fog_select(app))
+    A("world-grid-place", lambda arg: _grid_place(app, arg))
+    A("world-grid-edit", lambda arg: _grid_edit(app, arg))
+    A("world-grid-save", lambda arg: _grid_save(app, arg))
+    A("world-grid-remove", lambda arg: _grid_remove(app, arg))
+    A("dungeon-create", lambda _="": _dungeon_create(app))
+    A("dungeon-open", lambda arg: _dungeon_open(app, arg))
+    A("dungeon-close", lambda arg: _dungeon_close(app, arg))
+    A("dungeon-delete", lambda arg: _dungeon_delete(app, arg))
 
 
 def _pick_loc(app, idx):
@@ -102,3 +115,146 @@ def _settings_save(app):
         return
     app.store.save()
     dom.toast("Настройки сохранены")
+
+
+def _pick_tab(app, tab):
+    app.state["world_tab"] = tab
+    app.render()
+
+
+def _fog_select(app):
+    app.state["fog_player"] = dom.value("#fogPlayerSelect", "")
+    app.render()
+
+
+def _grid_place(app, arg):
+    wx, wy = map(int, arg.split(":"))
+    app.modal(page.grid_place_form(app, wx, wy))
+
+
+def _grid_edit(app, arg):
+    wx, wy, loc_idx = map(int, arg.split(":"))
+    app.modal(page.grid_edit_form(app, wx, wy, loc_idx))
+
+
+def _grid_save(app, arg):
+    wx, wy = map(int, arg.split(":"))
+    try:
+        loc_idx = int(dom.value("#grid_loc_idx", "0"))
+    except ValueError:
+        return
+        
+    grid = app.store.settings.setdefault("world_grid", {})
+    # remove location from any previous coord
+    for k, v in list(grid.items()):
+        if int(k) == loc_idx:
+            grid.pop(k, None)
+            
+    grid[str(loc_idx)] = [wx, wy]
+    app.store.save()
+    app.close_modal()
+    dom.toast("Локация размещена на сетке")
+    app.render()
+
+
+def _grid_remove(app, loc_idx):
+    grid = app.store.settings.setdefault("world_grid", {})
+    grid.pop(str(loc_idx), None)
+    app.store.save()
+    app.close_modal()
+    dom.toast("Локация убрана с сетки")
+    app.render()
+
+
+def _dungeon_create(app):
+    name = dom.value("#dg_name").strip()
+    desc = dom.value("#dg_desc").strip() or "Загадочные катакомбы."
+    try:
+        min_level = int(dom.value("#dg_level", "1"))
+        grid_size = int(dom.value("#dg_size", "10"))
+    except ValueError:
+        dom.toast("Уровень и размер должны быть числами", "err")
+        return
+        
+    if not name:
+        dom.toast("Введите название!", "err")
+        return
+        
+    tpls = app.store.settings.setdefault("dungeon_templates", [])
+    new_id = max([t["id"] for t in tpls] + [-1]) + 1
+    tpls.append({
+        "id": new_id,
+        "name": name,
+        "desc": desc,
+        "min_level": min_level,
+        "grid_size": grid_size,
+        "portal_cell": None
+    })
+    app.store.save()
+    dom.toast("Шаблон подземелья создан!")
+    app.render()
+
+
+def _dungeon_open(app, dg_id):
+    tpls = app.store.settings.setdefault("dungeon_templates", [])
+    dg = next((t for t in tpls if t["id"] == int(dg_id)), None)
+    if not dg:
+        return
+        
+    if dg.get("portal_cell"):
+        dom.toast("Портал уже открыт!", "err")
+        return
+        
+    # Pick a random passable, empty cell
+    candidates = [k for k, c in app.store.world.items() 
+                  if c.passable and not c.link and c.npc < 0 and c.mob < 0 and not c.chest]
+    if not candidates:
+        dom.toast("Нет подходящих пустых клеток!", "err")
+        return
+        
+    key = random.choice(candidates)
+    c = app.store.world[key]
+    c.name = f"🌀 Портал: {dg['name']}"
+    c.desc = f"Врата сияют мистической энергией. Они ведут в подземелье '{dg['name']}' (мин. уровень {dg['min_level']})."
+    c.tile = "cave"
+    
+    dg["portal_cell"] = key
+    app.store.save()
+    
+    # Send system log notification
+    app.log("sys", f"📢 Портал '{dg['name']}' открыт на [{c.x},{c.y}] в локации {data.LOCATIONS[c.loc][0]}!")
+    dom.toast("Портал успешно открыт!")
+    app.render()
+
+
+def _dungeon_close(app, dg_id):
+    tpls = app.store.settings.setdefault("dungeon_templates", [])
+    dg = next((t for t in tpls if t["id"] == int(dg_id)), None)
+    if not dg or not dg.get("portal_cell"):
+        return
+        
+    key = dg["portal_cell"]
+    c = app.store.world.get(key)
+    if c:
+        c.name = "Заросшая поляна"
+        c.desc = "Трава и кустарники. Здесь когда-то сиял портал."
+        c.tile = "grass"
+        
+    dg["portal_cell"] = None
+    app.store.save()
+    app.log("sys", f"❌ Портал в подземелье '{dg['name']}' закрыт администратором.")
+    dom.toast("Портал закрыт")
+    app.render()
+
+
+def _dungeon_delete(app, dg_id):
+    from js import window
+    if not window.confirm("Удалить этот шаблон подземелья?"):
+        return
+        
+    _dungeon_close(app, dg_id)
+    tpls = app.store.settings.setdefault("dungeon_templates", [])
+    app.store.settings["dungeon_templates"] = [t for t in tpls if t["id"] != int(dg_id)]
+    app.store.save()
+    dom.toast("Шаблон подземелья удалён")
+    app.render()

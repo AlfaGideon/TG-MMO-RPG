@@ -47,6 +47,8 @@ class Player:
     combat: dict = field(default_factory=dict)      # активный бой
     msg_id: int = 0                                 # id сообщения для edit
     created: str = ""
+    is_web_admin: bool = False
+    web_admin_role: str = "viewer"
 
     @property
     def created_char(self):
