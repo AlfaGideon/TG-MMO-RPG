@@ -1,5 +1,7 @@
-"""Действия вкладки «Игроки»."""
-from engine import adminbot, permissions, rules
+"""Действия вкладки «Игроки». Вся работа — через engine.adminops,
+тот же слой, что использует бот. Поэтому права, уведомления игрокам
+и журнал действий одинаковы с обеих сторон."""
+from engine import adminops, permissions
 from webapp import dom
 from webapp.pages import players as page
 
@@ -21,53 +23,63 @@ def register(app, A):
     A("access-revoke", lambda arg: _access_revoke(app, arg))
 
 
-def _get(app, tg_id):
-    return app.store.players.get(int(tg_id))
+def _guard(app, fn, *a, **kw):
+    """Выполняет операцию, показывая отказ по правам тостом."""
+    try:
+        return fn(app.store, app.actor, *a, **kw)
+    except adminops.Denied as e:
+        dom.toast(str(e), "err")
+        return None
+
+
+def _flush(app):
+    """Просит бота разослать уведомления, накопленные операцией."""
+    if not getattr(app.bot, "running", False):
+        app.log("sys", "Бот остановлен — уведомления уйдут после запуска")
+        return
+    import asyncio
+    asyncio.ensure_future(app.bot.flush_outbox())
 
 
 def _save(app, tg_id):
-    p = _get(app, tg_id)
+    p = app.store.players.get(int(tg_id))
     if not p:
         return
-    p.name = dom.value("#pf_name", p.name)
+    fields = {"name": dom.value("#pf_name", p.name)}
     for k in INT_FIELDS + ["loc"]:
         try:
-            setattr(p, k, int(dom.value(f"#pf_{k}", getattr(p, k))))
+            fields[k] = int(dom.value(f"#pf_{k}", getattr(p, k)))
         except (ValueError, TypeError):
             pass
-    
-    app.store.save_player(p)
+    if _guard(app, adminops.set_fields, tg_id, fields) is None:
+        return
     app.close_modal()
     dom.toast("Сохранено")
     app.render()
 
 
 def _heal(app, tg_id):
-    p = _get(app, tg_id)
-    if not p:
+    if _guard(app, adminops.heal, tg_id) is None:
         return
-    s = rules.stats(p)
-    p.hp, p.mp = s["max_hp"], s["max_mp"]
-    app.store.save_player(p)
     app.close_modal()
-    dom.toast(f"{p.name} исцелён")
+    dom.toast("Игрок исцелён")
     app.render()
+    _flush(app)
 
 
 def _give(app, tg_id):
-    p = _get(app, tg_id)
-    if not p:
-        return
     idx = int(dom.value("#pf_give", "0"))
-    p.inventory.append(idx)
-    app.store.save_player(p)
+    res = _guard(app, adminops.give_item, tg_id, idx)
+    if res is None:
+        return
     app.modal(page.edit_form(app, tg_id))
-    dom.toast(f"Выдан: {rules.item(idx)['name']}")
+    dom.toast(f"Выдан: {res[1]}")
+    _flush(app)
 
 
 def _delete(app, tg_id):
-    app.store.players.pop(int(tg_id), None)
-    app.store.save()
+    if _guard(app, adminops.delete_player, tg_id) is None:
+        return
     dom.toast("Игрок удалён")
     app.render()
 
@@ -76,7 +88,8 @@ def _wipe(app):
     from js import window
     if not window.confirm("Удалить всех игроков?"):
         return
-    app.store.wipe_players()
+    if _guard(app, adminops.wipe_players) is None:
+        return
     dom.toast("Игроки удалены")
     app.render()
 
@@ -105,59 +118,31 @@ def _preset(app, tg_id):
 
 
 def _newpass(app, tg_id):
-    p = _get(app, tg_id)
-    if not p:
+    if _guard(app, adminops.new_password, tg_id) is None:
         return
-    p.web_admin_password = permissions.new_password()
-    app.store.save_player(p)
     app.modal(page.access_form(app, tg_id))
     dom.toast("Пароль сгенерирован")
+    _flush(app)
 
 
 def _access_save(app, tg_id):
-    p = _get(app, tg_id)
-    if not p:
-        return
     rank = dom.value("#acc_rank", "viewer")
     caps = _checked_caps()
     if not caps:
         dom.toast("Отметь хотя бы одно право", "err")
         return
-
-    keep = bool(p.web_admin_password)
-    text = adminbot.grant(app.store, p, rank, caps, reset_password=not keep)
+    if _guard(app, adminops.grant, tg_id, rank, caps) is None:
+        return
     app.close_modal()
     dom.toast(f"Доступ выдан: {permissions.rank_title(rank)}")
     app.render()
-    _notify(app, p, text)
+    _flush(app)
 
 
 def _access_revoke(app, tg_id):
-    p = _get(app, tg_id)
-    if not p:
+    if _guard(app, adminops.revoke, tg_id) is None:
         return
-    text = adminbot.revoke(app.store, p)
     app.close_modal()
     dom.toast("Доступ отозван")
     app.render()
-    _notify(app, p, text)
-
-
-def _notify(app, p, text):
-    """Шлёт игроку сообщение в бот, если бот запущен."""
-    if not getattr(app.bot, "running", False):
-        app.log("sys", f"Бот остановлен — {p.name} узнает о доступе при запуске бота")
-        return
-    import asyncio
-
-    async def send():
-        res = await app.bot.call("sendMessage", chat_id=p.tg_id, text=text,
-                                 parse_mode="HTML")
-        if res.get("ok"):
-            p.admin_notified = True
-            app.store.save_player(p)
-            app.log("out", f"Доступ: уведомлён {p.name}")
-        else:
-            app.log("err", f"Не доставлено {p.name}: {res.get('description', '?')}")
-
-    asyncio.ensure_future(send())
+    _flush(app)

@@ -48,7 +48,8 @@ def main():
         src = open(f, encoding="utf-8").read()
         registered |= set(re.findall(r"""(?:A|dom\.register)\(\s*["']([\w-]+)["']""", src))
     check(not (used - registered), f"все {len(used)} data-act зарегистрированы")
-    check(not (registered - used - {"nav"}), "нет лишних обработчиков")
+    # nav и logout рисуются кодом навигации в app.py, а не страницами
+    check(not (registered - used - {"nav", "logout"}), "нет лишних обработчиков")
 
     print("\n— Чистота движка —")
     for f in sorted(glob.glob("engine/*.py")):
