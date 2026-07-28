@@ -29,7 +29,7 @@ def render(ctx):
 """
 
 
-def _row(attrs, cols, labels=None):
+def _row(attrs, cols, labels=None, actions="<button class='btn'>✏️</button>"):
     """attrs — готовая строка data-act/data-arg, cols — ячейки."""
     labels = labels or []
     tds = ""
@@ -37,7 +37,7 @@ def _row(attrs, cols, labels=None):
         label = labels[i] if i < len(labels) else ""
         tds += f"<td data-label='{esc(label)}'>{c}</td>"
     return (f"<tr class='clickable' {attrs}>{tds}"
-            f"<td data-label=''><button class='btn'>✏️</button></td></tr>")
+            f"<td data-label='' style='white-space:nowrap'>{actions}</td></tr>")
 
 
 def _mobs(ctx):
@@ -45,7 +45,9 @@ def _mobs(ctx):
     rows = "".join(_row(f"data-act='mob-edit' data-arg='{i}'", [
         f"<b>{esc(m[0])}</b>", f"<span class='muted'>{esc(m[1])}</span>", m[2],
         m[3], m[4], m[5], f"{m[6]} 🪙", f"{m[7]} ⭐",
-        esc(data.LOCATIONS[m[8]][0])], labels) for i, m in enumerate(data.MOBS))
+        esc(data.LOCATIONS[m[8]][0])], labels,
+        actions=f"<button class='btn'>✏️</button> <button class='btn' data-act='mob-clone' data-arg='{i}' title='Клонировать'>📋</button>")
+        for i, m in enumerate(data.MOBS))
     return f"""
 <div class="card">
   <h2>👾 Мобы <span class="muted">({len(data.MOBS)})</span>
@@ -68,7 +70,8 @@ def _items(ctx):
             f"{it['icon']} <b>{esc(it['name'])}</b>",
             f"<span class='tag'>{it['type']}</span>",
             f"<span class='tag {it['rarity']}'>{it['rarity']}</span>",
-            f"{it['price']} 🪙", f"<span class='muted'>{esc(bon)}</span>"], labels)
+            f"{it['price']} 🪙", f"<span class='muted'>{esc(bon)}</span>"], labels,
+            actions=f"<button class='btn'>✏️</button> <button class='btn' data-act='item-clone' data-arg='{i}' title='Клонировать'>📋</button>")
     return f"""
 <div class="card">
   <h2>⚔️ Предметы <span class="muted">({len(data.ITEMS)})</span>
@@ -84,7 +87,8 @@ def _npcs(ctx):
     labels = ["Имя", "Роль", "Реплика"]
     rows = "".join(_row(f"data-act='npc-edit' data-arg='{i}'", [
         f"<b>{esc(n[0])}</b>", f"<span class='tag'>{n[2]}</span>",
-        f"<span class='muted'>{esc(n[1])}</span>"], labels)
+        f"<span class='muted'>{esc(n[1])}</span>"], labels,
+        actions=f"<button class='btn'>✏️</button> <button class='btn' data-act='npc-clone' data-arg='{i}' title='Клонировать'>📋</button>")
         for i, n in enumerate(data.NPCS))
     return f"""
 <div class="card">
@@ -104,7 +108,8 @@ def _classes(ctx):
         stats = " · ".join(f"{k} {v}" for k, v in st.items())
         rows += _row(f"data-act='class-edit' data-arg='{key}'", [
             f"<b>{esc(title)}</b>", f"<span class='muted'>{esc(desc)}</span>",
-            f"<span class='muted'>{esc(stats)}</span>"], labels)
+            f"<span class='muted'>{esc(stats)}</span>"], labels,
+            actions=f"<button class='btn'>✏️</button> <button class='btn' data-act='class-clone' data-arg='{key}' title='Клонировать'>📋</button>")
     return f"""
 <div class="card">
   <h2>🧙 Классы <span class="muted">({len(data.CLASSES)})</span></h2>
@@ -133,6 +138,7 @@ def mob_form(ctx, idx):
 <form data-validate data-autosave>
 <div style="margin-top:.6rem"><label>Имя</label><input id="mf_name" value="{esc(m[0])}" required></div>
 <div style="margin-top:.5rem"><label>Описание</label><textarea id="mf_desc" rows="2">{esc(m[1])}</textarea></div>
+<div style="margin-top:.5rem"><label>Изображение</label><input type="file" accept="image/*" data-preview="#mfPreview"><br><img id="mfPreview" style="max-width:120px;max-height:120px;margin-top:.5rem;border-radius:6px"></div>
 <div class="row" style="margin-top:.5rem">
   {_num('mf_level', 'Уровень', m[2])}{_num('mf_hp', 'HP', m[3])}
   {_num('mf_dmg', 'Урон', m[4])}{_num('mf_def', 'Защита', m[5])}
@@ -166,6 +172,7 @@ def item_form(ctx, idx):
   <div><label>Название</label><input id="if_name" value="{esc(it[0])}"></div>
   <div style="flex:0 0 90px"><label>Иконка</label><input id="if_icon" value="{esc(it[4])}"></div>
 </div>
+<div style="margin-top:.5rem"><label>Изображение</label><input type="file" accept="image/*" data-preview="#ifPreview"><br><img id="ifPreview" style="max-width:120px;max-height:120px;margin-top:.5rem;border-radius:6px"></div>
 <div class="row" style="margin-top:.5rem">
   <div><label>Тип</label><select id="if_type">{topts}</select></div>
   <div><label>Редкость</label><select id="if_rarity">{ropts}</select></div>
@@ -194,6 +201,7 @@ def npc_form(ctx, idx):
 <h2>{'➕ Новый NPC' if new else '🎭 ' + esc(n[0])}</h2>
 <form data-validate data-autosave>
 <div style="margin-top:.6rem"><label>Имя</label><input id="nf_name" value="{esc(n[0])}" required></div>
+<div style="margin-top:.5rem"><label>Изображение</label><input type="file" accept="image/*" data-preview="#nfPreview"><br><img id="nfPreview" style="max-width:120px;max-height:120px;margin-top:.5rem;border-radius:6px"></div>
 <div style="margin-top:.5rem"><label>Реплика</label><textarea id="nf_text" rows="3">{esc(n[1])}</textarea></div>
 <div class="row" style="margin-top:.5rem">
   <div><label>Роль</label><select id="nf_kind">{kopts}</select></div>

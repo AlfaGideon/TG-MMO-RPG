@@ -171,3 +171,23 @@ def wire_forms():
 
     for form in document.querySelectorAll("form[data-validate], form[data-autosave]"):
         setup(form)
+
+    # image previews
+    for inp in document.querySelectorAll("input[type=file][data-preview]"):
+        target = document.querySelector(inp.getAttribute("data-preview"))
+        if target is None:
+            continue
+        def onchange(evt, t=target):
+            files = evt.target.files
+            if not files or not files.length:
+                return
+            reader = __import__("js").FileReader.new()
+            def done(e):
+                t.src = e.target.result
+            proxy = create_proxy(done)
+            _proxies.append(proxy)
+            reader.addEventListener("load", proxy)
+            reader.readAsDataURL(files.item(0))
+        proxy = create_proxy(onchange)
+        _proxies.append(proxy)
+        inp.addEventListener("change", proxy)
