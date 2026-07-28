@@ -10,8 +10,13 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from sqlalchemy import select, func
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+try:
+    from sqlalchemy import select, func
+    from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+    import aiosqlite  # noqa: F401
+except ImportError:
+    print("⚠ Пропуск: нет sqlalchemy/aiosqlite (pip install -r requirements.txt)")
+    sys.exit(0)
 
 from core import worldgen as W, worldops as WO
 from core.database import Base

@@ -178,13 +178,13 @@ def _render_loc_manager(ctx):
     rows = ""
     for i, l in enumerate(data.LOCATIONS):
         wx, wy = grid.get(str(i), ["—", "—"])
-        seams = sum(1 for c in ctx.store.world.values()
-                    if c.loc == i and c.link and c.link[0] != i)
+        linked = {c.link[0] for c in ctx.store.world.values()
+                  if c.loc == i and c.link and c.link[0] != i}
         players = sum(1 for p in ctx.store.players.values()
                       if p.created_char and p.loc == i)
         rows += (f"<tr><td>{esc(l[0])}</td><td><span class='tag'>{l[2]}</span></td>"
                  f"<td>{l[3]}+</td><td>[{wx},{wy}]</td>"
-                 f"<td>{'🔗 ' + str(seams // 2) if seams else '⚠️ нет'}</td>"
+                 f"<td>{'🔗 ' + str(len(linked)) if linked else '⚠️ нет'}</td>"
                  f"<td>{players or ''}</td>"
                  f"<td><button class='btn danger sm' data-act='world-loc-del' data-arg='{i}'>🗑</button></td></tr>")
     return f"""
