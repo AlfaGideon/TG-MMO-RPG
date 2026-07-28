@@ -152,6 +152,32 @@ def main():
     check(html.count("data-act='dungeon-focus'") == 1, "открытый портал отмечен на карте")
     check("dungeon-close" in page_dungeons.dungeon_form(ctx, tpl), "карточка портала кликабельна")
 
+    print("\n— Адрес панели для кнопки в боте —")
+    check(permissions.normalize_url("my.host/") == "https://my.host", "схема https добавляется")
+    check(permissions.normalize_url("http://a.b/p/") == "http://a.b/p", "хвостовой слэш убран")
+    check(permissions.normalize_url("  ") == "", "пустой адрес остаётся пустым")
+    check(permissions.login_url("my.host", 7) == "https://my.host/admin-login?uid=7",
+          "ссылка входа собирается")
+    check(permissions.login_url("", 7) == "", "без адреса ссылки нет")
+
+    store.settings["panel_url"] = ""
+    labels = [b[0] for row in game.handle(p, "admin").keyboard for b in row]
+    check(not any("Открыть панель" in t for t in labels), "без адреса кнопки панели нет")
+
+    store.settings["panel_url"] = "https://my-game.onrender.com"
+    kb = game.handle(p, "admin").keyboard
+    labels = [b[0] for row in kb for b in row]
+    check(any("Открыть панель" in t for t in labels), "с адресом кнопка появилась")
+    url_btns = [b[1] for row in kb for b in row if isinstance(b[1], dict)]
+    check(url_btns and url_btns[0]["url"].endswith(f"/admin-login?uid={p.tg_id}"),
+          "кнопка ведёт на вход с логином игрока")
+
+    from webapp.telegram import TelegramBot
+    built = [TelegramBot._button(t, d) for row in kb for t, d in row]
+    check(any("url" in b for b in built), "url-кнопка уходит в Telegram как ссылка")
+    check(all("callback_data" in b or "url" in b for b in built),
+          "остальные кнопки остались callback-ами")
+
     print("\n— Туман войны —")
     q = store.player(777, "Новичок")
     Game(store).handle(q, "make:rogue")

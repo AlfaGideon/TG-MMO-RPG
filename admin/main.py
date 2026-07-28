@@ -423,14 +423,18 @@ async def player_grant_admin(
     cap_list = "\n".join(
         f"• {webauth.CAP_LABELS[k]}" for k in webauth.CAP_KEYS if k in granted) or "—"
 
+    from core.settings_store import get_panel_url, build_login_url
+    # Адрес из настроек; если не задан — берём тот, с которого открыта панель
+    login_url = build_login_url(await get_panel_url() or str(request.base_url),
+                                telegram_id)
+
     try:
         from bot.runner import bot_runner
         if bot_runner.is_running() and bot_runner.bot:
             from aiogram.utils.keyboard import InlineKeyboardBuilder
-            base_url = str(request.base_url).rstrip("/")
-            login_url = f"{base_url}/admin-login?uid={telegram_id}"
             builder = InlineKeyboardBuilder()
-            builder.button(text="🔑 Открыть веб-админку", url=login_url)
+            if login_url:
+                builder.button(text="🔑 Открыть веб-админку", url=login_url)
             await bot_runner.bot.send_message(
                 chat_id=telegram_id,
                 text=(
@@ -443,7 +447,7 @@ async def player_grant_admin(
                     "можно посмотреть пароль заново."
                 ),
                 parse_mode="HTML",
-                reply_markup=builder.as_markup(),
+                reply_markup=builder.as_markup() if login_url else None,
             )
     except Exception:
         pass
@@ -633,7 +637,9 @@ async def battles(request: Request):
 
 @app.get("/settings")
 async def settings_page(request: Request):
-    guard(request, "manage_settings")
+    guard(request, "settings")
+    from core.settings_store import get_panel_url, build_login_url
+
     async with async_session() as session:
         result = await session.execute(
             select(AppSetting).where(AppSetting.key == "bot_token")
@@ -644,14 +650,32 @@ async def settings_page(request: Request):
             t = setting.value
             token_masked = t[:10] + "..." + t[-6:] if len(t) > 20 else "***"
 
+    panel_url = await get_panel_url()
+    # Подсказываем адрес, с которого админ сейчас смотрит панель
+    detected = str(request.base_url).rstrip("/")
+
     return templates.TemplateResponse(
         request,
         "settings.html",
         {
             "token_masked": token_masked,
             "bot_running": bot_runner.is_running(),
+            "panel_url": panel_url,
+            "detected_url": detected,
+            "example_login_url": build_login_url(panel_url or detected, 123456789),
         },
     )
+
+
+@app.post("/settings/save-panel-url")
+async def save_panel_url(request: Request, panel_url: str = Form("")):
+    """Адрес, по которому открывается панель снаружи. Именно он подставляется
+    в инлайн-кнопку «🌐 Открыть панель» в боте."""
+    guard(request, "settings")
+    from core.settings_store import set_panel_url
+
+    await set_panel_url(panel_url)
+    return RedirectResponse(url="/settings", status_code=303)
 
 
 @app.post("/settings/save-token")

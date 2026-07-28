@@ -3,13 +3,21 @@ from engine import permissions, texts
 from engine.models import Reply
 
 
-def panel(p):
+def _keyboard(p, store, first_row):
+    """Кнопки админки. Ссылка на панель берётся из настроек (может быть пустой)."""
+    rows = [first_row]
+    url = permissions.login_url(store.settings.get("panel_url", ""), p.tg_id)
+    if url:
+        rows.append([("🌐 Открыть панель", {"url": url})])
+    rows.append([("◀️ Меню", "menu")])
+    return rows
+
+
+def panel(p, store):
     if not p.is_web_admin:
         return Reply(alert="У тебя нет доступа к админке.")
-    return Reply(text=texts.admin_panel(p), keyboard=[
-        [("🔑 Показать пароль", "adminpass")],
-        [("◀️ Меню", "menu")],
-    ])
+    return Reply(text=texts.admin_panel(p),
+                 keyboard=_keyboard(p, store, [("🔑 Показать пароль", "adminpass")]))
 
 
 def password(p, store):
@@ -18,8 +26,8 @@ def password(p, store):
     if not p.web_admin_password:
         p.web_admin_password = permissions.new_password()
         store.save_player(p)
-    return Reply(text=texts.admin_password(p), keyboard=[
-        [("🛠 Мои права", "admin")], [("◀️ Меню", "menu")]])
+    return Reply(text=texts.admin_password(p),
+                 keyboard=_keyboard(p, store, [("🛠 Мои права", "admin")]))
 
 
 def grant(store, p, rank="viewer", caps=None, reset_password=True):

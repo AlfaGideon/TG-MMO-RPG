@@ -36,7 +36,7 @@ class Game:
 
     # ── админский доступ внутри бота ────────────────────────
     def do_admin(self, p, arg=""):
-        return adminbot.panel(p)
+        return adminbot.panel(p, self.store)
 
     def do_adminpass(self, p, arg=""):
         return adminbot.password(p, self.store)

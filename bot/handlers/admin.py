@@ -3,25 +3,22 @@
 Игрок, которому выдали доступ, видит кнопку «🛠 Админка» в меню — раньше
 доступ существовал только в базе, и в боте его не было видно вообще.
 """
-import os
-
 from aiogram import Router, F
 from aiogram.types import CallbackQuery
 from sqlalchemy import select
 
 from core.database import async_session
 from core.models import User
+from core.settings_store import get_panel_url, build_login_url
 from admin import auth as webauth
 from bot.keyboards.inline import admin_panel_keyboard, back_to_main_keyboard
 
 router = Router()
 
 
-def login_url(telegram_id: int) -> str:
-    base = (os.getenv("PUBLIC_URL") or os.getenv("ADMIN_PUBLIC_URL") or "").strip()
-    if not base:
-        return ""
-    return f"{base.rstrip('/')}/admin-login?uid={telegram_id}"
+async def login_url(telegram_id: int) -> str:
+    """Ссылка на панель берётся из настроек админки (поле «Адрес панели»)."""
+    return build_login_url(await get_panel_url(), telegram_id)
 
 
 async def _get_admin(telegram_id: int):
@@ -55,7 +52,7 @@ async def admin_panel(callback: CallbackQuery):
         f"Логин: <code>{user.telegram_id}</code>\n\n"
         f"<b>Твои права:</b>\n{caps_text(user)}\n\n"
         "<i>Вход в веб-панель — по логину и паролю.</i>",
-        reply_markup=admin_panel_keyboard(login_url(user.telegram_id)),
+        reply_markup=admin_panel_keyboard(await login_url(user.telegram_id)),
         parse_mode="HTML",
     )
 
@@ -82,6 +79,6 @@ async def admin_password(callback: CallbackQuery):
         f"Логин: <code>{user.telegram_id}</code>\n"
         f"Пароль: <code>{plain}</code>\n\n"
         "<i>Нажми на пароль, чтобы скопировать. Никому его не передавай.</i>",
-        reply_markup=admin_panel_keyboard(login_url(user.telegram_id)),
+        reply_markup=admin_panel_keyboard(await login_url(user.telegram_id)),
         parse_mode="HTML",
     )

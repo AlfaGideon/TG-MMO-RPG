@@ -20,6 +20,7 @@ def register(app, A):
     A("data-import", lambda _="": _import(app))
     A("data-reset", lambda _="": _reset(app))
     A("settings-save", lambda _="": _settings_save(app))
+    A("panel-url-save", lambda _="": _panel_url_save(app))
     
     # New overhauled actions
     A("world-tab", lambda arg: _pick_tab(app, arg))
@@ -118,6 +119,17 @@ def _settings_save(app):
         return
     app.store.save()
     dom.toast("Настройки сохранены")
+
+
+def _panel_url_save(app):
+    """Адрес панели для инлайн-кнопки «Открыть панель» в боте."""
+    from engine.permissions import normalize_url
+
+    url = normalize_url(dom.value("#panelUrl", ""))
+    app.store.settings["panel_url"] = url
+    app.store.save()
+    dom.toast("Адрес панели сохранён" if url else "Адрес панели очищен")
+    app.render()
 
 
 def _pick_tab(app, tab):

@@ -101,3 +101,19 @@ def slug(text):
     """Безопасный ключ из произвольной строки (для id элементов формы)."""
     return "".join(ch if ch in string.ascii_letters + string.digits else "_"
                    for ch in str(text))
+
+
+def normalize_url(raw):
+    """https://host без хвостового слэша. Пустая строка, если ничего не ввели."""
+    url = (raw or "").strip()
+    if not url:
+        return ""
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+    return url.rstrip("/")
+
+
+def login_url(base, tg_id):
+    """Ссылка входа в панель для инлайн-кнопки бота."""
+    base = normalize_url(base)
+    return f"{base}/admin-login?uid={tg_id}" if base else ""
