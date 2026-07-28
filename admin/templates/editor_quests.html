@@ -45,6 +45,9 @@
                 <td>{{ q.npc_name or '—' }}</td>
                 <td>
                     <button onclick="editQuest({{ q.id }}, '{{ q.name|replace("'", "\\'") }}', '{{ q.description|replace("'", "\\'") }}', '{{ q.objective_type }}', '{{ q.objective_target|replace("'", "\\'") }}', {{ q.objective_count }}, {{ q.reward_gold }}, {{ q.reward_exp }}, {{ q.reward_item_id or 'null' }}, {{ q.min_level }}, {{ q.location_id or 'null' }}, '{{ q.npc_name or '' }}', '{{ q.image_url or '' }}')" class="btn btn-primary btn-sm">✏️</button>
+                    <form action="/editor/quests/{{ q.id }}/clone" method="post" style="display:inline" title="Клонировать">
+                        <button type="submit" class="btn btn-sm">📋</button>
+                    </form>
                     <form action="/editor/quests/{{ q.id }}/delete" method="post" style="display:inline" onsubmit="return confirm('Удалить квест?')">
                         <button type="submit" class="btn btn-danger btn-sm">🗑</button>
                     </form>
@@ -96,7 +99,8 @@
                 </select>
             </div>
             <div><label class="form-label">NPC</label><input type="text" name="npc_name" id="q_npc" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">🖼 Файл картинки</label><input type="file" name="image" accept="image/*" class="search-box" style="max-width:100%"></div>
+            <img id="questPreview" style="display:none; max-width:150px; max-height:150px; border-radius:8px; border:1px solid var(--border); margin-bottom:0.75rem;">
+            <div><label class="form-label">🖼 Файл картинки</label><input type="file" name="image" accept="image/*" class="search-box" style="max-width:100%" data-preview="#questPreview"></div>
             <div><label class="form-label">URL картинки</label><input type="text" name="image_url" id="q_image_url" class="search-box" style="max-width:100%" placeholder="https://..."></div>
         </div>
         <div style="margin-top: 0.75rem;">

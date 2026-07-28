@@ -245,13 +245,15 @@
             <span class="group-title">🖼 Аватар</span>
             {% if char.image_url %}
             <div style="margin-bottom:0.6rem;">
-                <img src="{{ char.image_url }}" style="max-width:120px; max-height:120px; border-radius:8px; border:1px solid var(--border);">
+                <img id="charPreview" src="{{ char.image_url }}" style="max-width:120px; max-height:120px; border-radius:8px; border:1px solid var(--border);">
             </div>
+            {% else %}
+            <img id="charPreview" style="display:none; max-width:120px; max-height:120px; border-radius:8px; border:1px solid var(--border); margin-bottom:0.6rem;">
             {% endif %}
             <div class="field-row cols-2">
                 <div>
                     <label class="form-label">Файл картинки</label>
-                    <input type="file" name="image" accept="image/*" class="search-box">
+                    <input type="file" name="image" accept="image/*" class="search-box" data-preview="#charPreview">
                 </div>
                 <div>
                     <label class="form-label">Или URL</label>

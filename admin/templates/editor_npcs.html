@@ -34,7 +34,12 @@
             </tr>
             {% else %}
             <tr><td colspan="7">
-                <div class="empty-state"><div class="empty-icon">🎭</div>NPC пока не добавлены.</div>
+                <div class="empty-state">
+                    <div class="empty-icon">🎭</div>
+                    <div>NPC пока не добавлены.</div>
+                    <span class="hint">NPC создаются на клетках локаций в редакторе «Локации → Клетка».</span>
+                    <a href="/editor/locations" class="btn btn-primary">➕ Перейти к локациям</a>
+                </div>
             </td></tr>
             {% endfor %}
         </tbody>

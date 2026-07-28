@@ -74,9 +74,13 @@ def _instances(ctx):
             f"<td>{who}</td><td>{items.price(inst)} 🪙</td>"
             f"<td><button class='btn'>📖</button></td></tr>")
     if not rows:
-        rows = ("<tr><td colspan='8' class='muted'>Пока ни одной именной вещи. "
-                "Они появляются, когда игрок выбивает предмет из моба, "
-                "открывает сундук или кует вещь в мастерской.</td></tr>")
+        rows = ("<tr><td colspan='8'><div class='empty-state'>"
+                "<div class='empty-icon'>🆔</div>"
+                "<div>Пока ни одной именной вещи.</div>"
+                "<span class='muted'>Они появляются, когда игрок выбивает предмет из моба, "
+                "открывает сундук или кует вещь в мастерской.</span>"
+                "<button class='btn primary' data-act='nav' data-arg='bot'>🤖 Запустить бота</button>"
+                "</div></td></tr>")
 
     pagination = ""
     if pages > 1:

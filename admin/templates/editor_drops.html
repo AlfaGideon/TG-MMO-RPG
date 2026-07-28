@@ -67,7 +67,11 @@
         </div>
     </fieldset>
     {% else %}
-    <div class="empty-state"><div class="empty-icon">🎁</div>Здесь пока ничего не выпадает.</div>
+    <div class="empty-state">
+        <div class="empty-icon">🎁</div>
+        <div>Здесь пока ничего не выпадает.</div>
+        <a href="#new-drop" class="btn btn-primary" onclick="document.getElementById('new-drop').scrollIntoView({behavior:'smooth'})">➕ Добавить первый дроп</a>
+    </div>
     {% endfor %}
 </div>
 

@@ -50,6 +50,9 @@
                 <td>{{ instance_counts.get(item.id, 0) }}</td>
                 <td>
                     <a href="/item/{{ item.id }}/edit" class="btn btn-primary btn-sm">✏️</a>
+                    <form action="/item/{{ item.id }}/clone" method="post" style="display:inline" title="Клонировать">
+                        <button type="submit" class="btn btn-sm">📋</button>
+                    </form>
                     <form action="/item/{{ item.id }}/delete" method="post" style="display:inline" onsubmit="return confirm('Удалить предмет?')">
                         <button type="submit" class="btn btn-danger btn-sm">🗑</button>
                     </form>

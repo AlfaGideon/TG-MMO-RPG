@@ -212,6 +212,41 @@ a { color: inherit; }
     font-weight: 600;
 }
 
+.context-submenu {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    margin: 0.15rem 0 0.5rem 1.95rem;
+    padding-left: 0.75rem;
+    border-left: 2px solid var(--border);
+}
+
+.context-submenu .context-label {
+    font-size: 0.78rem;
+    color: var(--text);
+    font-weight: 600;
+    padding: 0.35rem 0.6rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.context-submenu a {
+    display: block;
+    padding: 0.4rem 0.6rem;
+    border-radius: 6px;
+    color: var(--text-muted);
+    text-decoration: none;
+    font-size: 0.8rem;
+    transition: background 0.15s, color 0.15s;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.context-submenu a:hover { background: var(--bg-hover); color: var(--text); }
+.context-submenu a.active { color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+
 .sidebar-footer {
     padding: 1rem 0.9rem 1.1rem;
     border-top: 1px solid var(--border);

@@ -157,9 +157,16 @@
 
         <fieldset class="field-group">
             <span class="group-title">🖼 Внешний вид</span>
+            {% if item.image_url %}
+            <div style="margin-bottom:0.75rem;">
+                <img id="itemPreview" src="{{ item.image_url }}" style="max-width:150px; max-height:150px; border-radius:8px; border:1px solid var(--border);">
+            </div>
+            {% else %}
+            <img id="itemPreview" style="display:none; max-width:150px; max-height:150px; border-radius:8px; border:1px solid var(--border); margin-bottom:0.75rem;">
+            {% endif %}
             <div class="field-row cols-2">
                 <div><label class="form-label">Файл картинки</label>
-                    <input type="file" name="image" accept="image/*" class="search-box"></div>
+                    <input type="file" name="image" accept="image/*" class="search-box" data-preview="#itemPreview"></div>
                 <div><label class="form-label">Или URL</label>
                     <input type="text" name="image_url" value="{{ item.image_url or '' }}" class="search-box" placeholder="https://..."></div>
             </div>

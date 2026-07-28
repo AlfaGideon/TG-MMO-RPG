@@ -66,8 +66,10 @@
     <form action="/editor/location/{{ location.id }}/save" method="post" enctype="multipart/form-data" style="margin-bottom: 1.5rem;">
         {% if location.image_url %}
         <div style="margin-bottom: 1rem;">
-            <img src="{{ location.image_url }}" style="max-width: 200px; border-radius: 8px; border: 1px solid var(--border);">
+            <img id="locPreview" src="{{ location.image_url }}" style="max-width: 200px; border-radius: 8px; border: 1px solid var(--border);">
         </div>
+        {% else %}
+        <img id="locPreview" style="display:none; max-width:200px; border-radius:8px; border:1px solid var(--border); margin-bottom:1rem;">
         {% endif %}
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
             <div>
@@ -111,7 +113,7 @@
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
             <div>
                 <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">🖼 Картинка локации (файл)</label>
-                <input type="file" name="image" accept="image/*" class="search-box" style="max-width: 100%;">
+                <input type="file" name="image" accept="image/*" class="search-box" style="max-width: 100%;" data-preview="#locPreview">
             </div>
             <div>
                 <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Или URL картинки</label>

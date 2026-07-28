@@ -112,6 +112,17 @@
             <a href="/players" class="nav-link {% if path.startswith('/player') %}active{% endif %}">
                 <span class="nav-icon">👥</span> Игроки
             </a>
+            {% set player_ctx = request.state.player_ctx if request.state and request.state.get('player_ctx') else None %}
+            {% if player_ctx %}
+            <div class="context-submenu">
+                <div class="context-label">👤 {{ player_ctx.name }}</div>
+                <a href="/player/{{ player_ctx.id }}" class="{% if path == '/player/' ~ player_ctx.id %}active{% endif %}">📊 Обзор</a>
+                <a href="/player/{{ player_ctx.id }}#stats" onclick="document.querySelector('[data-tab=tab-stats]')?.click(); return false;">✏️ Характеристики</a>
+                <a href="/player/{{ player_ctx.id }}#inventory" onclick="document.querySelector('[data-tab=tab-inventory]')?.click(); return false;">🎒 Инвентарь</a>
+                <a href="/player/{{ player_ctx.id }}#access" onclick="document.querySelector('[data-tab=tab-access]')?.click(); return false;">👑 VIP и доступ</a>
+                <a href="/player/{{ player_ctx.id }}#chat" onclick="document.querySelector('[data-tab=tab-chat]')?.click(); return false;">💬 Чат</a>
+            </div>
+            {% endif %}
             <a href="/map" class="nav-link {% if path == '/map' %}active{% endif %}">
                 <span class="nav-icon">🗺</span> Карта игроков
             </a>
@@ -226,6 +237,23 @@ function showToast(msg, type='success') {
     setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 300); }, 3500);
 }
 
+function setupImagePreviews() {
+    document.querySelectorAll('input[type=file][data-preview]').forEach(input => {
+        input.addEventListener('change', function() {
+            const target = document.querySelector(input.dataset.preview);
+            if (!target) return;
+            const file = input.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = e => {
+                target.src = e.target.result;
+                target.style.display = 'block';
+            };
+            reader.readAsDataURL(file);
+        });
+    });
+}
+
 function toggleGroup(id) {
     const el = document.getElementById(id);
     const willOpen = !el.classList.contains('open');
@@ -240,6 +268,8 @@ function toggleGroup(id) {
         if (saved === '1') el.classList.add('open');
     });
 })();
+
+document.addEventListener('DOMContentLoaded', setupImagePreviews);
 
 (function initGlobalSearch() {
     const modal = document.getElementById('searchModal');

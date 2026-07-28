@@ -146,12 +146,14 @@
                 <h3 style="margin-bottom: 1rem;">🖼 Картинка клетки</h3>
                 {% if cell.image_url %}
                 <div style="margin-bottom: 1rem;">
-                    <img src="{{ cell.image_url }}" style="max-width: 200px; border-radius: 8px; border: 1px solid var(--border);">
+                    <img id="cellPreview" src="{{ cell.image_url }}" style="max-width: 200px; border-radius: 8px; border: 1px solid var(--border);">
                 </div>
+                {% else %}
+                <img id="cellPreview" style="display:none; max-width:200px; border-radius:8px; border:1px solid var(--border); margin-bottom:1rem;">
                 {% endif %}
                 <div style="margin-bottom: 1rem;">
                     <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Загрузить новую картинку</label>
-                    <input type="file" name="image" accept="image/*" class="search-box" style="max-width: 100%;">
+                    <input type="file" name="image" accept="image/*" class="search-box" style="max-width: 100%;" data-preview="#cellPreview">
                 </div>
                 <div style="margin-bottom: 1rem;">
                     <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Или URL картинки</label>

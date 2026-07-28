@@ -411,6 +411,8 @@ async def player_detail(request: Request, char_id: int):
     active_caps = webauth.caps_for(char.user.web_admin_role, char.user.web_admin_caps) \
         if char.user.is_web_admin else set()
 
+    request.state.player_ctx = {"id": char.id, "name": char.name}
+
     return templates.TemplateResponse(
         request,
         "player_detail.html",
@@ -1135,6 +1137,46 @@ async def item_new(
             item.image_url = save_uploaded_image(image, "item", item.id)
         await session.commit()
     return RedirectResponse(url="/items", status_code=303)
+
+
+@app.post("/item/{item_id}/clone")
+async def item_clone(request: Request, item_id: int):
+    guard(request, "manage_content")
+    async with async_session() as session:
+        item = await session.get(Item, item_id)
+        if not item:
+            return RedirectResponse(url="/items", status_code=303)
+        new_item = Item(
+            name=f"{item.name} (копия)",
+            description=item.description,
+            item_type=item.item_type,
+            rarity=item.rarity,
+            level_requirement=item.level_requirement,
+            price=item.price,
+            bonus_strength=item.bonus_strength,
+            bonus_agility=item.bonus_agility,
+            bonus_intelligence=item.bonus_intelligence,
+            bonus_endurance=item.bonus_endurance,
+            bonus_luck=item.bonus_luck,
+            bonus_hp=item.bonus_hp,
+            bonus_mp=item.bonus_mp,
+            bonus_damage=item.bonus_damage,
+            bonus_defense=item.bonus_defense,
+            icon=item.icon,
+            stat_variance=item.stat_variance,
+            is_unique_roll=item.is_unique_roll,
+            is_sellable=item.is_sellable,
+            max_upgrade_level=item.max_upgrade_level,
+            is_one_of_a_kind=False,
+            is_festive=item.is_festive,
+            festive_event=item.festive_event,
+            magic_school=item.magic_school,
+            magic_power=item.magic_power,
+        )
+        session.add(new_item)
+        await session.flush()
+        await session.commit()
+    return RedirectResponse(url=f"/item/{new_item.id}/edit", status_code=303)
 
 
 @app.post("/item/{item_id}/delete")
@@ -1877,6 +1919,43 @@ async def mob_edit(
     return RedirectResponse(url="/editor/mobs", status_code=303)
 
 
+@app.post("/editor/mobs/{mob_id}/clone")
+async def mob_clone(request: Request, mob_id: int):
+    guard(request, "manage_content")
+    async with async_session() as session:
+        mob = await session.get(Mob, mob_id)
+        if not mob:
+            return RedirectResponse(url="/editor/mobs", status_code=303)
+        new_mob = Mob(
+            name=f"{mob.name} (копия)",
+            description=mob.description,
+            level=mob.level,
+            hp=mob.hp,
+            damage=mob.damage,
+            defense=mob.defense,
+            gold_reward=mob.gold_reward,
+            exp_reward=mob.exp_reward,
+            location_id=mob.location_id,
+            is_boss=mob.is_boss,
+            spawn_chance=mob.spawn_chance,
+            population=mob.population,
+            respawn_seconds=mob.respawn_seconds,
+            move_interval_seconds=mob.move_interval_seconds,
+            can_roam=mob.can_roam,
+            roam_radius=mob.roam_radius,
+            gold_min=mob.gold_min,
+            gold_max=mob.gold_max,
+        )
+        session.add(new_mob)
+        await session.flush()
+        await session.commit()
+
+        from core.spawns import ensure_population
+        await ensure_population(session, new_mob)
+        await session.commit()
+    return RedirectResponse(url="/editor/mobs", status_code=303)
+
+
 @app.post("/editor/mobs/{mob_id}/delete")
 async def mob_delete(request: Request, mob_id: int):
     guard(request, "manage_content")
@@ -1989,6 +2068,34 @@ async def quest_edit(
             elif image_url.strip():
                 q.image_url = image_url.strip()
             await session.commit()
+    return RedirectResponse(url="/editor/quests", status_code=303)
+
+
+@app.post("/editor/quests/{quest_id}/delete")
+@app.post("/editor/quests/{quest_id}/clone")
+async def quest_clone(request: Request, quest_id: int):
+    guard(request, "manage_content")
+    async with async_session() as session:
+        q = await session.get(Quest, quest_id)
+        if not q:
+            return RedirectResponse(url="/editor/quests", status_code=303)
+        new_q = Quest(
+            name=f"{q.name} (копия)",
+            description=q.description,
+            objective_type=q.objective_type,
+            objective_target=q.objective_target,
+            objective_count=q.objective_count,
+            reward_gold=q.reward_gold,
+            reward_exp=q.reward_exp,
+            reward_item_id=q.reward_item_id,
+            min_level=q.min_level,
+            location_id=q.location_id,
+            npc_name=q.npc_name,
+            image_url=q.image_url,
+        )
+        session.add(new_q)
+        await session.flush()
+        await session.commit()
     return RedirectResponse(url="/editor/quests", status_code=303)
 
 
@@ -2390,6 +2497,51 @@ async def class_edit(
             for field, value in _class_payload(locals()).items():
                 setattr(cls, field, value)
             await session.commit()
+    return RedirectResponse(url="/editor/classes", status_code=303)
+
+
+@app.post("/editor/classes/{class_id}/delete")
+@app.post("/editor/classes/{class_id}/clone")
+async def class_clone(request: Request, class_id: int):
+    guard(request, "manage_content")
+    async with async_session() as session:
+        cls = await session.get(CharacterClassDef, class_id)
+        if not cls:
+            return RedirectResponse(url="/editor/classes", status_code=303)
+
+        base_key = cls.key.rstrip("_copy")
+        for suffix in ["", "_2", "_3", "_4", "_5"]:
+            new_key = f"{base_key}_copy{suffix}" if suffix else f"{base_key}_copy"
+            existing = await session.execute(
+                select(CharacterClassDef).where(CharacterClassDef.key == new_key)
+            )
+            if not existing.scalar_one_or_none():
+                break
+        else:
+            new_key = f"{base_key}_copy_{int(datetime.utcnow().timestamp())}"
+
+        new_cls = CharacterClassDef(
+            key=new_key,
+            name=f"{cls.name} (копия)",
+            icon=cls.icon,
+            description=cls.description,
+            base_strength=cls.base_strength, base_agility=cls.base_agility,
+            base_intelligence=cls.base_intelligence,
+            base_endurance=cls.base_endurance, base_luck=cls.base_luck,
+            base_hp=cls.base_hp, base_mp=cls.base_mp,
+            growth_strength=cls.growth_strength, growth_agility=cls.growth_agility,
+            growth_intelligence=cls.growth_intelligence,
+            growth_endurance=cls.growth_endurance, growth_luck=cls.growth_luck,
+            growth_hp=cls.growth_hp, growth_mp=cls.growth_mp,
+            image_url=cls.image_url,
+            is_enabled=False,
+            sort_order=cls.sort_order,
+            affinity_chance=cls.affinity_chance,
+            dual_affinity_chance=cls.dual_affinity_chance,
+            preferred_schools=cls.preferred_schools,
+        )
+        session.add(new_cls)
+        await session.commit()
     return RedirectResponse(url="/editor/classes", status_code=303)
 
 

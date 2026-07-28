@@ -74,6 +74,9 @@
                             data-radius="{{ mob.roam_radius }}"
                             data-image="{{ mob.image_url or '' }}">✏️</button>
                     <a href="/editor/drops?owner_type=mob" class="btn btn-sm" title="Таблица лута">🎁</a>
+                    <form action="/editor/mobs/{{ mob.id }}/clone" method="post" style="display:inline" title="Клонировать">
+                        <button type="submit" class="btn btn-sm">📋</button>
+                    </form>
                     <form action="/editor/mobs/{{ mob.id }}/delete" method="post" style="display:inline" onsubmit="return confirm('Удалить моба? Его живые экземпляры тоже исчезнут.')">
                         <button type="submit" class="btn btn-danger btn-sm">🗑</button>
                     </form>
@@ -81,7 +84,11 @@
             </tr>
             {% else %}
             <tr><td colspan="15">
-                <div class="empty-state"><div class="empty-icon">👾</div>Монстров пока нет.</div>
+                <div class="empty-state">
+                    <div class="empty-icon">👾</div>
+                    <div>Монстров пока нет.</div>
+                    <a href="#mob-form" class="btn btn-primary" onclick="document.getElementById('mob-form').scrollIntoView({behavior:'smooth'})">➕ Создать первого моба</a>
+                </div>
             </td></tr>
             {% endfor %}
         </tbody>
@@ -179,9 +186,10 @@
 
         <fieldset class="field-group">
             <span class="group-title">🖼 Внешний вид</span>
+            <img id="mobPreview" style="display:none; max-width:150px; max-height:150px; border-radius:8px; border:1px solid var(--border); margin-bottom:0.75rem;">
             <div class="field-row cols-2">
                 <div><label class="form-label">Файл картинки</label>
-                    <input type="file" name="image" accept="image/*" class="search-box"></div>
+                    <input type="file" name="image" accept="image/*" class="search-box" data-preview="#mobPreview"></div>
                 <div><label class="form-label">Или URL</label>
                     <input type="text" name="image_url" id="m_image_url" class="search-box" placeholder="https://..."></div>
             </div>
