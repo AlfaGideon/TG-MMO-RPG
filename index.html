@@ -29,6 +29,7 @@
     <nav class="sidebar-nav" id="nav"></nav>
     <div class="sidebar-footer">
       <div id="botPill"><span class="dot" id="botDot"></span><span id="botText">Загрузка…</span></div>
+      <div class="build">вход: <span id="whoami">…</span></div>
       <div class="build">сборка <span id="buildStamp">…</span></div>
     </div>
   </aside>
@@ -58,12 +59,17 @@
 const MODULES = [
   "engine/data.py","engine/models.py","engine/world.py","engine/rules.py",
   "engine/permissions.py","engine/texts.py","engine/mapview.py",
-  "engine/adminbot.py","engine/combat.py","engine/game.py","engine/storage.py",
-  "webapp/html.py","webapp/backend.py","webapp/dom.py",
+  "engine/audit.py","engine/adminops.py","engine/adminmenu.py",
+  "engine/adminbot.py","engine/adminroute.py",
+  "engine/combat.py","engine/itemui.py","engine/inventory.py","engine/shop.py",
+  "engine/game.py","engine/storage.py",
+  "webapp/html.py","webapp/backend.py","webapp/dom.py","webapp/session.py",
   "webapp/transport.py","webapp/telegram.py",
   "webapp/pages/dashboard.py","webapp/pages/bot.py","webapp/pages/players.py",
-  "webapp/pages/dungeons.py","webapp/pages/world.py","webapp/pages/content.py","webapp/pages/settings.py",
-  "webapp/actions/bot_actions.py","webapp/actions/content_actions.py",
+  "webapp/pages/dungeons.py","webapp/pages/world.py","webapp/pages/content.py",
+  "webapp/pages/audit.py","webapp/pages/settings.py",
+  "webapp/actions/audit_actions.py","webapp/actions/bot_actions.py",
+  "webapp/actions/content_actions.py",
   "webapp/actions/player_actions.py",
   "webapp/actions/world_actions.py",
   "webapp/app.py","webapp/boot.py",

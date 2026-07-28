@@ -1,7 +1,8 @@
 """Роутер бота: команда/callback -> Reply. Не знает ничего про Telegram."""
 import random
 
-from engine import adminbot, combat, data, mapview, rules, texts, world
+from engine import (adminbot, adminroute, combat, data, inventory, mapview,
+                    rules, shop, texts, world)
 from engine.models import Reply
 
 
@@ -40,6 +41,14 @@ class Game:
 
     def do_adminpass(self, p, arg=""):
         return adminbot.password(p, self.store)
+
+    def do_adm(self, p, arg=""):
+        """Все админ-кнопки бота: adm:<команда>[:аргументы]."""
+        return adminroute.handle(p, self.store, arg)
+
+    def text_input(self, p, text):
+        """Свободный ввод текста. Сейчас нужен только для рассылки."""
+        return adminroute.text_input(p, self.store, text)
 
     def do_help(self, p, arg=""):
         return Reply(text=texts.HELP, keyboard=[[("◀️ Меню", "menu")]])
@@ -204,107 +213,54 @@ class Game:
                            f"Сейчас: {p.hp}/{s['max_hp']} HP"),
                      keyboard=[[("◀️ В мир", "world")]])
 
-    # ── инвентарь ───────────────────────────────────────────
+    # ── инвентарь (реализация в engine/inventory.py) ────────
     def do_bag(self, p, arg=""):
-        if not p.inventory:
-            return Reply(text="🎒 <b>Инвентарь</b>\n\nСумка пуста.",
-                         keyboard=[[("◀️ Меню", "menu")]])
-        rows, seen = [], {}
-        for slot, idx in p.equipped.items():
-            seen[idx] = slot
-        lines = ["🎒 <b>Инвентарь</b>\n"]
-        for pos, idx in enumerate(p.inventory):
-            it = rules.item(idx)
-            lines.append(texts.item_line(idx, idx in seen))
-            rows.append([(f"{it['icon']} {it['name']}", f"it:{pos}")])
-        rows.append([("◀️ Меню", "menu")])
-        return Reply(text="\n".join(lines), keyboard=rows[:12])
+        return inventory.bag(p, 0)
+
+    def do_bagp(self, p, arg="0"):
+        return inventory.bag(p, arg or 0)
 
     def do_it(self, p, arg):
-        pos = int(arg)
-        if pos >= len(p.inventory):
-            return Reply(alert="Предмет не найден.")
-        idx = p.inventory[pos]
-        it = rules.item(idx)
-        rows = []
-        if it["type"] == "consumable":
-            rows.append([("🧪 Использовать", f"use:{pos}")])
-        elif p.equipped.get(it["type"]) == idx:
-            rows.append([("➖ Снять", f"off:{pos}")])
-        else:
-            rows.append([("✅ Надеть", f"on:{pos}")])
-        rows.append([("💰 Продать", f"sell:{pos}"), ("🗑 Выбросить", f"toss:{pos}")])
-        rows.append([("◀️ Назад", "bag")])
-        bon = "\n".join(f"• {k} +{v}" for k, v in it["bonus"].items()) or "—"
-        return Reply(text=(f"{it['icon']} <b>{it['name']}</b>\n"
-                           f"<i>{it['type']} · {it['rarity']}</i>\n\n{bon}\n\n"
-                           f"Цена продажи: {it['price'] // 2} 🪙"), keyboard=rows)
+        return inventory.card(p, arg)
 
     def do_on(self, p, arg):
-        idx = p.inventory[int(arg)]
-        it = rules.item(idx)
-        if it["type"] not in rules.SLOTS:
-            return Reply(alert="Это нельзя надеть.")
-        p.equipped[it["type"]] = idx
-        r = self.do_bag(p)
-        r.alert = f"Надето: {it['name']}"
-        return r
+        return inventory.equip(p, arg)
 
     def do_off(self, p, arg):
-        idx = p.inventory[int(arg)]
-        it = rules.item(idx)
-        p.equipped.pop(it["type"], None)
-        return self.do_bag(p)
+        return inventory.unequip(p, arg)
 
     def do_use(self, p, arg):
-        pos = int(arg)
-        idx = p.inventory[pos]
-        it = rules.item(idx)
-        s = rules.stats(p)
-        if "heal" in it["bonus"]:
-            p.hp = min(s["max_hp"], p.hp + it["bonus"]["heal"])
-        if "mana" in it["bonus"]:
-            p.mp = min(s["max_mp"], p.mp + it["bonus"]["mana"])
-        p.inventory.pop(pos)
-        r = combat.view(p) if p.combat else self.do_bag(p)
-        r.alert = f"Использовано: {it['name']}"
-        return r
+        return inventory.use(p, arg)
 
     def do_sell(self, p, arg):
-        pos = int(arg)
-        idx = p.inventory.pop(pos)
-        it = rules.item(idx)
-        if p.equipped.get(it["type"]) == idx:
-            p.equipped.pop(it["type"])
-        p.gold += it["price"] // 2
-        r = self.do_bag(p)
-        r.alert = f"Продано за {it['price'] // 2} 🪙"
-        return r
+        return inventory.sell(p, arg)
 
     def do_toss(self, p, arg):
-        idx = p.inventory.pop(int(arg))
-        it = rules.item(idx)
-        if p.equipped.get(it["type"]) == idx:
-            p.equipped.pop(it["type"])
-        return self.do_bag(p)
+        return inventory.toss(p, arg)
 
-    # ── лавка и топ ─────────────────────────────────────────
-    def do_shop(self, p, arg=""):
-        rows = [[(f"{rules.item(i)['icon']} {rules.item(i)['name']} — {rules.item(i)['price']}🪙",
-                  f"buy:{i}")] for i in range(len(data.ITEMS))]
-        rows.append([("◀️ Меню", "menu")])
-        return Reply(text=f"🏪 <b>Лавка Варна</b>\n\nУ тебя: {p.gold} 🪙", keyboard=rows)
+    # ── лавка (реализация в engine/shop.py) ─────────────────
+    def do_shop(self, p, arg="0"):
+        return shop.shop(p, arg or 0)
+
+    def do_buyc(self, p, arg):
+        return shop.buy_card(p, arg)
 
     def do_buy(self, p, arg):
-        it = rules.item(int(arg))
-        if p.gold < it["price"]:
-            return Reply(alert="Недостаточно золота!")
-        p.gold -= it["price"]
-        p.inventory.append(it["idx"])
-        r = self.do_shop(p)
-        r.alert = f"Куплено: {it['name']}"
-        return r
+        return shop.buy(p, arg)
 
+    def do_sellbag(self, p, arg="0"):
+        return shop.sell_list(p, arg or 0)
+
+    def do_sellc(self, p, arg):
+        return shop.sell_card(p, arg)
+
+    def do_sells(self, p, arg):
+        return shop.sell_here(p, arg)
+
+    def do_noop(self, p, arg=""):
+        return Reply(alert="")
+
+    # ── топ ─────────────────────────────────────────────────
     def do_top(self, p, arg=""):
         rows = sorted(self.store.players.values(),
                       key=lambda q: (q.level, q.exp), reverse=True)[:10]

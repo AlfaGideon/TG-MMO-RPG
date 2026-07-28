@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shadow Lands — перенаправление</title>
+<link rel="stylesheet" href="/webapp/static/admin.css?v=3">
+<style>body{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:1rem;text-align:center}</style>
+</head>
+<body>
+<div class="card" style="max-width:440px">
+  <h2>🌀 Перенаправление…</h2>
+  <p class="muted" id="msg">Ищу нужную страницу панели.</p>
+  <p style="margin-top:.8rem"><a id="fallback" class="btn" href="/">На главную</a></p>
+</div>
+<script>
+// GitHub Pages — статика: серверных маршрутов вроде /admin-login нет.
+// Этот файл ловит любой 404 и уводит на реальную страницу, сохраняя ?query.
+(function () {
+  var path = location.pathname.replace(/\/+$/, "");
+  var seg = path.split("/").filter(Boolean);
+  var last = seg.length ? seg[seg.length - 1] : "";
+
+  // База проекта: на user.github.io/<repo>/... первый сегмент — имя репозитория.
+  var base = "/";
+  if (location.hostname.endsWith("github.io") && seg.length > 1) base = "/" + seg[0] + "/";
+
+  var ROUTES = {
+    "admin-login": "admin-login.html",
+    "admin-logout": "index.html?logout=1",
+    "admin": "index.html",
+    "panel": "index.html",
+  };
+
+  var target = ROUTES[last] || "index.html";
+  var sep = target.indexOf("?") >= 0 ? "&" : "?";
+  var qs = location.search ? location.search.slice(1) : "";
+  var url = base + target + (qs ? sep + qs : "");
+
+  document.getElementById("fallback").href = base;
+  document.getElementById("msg").textContent = "Открываю " + url;
+  location.replace(url);
+})();
+</script>
+</body>
+</html>

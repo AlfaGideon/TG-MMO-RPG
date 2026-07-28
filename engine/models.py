@@ -53,6 +53,7 @@ class Player:
     web_admin_caps: list = field(default_factory=list)   # точечные права
     web_admin_password: str = ""                    # пароль входа в панель
     admin_notified: bool = False                    # уже получил доступ в боте
+    pending: str = ""                               # ждём свободный ввод (рассылка)
 
     @property
     def created_char(self):

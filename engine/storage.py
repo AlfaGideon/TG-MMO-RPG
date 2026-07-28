@@ -13,6 +13,9 @@ class Store:
         self.settings = {"token": "", "seed": 1337, "welcome_bonus": 50,
                          "proxy_mode": "direct", "proxy_url": ""}
         self.load()
+        # Шаблоны подземелий нужны и боту, и панели — заводим их здесь,
+        # а не при рендере страницы, иначе бот их не увидит.
+        self.settings.setdefault("dungeon_templates", default_dungeons())
 
     # ── загрузка/сохранение ─────────────────────────────────
     def load(self):
@@ -74,6 +77,17 @@ class Store:
             "avg_level": round(sum(p.level for p in made) / len(made), 1) if made else 0,
             "cells": len(self.world),
         }
+
+
+def default_dungeons():
+    return [
+        {"id": 0, "name": "🔥 Огненная Преисподняя",
+         "desc": "Пещеры, заполненные лавой и демонами.",
+         "min_level": 5, "grid_size": 15, "portal_cell": None},
+        {"id": 1, "name": "🕸 Забытый Склеп Пауков",
+         "desc": "Гробница древнего короля, затянутая густой паутиной.",
+         "min_level": 3, "grid_size": 12, "portal_cell": None},
+    ]
 
 
 def _cell_dict(c):

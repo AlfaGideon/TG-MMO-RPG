@@ -73,6 +73,10 @@ class TelegramBot:
                         await self.dispatch(upd)
                     except Exception as e:
                         self.log("err", f"handler: {e}")
+                try:
+                    await self.flush_outbox()      # уведомления из панели
+                except Exception as e:
+                    self.log("err", f"outbox: {e}")
             except asyncio.CancelledError:
                 return
             except Exception as e:
@@ -89,9 +93,19 @@ class TelegramBot:
             text = msg.get("text", "")
             self.log("in", f"{frm.get('first_name','?')}: {text}")
             p = self._player(frm)
+
+            # Админ ждёт свободный ввод (например, текст рассылки).
+            pending = self.game.text_input(p, text) if not text.startswith("/") else None
+            if pending is not None:
+                self.store.save_player(p)
+                await self.send(chat, p, pending, force_new=True)
+                await self.flush_outbox()
+                return
+
             action = "start" if text.startswith("/start") else \
                      "help" if text.startswith("/help") else \
-                     "profile" if text.startswith("/profile") else "menu"
+                     "profile" if text.startswith("/profile") else \
+                     "admin" if text.startswith("/admin") else "menu"
             reply = self.game.handle(p, action)
             self.store.save_player(p)
             await self.send(chat, p, reply, force_new=True)
@@ -109,6 +123,7 @@ class TelegramBot:
                             text=reply.alert or None, show_alert=bool(reply.alert))
             if reply.text:
                 await self.send(chat, p, reply)
+            await self.flush_outbox()
 
     def _player(self, frm):
         name = frm.get("first_name") or frm.get("username") or "Изгнанник"
@@ -158,4 +173,22 @@ class TelegramBot:
             r = await self.call("sendMessage", chat_id=tg_id, text=text, parse_mode="HTML")
             sent += 1 if r.get("ok") else 0
         self.log("sys", f"Рассылка: доставлено {sent}")
+        return sent
+
+    async def flush_outbox(self):
+        """Разбирает очередь сообщений, наполненную админ-действиями.
+
+        В очередь пишут и панель, и бот (engine.adminops), поэтому уведомления
+        игрокам уходят одинаково, кто бы ни нажал кнопку.
+        """
+        from engine import adminops
+
+        pending = adminops.drain(self.store)
+        sent = 0
+        for chat_id, text in pending:
+            r = await self.call("sendMessage", chat_id=chat_id, text=text,
+                                parse_mode="HTML")
+            sent += 1 if r.get("ok") else 0
+        if pending:
+            self.log("out", f"Уведомления игрокам: {sent}/{len(pending)}")
         return sent

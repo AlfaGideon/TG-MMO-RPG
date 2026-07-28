@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🔑 Вход — Shadow Lands Admin</title>
+<link rel="stylesheet" href="webapp/static/admin.css?v=3">
+<style>
+body{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:1rem}
+.login{max-width:390px;width:100%}
+.login .brand{text-align:center;margin-bottom:1.1rem}
+.login .brand .ico{font-size:2.4rem;line-height:1}
+.login .brand h1{font-size:1.15rem;margin-top:.35rem}
+.login .brand p{color:var(--text-muted);font-size:.8rem}
+.login .f{margin-bottom:.7rem}
+.login button{width:100%;padding:.6rem;margin-top:.3rem}
+.err{background:#ef444418;border-left:3px solid var(--danger);padding:.55rem .75rem;
+     border-radius:0 7px 7px 0;font-size:.82rem;margin-bottom:.7rem;display:none}
+.err.show{display:block}
+</style>
+</head>
+<body>
+<div class="login">
+  <div class="brand">
+    <div class="ico">🌑</div>
+    <h1>Shadow Lands</h1>
+    <p>Вход в панель администратора</p>
+  </div>
+  <div class="card">
+    <div class="err" id="err"></div>
+    <div class="f">
+      <label>Telegram ID (логин)</label>
+      <input id="uid" inputmode="numeric" placeholder="123456789" autocomplete="username">
+    </div>
+    <div class="f">
+      <label>Пароль</label>
+      <input id="pwd" type="password" placeholder="пароль из бота" autocomplete="current-password">
+    </div>
+    <button class="btn primary" id="go">Войти</button>
+    <p class="muted" style="margin-top:.8rem;line-height:1.6">
+      Логин и пароль выдаёт бот: команда <code>/admin</code> →
+      <b>🔑 Логин и пароль</b>.
+    </p>
+  </div>
+  <p class="muted" style="text-align:center;font-size:.75rem">
+    <a href="index.html">← Открыть панель владельца</a>
+  </p>
+</div>
+
+<script>
+// Статическая «прокладка» для GitHub Pages: на статике нет серверного роутинга,
+// поэтому /admin-login отдаётся этим файлом. Проверка — по данным, которые
+// панель хранит в localStorage этого же origin.
+const q = new URLSearchParams(location.search);
+const uidBox = document.getElementById("uid");
+const pwdBox = document.getElementById("pwd");
+const errBox = document.getElementById("err");
+
+uidBox.value = (q.get("uid") || "").trim();
+(uidBox.value ? pwdBox : uidBox).focus();
+
+function fail(msg) {
+  errBox.textContent = "⚠️ " + msg;
+  errBox.classList.add("show");
+}
+
+function state() {
+  try { return JSON.parse(localStorage.getItem("shadowlands") || "{}"); }
+  catch (e) { return {}; }
+}
+
+function login() {
+  errBox.classList.remove("show");
+  const uid = uidBox.value.trim();
+  const pwd = pwdBox.value;
+  if (!uid || !pwd) return fail("Заполни логин и пароль.");
+
+  const players = state().players || {};
+  const me = players[uid];
+  if (!me) {
+    return fail("Панель на этом устройстве ещё не видела такого игрока. " +
+                "Открой её один раз как владелец, запусти бота — и повтори вход.");
+  }
+  if (!me.is_web_admin || !me.web_admin_password) return fail("Доступ не выдан.");
+  if (me.web_admin_password !== pwd) return fail("Неверный пароль.");
+
+  localStorage.setItem("shadowlands_session", JSON.stringify({
+    uid: Number(uid), at: Date.now(),
+  }));
+  location.replace("index.html");
+}
+
+document.getElementById("go").addEventListener("click", login);
+for (const el of [uidBox, pwdBox]) {
+  el.addEventListener("keydown", (e) => { if (e.key === "Enter") login(); });
+}
+</script>
+</body>
+</html>

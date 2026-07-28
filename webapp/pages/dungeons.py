@@ -2,16 +2,15 @@
 
 Отдельный модуль, чтобы страница мира оставалась компактной.
 """
-from engine import data, world as W
+from engine import data, storage, world as W
 from webapp.html import esc
 
 
 def render(ctx):
-    dungeons = ctx.store.settings.setdefault("dungeon_templates", [
-        {"id": 0, "name": "🔥 Огненная Преисподняя", "desc": "Пещеры, заполненные лавой и демонами.", "min_level": 5, "grid_size": 15, "portal_cell": None},
-        {"id": 1, "name": "🕸 Забытый Склеп Пауков", "desc": "Гробница древнего короля, затянутая густой паутиной.", "min_level": 3, "grid_size": 12, "portal_cell": None}
-    ])
-    
+    dungeons = ctx.store.settings.setdefault(
+        "dungeon_templates", storage.default_dungeons())
+
+
     rows = ""
     for dg in dungeons:
         portal = dg.get("portal_cell")

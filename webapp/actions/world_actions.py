@@ -2,7 +2,7 @@
 import json
 import random
 
-from engine import world as W, data
+from engine import adminops, world as W, data
 from webapp import dom
 from webapp.pages import dungeons as page_dungeons
 from webapp.pages import world as page
@@ -228,55 +228,36 @@ def _dungeon_create(app):
 
 
 def _dungeon_open(app, dg_id):
-    tpls = app.store.settings.setdefault("dungeon_templates", [])
-    dg = next((t for t in tpls if t["id"] == int(dg_id)), None)
-    if not dg:
+    from engine import adminmenu
+    try:
+        _, info = adminops.portal_open(app.store, app.actor, dg_id,
+                                       adminmenu.pick_cell)
+    except adminops.Denied as e:
+        dom.toast(str(e), "err")
         return
-        
-    if dg.get("portal_cell"):
-        dom.toast("Портал уже открыт!", "err")
-        return
-        
-    # Pick a random passable, empty cell
-    candidates = [k for k, c in app.store.world.items() 
-                  if c.passable and not c.link and c.npc < 0 and c.mob < 0 and not c.chest]
-    if not candidates:
-        dom.toast("Нет подходящих пустых клеток!", "err")
-        return
-        
-    key = random.choice(candidates)
-    c = app.store.world[key]
-    c.name = f"🌀 Портал: {dg['name']}"
-    c.desc = f"Врата сияют мистической энергией. Они ведут в подземелье '{dg['name']}' (мин. уровень {dg['min_level']})."
-    c.tile = "cave"
-    
-    dg["portal_cell"] = key
-    app.store.save()
-    
-    # Send system log notification
-    app.log("sys", f"📢 Портал '{dg['name']}' открыт на [{c.x},{c.y}] в локации {data.LOCATIONS[c.loc][0]}!")
+    app.log("sys", f"📢 Портал открыт: {info}")
     dom.toast("Портал успешно открыт!")
     app.render()
+    _flush(app)
 
 
 def _dungeon_close(app, dg_id):
-    tpls = app.store.settings.setdefault("dungeon_templates", [])
-    dg = next((t for t in tpls if t["id"] == int(dg_id)), None)
-    if not dg or not dg.get("portal_cell"):
+    try:
+        adminops.portal_close(app.store, app.actor, dg_id)
+    except adminops.Denied as e:
+        dom.toast(str(e), "err")
         return
-        
-    key = dg["portal_cell"]
-    c = app.store.world.get(key)
-    if c:
-        c.name = "Заросшая поляна"
-        c.desc = "Трава и кустарники. Здесь когда-то сиял портал."
-        c.tile = "grass"
-        
-    dg["portal_cell"] = None
-    app.store.save()
-    app.log("sys", f"❌ Портал в подземелье '{dg['name']}' закрыт администратором.")
+    app.log("sys", "❌ Портал закрыт администратором.")
     dom.toast("Портал закрыт")
     app.render()
+    _flush(app)
+
+
+def _flush(app):
+    if not getattr(app.bot, "running", False):
+        return
+    import asyncio
+    asyncio.ensure_future(app.bot.flush_outbox())
 
 
 def _dungeon_delete(app, dg_id):
