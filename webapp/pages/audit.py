@@ -3,6 +3,7 @@ from engine import audit, permissions
 from webapp.html import esc
 
 TITLE = "📜 Действия"
+CRUMBS = [("Действия", "audit")]
 
 SRC_TABS = [("", "Все"), ("panel", "🖥 Панель"), ("bot", "🤖 Бот")]
 

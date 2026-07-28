@@ -4,6 +4,7 @@ from webapp.pages import dungeons as page_dungeons
 from webapp.html import esc
 
 TITLE = "🗺 Мир"
+CRUMBS = [("Мир", "world")]
 
 
 def render(ctx):

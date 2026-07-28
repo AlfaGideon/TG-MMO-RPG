@@ -1,0 +1,40 @@
+{% macro pagination(meta, base_url, q='') %}
+{% if meta.pages > 1 %}
+<div class="pagination">
+    {% set sep = '&' if '?' in base_url else '?' %}
+    {% set qparam = ('q=' + q | urlencode + '&') if q else '' %}
+
+    {% if meta.has_prev %}
+        <a href="{{ base_url }}{{ sep }}{{ qparam }}page={{ meta.page - 1 }}">←</a>
+    {% else %}
+        <span class="disabled">←</span>
+    {% endif %}
+
+    {% for p in range(1, meta.pages + 1) %}
+        {% if p == meta.page %}
+            <span class="current">{{ p }}</span>
+        {% elif p == 1 or p == meta.pages or (p >= meta.page - 2 and p <= meta.page + 2) %}
+            <a href="{{ base_url }}{{ sep }}{{ qparam }}page={{ p }}">{{ p }}</a>
+        {% elif p == meta.page - 3 or p == meta.page + 3 %}
+            <span>...</span>
+        {% endif %}
+    {% endfor %}
+
+    {% if meta.has_next %}
+        <a href="{{ base_url }}{{ sep }}{{ qparam }}page={{ meta.page + 1 }}">→</a>
+    {% else %}
+        <span class="disabled">→</span>
+    {% endif %}
+</div>
+{% endif %}
+{% endmacro %}
+
+{% macro search_form(action, q='', placeholder='Поиск...') %}
+<form method="get" action="{{ action }}" class="list-toolbar">
+    <input type="text" name="q" value="{{ q }}" placeholder="{{ placeholder }}" class="search-box">
+    <button type="submit" class="btn btn-primary btn-sm">🔍 Найти</button>
+    {% if q %}
+        <a href="{{ action }}" class="btn btn-sm">Сбросить</a>
+    {% endif %}
+</form>
+{% endmacro %}

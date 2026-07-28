@@ -5,6 +5,87 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Shadow Lands Admin{% endblock %}</title>
     <link rel="stylesheet" href="/static/style.css">
+    <style>
+        .breadcrumbs {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.78rem;
+            color: var(--text-muted);
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+        .breadcrumbs a {
+            color: var(--text-muted);
+            text-decoration: none;
+            transition: color 0.15s;
+        }
+        .breadcrumbs a:hover { color: var(--accent); }
+        .breadcrumbs .sep { opacity: 0.5; }
+        .breadcrumbs .current { color: var(--text); font-weight: 500; }
+
+        .search-modal-overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+            z-index: 100; display: none; align-items: flex-start; justify-content: center;
+            padding-top: 12vh;
+        }
+        .search-modal-overlay.open { display: flex; }
+        .search-modal {
+            width: min(560px, 92vw);
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+            overflow: hidden;
+        }
+        .search-input-wrap {
+            display: flex; align-items: center; gap: 0.6rem;
+            padding: 0.85rem 1rem; border-bottom: 1px solid var(--border);
+        }
+        .search-input-wrap input {
+            flex: 1; background: transparent; border: none; color: var(--text);
+            font-size: 1rem; outline: none;
+        }
+        .search-shortcut {
+            font-size: 0.7rem; color: var(--text-muted); border: 1px solid var(--border);
+            padding: 0.15rem 0.4rem; border-radius: 6px;
+        }
+        .search-results { max-height: 60vh; overflow-y: auto; }
+        .search-category {
+            font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.08em;
+            color: var(--accent); padding: 0.6rem 1rem 0.35rem;
+        }
+        .search-result-row {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 0.65rem 1rem; color: var(--text); text-decoration: none;
+            border-bottom: 1px solid var(--border); transition: background 0.1s;
+        }
+        .search-result-row:hover, .search-result-row.active {
+            background: var(--bg-hover); color: var(--text);
+        }
+        .search-result-meta { font-size: 0.72rem; color: var(--text-muted); }
+        .search-empty { padding: 1.5rem; text-align: center; color: var(--text-muted); }
+
+        .pagination {
+            display: flex; align-items: center; justify-content: center;
+            gap: 0.35rem; margin-top: 1rem; flex-wrap: wrap;
+        }
+        .pagination a, .pagination span {
+            min-width: 2rem; height: 2rem; display: inline-flex;
+            align-items: center; justify-content: center; border-radius: 8px;
+            border: 1px solid var(--border); color: var(--text-muted);
+            text-decoration: none; font-size: 0.82rem;
+        }
+        .pagination a:hover { border-color: var(--accent); color: var(--text); }
+        .pagination .current { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); font-weight: 600; }
+        .pagination .disabled { opacity: 0.4; pointer-events: none; }
+
+        .list-toolbar {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem;
+        }
+        .list-toolbar form { display: flex; align-items: center; gap: 0.5rem; }
+    </style>
 </head>
 <body>
 {% set path = request.path %}
@@ -101,11 +182,28 @@
         <header class="topbar">
             <button class="menu-toggle" onclick="toggleSidebar()">☰</button>
             <div class="page-title">{% block page_title %}{% endblock %}</div>
-            <div class="topbar-actions">{% block topbar_actions %}{% endblock %}</div>
+            <div class="topbar-actions">
+                <button type="button" class="btn btn-sm" onclick="openSearchModal()" title="Поиск (Ctrl/Cmd+K)">
+                    🔍 Поиск <span class="search-shortcut" style="margin-left:0.3rem">Ctrl K</span>
+                </button>
+                {% block topbar_actions %}{% endblock %}
+            </div>
         </header>
         <div class="container">
+            {% block breadcrumbs %}{% endblock %}
             {% block content %}{% endblock %}
         </div>
+    </div>
+</div>
+
+<div class="search-modal-overlay" id="searchModal" onclick="closeSearchModal(event)">
+    <div class="search-modal" onclick="event.stopPropagation()">
+        <div class="search-input-wrap">
+            <span>🔍</span>
+            <input type="text" id="searchInput" placeholder="Поиск игроков, предметов, мобов, локаций..." autocomplete="off">
+            <span class="search-shortcut">ESC</span>
+        </div>
+        <div class="search-results" id="searchResults"></div>
     </div>
 </div>
 
@@ -132,6 +230,106 @@ function toggleGroup(id) {
         const saved = localStorage.getItem('navGroup:' + el.id);
         if (saved === '1') el.classList.add('open');
     });
+})();
+
+(function initGlobalSearch() {
+    const modal = document.getElementById('searchModal');
+    const input = document.getElementById('searchInput');
+    const resultsBox = document.getElementById('searchResults');
+    let activeIndex = -1;
+    let resultRows = [];
+
+    window.openSearchModal = function() {
+        modal.classList.add('open');
+        input.value = '';
+        input.focus();
+        resultsBox.innerHTML = '<div class="search-empty">Начни вводить название, ID или имя...</div>';
+        activeIndex = -1;
+    };
+
+    window.closeSearchModal = function(e) {
+        if (e && e.target !== modal && e.type === 'click') return;
+        modal.classList.remove('open');
+    };
+
+    document.addEventListener('keydown', function(e) {
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+            e.preventDefault();
+            modal.classList.contains('open') ? closeSearchModal() : openSearchModal();
+        }
+        if (e.key === 'Escape' && modal.classList.contains('open')) {
+            closeSearchModal();
+        }
+        if (!modal.classList.contains('open')) return;
+
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            activeIndex = (activeIndex + 1) % Math.max(1, resultRows.length);
+            updateActive();
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            activeIndex = (activeIndex - 1 + resultRows.length) % Math.max(1, resultRows.length);
+            updateActive();
+        } else if (e.key === 'Enter' && activeIndex >= 0 && resultRows[activeIndex]) {
+            e.preventDefault();
+            resultRows[activeIndex].click();
+        }
+    });
+
+    function updateActive() {
+        resultRows.forEach((r, i) => r.classList.toggle('active', i === activeIndex));
+        if (resultRows[activeIndex]) resultRows[activeIndex].scrollIntoView({block: 'nearest'});
+    }
+
+    let debounce;
+    input.addEventListener('input', function() {
+        clearTimeout(debounce);
+        const q = input.value.trim();
+        if (!q) {
+            resultsBox.innerHTML = '<div class="search-empty">Начни вводить название, ID или имя...</div>';
+            resultRows = []; activeIndex = -1; return;
+        }
+        resultsBox.innerHTML = '<div class="search-empty">⏳ Ищем...</div>';
+        debounce = setTimeout(() => fetchSearch(q), 180);
+    });
+
+    async function fetchSearch(q) {
+        try {
+            const r = await fetch('/api/search?q=' + encodeURIComponent(q));
+            const data = await r.json();
+            renderResults(data.results || {});
+        } catch (e) {
+            resultsBox.innerHTML = '<div class="search-empty">Ошибка поиска</div>';
+        }
+    }
+
+    function renderResults(results) {
+        const cats = [
+            {key: 'players', label: '👤 Игроки'},
+            {key: 'items', label: '🎒 Предметы'},
+            {key: 'mobs', label: '👾 Мобы'},
+            {key: 'locations', label: '🗺 Локации'},
+        ];
+        let html = '';
+        let total = 0;
+        cats.forEach(cat => {
+            const items = results[cat.key] || [];
+            if (!items.length) return;
+            total += items.length;
+            html += '<div class="search-category">' + cat.label + '</div>';
+            items.forEach(item => {
+                html += '<a href="' + item.url + '" class="search-result-row">' +
+                    '<span>' + item.title + '</span>' +
+                    '<span class="search-result-meta">' + (item.meta || '') + '</span>' +
+                    '</a>';
+            });
+        });
+        if (!total) html = '<div class="search-empty">Ничего не найдено</div>';
+        resultsBox.innerHTML = html;
+        resultRows = Array.from(resultsBox.querySelectorAll('.search-result-row'));
+        activeIndex = resultRows.length ? 0 : -1;
+        updateActive();
+    }
 })();
 
 async function updateGitHeader(btn) {

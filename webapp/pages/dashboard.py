@@ -3,6 +3,7 @@ from engine import auction, items
 from webapp.html import esc
 
 TITLE = "📊 Сводка"
+CRUMBS = [("Dashboard", "dash")]
 
 
 def render(ctx):

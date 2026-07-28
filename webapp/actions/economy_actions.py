@@ -9,10 +9,16 @@ def register(app, A):
     A("inst-view", lambda arg: app.modal(page.instance_form(app, arg)))
     A("inst-del", lambda arg: _inst_del(app, arg))
     A("lot-del", lambda arg: _lot_del(app, arg))
+    A("instances-page", lambda arg: _set_page(app, arg))
 
 
 def _tab(app, tab):
     app.state["eco_tab"] = tab
+    app.render()
+
+
+def _set_page(app, arg):
+    app.state["instances_page"] = int(arg)
     app.render()
 
 

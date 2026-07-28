@@ -74,11 +74,13 @@ class App:
         if not self.visible(self.page):
             self.page = next((k for k, _ in PAGES if self.visible(k)), "audit")
         dom.html("#nav", self._nav_markup())
-        title = dict(PAGES)[self.page].TITLE
+        page_mod = dict(PAGES)[self.page]
+        title = page_mod.TITLE
         node = dom.el("#pageTitle")
         if node is not None:
             node.textContent = title
-        dom.html("#view", dict(PAGES)[self.page].render(self))
+        dom.html("#breadcrumbs", self._crumbs_markup(page_mod))
+        dom.html("#view", page_mod.render(self))
         self._paint_status()
 
     def _nav_markup(self):
@@ -99,6 +101,17 @@ class App:
             out += ("<div class='nav-section-label'>Сессия</div>"
                     "<button class='nav-link' data-act='logout'>"
                     "<span class='nav-icon'>🚪</span> Выйти</button>")
+        return out
+
+    def _crumbs_markup(self, page_mod):
+        from webapp.html import esc
+        crumbs = getattr(page_mod, "CRUMBS", None)
+        if not crumbs:
+            return f"<span class='current'>{esc(page_mod.TITLE)}</span>"
+        out = "<a href='#' data-act='nav' data-arg='dash'>Dashboard</a><span class='sep'>/</span>"
+        for label, key in crumbs[:-1]:
+            out += f"<a href='#' data-act='nav' data-arg='{esc(key)}'>{esc(label)}</a><span class='sep'>/</span>"
+        out += f"<span class='current'>{esc(crumbs[-1][0])}</span>"
         return out
 
     def _paint_status(self):

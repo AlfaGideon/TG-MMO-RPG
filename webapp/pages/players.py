@@ -3,10 +3,21 @@ from engine import data, permissions, rules
 from webapp.html import esc
 
 TITLE = "👥 Игроки"
+CRUMBS = [("Игроки", "players")]
+
+
+PER_PAGE = 15
 
 
 def render(ctx):
-    ps = sorted(ctx.store.players.values(), key=lambda p: -p.level)
+    page = max(1, ctx.state.get("players_page", 1))
+    ps_all = sorted(ctx.store.players.values(), key=lambda p: -p.level)
+    total = len(ps_all)
+    pages = max(1, (total + PER_PAGE - 1) // PER_PAGE)
+    page = min(page, pages)
+    ctx.state["players_page"] = page
+    start = (page - 1) * PER_PAGE
+    ps = ps_all[start:start + PER_PAGE]
     rows = ""
     for p in ps:
         loc = data.LOCATIONS[p.loc][0] if p.loc < len(data.LOCATIONS) else "—"
@@ -28,14 +39,35 @@ def render(ctx):
     if not rows:
         rows = "<tr><td colspan='10' class='muted'>Пока никого. Запусти бота и напиши /start.</td></tr>"
 
+    pagination = ""
+    if pages > 1:
+        pagination = '<div class="pagination">'
+        if page > 1:
+            pagination += f"<button data-act='players-page' data-arg='{page - 1}'>←</button>"
+        else:
+            pagination += "<span>←</span>"
+        for p in range(1, pages + 1):
+            if p == page:
+                pagination += f"<span class='current'>{p}</span>"
+            elif p == 1 or p == pages or abs(p - page) <= 2:
+                pagination += f"<button data-act='players-page' data-arg='{p}'>{p}</button>"
+            elif abs(p - page) == 3:
+                pagination += "<span>...</span>"
+        if page < pages:
+            pagination += f"<button data-act='players-page' data-arg='{page + 1}'>→</button>"
+        else:
+            pagination += "<span>→</span>"
+        pagination += "</div>"
+
     return f"""
 <div class="card">
-  <h2>👥 Игроки <span class="muted">({len(ps)})</span></h2>
+  <h2>👥 Игроки <span class="muted">({start + 1}–{min(start + PER_PAGE, total)} из {total})</span></h2>
   <div class="scroll"><table>
     <tr><th>TG ID</th><th>Имя</th><th>Класс</th><th>Ур.</th><th>HP</th>
         <th>Золото</th><th>Позиция</th><th>Предм.</th><th>Роль</th><th></th></tr>
     {rows}
   </table></div>
+  {pagination}
   <div style="margin-top:.8rem">
     <button class="btn danger" data-act="players-wipe">🗑 Удалить всех игроков</button>
   </div>

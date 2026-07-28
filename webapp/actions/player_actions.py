@@ -17,6 +17,7 @@ def register(app, A):
     A("player-give", lambda arg: _give(app, arg))
     A("players-wipe", lambda _="": _wipe(app))
     A("player-access", lambda arg: app.modal(page.access_form(app, arg)))
+    A("players-page", lambda arg: _set_page(app, arg))
     A("access-preset", lambda arg: _preset(app, arg))
     A("access-newpass", lambda arg: _newpass(app, arg))
     A("access-save", lambda arg: _access_save(app, arg))
@@ -75,6 +76,11 @@ def _give(app, tg_id):
     app.modal(page.edit_form(app, tg_id))
     dom.toast(f"Выдан: {res[1]}")
     _flush(app)
+
+
+def _set_page(app, arg):
+    app.state["players_page"] = int(arg)
+    app.render()
 
 
 def _delete(app, tg_id):

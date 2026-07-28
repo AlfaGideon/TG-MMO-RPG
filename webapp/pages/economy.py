@@ -8,6 +8,7 @@ from engine import auction, craft, data, items, itemui
 from webapp.html import esc
 
 TITLE = "💰 Экономика"
+CRUMBS = [("Экономика", "economy")]
 
 TABS = [("instances", "🆔 Экземпляры"), ("auction", "🏛 Аукцион"),
         ("craft", "🔨 Крафт"), ("sources", "🏷 Значки")]
@@ -39,14 +40,26 @@ def _tiles(pairs):
 
 # ── экземпляры ──────────────────────────────────────────────
 
+INST_PER_PAGE = 15
+
+
 def _instances(ctx):
     st = items.stats(ctx.store)
     grid = _tiles([("Всего вещей", st["total"]), ("🌟 Реликвий", st["unique"]),
                    ("🔁 Торговались", st["traded"]), ("⚡ Заточено", st["upgraded"]),
                    ("У игроков", st["owned"]), ("🎄 Праздничных", st["festive"])])
 
+    page = max(1, ctx.state.get("instances_page", 1))
+    all_inst = items.all_instances(ctx.store)
+    total = len(all_inst)
+    pages = max(1, (total + INST_PER_PAGE - 1) // INST_PER_PAGE)
+    page = min(page, pages)
+    ctx.state["instances_page"] = page
+    start = (page - 1) * INST_PER_PAGE
+    slice_inst = all_inst[start:start + INST_PER_PAGE]
+
     rows = ""
-    for inst in items.all_instances(ctx.store)[:120]:
+    for inst in slice_inst:
         owner = ctx.store.players.get(int(inst.get("owner") or 0))
         who = esc(owner.name) if owner else "<span class='muted'>ничей</span>"
         rar = inst.get("rarity", "common")
@@ -65,10 +78,30 @@ def _instances(ctx):
                 "Они появляются, когда игрок выбивает предмет из моба, "
                 "открывает сундук или кует вещь в мастерской.</td></tr>")
 
+    pagination = ""
+    if pages > 1:
+        pagination = '<div class="pagination">'
+        if page > 1:
+            pagination += f"<button data-act='instances-page' data-arg='{page - 1}'>←</button>"
+        else:
+            pagination += "<span>←</span>"
+        for p in range(1, pages + 1):
+            if p == page:
+                pagination += f"<span class='current'>{p}</span>"
+            elif p == 1 or p == pages or abs(p - page) <= 2:
+                pagination += f"<button data-act='instances-page' data-arg='{p}'>{p}</button>"
+            elif abs(p - page) == 3:
+                pagination += "<span>...</span>"
+        if page < pages:
+            pagination += f"<button data-act='instances-page' data-arg='{page + 1}'>→</button>"
+        else:
+            pagination += "<span>→</span>"
+        pagination += "</div>"
+
     return f"""
 <div class="card"><h2>🆔 Реестр экземпляров</h2><div class="grid g4">{grid}</div></div>
 <div class="card">
-  <h2>📦 Именные вещи <span class="muted">(показаны последние 120)</span></h2>
+  <h2>📦 Именные вещи <span class="muted">({start + 1}–{min(start + INST_PER_PAGE, total)} из {total})</span></h2>
   <p class="muted">Клик по строке — летопись вещи: кто добыл, у кого побывал,
      за сколько ушла.</p>
   <div class="scroll"><table>
@@ -76,6 +109,7 @@ def _instances(ctx):
         <th>Происхождение</th><th>Владелец</th><th>Оценка</th><th></th></tr>
     {rows}
   </table></div>
+  {pagination}
 </div>
 """
 

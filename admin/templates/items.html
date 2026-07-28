@@ -1,12 +1,25 @@
 {% extends "base.html" %}
+{% import "macros.html" as macros %}
 
 {% block title %}Предметы — Shadow Lands{% endblock %}
 {% block page_title %}🎒 Предметы{% endblock %}
 {% block topbar_actions %}<a href="#new-item" class="btn btn-primary">➕ Новый предмет</a>{% endblock %}
 
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+    <a href="/">Dashboard</a><span class="sep">/</span><span class="current">Предметы</span>
+</div>
+{% endblock %}
+
 {% block content %}
 <div class="card">
-    <h2>🎒 Все предметы</h2>
+    <div class="toolbar">
+        <h2 style="margin-bottom:0;">🎒 Все предметы</h2>
+        <span class="hint">{{ pagination.total }} предметов</span>
+    </div>
+
+    {{ macros.search_form('/items', q, 'Поиск по названию...') }}
+
     <div class="table-wrap">
     <table>
         <thead>
@@ -50,6 +63,8 @@
         </tbody>
     </table>
     </div>
+
+    {{ macros.pagination(pagination, '/items', q) }}
 </div>
 
 <div class="card" id="new-item">
@@ -151,7 +166,7 @@
         <div>
             <label class="form-label">Добавить предмет в лавку</label>
             <select name="item_id" class="search-box" style="max-width:260px">
-                {% for item in items %}
+                {% for item in all_items %}
                 <option value="{{ item.id }}">{{ item.icon }} {{ item.name }}</option>
                 {% endfor %}
             </select>

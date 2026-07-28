@@ -88,6 +88,28 @@ code{background:var(--bg-input);padding:.1rem .35rem;border-radius:4px;font-size
 .toast{position:fixed;bottom:1.2rem;left:50%;transform:translateX(-50%) translateY(180%);background:var(--bg-card);border:1px solid var(--success);color:var(--text);padding:.6rem 1.1rem;border-radius:9px;font-size:.85rem;transition:transform .25s;z-index:60}
 .toast.show{transform:translateX(-50%) translateY(0)}
 .toast.err{border-color:var(--danger)}
+
+.breadcrumbs{display:flex;align-items:center;gap:.5rem;font-size:.78rem;color:var(--text-muted);padding:0 0 .9rem;flex-wrap:wrap}
+.breadcrumbs a{color:var(--text-muted);text-decoration:none}
+.breadcrumbs a:hover{color:var(--accent)}
+.breadcrumbs .sep{opacity:.5}
+.breadcrumbs .current{color:var(--text);font-weight:500}
+
+.search-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100;display:none;align-items:flex-start;justify-content:center;padding-top:12vh}
+.search-overlay.open{display:flex}
+.search-box-ui{width:min(520px,92vw);background:var(--bg-card);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.search-box-ui input{width:100%;background:transparent;border:none;color:var(--text);padding:.8rem 1rem;font-size:1rem;outline:none}
+.search-results-ui{max-height:55vh;overflow-y:auto}
+.search-cat{font-size:.65rem;text-transform:uppercase;letter-spacing:.06em;color:var(--accent);padding:.6rem 1rem .3rem}
+.search-row{display:flex;justify-content:space-between;padding:.6rem 1rem;color:var(--text);border-top:1px solid var(--border);cursor:pointer}
+.search-row:hover{background:var(--bg-hover)}
+.search-row small{color:var(--text-muted);font-size:.7rem}
+.search-empty{text-align:center;color:var(--text-muted);padding:1.2rem}
+
+.pagination{display:flex;align-items:center;justify-content:center;gap:.35rem;margin-top:1rem;flex-wrap:wrap}
+.pagination button,.pagination span{min-width:2rem;height:2rem;display:inline-flex;align-items:center;justify-content:center;border-radius:8px;border:1px solid var(--border);color:var(--text-muted);background:transparent;font-size:.82rem}
+.pagination button:hover{border-color:var(--accent);color:var(--text)}
+.pagination .current{background:var(--accent-soft);color:var(--accent);border-color:var(--accent);font-weight:600}
 /* ── Кликабельные строки таблиц (контент, экземпляры) ── */
 tr.clickable{cursor:pointer}
 tr.clickable:hover td{background:var(--accent-soft)}

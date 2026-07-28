@@ -9,7 +9,7 @@ from fastapi.responses import RedirectResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
-from sqlalchemy import select, func, delete
+from sqlalchemy import select, func, delete, String
 from sqlalchemy.orm import selectinload
 
 from core.database import init_db, async_session
@@ -74,6 +74,25 @@ BONUS_LABELS = {
 }
 
 BONUS_FIELDS = tuple(BONUS_LABELS.keys())
+
+
+def paginate(total: int, page: int, per_page: int):
+    """Возвращает словарь с метаданными пагинации."""
+    page = max(1, page)
+    per_page = max(5, min(100, per_page))
+    pages = max(1, (total + per_page - 1) // per_page)
+    page = min(page, pages) if total else 1
+    offset = (page - 1) * per_page
+    return {
+        "page": page,
+        "per_page": per_page,
+        "total": total,
+        "pages": pages,
+        "offset": offset,
+        "has_prev": page > 1,
+        "has_next": page < pages,
+    }
+
 
 STATION_LABELS = {
     "forge": "🔨 Кузница", "alchemy": "⚗️ Алхимия",
@@ -231,18 +250,31 @@ async def dashboard(request: Request):
 # ── Players ────────────────────────────────────────────────
 
 @app.get("/players")
-async def players(request: Request):
+async def players(request: Request, page: int = 1, q: str = ""):
+    per_page = 25
     async with async_session() as session:
+        base_query = select(Character).options(
+            selectinload(Character.user), selectinload(Character.location)
+        )
+        if q.strip():
+            needle = f"%{q.strip()}%"
+            base_query = base_query.where(Character.name.ilike(needle))
+
+        total = await session.scalar(
+            select(func.count(Character.id)).select_from(base_query.subquery())
+        ) or 0
+        meta = paginate(total, page, per_page)
+
         result = await session.execute(
-            select(Character)
-            .options(selectinload(Character.user), selectinload(Character.location))
-            .order_by(Character.level.desc())
+            base_query.order_by(Character.level.desc())
+            .offset(meta["offset"]).limit(per_page)
         )
         chars = result.scalars().all()
+
     return templates.TemplateResponse(
         request,
         "players.html",
-        {"players": chars},
+        {"players": chars, "pagination": meta, "q": q},
     )
 
 
@@ -833,10 +865,24 @@ async def player_revoke_admin(request: Request, char_id: int):
 # ── Items ──────────────────────────────────────────────────
 
 @app.get("/items")
-async def items(request: Request):
+async def items(request: Request, page: int = 1, q: str = ""):
+    per_page = 25
     async with async_session() as session:
-        result = await session.execute(select(Item).order_by(Item.id))
+        base_query = select(Item)
+        if q.strip():
+            needle = f"%{q.strip()}%"
+            base_query = base_query.where(Item.name.ilike(needle))
+
+        total = await session.scalar(
+            select(func.count(Item.id)).select_from(base_query.subquery())
+        ) or 0
+        meta = paginate(total, page, per_page)
+
+        result = await session.execute(
+            base_query.order_by(Item.id).offset(meta["offset"]).limit(per_page)
+        )
         all_items = result.scalars().all()
+
         result = await session.execute(
             select(ShopItem).options(selectinload(ShopItem.item)).order_by(ShopItem.id)
         )
@@ -849,12 +895,17 @@ async def items(request: Request):
         )
         instance_counts = {row[0]: row[1] for row in result.all()}
 
+    # Для выпадающего списка «Добавить в лавку» нужны все предметы
+    all_items_result = await session.execute(select(Item).order_by(Item.name))
+    all_items_for_shop = all_items_result.scalars().all()
+
     return templates.TemplateResponse(
         request,
         "items.html",
         {
-            "items": all_items, "shop_items": shop_items,
-            "instance_counts": instance_counts,
+            "items": all_items, "all_items": all_items_for_shop,
+            "shop_items": shop_items, "instance_counts": instance_counts,
+            "pagination": meta, "q": q,
         },
     )
 
@@ -1346,6 +1397,7 @@ async def editor_cell(request: Request, cell_id: int):
         cell = await session.get(Cell, cell_id)
         if not cell:
             return RedirectResponse(url="/editor/locations")
+        await session.refresh(cell, ["location"])
 
         result = await session.execute(select(Location).order_by(Location.id))
         all_locations = result.scalars().all()
@@ -2566,27 +2618,36 @@ async def spawn_kill(request: Request, spawn_id: int):
 # ── Реестр экземпляров, аукцион и события ───────────────────
 
 @app.get("/editor/instances")
-async def editor_instances(request: Request, source: str = "", q: str = ""):
+async def editor_instances(
+    request: Request, page: int = 1, source: str = "", q: str = ""
+):
     """Все уникальные экземпляры в игре: кто владеет, откуда взялся."""
     guard(request, "manage_content")
+    per_page = 50
     async with async_session() as session:
-        query = (
+        base_query = (
             select(ItemInstance, Item, Character)
             .join(Item, Item.id == ItemInstance.item_id)
             .outerjoin(Character, Character.id == ItemInstance.owner_character_id)
-            .order_by(ItemInstance.id.desc())
-            .limit(300)
         )
         if source:
-            query = query.where(ItemInstance.source == source)
+            base_query = base_query.where(ItemInstance.source == source)
         if q.strip():
             needle = f"%{q.strip()}%"
-            query = query.where(
+            base_query = base_query.where(
                 (ItemInstance.uid.ilike(needle)) | (Item.name.ilike(needle))
             )
-        rows = (await session.execute(query)).all()
 
-        total = await session.scalar(select(func.count(ItemInstance.id))) or 0
+        total = await session.scalar(
+            select(func.count(ItemInstance.id)).select_from(base_query.subquery())
+        ) or 0
+        meta = paginate(total, page, per_page)
+
+        rows = (await session.execute(
+            base_query.order_by(ItemInstance.id.desc())
+            .offset(meta["offset"]).limit(per_page)
+        )).all()
+
         by_source = {
             row[0]: row[1] for row in (await session.execute(
                 select(ItemInstance.source, func.count(ItemInstance.id))
@@ -2610,7 +2671,7 @@ async def editor_instances(request: Request, source: str = "", q: str = ""):
         {
             "rows": rows, "total": total, "by_source": by_source,
             "uniques": uniques, "festive": festive, "traded": traded,
-            "source": source, "q": q,
+            "source": source, "q": q, "pagination": meta,
             "badges": SOURCE_BADGES, "source_labels": SOURCE_LABELS,
         },
     )
@@ -2839,6 +2900,86 @@ async def players_map(request: Request):
             "total_characters": total_online_proxy,
         },
     )
+
+
+# ── Global Search ──────────────────────────────────────────
+
+@app.get("/api/search")
+async def api_search(request: Request, q: str = ""):
+    """Глобальный поиск по игрокам, предметам, мобам и локациям."""
+    if len(q.strip()) < 2:
+        return {"results": {}}
+
+    needle = f"%{q.strip()}%"
+    results: dict[str, list[dict]] = {}
+
+    async with async_session() as session:
+        # Players (characters)
+        rows = (await session.execute(
+            select(Character, User)
+            .join(User, User.id == Character.user_id)
+            .where((Character.name.ilike(needle)) | (User.telegram_id.cast(String).ilike(needle)))
+            .order_by(Character.level.desc())
+            .limit(8)
+        )).all()
+        results["players"] = [
+            {
+                "title": f"{char.name} (ур. {char.level})",
+                "meta": f"TG {user.telegram_id}",
+                "url": f"/player/{char.id}",
+            }
+            for char, user in rows
+        ]
+
+        # Items
+        rows = (await session.execute(
+            select(Item)
+            .where(Item.name.ilike(needle))
+            .order_by(Item.name)
+            .limit(8)
+        )).scalars().all()
+        results["items"] = [
+            {
+                "title": f"{item.icon} {item.name}",
+                "meta": item.item_type.value if item.item_type else "",
+                "url": f"/item/{item.id}/edit",
+            }
+            for item in rows
+        ]
+
+        # Mobs
+        rows = (await session.execute(
+            select(Mob)
+            .where(Mob.name.ilike(needle))
+            .order_by(Mob.level)
+            .limit(8)
+        )).scalars().all()
+        results["mobs"] = [
+            {
+                "title": f"{item.name} (ур. {item.level})",
+                "meta": "босс" if item.is_boss else "моб",
+                "url": f"/editor/mobs",
+            }
+            for item in rows
+        ]
+
+        # Locations
+        rows = (await session.execute(
+            select(Location)
+            .where(Location.name.ilike(needle))
+            .order_by(Location.id)
+            .limit(8)
+        )).scalars().all()
+        results["locations"] = [
+            {
+                "title": f"{item.name}",
+                "meta": item.location_type.value if item.location_type else "",
+                "url": f"/editor/location/{item.id}",
+            }
+            for item in rows
+        ]
+
+    return {"results": results}
 
 
 # ── Update from Git ────────────────────────────────────────

@@ -3,6 +3,7 @@ from engine import data, rules
 from webapp.html import esc
 
 TITLE = "📦 Контент"
+CRUMBS = [("Контент", "content")]
 
 TABS = [("mobs", "👾 Мобы"), ("items", "⚔️ Предметы"),
         ("npcs", "🎭 NPC"), ("classes", "🧙 Классы")]

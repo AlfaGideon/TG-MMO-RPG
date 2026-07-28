@@ -1,14 +1,24 @@
 {% extends "base.html" %}
+{% import "macros.html" as macros %}
 
 {% block title %}Игроки — Shadow Lands{% endblock %}
 {% block page_title %}👥 Игроки и персонажи{% endblock %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+    <a href="/">Dashboard</a><span class="sep">/</span><span class="current">Игроки</span>
+</div>
+{% endblock %}
 
 {% block content %}
 <div class="card">
     <div class="toolbar">
         <h2 style="margin-bottom:0;">👥 Список игроков</h2>
-        <input type="text" class="search-box" placeholder="Поиск по имени..." onkeyup="filterTable(this.value)">
+        <span class="hint">{{ pagination.total }} персонажей</span>
     </div>
+
+    {{ macros.search_form('/players', q, 'Поиск по имени...') }}
+
     <div class="table-wrap">
     <table id="playersTable">
         <thead>
@@ -45,22 +55,13 @@
             </tr>
             {% else %}
             <tr><td colspan="11">
-                <div class="empty-state"><div class="empty-icon">👥</div>Игроков пока нет.</div>
+                <div class="empty-state"><div class="empty-icon">👥</div>Игроков не найдено.</div>
             </td></tr>
             {% endfor %}
         </tbody>
     </table>
     </div>
-</div>
 
-<script>
-function filterTable(query) {
-    const rows = document.querySelectorAll('#playersTable tbody tr');
-    const lower = query.toLowerCase();
-    rows.forEach(row => {
-        const text = row.innerText.toLowerCase();
-        row.style.display = text.includes(lower) ? '' : 'none';
-    });
-}
-</script>
+    {{ macros.pagination(pagination, '/players', q) }}
+</div>
 {% endblock %}
