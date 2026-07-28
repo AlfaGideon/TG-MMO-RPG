@@ -1,13 +1,11 @@
 {% extends "base.html" %}
 
 {% block title %}{{ char.name }} — Игрок — Shadow Lands{% endblock %}
+{% block page_title %}👤 {{ char.name }} <span style="color:var(--text-muted); font-weight:400; font-size:0.85rem;">(ID: {{ char.id }})</span>{% endblock %}
+{% block topbar_actions %}<a href="/players" class="btn">◀️ Назад</a>{% endblock %}
 
 {% block content %}
 <div class="card">
-    <div class="toolbar">
-        <h2>👤 {{ char.name }} <small style="color:var(--text-muted)">(ID: {{ char.id }})</small></h2>
-        <a href="/players" class="btn">◀️ Назад</a>
-    </div>
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
         <div>
             <h3>📊 Статистика</h3>

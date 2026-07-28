@@ -1,13 +1,12 @@
 {% extends "base.html" %}
 
 {% block title %}Редактор локаций — Shadow Lands{% endblock %}
+{% block page_title %}🗺 Редактор локаций{% endblock %}
+{% block topbar_actions %}<a href="/editor/location/new" class="btn btn-primary">➕ Новая локация</a>{% endblock %}
 
 {% block content %}
 <div class="card">
-    <div class="toolbar">
-        <h2>🗺 Редактор локаций</h2>
-        <a href="/editor/location/new" class="btn btn-primary">➕ Новая локация</a>
-    </div>
+    <div class="table-wrap">
     <table>
         <thead>
             <tr>
@@ -28,11 +27,16 @@
                 <td>{{ loc.min_level }}</td>
                 <td>{{ loc.grid_size }}x{{ loc.grid_size }}</td>
                 <td>
-                    <a href="/editor/location/{{ loc.id }}" class="btn btn-primary" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">✏️ Редактировать</a>
+                    <a href="/editor/location/{{ loc.id }}" class="btn btn-primary btn-sm">✏️ Редактировать</a>
                 </td>
             </tr>
+            {% else %}
+            <tr><td colspan="6">
+                <div class="empty-state"><div class="empty-icon">🗺</div>Локаций пока нет.</div>
+            </td></tr>
             {% endfor %}
         </tbody>
     </table>
+    </div>
 </div>
 {% endblock %}

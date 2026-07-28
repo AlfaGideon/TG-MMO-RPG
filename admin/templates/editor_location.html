@@ -1,6 +1,8 @@
 {% extends "base.html" %}
 
 {% block title %}{{ location.name }} — Редактор — Shadow Lands{% endblock %}
+{% block page_title %}✏️ {{ location.name }}{% endblock %}
+{% block topbar_actions %}<a href="/editor/locations" class="btn">◀️ Назад</a>{% endblock %}
 
 {% block content %}
 <style>
@@ -43,10 +45,7 @@
 </style>
 
 <div class="card">
-    <div class="toolbar">
-        <h2>✏️ Редактирование: {{ location.name }}</h2>
-        <a href="/editor/locations" class="btn">◀️ Назад</a>
-    </div>
+    <h2>✏️ Редактирование: {{ location.name }}</h2>
 
     <form action="/editor/location/{{ location.id }}/save" method="post" enctype="multipart/form-data" style="margin-bottom: 1.5rem;">
         {% if location.image_url %}

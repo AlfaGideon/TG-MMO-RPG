@@ -1,15 +1,13 @@
 {% extends "base.html" %}
 
 {% block title %}Новая локация — Shadow Lands{% endblock %}
+{% block page_title %}➕ Создать новую локацию{% endblock %}
+{% block topbar_actions %}<a href="/editor/locations" class="btn">◀️ Назад</a>{% endblock %}
 
 {% block content %}
 <div class="card">
-    <div class="toolbar">
-        <h2>➕ Создать новую локацию</h2>
-        <a href="/editor/locations" class="btn">◀️ Назад</a>
-    </div>
     <form action="/editor/location/new" method="post">
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+        <div class="form-grid" style="grid-template-columns: repeat(2, 1fr);">
             <div>
                 <label class="form-label">Название</label>
                 <input type="text" name="name" class="search-box" style="max-width: 100%;" required>

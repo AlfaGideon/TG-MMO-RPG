@@ -7,50 +7,126 @@
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-    <header style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;">
-        <div style="display: flex; align-items: center; gap: 1rem;">
-            <h1 style="margin:0;">🌑 Shadow Lands — Admin</h1>
-            <button onclick="updateGitHeader(this)" style="background: var(--accent); color: #fff; border: none; padding: 0.4rem 0.85rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.35rem; transition: opacity 0.2s;">
+{% set path = request.path %}
+{% set content_paths = ['/editor/world', '/editor/locations', '/editor/mobs', '/editor/npcs', '/editor/quests'] %}
+{% set content_active = path.startswith('/editor/') %}
+<div class="layout" id="layout">
+    <div class="sidebar-overlay" onclick="toggleSidebar(false)"></div>
+    <aside class="sidebar">
+        <div class="sidebar-brand">
+            <span class="brand-icon">🌑</span>
+            <div>
+                <div class="brand-title">Shadow Lands</div>
+                <div class="brand-sub">Admin panel</div>
+            </div>
+        </div>
+        <nav class="sidebar-nav">
+            <a href="/" class="nav-link {% if path == '/' %}active{% endif %}">
+                <span class="nav-icon">📊</span> Dashboard
+            </a>
+
+            <div class="nav-section-label">Игроки</div>
+            <a href="/players" class="nav-link {% if path.startswith('/player') %}active{% endif %}">
+                <span class="nav-icon">👥</span> Игроки
+            </a>
+            <a href="/battles" class="nav-link {% if path == '/battles' %}active{% endif %}">
+                <span class="nav-icon">⚔️</span> Бои
+            </a>
+
+            <div class="nav-section-label">Экономика</div>
+            <a href="/items" class="nav-link {% if path.startswith('/item') %}active{% endif %}">
+                <span class="nav-icon">🎒</span> Предметы
+            </a>
+
+            <div class="nav-section-label">Контент мира</div>
+            <div class="nav-group {% if content_active or path == '/content' %}open active{% endif %}" id="content-group">
+                <div class="nav-group-row {% if content_active or path == '/content' %}active{% endif %}">
+                    <a href="/content" class="nav-group-link {% if path == '/content' %}active{% endif %}">
+                        <span class="nav-icon">🧩</span> Контент
+                    </a>
+                    <button type="button" class="nav-group-chevron-btn" onclick="toggleGroup('content-group')" aria-label="Развернуть">
+                        <span class="nav-chevron">▶</span>
+                    </button>
+                </div>
+                <div class="nav-subitems">
+                    <a href="/editor/world" class="nav-sublink {% if path == '/editor/world' %}active{% endif %}">🌍 Мир</a>
+                    <a href="/editor/locations" class="nav-sublink {% if path.startswith('/editor/location') %}active{% endif %}">🗺 Локации</a>
+                    <a href="/editor/mobs" class="nav-sublink {% if path == '/editor/mobs' %}active{% endif %}">👾 Мобы</a>
+                    <a href="/editor/npcs" class="nav-sublink {% if path == '/editor/npcs' %}active{% endif %}">🎭 NPC</a>
+                    <a href="/editor/quests" class="nav-sublink {% if path == '/editor/quests' %}active{% endif %}">📜 Квесты</a>
+                </div>
+            </div>
+
+            <div class="nav-section-label">Система</div>
+            <a href="/settings" class="nav-link {% if path == '/settings' %}active{% endif %}">
+                <span class="nav-icon">⚙️</span> Настройки
+            </a>
+        </nav>
+        <div class="sidebar-footer">
+            <button onclick="updateGitHeader(this)" class="btn btn-primary" style="width: 100%; justify-content: center;">
                 🔄 Обновить с GitHub
             </button>
         </div>
-        <nav>
-            <a href="/" class="{% if request.path == '/' %}active{% endif %}">Dashboard</a>
-            <a href="/players" class="{% if request.path.startswith('/player') %}active{% endif %}">Игроки</a>
-            <a href="/items" class="{% if request.path.startswith('/item') %}active{% endif %}">Предметы</a>
-            <a href="/battles" class="{% if request.path == '/battles' %}active{% endif %}">Бои</a>
-            <a href="/editor/world" class="{% if request.path == '/editor/world' %}active{% endif %}">🌍 Мир</a>
-            <a href="/editor/locations" class="{% if request.path.startswith('/editor/location') %}active{% endif %}">🗺 Локации</a>
-            <a href="/editor/mobs" class="{% if request.path == '/editor/mobs' %}active{% endif %}">👾 Мобы</a>
-            <a href="/editor/npcs" class="{% if request.path == '/editor/npcs' %}active{% endif %}">🎭 NPC</a>
-            <a href="/editor/quests" class="{% if request.path == '/editor/quests' %}active{% endif %}">📜 Квесты</a>
-            <a href="/settings" class="{% if request.path == '/settings' %}active{% endif %}">⚙️ Настройки</a>
-        </nav>
-    </header>
-    <div class="container">
-        {% block content %}{% endblock %}
+    </aside>
+
+    <div class="main">
+        <header class="topbar">
+            <button class="menu-toggle" onclick="toggleSidebar()">☰</button>
+            <div class="page-title">{% block page_title %}{% endblock %}</div>
+            <div class="topbar-actions">{% block topbar_actions %}{% endblock %}</div>
+        </header>
+        <div class="container">
+            {% block content %}{% endblock %}
+        </div>
     </div>
-    <script>
-    async function updateGitHeader(btn) {
-        const origText = btn.innerHTML;
-        btn.disabled = true;
-        btn.innerHTML = '⏳ Обновление...';
-        try {
-            const r = await fetch('/api/update', {method: 'POST'});
-            const data = await r.json();
-            if (data.success) {
-                btn.innerHTML = '✅ Обновлено!';
-                alert(data.restarting ? '✅ Код успешно обновлён с GitHub! Сервер перезапускается... Перезагрузи страницу через 5 секунд.' : '✅ Код уже в самой актуальной версии!');
-            } else {
-                btn.innerHTML = '❌ Ошибка';
-                alert('Ошибка обновления: ' + (data.error || data.output || 'Неизвестно'));
-            }
-        } catch (e) {
-            btn.innerHTML = '❌ Ошибка сети';
-            alert('Ошибка сети: ' + e.message);
-        }
-        setTimeout(() => { btn.disabled = false; btn.innerHTML = origText; }, 4000);
+</div>
+
+<script>
+function toggleSidebar(force) {
+    const layout = document.getElementById('layout');
+    if (typeof force === 'boolean') {
+        layout.classList.toggle('sidebar-open', force);
+    } else {
+        layout.classList.toggle('sidebar-open');
     }
-    </script>
+}
+
+function toggleGroup(id) {
+    const el = document.getElementById(id);
+    const willOpen = !el.classList.contains('open');
+    el.classList.toggle('open', willOpen);
+    localStorage.setItem('navGroup:' + id, willOpen ? '1' : '0');
+}
+
+(function restoreGroups() {
+    document.querySelectorAll('.nav-group').forEach(el => {
+        if (el.classList.contains('active')) return; // keep auto-open when active
+        const saved = localStorage.getItem('navGroup:' + el.id);
+        if (saved === '1') el.classList.add('open');
+    });
+})();
+
+async function updateGitHeader(btn) {
+    const origText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '⏳ Обновление...';
+    try {
+        const r = await fetch('/api/update', {method: 'POST'});
+        const data = await r.json();
+        if (data.success) {
+            btn.innerHTML = '✅ Обновлено!';
+            alert(data.restarting ? '✅ Код успешно обновлён с GitHub! Сервер перезапускается... Перезагрузи страницу через 5 секунд.' : '✅ Код уже в самой актуальной версии!');
+        } else {
+            btn.innerHTML = '❌ Ошибка';
+            alert('Ошибка обновления: ' + (data.error || data.output || 'Неизвестно'));
+        }
+    } catch (e) {
+        btn.innerHTML = '❌ Ошибка сети';
+        alert('Ошибка сети: ' + e.message);
+    }
+    setTimeout(() => { btn.disabled = false; btn.innerHTML = origText; }, 4000);
+}
+</script>
+{% block scripts %}{% endblock %}
 </body>
 </html>

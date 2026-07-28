@@ -1,12 +1,13 @@
 {% extends "base.html" %}
 
 {% block title %}Редактор мобов — Shadow Lands{% endblock %}
+{% block page_title %}👾 Монстры{% endblock %}
+{% block topbar_actions %}<a href="#mob-form" class="btn btn-primary">➕ Новый моб</a>{% endblock %}
 
 {% block content %}
 <div class="card">
-    <div class="toolbar">
-        <h2>👾 Монстры</h2>
-    </div>
+    <h2>👾 Все монстры</h2>
+    <div class="table-wrap">
     <table>
         <thead>
             <tr>
@@ -37,22 +38,27 @@
                 <td>{{ mob.location.name if mob.location else '—' }}</td>
                 <td>{{ '✅' if mob.is_boss else '—' }}</td>
                 <td>
-                    <button onclick="editMob({{ mob.id }}, '{{ mob.name|replace("'", "\\'") }}', '{{ mob.description|replace("'", "\\'") }}', {{ mob.level }}, {{ mob.hp }}, {{ mob.damage }}, {{ mob.defense }}, {{ mob.gold_reward }}, {{ mob.exp_reward }}, {{ mob.location_id or 'null' }}, {{ 'true' if mob.is_boss else 'false' }}, '{{ mob.image_url or '' }}')" class="btn btn-primary" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">✏️</button>
+                    <button onclick="editMob({{ mob.id }}, '{{ mob.name|replace("'", "\\'") }}', '{{ mob.description|replace("'", "\\'") }}', {{ mob.level }}, {{ mob.hp }}, {{ mob.damage }}, {{ mob.defense }}, {{ mob.gold_reward }}, {{ mob.exp_reward }}, {{ mob.location_id or 'null' }}, {{ 'true' if mob.is_boss else 'false' }}, '{{ mob.image_url or '' }}')" class="btn btn-primary btn-sm">✏️</button>
                     <form action="/editor/mobs/{{ mob.id }}/delete" method="post" style="display:inline" onsubmit="return confirm('Удалить моба?')">
-                        <button type="submit" class="btn btn-danger" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">🗑</button>
+                        <button type="submit" class="btn btn-danger btn-sm">🗑</button>
                     </form>
                 </td>
             </tr>
+            {% else %}
+            <tr><td colspan="11">
+                <div class="empty-state"><div class="empty-icon">👾</div>Монстров пока нет.</div>
+            </td></tr>
             {% endfor %}
         </tbody>
     </table>
+    </div>
 </div>
 
 <div class="card" id="mob-form">
     <h3 id="mob-form-title">➕ Новый моб</h3>
     <form action="/editor/mobs/new" method="post" id="mobForm" enctype="multipart/form-data">
         <input type="hidden" name="mob_id" id="mob_id" value="">
-        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem;">
+        <div class="form-grid">
             <div><label class="form-label">Имя</label><input type="text" name="name" id="m_name" class="search-box" style="max-width:100%" required></div>
             <div><label class="form-label">Уровень</label><input type="number" name="level" id="m_level" value="1" class="search-box" style="max-width:100%"></div>
             <div><label class="form-label">HP</label><input type="number" name="hp" id="m_hp" value="30" class="search-box" style="max-width:100%"></div>

@@ -439,6 +439,27 @@ async def api_bot_status():
     return {"running": bot_runner.is_running()}
 
 
+# ── Content Hub ────────────────────────────────────────────
+
+@app.get("/content")
+async def content_hub(request: Request):
+    async with async_session() as session:
+        total_locations = await session.scalar(select(func.count(Location.id))) or 0
+        total_mobs = await session.scalar(select(func.count(Mob.id))) or 0
+        total_npcs = await session.scalar(select(func.count(Cell.id)).where(Cell.has_npc == True)) or 0
+        total_quests = await session.scalar(select(func.count(Quest.id))) or 0
+    return templates.TemplateResponse(
+        request,
+        "content.html",
+        {
+            "total_locations": total_locations,
+            "total_mobs": total_mobs,
+            "total_npcs": total_npcs,
+            "total_quests": total_quests,
+        },
+    )
+
+
 # ── Location Editor ────────────────────────────────────────
 
 @app.get("/editor/locations")

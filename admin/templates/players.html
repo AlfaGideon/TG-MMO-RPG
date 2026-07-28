@@ -1,13 +1,15 @@
 {% extends "base.html" %}
 
 {% block title %}Игроки — Shadow Lands{% endblock %}
+{% block page_title %}👥 Игроки и персонажи{% endblock %}
 
 {% block content %}
 <div class="card">
     <div class="toolbar">
-        <h2>👥 Игроки и персонажи</h2>
+        <h2 style="margin-bottom:0;">👥 Список игроков</h2>
         <input type="text" class="search-box" placeholder="Поиск по имени..." onkeyup="filterTable(this.value)">
     </div>
+    <div class="table-wrap">
     <table id="playersTable">
         <thead>
             <tr>
@@ -38,12 +40,17 @@
                 <td>{{ p.location.name if p.location else '-' }}</td>
                 <td>{{ '✅' if p.is_vip else '—' }}</td>
                 <td>
-                    <a href="/player/{{ p.id }}" class="btn btn-primary" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">✏️ Управление</a>
+                    <a href="/player/{{ p.id }}" class="btn btn-primary btn-sm">✏️ Управление</a>
                 </td>
             </tr>
+            {% else %}
+            <tr><td colspan="11">
+                <div class="empty-state"><div class="empty-icon">👥</div>Игроков пока нет.</div>
+            </td></tr>
             {% endfor %}
         </tbody>
     </table>
+    </div>
 </div>
 
 <script>

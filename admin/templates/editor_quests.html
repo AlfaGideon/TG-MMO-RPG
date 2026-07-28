@@ -1,12 +1,13 @@
 {% extends "base.html" %}
 
 {% block title %}Редактор квестов — Shadow Lands{% endblock %}
+{% block page_title %}📜 Квесты{% endblock %}
+{% block topbar_actions %}<a href="#quest-form" class="btn btn-primary">➕ Новый квест</a>{% endblock %}
 
 {% block content %}
 <div class="card">
-    <div class="toolbar">
-        <h2>📜 Квесты</h2>
-    </div>
+    <h2>📜 Все квесты</h2>
+    <div class="table-wrap">
     <table>
         <thead>
             <tr>
@@ -35,22 +36,27 @@
                 <td>{{ q.location.name if q.location else '—' }}</td>
                 <td>{{ q.npc_name or '—' }}</td>
                 <td>
-                    <button onclick="editQuest({{ q.id }}, '{{ q.name|replace("'", "\\'") }}', '{{ q.description|replace("'", "\\'") }}', '{{ q.objective_type }}', '{{ q.objective_target|replace("'", "\\'") }}', {{ q.objective_count }}, {{ q.reward_gold }}, {{ q.reward_exp }}, {{ q.reward_item_id or 'null' }}, {{ q.min_level }}, {{ q.location_id or 'null' }}, '{{ q.npc_name or '' }}', '{{ q.image_url or '' }}')" class="btn btn-primary" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">✏️</button>
+                    <button onclick="editQuest({{ q.id }}, '{{ q.name|replace("'", "\\'") }}', '{{ q.description|replace("'", "\\'") }}', '{{ q.objective_type }}', '{{ q.objective_target|replace("'", "\\'") }}', {{ q.objective_count }}, {{ q.reward_gold }}, {{ q.reward_exp }}, {{ q.reward_item_id or 'null' }}, {{ q.min_level }}, {{ q.location_id or 'null' }}, '{{ q.npc_name or '' }}', '{{ q.image_url or '' }}')" class="btn btn-primary btn-sm">✏️</button>
                     <form action="/editor/quests/{{ q.id }}/delete" method="post" style="display:inline" onsubmit="return confirm('Удалить квест?')">
-                        <button type="submit" class="btn btn-danger" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">🗑</button>
+                        <button type="submit" class="btn btn-danger btn-sm">🗑</button>
                     </form>
                 </td>
             </tr>
+            {% else %}
+            <tr><td colspan="10">
+                <div class="empty-state"><div class="empty-icon">📜</div>Квестов пока нет.</div>
+            </td></tr>
             {% endfor %}
         </tbody>
     </table>
+    </div>
 </div>
 
 <div class="card" id="quest-form">
     <h3 id="quest-form-title">➕ Новый квест</h3>
     <form action="/editor/quests/new" method="post" id="questForm" enctype="multipart/form-data">
         <input type="hidden" name="quest_id" id="q_id" value="">
-        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem;">
+        <div class="form-grid">
             <div><label class="form-label">Название</label><input type="text" name="name" id="q_name" class="search-box" style="max-width:100%" required></div>
             <div><label class="form-label">Тип цели</label>
                 <select name="objective_type" id="q_type" class="search-box" style="max-width:100%">

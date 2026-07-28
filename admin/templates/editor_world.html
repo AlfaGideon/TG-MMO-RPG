@@ -1,6 +1,8 @@
 {% extends "base.html" %}
 
 {% block title %}Редактор мира — Shadow Lands{% endblock %}
+{% block page_title %}🌍 Редактор мировой карты{% endblock %}
+{% block topbar_actions %}<a href="/editor/location/new" class="btn btn-primary">➕ Новая локация</a>{% endblock %}
 
 {% block content %}
 <style>
@@ -37,11 +39,8 @@
 </style>
 
 <div class="card">
-    <div class="toolbar">
-        <h2>🌍 Редактор мировой карты</h2>
-        <a href="/editor/location/new" class="btn btn-primary">➕ Новая локация</a>
-    </div>
-    <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1rem;">
+    <h2>🌍 Редактор мировой карты</h2>
+    <p class="section-sub">
         Локации располагаются по мировым координатам (world_x, world_y). Игроки переходят между ними бесшовно через граничные клетки.
     </p>
     <div class="world-grid">
@@ -53,7 +52,11 @@
             <div style="margin-top: 0.5rem; font-size: 0.8rem; color: var(--text-muted);">
                 Ур. {{ loc.min_level }} | Сетка {{ loc.grid_size }}x{{ loc.grid_size }}
             </div>
-            <a href="/editor/location/{{ loc.id }}" class="btn btn-primary" style="margin-top: 0.75rem; padding: 0.25rem 0.5rem; font-size: 0.75rem;">✏️ Редактировать</a>
+            <a href="/editor/location/{{ loc.id }}" class="btn btn-primary btn-sm" style="margin-top: 0.75rem;">✏️ Редактировать</a>
+        </div>
+        {% else %}
+        <div class="world-loc" style="display:flex; align-items:center; justify-content:center; color: var(--text-muted); border-style: dashed;">
+            Пока нет ни одной локации
         </div>
         {% endfor %}
         <a href="/editor/location/new" class="world-empty">

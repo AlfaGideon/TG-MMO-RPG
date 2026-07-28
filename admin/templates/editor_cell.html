@@ -1,13 +1,11 @@
 {% extends "base.html" %}
 
 {% block title %}Клетка [{{ cell.x }},{{ cell.y }}] — Редактор — Shadow Lands{% endblock %}
+{% block page_title %}🧩 Клетка [{{ cell.x }},{{ cell.y }}]{% endblock %}
+{% block topbar_actions %}<a href="/editor/location/{{ cell.location_id }}" class="btn">◀️ Назад к локации</a>{% endblock %}
 
 {% block content %}
 <div class="card">
-    <div class="toolbar">
-        <h2>🧩 Редактирование клетки [{{ cell.x }},{{ cell.y }}]</h2>
-        <a href="/editor/location/{{ cell.location_id }}" class="btn">◀️ Назад к локации</a>
-    </div>
 
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
         <div>

@@ -1,13 +1,13 @@
 {% extends "base.html" %}
 
 {% block title %}Предметы — Shadow Lands{% endblock %}
+{% block page_title %}🎒 Предметы{% endblock %}
+{% block topbar_actions %}<a href="#new-item" class="btn btn-primary">➕ Новый предмет</a>{% endblock %}
 
 {% block content %}
 <div class="card">
-    <div class="toolbar">
-        <h2>🎒 Все предметы</h2>
-        <a href="#new-item" class="btn btn-primary">➕ Новый предмет</a>
-    </div>
+    <h2>🎒 Все предметы</h2>
+    <div class="table-wrap">
     <table>
         <thead>
             <tr>
@@ -32,21 +32,26 @@
                 <td>{{ item.level_requirement }}</td>
                 <td>{{ item.price }}</td>
                 <td>
-                    <a href="/item/{{ item.id }}/edit" class="btn btn-primary" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">✏️</a>
+                    <a href="/item/{{ item.id }}/edit" class="btn btn-primary btn-sm">✏️</a>
                     <form action="/item/{{ item.id }}/delete" method="post" style="display:inline" onsubmit="return confirm('Удалить предмет?')">
-                        <button type="submit" class="btn btn-danger" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">🗑</button>
+                        <button type="submit" class="btn btn-danger btn-sm">🗑</button>
                     </form>
                 </td>
             </tr>
+            {% else %}
+            <tr><td colspan="8">
+                <div class="empty-state"><div class="empty-icon">🎒</div>Предметов пока нет.</div>
+            </td></tr>
             {% endfor %}
         </tbody>
     </table>
+    </div>
 </div>
 
 <div class="card" id="new-item">
     <h3>➕ Создать предмет</h3>
     <form action="/item/new" method="post" enctype="multipart/form-data">
-        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem;">
+        <div class="form-grid">
             <div><label class="form-label">Название</label><input type="text" name="name" class="search-box" style="max-width:100%" required></div>
             <div><label class="form-label">Тип</label>
                 <select name="item_type" class="search-box" style="max-width:100%">
