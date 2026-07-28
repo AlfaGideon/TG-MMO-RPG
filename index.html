@@ -6,13 +6,14 @@
 <title>🌑 Shadow Lands — Admin</title>
 <link rel="stylesheet" href="webapp/static/admin.css">
 <style>
-body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f0f13;color:#e2e8f0}
-#boot{max-width:760px;margin:3rem auto;padding:1.2rem;background:#1a1a24;
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f0f13;color:#e2e8f0;margin:0}
+#boot{max-width:780px;margin:3rem auto;padding:1.2rem;background:#1a1a24;
       border:1px solid #2e2e3e;border-radius:10px}
-#boot h2{color:#8b5cf6;margin-bottom:.6rem}
-#boot p{color:#94a3b8;font-size:.9rem;line-height:1.6}
-pre{background:#0a0a0f;border:1px solid #2e2e3e;border-radius:8px;padding:.7rem;
+#boot h2{color:#8b5cf6;margin:0 0 .6rem}
+#boot p{color:#94a3b8;font-size:.9rem;line-height:1.6;margin:.4rem 0}
+#boot pre{background:#0a0a0f;border:1px solid #2e2e3e;border-radius:8px;padding:.7rem;
     overflow:auto;font-size:.75rem;white-space:pre-wrap;color:#f87171}
+#boot code{background:#12121a;padding:.1rem .35rem;border-radius:4px}
 </style>
 </head>
 <body>
@@ -25,29 +26,29 @@ pre{background:#0a0a0f;border:1px solid #2e2e3e;border-radius:8px;padding:.7rem;
   <div id="boot">
     <h2>⏳ Запуск Python-среды</h2>
     <p id="msg">Загружаю Pyodide…</p>
-    <p style="margin-top:.5rem;font-size:.8rem">
-      Первый запуск качает Python (~10 МБ) — это 10–30 секунд. Дальше из кеша браузера.</p>
+    <p style="font-size:.8rem">Первый запуск качает Python (~10 МБ) — 10–30 секунд.
+       Дальше страница поднимается из кеша браузера.</p>
   </div>
 </div>
 <div class="modal" id="modal"><div class="box" id="modalBox"></div></div>
 <div class="toast" id="toast"></div>
 
 <script>
-// Загрузчик: поднимает Python и подтягивает модули из этого же репозитория.
-// Работает при открытии через HTTP (GitHub Pages, локальный сервер).
+// Загрузчик админки. Забирает Python-модули из этого же репозитория.
+// __init__.py НЕ грузятся: GitHub Pages (Jekyll) вырезает файлы,
+// чьи имена начинаются с подчёркивания. Пакеты создаём сами.
 const MODULES = [
-  "engine/__init__.py","engine/data.py","engine/models.py","engine/world.py",
-  "engine/rules.py","engine/texts.py","engine/combat.py","engine/game.py",
-  "engine/storage.py",
-  "webapp/__init__.py","webapp/html.py","webapp/backend.py","webapp/dom.py",
+  "engine/data.py","engine/models.py","engine/world.py","engine/rules.py",
+  "engine/texts.py","engine/combat.py","engine/game.py","engine/storage.py",
+  "webapp/html.py","webapp/backend.py","webapp/dom.py",
   "webapp/transport.py","webapp/telegram.py",
-  "webapp/pages/__init__.py","webapp/pages/dashboard.py","webapp/pages/bot.py",
-  "webapp/pages/players.py","webapp/pages/world.py","webapp/pages/content.py",
-  "webapp/pages/settings.py",
-  "webapp/actions/__init__.py","webapp/actions/bot_actions.py",
-  "webapp/actions/player_actions.py","webapp/actions/world_actions.py",
+  "webapp/pages/dashboard.py","webapp/pages/bot.py","webapp/pages/players.py",
+  "webapp/pages/world.py","webapp/pages/content.py","webapp/pages/settings.py",
+  "webapp/actions/bot_actions.py","webapp/actions/player_actions.py",
+  "webapp/actions/world_actions.py",
   "webapp/app.py","webapp/boot.py",
 ];
+const PACKAGES = ["engine","webapp","webapp/pages","webapp/actions"];
 
 const RUNTIMES = [
   "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/",
@@ -60,8 +61,7 @@ const say = (t) => { const n = document.getElementById("msg"); if (n) n.textCont
 
 function fail(title, err, hint) {
   document.getElementById("view").innerHTML =
-    '<div id="boot"><h2>❌ ' + title + '</h2><pre>' + String(err) + '</pre>' +
-    '<p>' + hint + '</p></div>';
+    '<div id="boot"><h2>❌ ' + title + '</h2><pre>' + String(err) + '</pre><p>' + hint + '</p></div>';
 }
 
 function loadScript(base) {
@@ -91,21 +91,30 @@ async function bootRuntime() {
     py = await bootRuntime();
   } catch (err) {
     return fail("Не удалось загрузить Python", err,
-      "Нужен доступ в интернет — среда грузится с CDN. Проверь соединение и обнови страницу.");
+      "Нужен интернет — среда грузится с CDN. Проверь соединение и обнови страницу.");
   }
 
   try {
     const ROOT = "/app";
     py.FS.mkdirTree(ROOT);
+    // Пакеты и их __init__.py создаём локально, из сети не тянем.
+    for (const pkg of PACKAGES) {
+      py.FS.mkdirTree(ROOT + "/" + pkg);
+      py.FS.writeFile(ROOT + "/" + pkg + "/__init__.py", "");
+    }
+
     let done = 0;
     for (const path of MODULES) {
       const r = await fetch(path + "?v=" + Date.now(), { cache: "no-store" });
       if (!r.ok) throw new Error(path + " → HTTP " + r.status);
-      const full = ROOT + "/" + path;
-      py.FS.mkdirTree(full.substring(0, full.lastIndexOf("/")));
-      py.FS.writeFile(full, await r.text());
+      const src = await r.text();
+      if (src.trimStart().startsWith("<")) {
+        throw new Error(path + " → вместо кода пришёл HTML (файла нет в репозитории)");
+      }
+      py.FS.writeFile(ROOT + "/" + path, src);
       say("Загружаю модули… " + (++done) + "/" + MODULES.length);
     }
+
     py.runPython(
       "import sys, builtins\n" +
       "sys.path.insert(0, '/app')\n" +
@@ -116,9 +125,12 @@ async function bootRuntime() {
     window.__py = py;
   } catch (err) {
     console.error(err);
-    fail("Не удалось загрузить модули", err,
-      "Файл открыт напрямую с диска (file://). Модули лежат рядом и грузятся по HTTP — " +
-      "включи GitHub Pages либо запусти локально: <code>python3 -m http.server</code>");
+    const local = location.protocol === "file:";
+    fail("Не удалось загрузить модули", err, local
+      ? "Файл открыт с диска (<code>file://</code>). Модули лежат рядом и грузятся по HTTP — " +
+        "включи GitHub Pages либо запусти <code>python3 -m http.server</code>."
+      : "Проверь, что папки <code>engine/</code> и <code>webapp/</code> есть в ветке " +
+        "<code>main</code> и что Pages опубликован из корня <code>/ (root)</code>.");
   }
 })();
 </script>
