@@ -1,5 +1,6 @@
 """Целостность проекта: манифест, действия, импорты. python3 tests/test_wiring.py"""
 import glob
+import json
 import os
 import re
 import sys
@@ -19,9 +20,10 @@ def check(cond, label):
 
 def main():
     html = open("index.html", encoding="utf-8").read()
+    manifest = json.load(open("modules.json", encoding="utf-8"))
 
-    print("\n— Манифест index.html —")
-    listed = [m for m in re.findall(r'"([\w/]+\.py)"', html) if not m.startswith("/")]
+    print("\n— Манифест modules.json —")
+    listed = manifest["modules"]
     on_disk = [p for d in ("engine", "webapp", "webapp/pages", "webapp/actions")
                for p in sorted(glob.glob(f"{d}/*.py"))
                if not p.endswith("__init__.py")]
@@ -29,8 +31,37 @@ def main():
           f"все {len(listed)} модулей манифеста существуют")
     check(not [p for p in on_disk if p not in listed],
           "нет .py-файлов вне манифеста")
+    check(len(listed) == len(set(listed)), "в манифесте нет дублей")
+    # Каталог каждого модуля должен объявляться пакетом, иначе импорт не найдёт его.
+    pkgs = set(manifest["packages"])
+    check(not [m for m in listed if os.path.dirname(m) not in pkgs],
+          "каталог каждого модуля объявлен пакетом")
+
+    print("\n— Аварийный список в index.html —")
+    # FALLBACK обязан совпадать с modules.json: иначе при недоступном
+    # modules.json страница молча грузит устаревший набор модулей.
+    fb = re.search(r"const FALLBACK = \{(.*?)\n\};", html, re.S)
+    check(fb is not None, "FALLBACK найден в index.html")
+    if fb:
+        fb_mods = re.findall(r'"([\w/]+\.py)"', fb.group(1))
+        check(fb_mods == listed, "FALLBACK совпадает с modules.json по составу и порядку")
+    check('fetch("modules.json' in html, "index.html читает modules.json")
     check("webapp/static/admin.css" in html, "подключён admin.css")
     check(html.count("<script") >= 1, "в index.html подключён script")
+
+    print("\n— Импорты покрыты манифестом —")
+    # Каждый внутренний импорт должен разрешаться в модуль из манифеста.
+    # Именно этот разрыв ловит ошибку вида "cannot import name 'session'".
+    known = set(listed)
+    for src_path in listed:
+        src = open(src_path, encoding="utf-8").read()
+        for pkg, names in re.findall(r"^\s*from\s+(webapp|engine)\s+import\s+([^\n(]+)", src, re.M):
+            for raw in names.split(","):
+                name = raw.strip().split(" as ")[0].strip()
+                cand = f"{pkg}/{name}.py"
+                if os.path.exists(cand):
+                    check(cand in known,
+                          f"{src_path}: {pkg}.{name} есть в манифесте")
 
     print("\n— Порядок загрузки —")
     for dep, dependant in [("engine/data.py", "engine/world.py"),
