@@ -1,14 +1,21 @@
 {% extends "base.html" %}
 
 {% block title %}{{ location.name }} — Редактор — Shadow Lands{% endblock %}
+{% block page_title %}✏️ {{ location.name }}{% endblock %}
+{% block topbar_actions %}
+<a href="/editor/locations" class="btn">◀️ Назад</a>
+<form action="/editor/location/{{ location.id }}/delete" method="post" style="display:inline" onsubmit="return confirm('Удалить локацию вместе со всеми клетками? Это необратимо.')">
+    <button type="submit" class="btn btn-danger">🗑 Удалить локацию</button>
+</form>
+{% endblock %}
 
 {% block content %}
 <style>
 .cell-grid {
     display: grid;
-    grid-template-columns: repeat(10, 1fr);
+    grid-template-columns: repeat({{ location.grid_size }}, 1fr);
     gap: 2px;
-    max-width: 600px;
+    max-width: 700px;
 }
 .cell {
     aspect-ratio: 1;
@@ -36,6 +43,8 @@
 .cell-road { background: #3a2a1a; }
 .cell-village { background: #3a2a0d; }
 .cell-cave { background: #1a1a2a; }
+.cell-portal { background: #3d1a5c; box-shadow: 0 0 6px rgba(139, 92, 246, 0.8) inset; }
+.cell-portal::before { content: '🌀'; position: absolute; font-size: 0.9rem; }
 .cell-mob::after { content: '👾'; position: absolute; top: 2px; right: 2px; font-size: 0.7rem; }
 .cell-npc::after { content: '💬'; position: absolute; top: 2px; right: 2px; font-size: 0.7rem; }
 .cell-chest::after { content: '📦'; position: absolute; bottom: 2px; left: 2px; font-size: 0.7rem; }
@@ -43,10 +52,7 @@
 </style>
 
 <div class="card">
-    <div class="toolbar">
-        <h2>✏️ Редактирование: {{ location.name }}</h2>
-        <a href="/editor/locations" class="btn">◀️ Назад</a>
-    </div>
+    <h2>✏️ Редактирование: {{ location.name }}</h2>
 
     <form action="/editor/location/{{ location.id }}/save" method="post" enctype="multipart/form-data" style="margin-bottom: 1.5rem;">
         {% if location.image_url %}
@@ -74,7 +80,19 @@
             </div>
             <div>
                 <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Размер сетки</label>
-                <input type="number" name="grid_size" value="{{ location.grid_size }}" class="search-box" style="max-width: 100%;" min="5" max="20">
+                <input type="number" name="grid_size" value="{{ location.grid_size }}" class="search-box" style="max-width: 100%;" min="5" max="25">
+            </div>
+            <div>
+                <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Этажей</label>
+                <input type="number" name="floors_count" value="{{ location.floors_count or 1 }}" class="search-box" style="max-width: 100%;" min="1" max="10">
+            </div>
+            <div>
+                <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Мировая X</label>
+                <input type="number" name="world_x" value="{{ location.world_x }}" class="search-box" style="max-width: 100%;" min="0" max="9">
+            </div>
+            <div>
+                <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Мировая Y</label>
+                <input type="number" name="world_y" value="{{ location.world_y }}" class="search-box" style="max-width: 100%;" min="0" max="9">
             </div>
         </div>
         <div style="margin-bottom: 1rem;">
@@ -96,9 +114,18 @@
 </div>
 
 <div class="card">
-    <h2>🗺 Сетка клеток</h2>
+    <div class="toolbar">
+        <h2>🗺 Сетка клеток{% if location.floors_count and location.floors_count > 1 %} — этаж {{ current_floor }}{% endif %}</h2>
+        {% if location.floors_count and location.floors_count > 1 %}
+        <div style="display:flex; gap:0.4rem; flex-wrap:wrap;">
+            {% for f in floors_range %}
+            <a href="/editor/location/{{ location.id }}?floor={{ f }}" class="btn btn-sm {% if f == current_floor %}btn-primary{% endif %}">Этаж {{ f }}</a>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
     <p style="color: var(--text-muted); font-size: 0.8rem; margin-bottom: 1rem;">
-        Кликни на клетку чтобы отредактировать. Легенда: 🧱 стена | 🌿 трава | 🌲 лес | 💧 вода | 🛤 дорога | 🏘 деревня | 👾 враг | 💬 NPC | 📦 сундук
+        Кликни на клетку чтобы отредактировать. Легенда: 🧱 стена | 🌿 трава | 🌲 лес | 💧 вода | 🛤 дорога | 🏘 деревня | 🕳 пещера | 🌀 портал подземелья | 👾 враг | 💬 NPC | 📦 сундук
     </p>
     <div class="cell-grid">
         {% for y in range(location.grid_size) %}

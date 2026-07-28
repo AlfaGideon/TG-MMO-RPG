@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 
 {% block title %}Редактор NPC — Shadow Lands{% endblock %}
+{% block page_title %}🎭 NPC на карте{% endblock %}
 
 {% block content %}
 <div class="card">
-    <div class="toolbar">
-        <h2>🎭 NPC на карте</h2>
-    </div>
+    <h2>🎭 Все NPC</h2>
+    <div class="table-wrap">
     <table>
         <thead>
             <tr>
@@ -29,11 +29,16 @@
                 <td>{{ cell.npc_type or '—' }}</td>
                 <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ cell.npc_dialogue or '—' }}</td>
                 <td>
-                    <a href="/editor/cell/{{ cell.id }}" class="btn btn-primary" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">✏️ Клетка</a>
+                    <a href="/editor/cell/{{ cell.id }}" class="btn btn-primary btn-sm">✏️ Клетка</a>
                 </td>
             </tr>
+            {% else %}
+            <tr><td colspan="7">
+                <div class="empty-state"><div class="empty-icon">🎭</div>NPC пока не добавлены.</div>
+            </td></tr>
             {% endfor %}
         </tbody>
     </table>
+    </div>
 </div>
 {% endblock %}

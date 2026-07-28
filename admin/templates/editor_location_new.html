@@ -1,15 +1,13 @@
 {% extends "base.html" %}
 
 {% block title %}Новая локация — Shadow Lands{% endblock %}
+{% block page_title %}➕ Создать новую локацию{% endblock %}
+{% block topbar_actions %}<a href="/editor/locations" class="btn">◀️ Назад</a>{% endblock %}
 
 {% block content %}
 <div class="card">
-    <div class="toolbar">
-        <h2>➕ Создать новую локацию</h2>
-        <a href="/editor/locations" class="btn">◀️ Назад</a>
-    </div>
     <form action="/editor/location/new" method="post">
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+        <div class="form-grid" style="grid-template-columns: repeat(2, 1fr);">
             <div>
                 <label class="form-label">Название</label>
                 <input type="text" name="name" class="search-box" style="max-width: 100%;" required>
@@ -29,15 +27,19 @@
             </div>
             <div>
                 <label class="form-label">Размер сетки</label>
-                <input type="number" name="grid_size" value="10" class="search-box" style="max-width: 100%;" min="5" max="20">
+                <input type="number" name="grid_size" value="10" class="search-box" style="max-width: 100%;" min="5" max="25">
             </div>
             <div>
-                <label class="form-label">Мировая X</label>
-                <input type="number" name="world_x" value="0" class="search-box" style="max-width: 100%;">
+                <label class="form-label">Этажей (для многоуровневых зданий/шахт)</label>
+                <input type="number" name="floors_count" value="1" class="search-box" style="max-width: 100%;" min="1" max="10">
             </div>
             <div>
-                <label class="form-label">Мировая Y</label>
-                <input type="number" name="world_y" value="0" class="search-box" style="max-width: 100%;">
+                <label class="form-label">Мировая X (0-9)</label>
+                <input type="number" name="world_x" value="{{ world_x }}" class="search-box" style="max-width: 100%;" min="0" max="9">
+            </div>
+            <div>
+                <label class="form-label">Мировая Y (0-9)</label>
+                <input type="number" name="world_y" value="{{ world_y }}" class="search-box" style="max-width: 100%;" min="0" max="9">
             </div>
         </div>
         <div style="margin-bottom: 1rem;">

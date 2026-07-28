@@ -1,30 +1,37 @@
 {% extends "base.html" %}
 
 {% block title %}Dashboard — Shadow Lands{% endblock %}
+{% block page_title %}📊 Dashboard{% endblock %}
 
 {% block content %}
 <div class="stats-grid">
     <div class="stat-box">
+        <div class="stat-icon">👥</div>
         <div class="value">{{ total_players }}</div>
         <div class="label">Всего игроков</div>
     </div>
     <div class="stat-box">
+        <div class="stat-icon">🧙</div>
         <div class="value">{{ total_characters }}</div>
         <div class="label">Персонажей</div>
     </div>
     <div class="stat-box">
+        <div class="stat-icon">⚔️</div>
         <div class="value">{{ total_battles }}</div>
         <div class="label">Проведено боёв</div>
     </div>
     <div class="stat-box">
+        <div class="stat-icon">🪙</div>
         <div class="value">{{ total_gold }}</div>
         <div class="label">Золота в обороте</div>
     </div>
     <div class="stat-box">
+        <div class="stat-icon">📈</div>
         <div class="value">{{ avg_level }}</div>
         <div class="label">Средний уровень</div>
     </div>
     <div class="stat-box">
+        <div class="stat-icon">🗺</div>
         <div class="value">{{ top_location }}</div>
         <div class="label">Популярная локация</div>
     </div>
@@ -32,6 +39,7 @@
 
 <div class="card" style="margin-top: 1.5rem;">
     <h2>🎮 Последние бои</h2>
+    <div class="table-wrap">
     <table>
         <thead>
             <tr>
@@ -66,5 +74,6 @@
             {% endfor %}
         </tbody>
     </table>
+    </div>
 </div>
 {% endblock %}

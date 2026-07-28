@@ -48,7 +48,7 @@ def back_to_main_keyboard():
     return builder.as_markup()
 
 
-def cell_movement_keyboard(can_dirs: dict):
+def cell_movement_keyboard(can_dirs: dict, dungeon_template_id: int | None = None):
     """
     3x3 grid: 8 directions + center inspect.
     can_dirs: {'nw': bool, 'n': bool, 'ne': bool, 'w': bool, 'e': bool,
@@ -77,13 +77,27 @@ def cell_movement_keyboard(can_dirs: dict):
     btn('s', '⬇️', 'Ю')
     btn('se', '↘️', 'ЮВ')
 
+    rows = [3, 3, 3]
+
+    if dungeon_template_id:
+        builder.button(text="🕳 Войти в подземелье", callback_data=f"dungeon_enter_tpl:{dungeon_template_id}")
+        rows.append(1)
+
     # Actions
     builder.button(text="🏕 Отдохнуть", callback_data="rest")
     builder.button(text="🎒 Инвентарь", callback_data="inventory")
+    builder.button(text="🗺 Карта", callback_data="show_map")
     builder.button(text="🗿 Подземелье", callback_data="dungeon_menu")
     builder.button(text="◀️ Меню", callback_data="main_menu")
+    rows.extend([2, 2, 1])
 
-    builder.adjust(3, 3, 3, 2, 2)
+    builder.adjust(*rows)
+    return builder.as_markup()
+
+
+def map_view_keyboard():
+    builder = InlineKeyboardBuilder()
+    builder.button(text="◀️ Назад", callback_data="back_to_cell")
     return builder.as_markup()
 
 
@@ -170,9 +184,8 @@ def leaderboard_keyboard():
     return builder.as_markup()
 
 
-def dungeon_menu_keyboard():
+def dungeon_menu_keyboard(has_portal_hint: bool = True):
     builder = InlineKeyboardBuilder()
-    builder.button(text="⚔️ Войти", callback_data="dungeon_enter")
     builder.button(text="📜 Правила", callback_data="dungeon_info")
     builder.button(text="◀️ Назад", callback_data="main_menu")
     builder.adjust(1)

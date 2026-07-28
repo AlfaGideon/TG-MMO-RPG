@@ -1,64 +1,97 @@
 {% extends "base.html" %}
 
 {% block title %}Редактор мира — Shadow Lands{% endblock %}
+{% block page_title %}🌍 Редактор мировой карты{% endblock %}
+{% block topbar_actions %}<a href="/editor/location/new" class="btn btn-primary">➕ Новая локация</a>{% endblock %}
 
 {% block content %}
 <style>
-.world-grid {
+.world-100 {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-    gap: 1rem;
-    margin-top: 1rem;
+    grid-template-columns: repeat({{ world_grid_size }}, minmax(64px, 1fr));
+    gap: 4px;
+    max-width: 900px;
 }
-.world-loc {
-    background: var(--bg-hover);
+.world-cell {
+    aspect-ratio: 1;
     border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 1rem;
-    position: relative;
-}
-.world-loc h4 { margin: 0 0 0.5rem; }
-.world-loc .coords { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.5rem; }
-.world-loc .badge { font-size: 0.7rem; padding: 0.15rem 0.4rem; border-radius: 4px; }
-.world-empty {
-    border: 2px dashed var(--border);
-    border-radius: 8px;
-    padding: 1rem;
-    text-align: center;
-    color: var(--text-muted);
-    min-height: 120px;
+    border-radius: 6px;
+    background: var(--bg-hover);
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
-    cursor: pointer;
+    text-align: center;
+    font-size: 0.62rem;
+    padding: 2px;
     text-decoration: none;
+    color: var(--text);
+    transition: transform 0.1s, border-color 0.1s;
+    overflow: hidden;
 }
-.world-empty:hover { border-color: var(--accent); color: var(--accent); }
+.world-cell:hover { transform: scale(1.08); z-index: 5; border-color: var(--accent); }
+.world-cell.empty { color: var(--text-muted); border-style: dashed; }
+.world-cell .wc-icon { font-size: 1rem; }
+.world-cell .wc-name { font-size: 0.6rem; line-height: 1.1; margin-top: 1px; }
+.world-cell .wc-pop { font-size: 0.55rem; color: var(--accent); margin-top: 1px; }
+.legend-row { display:flex; gap:1rem; flex-wrap:wrap; font-size:0.78rem; color: var(--text-muted); margin-bottom: 1rem; }
 </style>
 
 <div class="card">
-    <div class="toolbar">
-        <h2>🌍 Редактор мировой карты</h2>
-        <a href="/editor/location/new" class="btn btn-primary">➕ Новая локация</a>
-    </div>
-    <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1rem;">
-        Локации располагаются по мировым координатам (world_x, world_y). Игроки переходят между ними бесшовно через граничные клетки.
+    <h2>🌍 Мировая карта — {{ world_grid_size }}×{{ world_grid_size }} локаций</h2>
+    <p class="section-sub">
+        Каждая ячейка — отдельная локация с собственной сеткой клеток (по умолчанию 10×10, настраивается) и, опционально, несколькими этажами.
+        Полный мир — до {{ world_grid_size }}×10 = {{ world_grid_size * 10 }} клеток в каждую сторону.
     </p>
-    <div class="world-grid">
-        {% for loc in locations %}
-        <div class="world-loc">
-            <div class="coords">🌍 {{ loc.world_x }}, {{ loc.world_y }}</div>
-            <h4>{{ loc.name }}</h4>
-            <span class="badge badge-{{ loc.location_type.value }}">{{ loc.location_type.value }}</span>
-            <div style="margin-top: 0.5rem; font-size: 0.8rem; color: var(--text-muted);">
-                Ур. {{ loc.min_level }} | Сетка {{ loc.grid_size }}x{{ loc.grid_size }}
-            </div>
-            <a href="/editor/location/{{ loc.id }}" class="btn btn-primary" style="margin-top: 0.75rem; padding: 0.25rem 0.5rem; font-size: 0.75rem;">✏️ Редактировать</a>
-        </div>
-        {% endfor %}
-        <a href="/editor/location/new" class="world-empty">
-            <div>➕<br>Создать локацию</div>
-        </a>
+    <div class="legend-row">
+        <span>🟪 занято</span>
+        <span>➕ свободно — нажми, чтобы создать локацию</span>
+        <span>👥 число персонажей в локации</span>
     </div>
+    <div class="world-100">
+        {% for wx in grid_range %}
+            {% for wy in grid_range %}
+                {% set loc = grid.get((wx, wy)) %}
+                {% if loc %}
+                <a href="/editor/location/{{ loc.id }}" class="world-cell" title="{{ loc.name }} [{{ wx }},{{ wy }}]">
+                    <span class="wc-icon">
+                        {% if loc.location_type.value == 'boss' %}👹
+                        {% elif loc.location_type.value == 'dungeon' %}💀
+                        {% elif loc.location_type.value == 'dangerous' %}⚠️
+                        {% else %}🛡{% endif %}
+                    </span>
+                    <span class="wc-name">{{ loc.name[:12] }}</span>
+                    {% if pop_by_loc.get(loc.id) %}<span class="wc-pop">👥{{ pop_by_loc.get(loc.id) }}</span>{% endif %}
+                </a>
+                {% else %}
+                <a href="/editor/location/new?world_x={{ wx }}&world_y={{ wy }}" class="world-cell empty" title="Создать локацию [{{ wx }},{{ wy }}]">➕</a>
+                {% endif %}
+            {% endfor %}
+        {% endfor %}
+    </div>
+</div>
+
+<div class="card">
+    <h3>🔀 Переместить существующую локацию</h3>
+    <p class="section-sub">Измени мировые координаты локации, чтобы переставить её блок на карте.</p>
+    <form action="/editor/world/place" method="post" style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:flex-end;">
+        <div>
+            <label class="form-label">Локация</label>
+            <select name="location_id" class="search-box" style="max-width:220px">
+                {% for loc in locations %}
+                <option value="{{ loc.id }}">{{ loc.name }} (сейчас [{{ loc.world_x }},{{ loc.world_y }}])</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label class="form-label">Новая X</label>
+            <input type="number" name="world_x" min="0" max="{{ world_grid_size - 1 }}" value="0" class="search-box" style="max-width:100px">
+        </div>
+        <div>
+            <label class="form-label">Новая Y</label>
+            <input type="number" name="world_y" min="0" max="{{ world_grid_size - 1 }}" value="0" class="search-box" style="max-width:100px">
+        </div>
+        <button type="submit" class="btn btn-primary">💾 Переставить</button>
+    </form>
 </div>
 {% endblock %}

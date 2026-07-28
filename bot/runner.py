@@ -17,6 +17,7 @@ class BotRunner:
         self.bot: Optional[Bot] = None
         self.dp: Optional[Dispatcher] = None
         self._task: Optional[asyncio.Task] = None
+        self._portal_sweep_task: Optional[asyncio.Task] = None
         self._running = False
 
     def is_running(self) -> bool:
@@ -40,12 +41,49 @@ class BotRunner:
 
             self._running = True
             self._task = asyncio.create_task(self._poll())
+            asyncio.create_task(self._notify_resume_on_start())
+            self._portal_sweep_task = asyncio.create_task(self._portal_sweep_loop())
             logger.info("Bot started")
             return True
         except Exception as e:
             logger.error(f"Failed to start bot: {e}")
             self._running = False
             return False
+
+    async def _notify_resume_on_start(self):
+        """Fire-and-forget: right after (re)starting, nudge players whose
+        action was likely interrupted by the restart to repeat it."""
+        try:
+            await asyncio.sleep(2)  # let polling settle first
+            from bot.broadcast import notify_resume_interrupted_actions
+            count = await notify_resume_interrupted_actions(self.bot)
+            if count:
+                logger.info(f"Sent resume-action notices to {count} player(s)")
+        except Exception as e:
+            logger.debug(f"resume notification pass failed: {e}")
+
+    async def _portal_sweep_loop(self):
+        """Periodically auto-closes dungeon portals that have been open
+        longer than the 2h limit, independent of whether anyone visits the
+        admin panel or the portal cell in the meantime."""
+        from core.database import async_session
+        from core.dungeons import sweep_expired_portals
+        from bot.broadcast import notify_dungeon_portal_closed
+
+        while self.is_running():
+            try:
+                async with async_session() as session:
+                    closed = await sweep_expired_portals(session)
+                    names = [tpl.name for tpl in closed]
+                    await session.commit()
+                for name in names:
+                    try:
+                        await notify_dungeon_portal_closed(self.bot, name)
+                    except Exception as e:
+                        logger.debug(f"portal auto-close notice failed: {e}")
+            except Exception as e:
+                logger.debug(f"portal sweep failed: {e}")
+            await asyncio.sleep(300)  # check every 5 minutes
 
     async def _poll(self):
         try:
@@ -70,6 +108,14 @@ class BotRunner:
             except asyncio.CancelledError:
                 pass
             self._task = None
+
+        if self._portal_sweep_task:
+            self._portal_sweep_task.cancel()
+            try:
+                await self._portal_sweep_task
+            except asyncio.CancelledError:
+                pass
+            self._portal_sweep_task = None
 
         if self.dp:
             await self.dp.emit_shutdown()

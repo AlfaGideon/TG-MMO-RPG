@@ -94,13 +94,16 @@ def location_text(location):
     )
 
 
-def cell_text(cell, location_name):
+def cell_text(cell, location_name, portal_active=False):
     # No hints about mobs, NPCs, chests - player must explore
-    return (
+    text = (
         f"🗺 <b>{location_name}</b>\n"
         f"📍 Клетка [{cell.x},{cell.y}] | <i>{cell.name}</i>\n\n"
         f"{cell.description}"
     )
+    if portal_active:
+        text += "\n\n🌀 <b>Здесь открылся портал в подземелье!</b>"
+    return text
 
 
 def battle_start_text(mob):

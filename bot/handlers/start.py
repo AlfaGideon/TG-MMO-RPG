@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from core.database import async_session
-from core.models import User, Character, Cell, AdminMessage
+from core.models import User, Character, Cell, AdminMessage, VisitedCell
 from bot.keyboards.inline import main_menu_keyboard, class_select_keyboard, confirm_class_keyboard, back_to_main_keyboard
 from bot.utils.texts import WELCOME_TEXT, CLASS_DESCRIPTIONS
 from core.enums import CharacterClass
@@ -170,9 +170,19 @@ async def confirm_class(callback: CallbackQuery):
             max_mp=s["max_mp"],
             current_mp=s["max_mp"],
             location_id=1,
+            floor=0,
             cell_id=spawn_cell.id if spawn_cell else None,
         )
         session.add(character)
+        await session.flush()
+        if spawn_cell:
+            session.add(VisitedCell(
+                character_id=character.id,
+                location_id=1,
+                floor=0,
+                x=spawn_cell.x,
+                y=spawn_cell.y,
+            ))
         await session.commit()
 
     await callback.message.edit_text(

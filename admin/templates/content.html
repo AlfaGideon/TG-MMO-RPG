@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block title %}Контент — Shadow Lands{% endblock %}
+{% block page_title %}🧩 Контент мира{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>🧩 Разделы контента</h2>
+    <p class="section-sub">
+        Здесь собраны все редакторы игрового мира: карта, локации, монстры, NPC и квесты.
+    </p>
+    <div class="content-hub-grid">
+        <a href="/editor/world" class="content-card">
+            <div class="content-icon">🌍</div>
+            <div class="content-title">Мир</div>
+            <div class="content-desc">Расположение локаций на мировой карте по координатам.</div>
+            <span class="content-count">{{ total_locations }} локаций</span>
+        </a>
+        <a href="/editor/locations" class="content-card">
+            <div class="content-icon">🗺</div>
+            <div class="content-title">Локации</div>
+            <div class="content-desc">Список локаций, их клетки, тип, этажи и уровень.</div>
+            <span class="content-count">{{ total_locations }} шт.</span>
+        </a>
+        <a href="/editor/dungeons" class="content-card">
+            <div class="content-icon">🕳</div>
+            <div class="content-title">Подземелья</div>
+            <div class="content-desc">Шаблоны процедурных подземелий 25×25: стены, сундуки, мобы.</div>
+            <span class="content-count">{{ total_dungeons }} шт.</span>
+        </a>
+        <a href="/editor/mobs" class="content-card">
+            <div class="content-icon">👾</div>
+            <div class="content-title">Мобы</div>
+            <div class="content-desc">Монстры, боссы, характеристики и награды за убийство.</div>
+            <span class="content-count">{{ total_mobs }} шт.</span>
+        </a>
+        <a href="/editor/npcs" class="content-card">
+            <div class="content-icon">🎭</div>
+            <div class="content-title">NPC</div>
+            <div class="content-desc">Торговцы, квестодатели и рассказчики на клетках карты.</div>
+            <span class="content-count">{{ total_npcs }} шт.</span>
+        </a>
+        <a href="/editor/quests" class="content-card">
+            <div class="content-icon">📜</div>
+            <div class="content-title">Квесты</div>
+            <div class="content-desc">Задания игроков: цели, условия и награды.</div>
+            <span class="content-count">{{ total_quests }} шт.</span>
+        </a>
+        <a href="/items" class="content-card">
+            <div class="content-icon">🎒</div>
+            <div class="content-title">Предметы и лавка</div>
+            <div class="content-desc">Каталог предметов и товары в магазине торговца.</div>
+            <span class="content-count">{{ total_items }} шт.</span>
+        </a>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Вход — Shadow Lands Admin</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div style="min-height:100vh; display:flex; align-items:center; justify-content:center; padding: 1.5rem;">
+    <div class="card" style="max-width: 380px; width: 100%;">
+        <div style="text-align:center; margin-bottom: 1.25rem;">
+            <div style="font-size:2.2rem;">🌑</div>
+            <h2 style="justify-content:center; margin-top:0.5rem;">Shadow Lands Admin</h2>
+            <p class="section-sub" style="margin-bottom:0;">Вход по доступу, выданному администратором</p>
+        </div>
+        {% if error %}
+        <div style="background: rgba(239,68,68,0.15); color:#fca5a5; border:1px solid var(--danger); border-radius:8px; padding:0.6rem 0.85rem; font-size:0.85rem; margin-bottom:1rem;">
+            {{ error }}
+        </div>
+        {% endif %}
+        <form method="post" action="/admin-login">
+            <div style="margin-bottom: 0.9rem;">
+                <label class="form-label">Telegram ID</label>
+                <input type="text" name="uid" value="{{ uid or '' }}" class="search-box" style="max-width:100%" required autofocus>
+            </div>
+            <div style="margin-bottom: 1.1rem;">
+                <label class="form-label">Пароль</label>
+                <input type="password" name="password" class="search-box" style="max-width:100%" required>
+            </div>
+            <button type="submit" class="btn btn-primary" style="width:100%; justify-content:center;">🔑 Войти</button>
+        </form>
+    </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+
+{% block title %}Карта игроков — Shadow Lands{% endblock %}
+{% block page_title %}🗺 Карта игроков{% endblock %}
+
+{% block content %}
+<style>
+.pm-grid {
+    display: grid;
+    grid-template-columns: repeat(10, minmax(56px, 1fr));
+    gap: 4px;
+    max-width: 760px;
+}
+.pm-cell {
+    aspect-ratio: 1;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-hover);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.6rem;
+    text-align: center;
+    padding: 2px;
+    position: relative;
+    overflow: hidden;
+}
+.pm-cell.has-players { border-color: var(--accent); background: var(--accent-soft); }
+.pm-cell .pm-name { font-size: 0.58rem; line-height: 1.1; }
+.pm-cell .pm-count {
+    position: absolute; top: 2px; right: 3px;
+    background: var(--accent); color: #fff; border-radius: 999px;
+    font-size: 0.6rem; font-weight: 700; padding: 0 4px;
+}
+.pm-cell.empty { color: var(--text-muted); border-style: dashed; opacity: 0.5; }
+</style>
+
+<div class="card">
+    <h2>🗺 Кто и где на карте мира</h2>
+    <p class="section-sub">Упрощённая карта: показывает количество персонажей в каждой локации (по всем этажам).</p>
+    <div class="pm-grid">
+        {% for wx in grid_range %}
+            {% for wy in grid_range %}
+                {% set loc = grid.get((wx, wy)) %}
+                {% if loc %}
+                    {% set floors = pop_by_loc.get(loc.id, {}) %}
+                    {% set total = floors.values() | sum %}
+                    <div class="pm-cell {% if total %}has-players{% endif %}" title="{{ loc.name }}">
+                        {% if total %}<span class="pm-count">{{ total }}</span>{% endif %}
+                        <div class="pm-name">{{ loc.name[:10] }}</div>
+                    </div>
+                {% else %}
+                    <div class="pm-cell empty">—</div>
+                {% endif %}
+            {% endfor %}
+        {% endfor %}
+    </div>
+</div>
+
+<div class="card">
+    <div class="toolbar">
+        <h2 style="margin-bottom:0;">👥 Персонажи по локациям ({{ total_characters }})</h2>
+    </div>
+    <div class="table-wrap">
+    <table>
+        <thead>
+            <tr><th>Игрок</th><th>Локация</th><th>Этаж</th><th>Уровень</th><th>Онлайн действия</th></tr>
+        </thead>
+        <tbody>
+            {% for c in characters %}
+            <tr>
+                <td>{{ c.name }}</td>
+                <td>{{ c.location.name if c.location else '—' }}</td>
+                <td>{{ c.floor or 0 }}</td>
+                <td>{{ c.level }}</td>
+                <td><a href="/player/{{ c.id }}" class="btn btn-primary btn-sm">👤 Профиль</a></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5">
+                <div class="empty-state"><div class="empty-icon">🧙</div>Персонажей пока нет.</div>
+            </td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</div>
+{% endblock %}

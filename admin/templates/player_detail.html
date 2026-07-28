@@ -1,13 +1,11 @@
 {% extends "base.html" %}
 
 {% block title %}{{ char.name }} — Игрок — Shadow Lands{% endblock %}
+{% block page_title %}👤 {{ char.name }} <span style="color:var(--text-muted); font-weight:400; font-size:0.85rem;">(ID: {{ char.id }})</span>{% endblock %}
+{% block topbar_actions %}<a href="/players" class="btn">◀️ Назад</a>{% endblock %}
 
 {% block content %}
 <div class="card">
-    <div class="toolbar">
-        <h2>👤 {{ char.name }} <small style="color:var(--text-muted)">(ID: {{ char.id }})</small></h2>
-        <a href="/players" class="btn">◀️ Назад</a>
-    </div>
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
         <div>
             <h3>📊 Статистика</h3>
@@ -25,8 +23,13 @@
                 <tr><td>Интеллект</td><td>{{ char.intelligence }}</td></tr>
                 <tr><td>Выносливость</td><td>{{ char.endurance }}</td></tr>
                 <tr><td>Удача</td><td>{{ char.luck }}</td></tr>
-                <tr><td>Локация</td><td>{{ char.location.name if char.location else '—' }}</td></tr>
+                <tr><td>Локация</td><td>{{ char.location.name if char.location else '—' }}{% if char.floor %} (этаж {{ char.floor }}){% endif %}</td></tr>
                 <tr><td>VIP</td><td>{{ '✅ до ' + char.vip_until.strftime('%Y-%m-%d') if char.vip_until else '❌' }}</td></tr>
+                <tr><td>Веб-админка</td><td>
+                    {% if char.user.is_web_admin %}
+                        ✅ {{ role_labels.get(char.user.web_admin_role, char.user.web_admin_role) }}
+                    {% else %}❌{% endif %}
+                </td></tr>
             </table>
         </div>
         <div>
@@ -51,11 +54,9 @@
                     <div><label class="form-label">Макс MP</label><input type="number" name="max_mp" value="{{ char.max_mp }}" class="search-box" style="max-width:100%"></div>
                     <div><label class="form-label">Тек HP</label><input type="number" name="current_hp" value="{{ char.current_hp }}" class="search-box" style="max-width:100%"></div>
                     <div><label class="form-label">Тек MP</label><input type="number" name="current_mp" value="{{ char.current_mp }}" class="search-box" style="max-width:100%"></div>
-                    <div><label class="form-label">VIP дней</label><input type="number" name="vip_days" value="0" class="search-box" style="max-width:100%"></div>
-                    <div style="display:flex;align-items:flex-end;gap:0.5rem;">
-                        <label style="font-size:0.85rem"><input type="checkbox" name="is_vip" {% if char.is_vip %}checked{% endif %}> VIP</label>
-                    </div>
                 </div>
+                <input type="hidden" name="is_vip" value="{{ 'true' if char.is_vip else '' }}">
+                <input type="hidden" name="vip_days" value="0">
                 <div style="margin-top: 0.75rem;">
                     <label class="form-label">🖼 Файл картинки (аватар)</label>
                     <input type="file" name="image" accept="image/*" class="search-box" style="max-width:100%">
@@ -66,6 +67,57 @@
                 </div>
                 <button type="submit" class="btn btn-primary" style="margin-top:0.75rem">💾 Сохранить</button>
             </form>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <h3>👑 VIP и доступ к веб-админке</h3>
+    <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+        <div>
+            <h4 style="margin-bottom:0.5rem; font-size:0.9rem; color: var(--text-muted);">⭐ VIP-статус</h4>
+            {% if char.is_vip %}
+            <p style="margin-bottom:0.75rem; font-size:0.85rem;">Активен до <b>{{ char.vip_until.strftime('%Y-%m-%d') if char.vip_until else '—' }}</b></p>
+            {% else %}
+            <p style="margin-bottom:0.75rem; font-size:0.85rem; color: var(--text-muted);">VIP не активен</p>
+            {% endif %}
+            <form action="/player/{{ char.id }}/grant-vip" method="post" style="display:flex; gap:0.5rem; align-items:flex-end; flex-wrap:wrap;">
+                <div>
+                    <label class="form-label">Дней VIP</label>
+                    <input type="number" name="vip_days" value="30" min="1" class="search-box" style="max-width:110px">
+                </div>
+                <button type="submit" class="btn btn-primary">🎁 Выдать VIP</button>
+            </form>
+            {% if char.is_vip %}
+            <form action="/player/{{ char.id }}/revoke-vip" method="post" style="margin-top:0.5rem;">
+                <button type="submit" class="btn btn-danger btn-sm">❌ Снять VIP</button>
+            </form>
+            {% endif %}
+        </div>
+        <div>
+            <h4 style="margin-bottom:0.5rem; font-size:0.9rem; color: var(--text-muted);">🔑 Доступ к веб-админке</h4>
+            {% if char.user.is_web_admin %}
+            <p style="margin-bottom:0.75rem; font-size:0.85rem;">Роль: <b>{{ role_labels.get(char.user.web_admin_role, char.user.web_admin_role) }}</b></p>
+            {% else %}
+            <p style="margin-bottom:0.75rem; font-size:0.85rem; color: var(--text-muted);">Доступ не выдан</p>
+            {% endif %}
+            <form action="/player/{{ char.id }}/grant-admin" method="post" style="display:flex; gap:0.5rem; align-items:flex-end; flex-wrap:wrap;">
+                <div>
+                    <label class="form-label">Роль</label>
+                    <select name="role" class="search-box" style="max-width:220px">
+                        {% for r in roles %}
+                        <option value="{{ r }}" {% if char.user.web_admin_role == r %}selected{% endif %}>{{ role_labels.get(r, r) }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary">👑 {{ 'Обновить доступ' if char.user.is_web_admin else 'Выдать доступ' }}</button>
+            </form>
+            <p class="section-sub" style="margin-top:0.5rem; margin-bottom:0;">Игроку придёт сообщение в боте с логином (Telegram ID), паролем и кнопкой входа.</p>
+            {% if char.user.is_web_admin %}
+            <form action="/player/{{ char.id }}/revoke-admin" method="post" style="margin-top:0.5rem;">
+                <button type="submit" class="btn btn-danger btn-sm">❌ Отозвать доступ</button>
+            </form>
+            {% endif %}
         </div>
     </div>
 </div>
@@ -88,9 +140,13 @@
     {% else %}
     <p style="color:var(--text-muted)">Инвентарь пуст.</p>
     {% endif %}
-    <form action="/player/{{ char.id }}/give-item" method="post" style="margin-top:1rem;display:flex;gap:0.5rem;">
-        <input type="number" name="item_id" placeholder="ID предмета" class="search-box" style="max-width:120px">
-        <input type="number" name="quantity" value="1" class="search-box" style="max-width:80px">
+    <form action="/player/{{ char.id }}/give-item" method="post" style="margin-top:1rem;display:flex;gap:0.5rem; flex-wrap:wrap;">
+        <select name="item_id" class="search-box" style="max-width:260px">
+            {% for it in all_items %}
+            <option value="{{ it.id }}">{{ it.icon }} {{ it.name }}</option>
+            {% endfor %}
+        </select>
+        <input type="number" name="quantity" value="1" min="1" class="search-box" style="max-width:80px">
         <button type="submit" class="btn btn-primary">🎁 Выдать</button>
     </form>
 </div>

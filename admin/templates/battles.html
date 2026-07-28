@@ -1,12 +1,11 @@
 {% extends "base.html" %}
 
 {% block title %}Бои — Shadow Lands{% endblock %}
+{% block page_title %}⚔️ История боёв{% endblock %}
 
 {% block content %}
 <div class="card">
-    <div class="toolbar">
-        <h2>⚔️ История боёв</h2>
-    </div>
+    <div class="table-wrap">
     <table>
         <thead>
             <tr>
@@ -44,8 +43,13 @@
                 <td>{{ b.exp_earned }}</td>
                 <td>{{ b.created_at.strftime('%Y-%m-%d %H:%M') if b.created_at else '-' }}</td>
             </tr>
+            {% else %}
+            <tr><td colspan="10">
+                <div class="empty-state"><div class="empty-icon">⚔️</div>Боёв пока не было.</div>
+            </td></tr>
             {% endfor %}
         </tbody>
     </table>
+    </div>
 </div>
 {% endblock %}

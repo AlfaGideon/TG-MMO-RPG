@@ -2,13 +2,13 @@ import random
 from datetime import datetime
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, FSInputFile
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from core.database import async_session
-from core.models import User, Character, DungeonRun, DungeonCell
+from core.models import User, Character, DungeonRun, DungeonCell, DungeonTemplate, Cell
 from bot.keyboards.inline import dungeon_menu_keyboard, dungeon_movement_keyboard, dungeon_combat_keyboard, back_to_main_keyboard, main_menu_keyboard
-from bot.utils.texts import dungeon_text
 
 router = Router()
 
@@ -27,14 +27,54 @@ DUNGEON_NAMES = [
     ("Кристальная пещера", "Стены усыпаны тёмными кристаллами...", "cave"),
 ]
 
+DEFAULT_MOB_NAMES = ["Пещерный паук", "Теневой крыс", "Скелет-страж", "Болотный слизень", "Древний призрак"]
 
-def _generate_dungeon(run_id: int, seed: int, floor: int = 1):
+DIRECTIONS = {
+    "north": (-1, 0), "south": (1, 0), "west": (0, -1), "east": (0, 1),
+    "nw": (-1, -1), "ne": (-1, 1), "sw": (1, -1), "se": (1, 1),
+}
+
+
+def _dungeon_config(template: "DungeonTemplate | None"):
+    """Returns generation parameters, falling back to sane defaults when no
+    admin-configured template is attached to the entrance cell."""
+    if template is None:
+        return {
+            "size": 25,
+            "wall_chance": 0.22,
+            "chest_chance": 0.06,
+            "mob_chance": 0.18,
+            "mob_level_min": 1,
+            "mob_level_max": 5,
+            "mob_names": DEFAULT_MOB_NAMES,
+        }
+    mob_names = [n.strip() for n in (template.mob_pool or "").split(",") if n.strip()] or DEFAULT_MOB_NAMES
+    return {
+        "size": max(5, template.grid_size),
+        "wall_chance": template.wall_chance,
+        "chest_chance": template.chest_chance,
+        "mob_chance": template.mob_chance,
+        "mob_level_min": template.mob_level_min,
+        "mob_level_max": template.mob_level_max,
+        "mob_names": mob_names,
+    }
+
+
+def _spawn_xy(template):
+    cfg = _dungeon_config(template)
+    center = cfg["size"] // 2
+    return center, center
+
+
+def _generate_dungeon(run_id: int, seed: int, floor: int, template=None):
     random.seed(seed + floor * 1000 + run_id)
-    size = 8
+    cfg = _dungeon_config(template)
+    size = cfg["size"]
+    spawn_x, spawn_y = _spawn_xy(template)
     cells = []
     for x in range(size):
         for y in range(size):
-            is_wall = random.random() < 0.25 and (x, y) != (4, 4)
+            is_wall = random.random() < cfg["wall_chance"] and (x, y) != (spawn_x, spawn_y)
             name, desc, tile = random.choice(DUNGEON_NAMES)
             cell = DungeonCell(
                 run_id=run_id,
@@ -43,20 +83,67 @@ def _generate_dungeon(run_id: int, seed: int, floor: int = 1):
                 description=desc,
                 is_passable=not is_wall,
                 tile_type=tile if not is_wall else "wall",
-                has_mob=(not is_wall and random.random() < 0.2 and (x, y) != (4, 4)),
-                mob_name=random.choice(["Пещерный паук", "Теневой крыс", "Скелет-страж", "Болотный слизень", "Древний призрак"]),
-                mob_level=random.randint(1, 3) + floor,
+                has_mob=(not is_wall and random.random() < cfg["mob_chance"] and (x, y) != (spawn_x, spawn_y)),
+                mob_name=random.choice(cfg["mob_names"]),
+                mob_level=random.randint(cfg["mob_level_min"], max(cfg["mob_level_min"], cfg["mob_level_max"])) + (floor - 1),
                 mob_hp=random.randint(20, 50) + floor * 10,
                 mob_damage=random.randint(3, 8) + floor * 2,
                 mob_defense=random.randint(1, 4) + floor,
                 mob_gold=random.randint(5, 20) + floor * 5,
                 mob_exp=random.randint(10, 30) + floor * 10,
-                has_chest=(not is_wall and random.random() < 0.08),
+                has_chest=(not is_wall and random.random() < cfg["chest_chance"]),
                 chest_gold=random.randint(10, 40) + floor * 10,
                 has_exit=(x == 0 and y == 0),
             )
             cells.append(cell)
     return cells
+
+
+async def _get_template(session, run: DungeonRun):
+    if run.template_id:
+        return await session.get(DungeonTemplate, run.template_id)
+    return None
+
+
+async def _current_cell(session, run: DungeonRun) -> DungeonCell:
+    """Returns the dungeon cell the character currently stands on (last visited,
+    or the template's spawn point on a fresh run)."""
+    result = await session.execute(
+        select(DungeonCell)
+        .where(DungeonCell.run_id == run.id)
+        .where(DungeonCell.is_visited == True)
+        .order_by(DungeonCell.id.desc())
+        .limit(1)
+    )
+    current = result.scalar_one_or_none()
+    if current:
+        return current
+
+    template = await _get_template(session, run)
+    spawn_x, spawn_y = _spawn_xy(template)
+    result = await session.execute(
+        select(DungeonCell)
+        .where(DungeonCell.run_id == run.id)
+        .where(DungeonCell.x == spawn_x)
+        .where(DungeonCell.y == spawn_y)
+    )
+    current = result.scalar_one()
+    current.is_visited = True
+    return current
+
+
+async def _get_can_dirs(session, run: DungeonRun, current: DungeonCell):
+    can_dirs = {}
+    for direction, (dx, dy) in DIRECTIONS.items():
+        result = await session.execute(
+            select(DungeonCell)
+            .where(DungeonCell.run_id == run.id)
+            .where(DungeonCell.x == current.x + dx)
+            .where(DungeonCell.y == current.y + dy)
+        )
+        n = result.scalar_one_or_none()
+        can_dirs[direction] = n is not None and n.is_passable
+    return can_dirs
 
 
 @router.callback_query(F.data == "dungeon_menu")
@@ -74,7 +161,6 @@ async def dungeon_menu(callback: CallbackQuery):
             await callback.answer("Сначала создай персонажа!", show_alert=True)
             return
 
-        # Check active run
         result = await session.execute(
             select(DungeonRun)
             .where(DungeonRun.character_id == character.id)
@@ -82,29 +168,36 @@ async def dungeon_menu(callback: CallbackQuery):
         )
         run = result.scalar_one_or_none()
 
-    if run:
-        await callback.message.edit_text(
-            f"🗿 <b>Подземелье</b>\n\nТы уже внутри! Этаж {run.floor}.\nВыбери действие:",
-            reply_markup=dungeon_movement_keyboard(await _get_can_dirs(run)),
-            parse_mode="HTML",
-        )
-    else:
-        await callback.message.edit_text(
-            "🗿 <b>Подземелье Проклятых</b>\n\n"
-            "Здесь каждый заход уникален. Процедурная генерация создаёт новые лабиринты для каждого игрока.\n"
-            "Стартовая клетка одинакова, но внутренности разные.\n\n"
-            "⚠️ Вход только в соло!",
-            reply_markup=dungeon_menu_keyboard(),
-            parse_mode="HTML",
-        )
+        if run:
+            current = await _current_cell(session, run)
+            can_dirs = await _get_can_dirs(session, run, current)
+            await session.commit()
+            await callback.message.edit_text(
+                f"🗿 <b>Подземелье</b>\n\nТы уже внутри! Этаж {run.floor}.\nВыбери действие:",
+                reply_markup=dungeon_movement_keyboard(can_dirs),
+                parse_mode="HTML",
+            )
+        else:
+            await callback.message.edit_text(
+                "🗿 <b>Подземелье Проклятых</b>\n\n"
+                "Здесь каждый заход уникален. Процедурная генерация создаёт новые лабиринты для каждого игрока.\n"
+                "Вход в подземелье — это портал на карте мира (клетка с порталом). "
+                "Дойди до него и нажми «🕳 Войти в подземелье», когда окажешься на этой клетке.\n\n"
+                "⚠️ Проходить можно только в одиночку!",
+                reply_markup=dungeon_menu_keyboard(),
+                parse_mode="HTML",
+            )
 
 
 @router.callback_query(F.data == "dungeon_info")
 async def dungeon_info(callback: CallbackQuery):
     await callback.message.edit_text(
         "📜 <b>Правила подземелья</b>\n\n"
-        "• Каждый заход генерирует уникальное подземелье\n"
-        "• Стартовая точка всегда [4,4]\n"
+        "• Подземелья появляются как порталы на карте мира — их создаёт администратор\n"
+        "• Когда портал открывается, все игроки получают уведомление с точным местоположением\n"
+        "• Дойди до клетки с порталом и нажми «🕳 Войти в подземелье»\n"
+        "• Каждый заход генерирует уникальное подземелье (не связано с картой мира)\n"
+        "• Размер, число этажей и сложность зависят от шаблона портала\n"
         "• Монстры и сундуки случайны\n"
         "• Выход в левом верхнем углу [0,0]\n"
         "• Проходить можно только в одиночку\n"
@@ -115,8 +208,7 @@ async def dungeon_info(callback: CallbackQuery):
     )
 
 
-@router.callback_query(F.data == "dungeon_enter")
-async def dungeon_enter(callback: CallbackQuery):
+async def _enter_dungeon(callback: CallbackQuery, template_id: int):
     async with async_session() as session:
         result = await session.execute(
             select(User).where(User.telegram_id == callback.from_user.id)
@@ -140,9 +232,20 @@ async def dungeon_enter(callback: CallbackQuery):
             await show_dungeon_cell(callback, existing, session)
             return
 
+        template = await session.get(DungeonTemplate, template_id)
+        if not template:
+            await callback.answer("Портал уже закрылся.", show_alert=True)
+            return
+
+        from core.dungeons import is_portal_open
+        if not is_portal_open(template):
+            await callback.answer("Портал уже закрылся для новых искателей.", show_alert=True)
+            return
+
         seed = random.randint(1, 1000000)
         run = DungeonRun(
             character_id=character.id,
+            template_id=template.id,
             seed=seed,
             floor=1,
             is_active=True,
@@ -150,12 +253,18 @@ async def dungeon_enter(callback: CallbackQuery):
         session.add(run)
         await session.flush()
 
-        cells = _generate_dungeon(run.id, seed, 1)
+        cells = _generate_dungeon(run.id, seed, 1, template)
         for cell in cells:
             session.add(cell)
         await session.commit()
 
         await show_dungeon_cell(callback, run, session)
+
+
+@router.callback_query(F.data.startswith("dungeon_enter_tpl:"))
+async def dungeon_enter_with_template(callback: CallbackQuery):
+    template_id = int(callback.data.split(":")[1])
+    await _enter_dungeon(callback, template_id=template_id)
 
 
 @router.callback_query(F.data == "dungeon_exit")
@@ -191,11 +300,7 @@ async def dungeon_exit(callback: CallbackQuery):
 @router.callback_query(F.data.startswith("dungeon_move:"))
 async def dungeon_move(callback: CallbackQuery):
     direction = callback.data.split(":")[1]
-    deltas = {
-        "north": (-1, 0), "south": (1, 0), "west": (0, -1), "east": (0, 1),
-        "nw": (-1, -1), "ne": (-1, 1), "sw": (1, -1), "se": (1, 1),
-    }
-    dx, dy = deltas.get(direction, (0, 0))
+    dx, dy = DIRECTIONS.get(direction, (0, 0))
 
     async with async_session() as session:
         result = await session.execute(
@@ -220,21 +325,7 @@ async def dungeon_move(callback: CallbackQuery):
             await callback.answer("Ты не в подземелье.", show_alert=True)
             return
 
-        # Find current cell
-        result = await session.execute(
-            select(DungeonCell)
-            .where(DungeonCell.run_id == run.id)
-            .where(DungeonCell.is_visited == True)
-        )
-        visited = result.scalars().all()
-        # Current is last visited or spawn
-        current = visited[-1] if visited else None
-        if not current:
-            result = await session.execute(
-                select(DungeonCell).where(DungeonCell.run_id == run.id).where(DungeonCell.x == 4).where(DungeonCell.y == 4)
-            )
-            current = result.scalar_one()
-            current.is_visited = True
+        current = await _current_cell(session, run)
 
         new_x, new_y = current.x + dx, current.y + dy
         result = await session.execute(
@@ -252,17 +343,17 @@ async def dungeon_move(callback: CallbackQuery):
         await session.commit()
 
         if target.has_exit:
-            # Next floor
             run.floor += 1
-            # Clear old cells
-            await session.execute(
+            result = await session.execute(
                 select(DungeonCell).where(DungeonCell.run_id == run.id)
             )
-            for c in visited:
+            old_cells = result.scalars().all()
+            for c in old_cells:
                 await session.delete(c)
             await session.flush()
 
-            cells = _generate_dungeon(run.id, run.seed, run.floor)
+            template = await _get_template(session, run)
+            cells = _generate_dungeon(run.id, run.seed, run.floor, template)
             for cell in cells:
                 session.add(cell)
             await session.commit()
@@ -276,7 +367,6 @@ async def dungeon_move(callback: CallbackQuery):
 
 @router.callback_query(F.data == "dungeon_inspect")
 async def dungeon_inspect(callback: CallbackQuery):
-    import random
     async with async_session() as session:
         result = await session.execute(
             select(User).where(User.telegram_id == callback.from_user.id)
@@ -300,18 +390,8 @@ async def dungeon_inspect(callback: CallbackQuery):
             await callback.answer("Ты не в подземелье.", show_alert=True)
             return
 
-        result = await session.execute(
-            select(DungeonCell)
-            .where(DungeonCell.run_id == run.id)
-            .where(DungeonCell.is_visited == True)
-        )
-        visited = result.scalars().all()
-        current = visited[-1] if visited else None
-        if not current:
-            result = await session.execute(
-                select(DungeonCell).where(DungeonCell.run_id == run.id).where(DungeonCell.x == 4).where(DungeonCell.y == 4)
-            )
-            current = result.scalar_one()
+        current = await _current_cell(session, run)
+        await session.commit()
 
         lines = [f"🔍 <b>Осмотр [{current.x},{current.y}]</b>\n"]
         lines.append(f"<i>{current.name}</i>\n")
@@ -370,18 +450,8 @@ async def dungeon_attack(callback: CallbackQuery):
             await callback.answer("Ты не в подземелье.", show_alert=True)
             return
 
-        result = await session.execute(
-            select(DungeonCell)
-            .where(DungeonCell.run_id == run.id)
-            .where(DungeonCell.is_visited == True)
-        )
-        visited = result.scalars().all()
-        current = visited[-1] if visited else None
-        if not current:
-            result = await session.execute(
-                select(DungeonCell).where(DungeonCell.run_id == run.id).where(DungeonCell.x == 4).where(DungeonCell.y == 4)
-            )
-            current = result.scalar_one()
+        current = await _current_cell(session, run)
+        await session.commit()
 
         if not current.has_mob:
             await callback.answer("Здесь нет врагов.", show_alert=True)
@@ -458,7 +528,6 @@ async def dungeon_combat_attack(callback: CallbackQuery):
                 character.endurance += 1
                 needed = character.level * 100
 
-            # Mark mob as defeated in dungeon cell
             result = await session.execute(
                 select(DungeonCell).where(DungeonCell.id == state["cell_id"])
             )
@@ -529,18 +598,7 @@ async def dungeon_open_chest(callback: CallbackQuery):
             await callback.answer("Ты не в подземелье.", show_alert=True)
             return
 
-        result = await session.execute(
-            select(DungeonCell)
-            .where(DungeonCell.run_id == run.id)
-            .where(DungeonCell.is_visited == True)
-        )
-        visited = result.scalars().all()
-        current = visited[-1] if visited else None
-        if not current:
-            result = await session.execute(
-                select(DungeonCell).where(DungeonCell.run_id == run.id).where(DungeonCell.x == 4).where(DungeonCell.y == 4)
-            )
-            current = result.scalar_one()
+        current = await _current_cell(session, run)
 
         if not current.has_chest:
             await callback.answer("Здесь нет сундука.", show_alert=True)
@@ -586,22 +644,10 @@ async def dungeon_back(callback: CallbackQuery):
 
 
 async def show_dungeon_cell(callback, run, session):
-    result = await session.execute(
-        select(DungeonCell)
-        .where(DungeonCell.run_id == run.id)
-        .where(DungeonCell.is_visited == True)
-    )
-    visited = result.scalars().all()
-    current = visited[-1] if visited else None
-    if not current:
-        result = await session.execute(
-            select(DungeonCell).where(DungeonCell.run_id == run.id).where(DungeonCell.x == 4).where(DungeonCell.y == 4)
-        )
-        current = result.scalar_one()
-        current.is_visited = True
-        await session.commit()
+    current = await _current_cell(session, run)
+    await session.commit()
 
-    can_dirs = await _get_can_dirs(run)
+    can_dirs = await _get_can_dirs(session, run, current)
     text = (
         f"🗿 <b>Подземелье Проклятых — Этаж {run.floor}</b>\n"
         f"📍 [{current.x},{current.y}] | {current.name}\n\n"
@@ -616,34 +662,3 @@ async def show_dungeon_cell(callback, run, session):
 
     kb = dungeon_movement_keyboard(can_dirs)
     await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
-
-
-async def _get_can_dirs(run):
-    async with async_session() as session:
-        result = await session.execute(
-            select(DungeonCell)
-            .where(DungeonCell.run_id == run.id)
-            .where(DungeonCell.is_visited == True)
-        )
-        visited = result.scalars().all()
-        current = visited[-1] if visited else None
-        if not current:
-            result = await session.execute(
-                select(DungeonCell).where(DungeonCell.run_id == run.id).where(DungeonCell.x == 4).where(DungeonCell.y == 4)
-            )
-            current = result.scalar_one()
-
-        can_dirs = {}
-        for direction, (dx, dy) in {
-            "north": (-1, 0), "south": (1, 0), "west": (0, -1), "east": (0, 1),
-            "nw": (-1, -1), "ne": (-1, 1), "sw": (1, -1), "se": (1, 1),
-        }.items():
-            result = await session.execute(
-                select(DungeonCell)
-                .where(DungeonCell.run_id == run.id)
-                .where(DungeonCell.x == current.x + dx)
-                .where(DungeonCell.y == current.y + dy)
-            )
-            n = result.scalar_one_or_none()
-            can_dirs[direction] = n is not None and n.is_passable
-        return can_dirs
