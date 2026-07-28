@@ -25,6 +25,7 @@
                         <option value="road" {% if cell.tile_type == 'road' %}selected{% endif %}>🛤 Дорога</option>
                         <option value="village" {% if cell.tile_type == 'village' %}selected{% endif %}>🏘 Деревня</option>
                         <option value="cave" {% if cell.tile_type == 'cave' %}selected{% endif %}>🕳 Пещера</option>
+                        <option value="portal" {% if cell.tile_type == 'portal' %}selected{% endif %}>🌀 Портал подземелья</option>
                     </select>
                 </div>
 
@@ -70,7 +71,7 @@
                 <hr style="border-color: var(--border); margin: 1.5rem 0;">
 
                 <h3 style="margin-bottom: 1rem;">🕳 Вход в процедурное подземелье</h3>
-                <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">Если выбран шаблон, эта клетка становится входом в подземелье (генерируется отдельно от карты мира, не занимает клетки 100×100).</p>
+                <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">Порталы обычно открываются автоматически в случайном месте при создании шаблона в разделе «Подземелья» (с уведомлением игрокам). Здесь можно вручную назначить портал этой конкретной клетке (генерация подземелья идёт отдельно от карты мира, не занимает клетки 100×100).</p>
                 <div style="margin-bottom: 1rem;">
                     <select name="dungeon_template_id" class="search-box" style="max-width: 100%;">
                         <option value="">— нет —</option>

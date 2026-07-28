@@ -1247,10 +1247,15 @@ async def editor_dungeons(request: Request):
     async with async_session() as session:
         result = await session.execute(select(DungeonTemplate).order_by(DungeonTemplate.id))
         templates_list = result.scalars().all()
+
+        result = await session.execute(
+            select(Cell).options(selectinload(Cell.location)).where(Cell.dungeon_template_id.isnot(None))
+        )
+        portal_by_template = {c.dungeon_template_id: c for c in result.scalars().all()}
     return templates.TemplateResponse(
         request,
         "editor_dungeons.html",
-        {"dungeon_templates": templates_list},
+        {"dungeon_templates": templates_list, "portal_by_template": portal_by_template},
     )
 
 
@@ -1272,15 +1277,57 @@ async def dungeon_template_new(
 ):
     guard(request, "manage_content")
     async with async_session() as session:
-        session.add(DungeonTemplate(
+        tpl = DungeonTemplate(
             name=name, description=description, grid_size=grid_size,
             floors_count=max(1, floors_count), min_level=min_level,
             wall_chance=wall_chance, chest_chance=chest_chance, mob_chance=mob_chance,
             mob_level_min=mob_level_min, mob_level_max=mob_level_max,
             mob_pool=mob_pool, image_url=image_url.strip(), is_active=True,
-        ))
+        )
+        session.add(tpl)
+        await session.flush()
+
+        portal_cell = await _open_dungeon_portal(session, tpl)
         await session.commit()
+
+        if portal_cell:
+            try:
+                from bot.broadcast import notify_dungeon_portal_opened
+                if bot_runner.is_running() and bot_runner.bot:
+                    await notify_dungeon_portal_opened(
+                        bot_runner.bot,
+                        portal_cell.location.name,
+                        portal_cell.x, portal_cell.y, portal_cell.floor or 0,
+                        tpl.name, tpl.image_url,
+                    )
+            except Exception:
+                pass
+
     return RedirectResponse(url="/editor/dungeons", status_code=303)
+
+
+async def _open_dungeon_portal(session, template: DungeonTemplate):
+    """Picks a random passable, otherwise-unremarkable cell somewhere in the
+    world and turns it into this template's dungeon entrance. Returns the
+    chosen Cell (with .location eagerly usable) or None if no cell was free."""
+    result = await session.execute(
+        select(Cell)
+        .options(selectinload(Cell.location))
+        .where(Cell.is_passable == True)
+        .where(Cell.dungeon_template_id.is_(None))
+        .where(Cell.has_npc == False)
+        .where(Cell.target_location_id.is_(None))
+        .where(Cell.mob_id.is_(None))
+    )
+    candidates = result.scalars().all()
+    if not candidates:
+        return None
+
+    cell = random.choice(candidates)
+    cell.dungeon_template_id = template.id
+    cell.tile_type = "portal"
+    await session.flush()
+    return cell
 
 
 @app.post("/editor/dungeons/{template_id}/edit")
@@ -1326,8 +1373,53 @@ async def dungeon_template_edit(
 async def dungeon_template_delete(request: Request, template_id: int):
     guard(request, "manage_content")
     async with async_session() as session:
+        result = await session.execute(
+            select(Cell).where(Cell.dungeon_template_id == template_id)
+        )
+        for cell in result.scalars().all():
+            cell.dungeon_template_id = None
+            if cell.tile_type == "portal":
+                cell.tile_type = "road"
         await session.execute(delete(DungeonTemplate).where(DungeonTemplate.id == template_id))
         await session.commit()
+    return RedirectResponse(url="/editor/dungeons", status_code=303)
+
+
+@app.post("/editor/dungeons/{template_id}/open-portal")
+async def dungeon_template_open_portal(request: Request, template_id: int):
+    """Manually (re)opens a portal for this template at a new random cell,
+    closing any previous portal it had. Notifies all players with the
+    location."""
+    guard(request, "manage_content")
+    async with async_session() as session:
+        tpl = await session.get(DungeonTemplate, template_id)
+        if not tpl:
+            return RedirectResponse(url="/editor/dungeons", status_code=303)
+
+        result = await session.execute(
+            select(Cell).where(Cell.dungeon_template_id == template_id)
+        )
+        for cell in result.scalars().all():
+            cell.dungeon_template_id = None
+            if cell.tile_type == "portal":
+                cell.tile_type = "road"
+
+        portal_cell = await _open_dungeon_portal(session, tpl)
+        await session.commit()
+
+        if portal_cell:
+            try:
+                from bot.broadcast import notify_dungeon_portal_opened
+                if bot_runner.is_running() and bot_runner.bot:
+                    await notify_dungeon_portal_opened(
+                        bot_runner.bot,
+                        portal_cell.location.name,
+                        portal_cell.x, portal_cell.y, portal_cell.floor or 0,
+                        tpl.name, tpl.image_url,
+                    )
+            except Exception:
+                pass
+
     return RedirectResponse(url="/editor/dungeons", status_code=303)
 
 
@@ -1385,11 +1477,23 @@ async def api_update(request: Request):
         success = result.returncode == 0
         output = result.stdout + result.stderr
         if success and "Already up to date" not in output and "Уже обновлено" not in output:
-            # Schedule auto-restart in 3 seconds so the HTTP response can be sent first
+            # Notify players in-theme before the restart drops their connection.
+            # Give the broadcast a few seconds of head start before the process
+            # is replaced, so messages actually get delivered.
+            try:
+                from bot.broadcast import notify_update_deployed
+                if bot_runner.is_running() and bot_runner.bot:
+                    import asyncio
+                    asyncio.create_task(notify_update_deployed(bot_runner.bot))
+            except Exception:
+                pass
+
+            # Schedule auto-restart so the HTTP response and the notification
+            # broadcast above both have time to go out first.
             def _restart():
                 import os
                 os.execv(sys.executable, [sys.executable, "launch.py"])
-            threading.Timer(3.0, _restart).start()
+            threading.Timer(6.0, _restart).start()
             return {"success": True, "output": output, "restarting": True}
         return {"success": success, "output": output, "restarting": False}
     except Exception as e:

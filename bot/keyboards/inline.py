@@ -184,9 +184,8 @@ def leaderboard_keyboard():
     return builder.as_markup()
 
 
-def dungeon_menu_keyboard():
+def dungeon_menu_keyboard(has_portal_hint: bool = True):
     builder = InlineKeyboardBuilder()
-    builder.button(text="⚔️ Войти", callback_data="dungeon_enter")
     builder.button(text="📜 Правила", callback_data="dungeon_info")
     builder.button(text="◀️ Назад", callback_data="main_menu")
     builder.adjust(1)

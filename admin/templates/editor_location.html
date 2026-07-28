@@ -43,6 +43,8 @@
 .cell-road { background: #3a2a1a; }
 .cell-village { background: #3a2a0d; }
 .cell-cave { background: #1a1a2a; }
+.cell-portal { background: #3d1a5c; box-shadow: 0 0 6px rgba(139, 92, 246, 0.8) inset; }
+.cell-portal::before { content: '🌀'; position: absolute; font-size: 0.9rem; }
 .cell-mob::after { content: '👾'; position: absolute; top: 2px; right: 2px; font-size: 0.7rem; }
 .cell-npc::after { content: '💬'; position: absolute; top: 2px; right: 2px; font-size: 0.7rem; }
 .cell-chest::after { content: '📦'; position: absolute; bottom: 2px; left: 2px; font-size: 0.7rem; }
@@ -123,7 +125,7 @@
         {% endif %}
     </div>
     <p style="color: var(--text-muted); font-size: 0.8rem; margin-bottom: 1rem;">
-        Кликни на клетку чтобы отредактировать. Легенда: 🧱 стена | 🌿 трава | 🌲 лес | 💧 вода | 🛤 дорога | 🏘 деревня | 👾 враг | 💬 NPC | 📦 сундук
+        Кликни на клетку чтобы отредактировать. Легенда: 🧱 стена | 🌿 трава | 🌲 лес | 💧 вода | 🛤 дорога | 🏘 деревня | 🕳 пещера | 🌀 портал подземелья | 👾 враг | 💬 NPC | 📦 сундук
     </p>
     <div class="cell-grid">
         {% for y in range(location.grid_size) %}

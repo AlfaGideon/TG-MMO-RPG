@@ -13,6 +13,7 @@ TILE_COLORS = {
     "road": (58, 42, 26),
     "village": (58, 42, 13),
     "cave": (26, 26, 42),
+    "portal": (61, 26, 92),
 }
 FOG_COLOR = (15, 15, 19)       # unvisited / fog of war — matches --bg-dark
 PLAYER_COLOR = (220, 220, 220)

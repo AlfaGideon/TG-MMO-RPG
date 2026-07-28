@@ -40,12 +40,25 @@ class BotRunner:
 
             self._running = True
             self._task = asyncio.create_task(self._poll())
+            asyncio.create_task(self._notify_resume_on_start())
             logger.info("Bot started")
             return True
         except Exception as e:
             logger.error(f"Failed to start bot: {e}")
             self._running = False
             return False
+
+    async def _notify_resume_on_start(self):
+        """Fire-and-forget: right after (re)starting, nudge players whose
+        action was likely interrupted by the restart to repeat it."""
+        try:
+            await asyncio.sleep(2)  # let polling settle first
+            from bot.broadcast import notify_resume_interrupted_actions
+            count = await notify_resume_interrupted_actions(self.bot)
+            if count:
+                logger.info(f"Sent resume-action notices to {count} player(s)")
+        except Exception as e:
+            logger.debug(f"resume notification pass failed: {e}")
 
     async def _poll(self):
         try:

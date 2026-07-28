@@ -181,8 +181,9 @@ async def dungeon_menu(callback: CallbackQuery):
             await callback.message.edit_text(
                 "🗿 <b>Подземелье Проклятых</b>\n\n"
                 "Здесь каждый заход уникален. Процедурная генерация создаёт новые лабиринты для каждого игрока.\n"
-                "Найди вход в подземелье на карте мира, либо войди в стандартное логово ниже.\n\n"
-                "⚠️ Вход только в соло!",
+                "Вход в подземелье — это портал на карте мира (клетка с порталом). "
+                "Дойди до него и нажми «🕳 Войти в подземелье», когда окажешься на этой клетке.\n\n"
+                "⚠️ Проходить можно только в одиночку!",
                 reply_markup=dungeon_menu_keyboard(),
                 parse_mode="HTML",
             )
@@ -192,8 +193,11 @@ async def dungeon_menu(callback: CallbackQuery):
 async def dungeon_info(callback: CallbackQuery):
     await callback.message.edit_text(
         "📜 <b>Правила подземелья</b>\n\n"
+        "• Подземелья появляются как порталы на карте мира — их создаёт администратор\n"
+        "• Когда портал открывается, все игроки получают уведомление с точным местоположением\n"
+        "• Дойди до клетки с порталом и нажми «🕳 Войти в подземелье»\n"
         "• Каждый заход генерирует уникальное подземелье (не связано с картой мира)\n"
-        "• Размер, число этажей и сложность зависят от шаблона входа\n"
+        "• Размер, число этажей и сложность зависят от шаблона портала\n"
         "• Монстры и сундуки случайны\n"
         "• Выход в левом верхнем углу [0,0]\n"
         "• Проходить можно только в одиночку\n"
@@ -204,7 +208,7 @@ async def dungeon_info(callback: CallbackQuery):
     )
 
 
-async def _enter_dungeon(callback: CallbackQuery, template_id: int | None):
+async def _enter_dungeon(callback: CallbackQuery, template_id: int):
     async with async_session() as session:
         result = await session.execute(
             select(User).where(User.telegram_id == callback.from_user.id)
@@ -228,12 +232,15 @@ async def _enter_dungeon(callback: CallbackQuery, template_id: int | None):
             await show_dungeon_cell(callback, existing, session)
             return
 
-        template = await session.get(DungeonTemplate, template_id) if template_id else None
+        template = await session.get(DungeonTemplate, template_id)
+        if not template:
+            await callback.answer("Портал уже закрылся.", show_alert=True)
+            return
 
         seed = random.randint(1, 1000000)
         run = DungeonRun(
             character_id=character.id,
-            template_id=template.id if template else None,
+            template_id=template.id,
             seed=seed,
             floor=1,
             is_active=True,
@@ -247,11 +254,6 @@ async def _enter_dungeon(callback: CallbackQuery, template_id: int | None):
         await session.commit()
 
         await show_dungeon_cell(callback, run, session)
-
-
-@router.callback_query(F.data == "dungeon_enter")
-async def dungeon_enter(callback: CallbackQuery):
-    await _enter_dungeon(callback, template_id=None)
 
 
 @router.callback_query(F.data.startswith("dungeon_enter_tpl:"))

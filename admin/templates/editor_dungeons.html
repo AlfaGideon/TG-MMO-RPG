@@ -9,15 +9,15 @@
     <h2>🕳 Процедурные подземелья</h2>
     <p class="section-sub">
         Подземелья существуют отдельно от мировой сетки 100×100 — каждый заход игрока генерирует уникальный
-        лабиринт по параметрам шаблона (25×25 по умолчанию, можно несколько этажей). Привяжи шаблон к клетке
-        через редактор клетки, чтобы она стала входом.
+        лабиринт по параметрам шаблона (25×25 по умолчанию, можно несколько этажей). При создании шаблона
+        портал автоматически появляется в случайном месте карты, и все игроки получают уведомление с координатами.
     </p>
     <div class="table-wrap">
     <table>
         <thead>
             <tr>
                 <th>ID</th><th>Название</th><th>Размер</th><th>Этажи</th><th>Мин.ур</th>
-                <th>Стены</th><th>Сундуки</th><th>Мобы</th><th>Активен</th><th>Действия</th>
+                <th>Стены</th><th>Сундуки</th><th>Мобы</th><th>Активен</th><th>Портал</th><th>Действия</th>
             </tr>
         </thead>
         <tbody>
@@ -33,14 +33,25 @@
                 <td>{{ (tpl.mob_chance * 100)|round|int }}%</td>
                 <td>{{ '✅' if tpl.is_active else '—' }}</td>
                 <td>
+                    {% set portal = portal_by_template.get(tpl.id) %}
+                    {% if portal %}
+                    🌀 {{ portal.location.name }} [{{ portal.x }},{{ portal.y }}]{% if portal.floor %} эт.{{ portal.floor }}{% endif %}
+                    {% else %}
+                    <span style="color:var(--text-muted)">нет портала</span>
+                    {% endif %}
+                </td>
+                <td>
                     <button onclick="editDungeon({{ tpl.id }}, '{{ tpl.name|replace("'", "\\'") }}', '{{ tpl.description|replace("'", "\\'") }}', {{ tpl.grid_size }}, {{ tpl.floors_count }}, {{ tpl.min_level }}, {{ tpl.wall_chance }}, {{ tpl.chest_chance }}, {{ tpl.mob_chance }}, {{ tpl.mob_level_min }}, {{ tpl.mob_level_max }}, '{{ tpl.mob_pool|replace("'", "\\'") }}', '{{ tpl.image_url or '' }}', {{ 'true' if tpl.is_active else 'false' }})" class="btn btn-primary btn-sm">✏️</button>
+                    <form action="/editor/dungeons/{{ tpl.id }}/open-portal" method="post" style="display:inline" onsubmit="return confirm('Открыть новый портал в случайном месте? Все игроки получат уведомление.')">
+                        <button type="submit" class="btn btn-sm" style="background:var(--accent-soft); color:var(--accent);">🌀 {{ 'Открыть заново' if portal else 'Открыть портал' }}</button>
+                    </form>
                     <form action="/editor/dungeons/{{ tpl.id }}/delete" method="post" style="display:inline" onsubmit="return confirm('Удалить шаблон подземелья?')">
                         <button type="submit" class="btn btn-danger btn-sm">🗑</button>
                     </form>
                 </td>
             </tr>
             {% else %}
-            <tr><td colspan="10">
+            <tr><td colspan="11">
                 <div class="empty-state"><div class="empty-icon">🕳</div>Шаблонов подземелий пока нет.</div>
             </td></tr>
             {% endfor %}
