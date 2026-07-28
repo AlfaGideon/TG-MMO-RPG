@@ -98,3 +98,76 @@ def toast(text, kind="ok"):
     node.className = f"toast show {kind}"
     from js import setTimeout
     setTimeout(create_proxy(lambda *_: node.setAttribute("class", "toast")), 2600)
+
+
+def wire_forms():
+    """Подключает клиентскую валидацию и автосохранение черновиков форм."""
+    from js import window
+
+    def validate_input(inp):
+        msg = ""
+        val = inp.value.strip()
+        if inp.hasAttribute("required") and not val:
+            msg = "Обязательное поле"
+        elif inp.type == "number" and val:
+            try:
+                n = float(val)
+                if inp.hasAttribute("min") and n < float(inp.min):
+                    msg = f"Минимум {inp.min}"
+                if inp.hasAttribute("max") and n > float(inp.max):
+                    msg = f"Максимум {inp.max}"
+            except ValueError:
+                msg = "Введите число"
+        inp.setCustomValidity(msg)
+        return not msg
+
+    def validate_form(form):
+        ok = True
+        for inp in form.querySelectorAll("input, select, textarea"):
+            if not validate_input(inp):
+                ok = False
+        return ok
+
+    def save_draft(form):
+        key = "draft:" + (form.getAttribute("id") or form.action or "form")
+        data = {}
+        for inp in form.querySelectorAll("input, select, textarea"):
+            if inp.name or inp.id:
+                data[inp.name or inp.id] = inp.value
+        window.localStorage.setItem(key, __import__("json").dumps(data))
+
+    def restore_draft(form):
+        key = "draft:" + (form.getAttribute("id") or form.action or "form")
+        raw = window.localStorage.getItem(key)
+        if not raw:
+            return
+        try:
+            data = __import__("json").loads(raw)
+        except Exception:
+            return
+        for inp in form.querySelectorAll("input, select, textarea"):
+            k = inp.name or inp.id
+            if k and k in data and not inp.value:
+                inp.value = data[k]
+
+    def setup(form):
+        if form.hasAttribute("data-validate"):
+            for inp in form.querySelectorAll("input, select, textarea"):
+                proxy = create_proxy(lambda evt, i=inp: validate_input(i))
+                _proxies.append(proxy)
+                inp.addEventListener("input", proxy)
+            proxy = create_proxy(lambda evt, f=form: validate_form(f))
+            _proxies.append(proxy)
+            form.addEventListener("submit", proxy)
+        if form.hasAttribute("data-autosave"):
+            for inp in form.querySelectorAll("input, select, textarea"):
+                proxy = create_proxy(lambda evt, f=form: save_draft(f))
+                _proxies.append(proxy)
+                inp.addEventListener("input", proxy)
+            restore_draft(form)
+            proxy = create_proxy(lambda evt, f=form: window.localStorage.removeItem("draft:" + (f.getAttribute("id") or f.action or "form")))
+            _proxies.append(proxy)
+            form.addEventListener("submit", proxy)
+
+    for form in document.querySelectorAll("form[data-validate], form[data-autosave]"):
+        setup(form)

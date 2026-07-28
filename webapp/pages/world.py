@@ -178,7 +178,8 @@ def cell_form(ctx, key):
         for i, n in enumerate(data.NPCS))
     return f"""
 <h2>🔧 Клетка [{c.x},{c.y}] · {esc(data.LOCATIONS[c.loc][0])}</h2>
-<div style="margin-top:.7rem"><label>Название</label><input id="cf_name" value="{esc(c.name)}"></div>
+<form data-validate data-autosave>
+<div style="margin-top:.7rem"><label>Название</label><input id="cf_name" value="{esc(c.name)}" required></div>
 <div style="margin-top:.5rem"><label>Описание</label><textarea id="cf_desc" rows="3">{esc(c.desc)}</textarea></div>
 <div class="row" style="margin-top:.5rem">
   <div><label>Тайл</label><select id="cf_tile">{tiles}</select></div>
@@ -198,6 +199,7 @@ def cell_form(ctx, key):
   <button class="btn primary" data-act="cell-save" data-arg="{key}">💾 Сохранить</button>
   <button class="btn" data-act="modal-close">Отмена</button>
 </div>
+</form>
 """
 
 

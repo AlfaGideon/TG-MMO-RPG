@@ -1,6 +1,7 @@
 """Страница: сводка."""
 from engine import auction, items
 from webapp.html import esc
+from webapp import charts
 
 TITLE = "📊 Сводка"
 CRUMBS = [("Dashboard", "dash")]
@@ -94,6 +95,11 @@ def render(ctx):
   <div style="margin-top:.7rem">
     <button class="btn primary" data-act="nav" data-arg="economy">💰 Открыть экономику</button>
   </div>
+</div>
+
+<div class="card">
+  <h2>📈 Графики</h2>
+  {charts.render_dashboard_charts(ctx)}
 </div>
 
 <div class="card">

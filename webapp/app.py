@@ -83,6 +83,7 @@ class App:
             node.textContent = title
         dom.html("#breadcrumbs", self._crumbs_markup(page_mod))
         dom.html("#view", page_mod.render(self))
+        dom.wire_forms()
         self._paint_status()
 
     def _nav_markup(self):

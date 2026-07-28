@@ -130,7 +130,8 @@ def mob_form(ctx, idx):
     arg = "new" if new else idx
     return f"""
 <h2>{'➕ Новый моб' if new else '👾 ' + esc(m[0])}</h2>
-<div style="margin-top:.6rem"><label>Имя</label><input id="mf_name" value="{esc(m[0])}"></div>
+<form data-validate data-autosave>
+<div style="margin-top:.6rem"><label>Имя</label><input id="mf_name" value="{esc(m[0])}" required></div>
 <div style="margin-top:.5rem"><label>Описание</label><textarea id="mf_desc" rows="2">{esc(m[1])}</textarea></div>
 <div class="row" style="margin-top:.5rem">
   {_num('mf_level', 'Уровень', m[2])}{_num('mf_hp', 'HP', m[3])}
@@ -145,6 +146,7 @@ def mob_form(ctx, idx):
   {"" if new else f'<button class="btn danger" data-act="mob-del" data-arg="{idx}">🗑 Удалить</button>'}
   <button class="btn" data-act="modal-close">Отмена</button>
 </div>
+</form>
 """
 
 
@@ -159,6 +161,7 @@ def item_form(ctx, idx):
     arg = "new" if new else idx
     return f"""
 <h2>{'➕ Новый предмет' if new else it[4] + ' ' + esc(it[0])}</h2>
+<form data-validate data-autosave>
 <div class="row" style="margin-top:.6rem">
   <div><label>Название</label><input id="if_name" value="{esc(it[0])}"></div>
   <div style="flex:0 0 90px"><label>Иконка</label><input id="if_icon" value="{esc(it[4])}"></div>
@@ -177,6 +180,7 @@ def item_form(ctx, idx):
   {"" if new else f'<button class="btn danger" data-act="item-del" data-arg="{idx}">🗑 Удалить</button>'}
   <button class="btn" data-act="modal-close">Отмена</button>
 </div>
+</form>
 """
 
 
@@ -188,7 +192,8 @@ def npc_form(ctx, idx):
     arg = "new" if new else idx
     return f"""
 <h2>{'➕ Новый NPC' if new else '🎭 ' + esc(n[0])}</h2>
-<div style="margin-top:.6rem"><label>Имя</label><input id="nf_name" value="{esc(n[0])}"></div>
+<form data-validate data-autosave>
+<div style="margin-top:.6rem"><label>Имя</label><input id="nf_name" value="{esc(n[0])}" required></div>
 <div style="margin-top:.5rem"><label>Реплика</label><textarea id="nf_text" rows="3">{esc(n[1])}</textarea></div>
 <div class="row" style="margin-top:.5rem">
   <div><label>Роль</label><select id="nf_kind">{kopts}</select></div>
@@ -198,6 +203,7 @@ def npc_form(ctx, idx):
   {"" if new else f'<button class="btn danger" data-act="npc-del" data-arg="{idx}">🗑 Удалить</button>'}
   <button class="btn" data-act="modal-close">Отмена</button>
 </div>
+</form>
 """
 
 
@@ -206,7 +212,8 @@ def class_form(ctx, key):
     fields = "".join(_num(f"cf_{k}", k, v) for k, v in st.items())
     return f"""
 <h2>🧙 {esc(title)}</h2>
-<div style="margin-top:.6rem"><label>Название</label><input id="cf_title" value="{esc(title)}"></div>
+<form data-validate data-autosave>
+<div style="margin-top:.6rem"><label>Название</label><input id="cf_title" value="{esc(title)}" required></div>
 <div style="margin-top:.5rem"><label>Описание</label><textarea id="cf_desc" rows="2">{esc(desc)}</textarea></div>
 <h3>Стартовые статы</h3>
 <div class="row">{fields}</div>
@@ -214,4 +221,5 @@ def class_form(ctx, key):
   <button class="btn primary" data-act="class-save" data-arg="{key}">💾 Сохранить</button>
   <button class="btn" data-act="modal-close">Отмена</button>
 </div>
+</form>
 """

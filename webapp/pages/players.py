@@ -128,6 +128,7 @@ def edit_form(ctx, tg_id):
     
     return f"""
 <h2>✏️ {esc(p.name)} <span class="muted">#{p.tg_id}</span></h2>
+<form data-validate data-autosave>
 <div class="row" style="margin-top:.7rem">
   {f('name','Имя',esc(p.name))}{f('level','Уровень',p.level)}{f('gold','Золото',p.gold)}
 </div>
@@ -154,6 +155,7 @@ def edit_form(ctx, tg_id):
   <button class="btn" data-act="player-access" data-arg="{p.tg_id}">🔑 Права доступа</button>
   <button class="btn" data-act="modal-close">Отмена</button>
 </div>
+</form>
 """
 
 
