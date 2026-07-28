@@ -2,7 +2,7 @@
 import random
 
 from engine import (adminbot, adminroute, combat, data, inventory, mapview,
-                    rules, texts, world)
+                    rules, shop, texts, world)
 from engine.models import Reply
 
 
@@ -215,7 +215,10 @@ class Game:
 
     # ── инвентарь (реализация в engine/inventory.py) ────────
     def do_bag(self, p, arg=""):
-        return inventory.bag(p)
+        return inventory.bag(p, 0)
+
+    def do_bagp(self, p, arg="0"):
+        return inventory.bag(p, arg or 0)
 
     def do_it(self, p, arg):
         return inventory.card(p, arg)
@@ -235,23 +238,29 @@ class Game:
     def do_toss(self, p, arg):
         return inventory.toss(p, arg)
 
-    # ── лавка и топ ─────────────────────────────────────────
-    def do_shop(self, p, arg=""):
-        rows = [[(f"{rules.item(i)['icon']} {rules.item(i)['name']} — {rules.item(i)['price']}🪙",
-                  f"buy:{i}")] for i in range(len(data.ITEMS))]
-        rows.append([("◀️ Меню", "menu")])
-        return Reply(text=f"🏪 <b>Лавка Варна</b>\n\nУ тебя: {p.gold} 🪙", keyboard=rows)
+    # ── лавка (реализация в engine/shop.py) ─────────────────
+    def do_shop(self, p, arg="0"):
+        return shop.shop(p, arg or 0)
+
+    def do_buyc(self, p, arg):
+        return shop.buy_card(p, arg)
 
     def do_buy(self, p, arg):
-        it = rules.item(int(arg))
-        if p.gold < it["price"]:
-            return Reply(alert="Недостаточно золота!")
-        p.gold -= it["price"]
-        p.inventory.append(it["idx"])
-        r = self.do_shop(p)
-        r.alert = f"Куплено: {it['name']}"
-        return r
+        return shop.buy(p, arg)
 
+    def do_sellbag(self, p, arg="0"):
+        return shop.sell_list(p, arg or 0)
+
+    def do_sellc(self, p, arg):
+        return shop.sell_card(p, arg)
+
+    def do_sells(self, p, arg):
+        return shop.sell_here(p, arg)
+
+    def do_noop(self, p, arg=""):
+        return Reply(alert="")
+
+    # ── топ ─────────────────────────────────────────────────
     def do_top(self, p, arg=""):
         rows = sorted(self.store.players.values(),
                       key=lambda q: (q.level, q.exp), reverse=True)[:10]

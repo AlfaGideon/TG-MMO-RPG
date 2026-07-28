@@ -34,6 +34,11 @@ def main():
 
     print("\n— Порядок загрузки —")
     for dep, dependant in [("engine/data.py", "engine/world.py"),
+                           ("engine/rules.py", "engine/itemui.py"),
+                           ("engine/itemui.py", "engine/inventory.py"),
+                           ("engine/itemui.py", "engine/shop.py"),
+                           ("engine/inventory.py", "engine/game.py"),
+                           ("engine/shop.py", "engine/game.py"),
                            ("webapp/html.py", "webapp/dom.py"),
                            ("webapp/transport.py", "webapp/telegram.py"),
                            ("webapp/app.py", "webapp/boot.py")]:

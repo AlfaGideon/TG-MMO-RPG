@@ -1,7 +1,7 @@
 """Экраны админки внутри бота. Только сборка Reply — работу делает adminops."""
 import random
 
-from engine import adminops, audit, data, permissions, rules
+from engine import adminops, audit, data, itemui, permissions, rules
 from engine.models import Reply
 
 PAGE = 6                    # игроков на страницу списка
@@ -134,11 +134,25 @@ def gift_menu(p, store, tg_id):
     q = store.players.get(int(tg_id))
     if not q:
         return Reply(alert="Игрок не найден.")
-    rows = [[(f"{rules.item(i)['icon']} {rules.item(i)['name']}",
-              f"adm:give:{tg_id}:{i}")] for i in range(len(data.ITEMS))]
+    goods = itemui.stock()
+    entries, _ = itemui.slice_page(goods, 0)
+    lines = [f"🎁 <b>Выдать предмет</b>", f"Получатель: <b>{q.name}</b>", ""]
+    for num, _pos, idx in entries:
+        lines.append(itemui.line(num, idx, itemui.type_label(rules.item(idx))))
+    lines.append("")
+    lines.append("<i>Нажми номер — предмет уйдёт игроку.</i>")
+
+    rows, row = [], []
+    for num, _pos, idx in entries:
+        row.append((f"{itemui.digit(num)}{rules.item(idx)['icon']}",
+                    f"adm:give:{tg_id}:{idx}"))
+        if len(row) == itemui.PER_ROW:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
     rows.append([("◀️ Назад", f"adm:p:{tg_id}")])
-    return Reply(text=f"🎁 <b>Выдать предмет</b>\n\nПолучатель: <b>{q.name}</b>",
-                 keyboard=rows)
+    return Reply(text="\n".join(lines), keyboard=rows)
 
 
 def grant_menu(p, store, tg_id):

@@ -1,93 +1,138 @@
-"""Инвентарь: показ сумки, экипировка, использование, продажа."""
-from engine import combat, rules, texts
+"""Инвентарь: сетка эмодзи-номеров, карточка предмета, экипировка.
+
+В списке кнопки без подписей — только номер и иконка. Что скрыто за
+номером, написано в тексте сообщения; подробности открываются нажатием.
+"""
+from engine import combat, itemui, rules
 from engine.models import Reply
 
 
-def bag(p):
+def bag(p, page=0):
     if not p.inventory:
-        return Reply(text="🎒 <b>Инвентарь</b>\n\nСумка пуста.",
-                     keyboard=[[("◀️ Меню", "menu")]])
-    rows, seen = [], {}
-    for slot, idx in p.equipped.items():
-        seen[idx] = slot
-    lines = ["🎒 <b>Инвентарь</b>\n"]
-    for pos, idx in enumerate(p.inventory):
-        it = rules.item(idx)
-        lines.append(texts.item_line(idx, idx in seen))
-        rows.append([(f"{it['icon']} {it['name']}", f"it:{pos}")])
-    rows.append([("◀️ Меню", "menu")])
-    return Reply(text="\n".join(lines), keyboard=rows[:12])
+        return Reply(text=("🎒 <b>Инвентарь</b>\n\n<i>Сумка пуста.</i>\n\n"
+                           "Загляни в 🏪 Лавку или обыщи сундуки в мире."),
+                     keyboard=[[("🏪", "shop"), ("🧭", "world")],
+                               [("◀️ Меню", "menu")]])
+
+    worn = set(p.equipped.values())
+    entries, page = itemui.slice_page(p.inventory, page)
+
+    lines = [f"🎒 <b>Инвентарь</b> · 🪙 {p.gold}", ""]
+    for num, _pos, idx in entries:
+        note = "<b>надето</b>" if idx in worn else itemui.type_label(rules.item(idx))
+        lines.append(itemui.line(num, idx, note))
+    lines.append("")
+    lines.append("<i>Нажми номер предмета — откроются подробности.</i>")
+
+    rows = itemui.grid(entries, "it")
+    rows += itemui.pager(page, len(p.inventory), "bagp")
+    rows.append([("🏪", "shop"), ("🧙", "profile"), ("◀️ Меню", "menu")])
+    return Reply(text="\n".join(lines), keyboard=rows)
 
 
 def card(p, arg):
+    """Карточка предмета из сумки: что это и что с ним можно сделать."""
     pos = int(arg)
     if pos >= len(p.inventory):
         return Reply(alert="Предмет не найден.")
     idx = p.inventory[pos]
     it = rules.item(idx)
-    rows = []
+    equipped = p.equipped.get(it["type"]) == idx
+    page = pos // itemui.PER_PAGE
+
+    extra = f"💰 Продать за <b>{itemui.resale_of(idx)}</b> 🪙"
+    if equipped:
+        extra = "✅ <b>Надето на герое</b>\n\n" + extra
+    text = "🎒 <b>Инвентарь</b>\n\n" + itemui.card(idx, extra)
+
+    act = []
     if it["type"] == "consumable":
-        rows.append([("🧪 Использовать", f"use:{pos}")])
-    elif p.equipped.get(it["type"]) == idx:
-        rows.append([("➖ Снять", f"off:{pos}")])
-    else:
-        rows.append([("✅ Надеть", f"on:{pos}")])
+        act.append(("🧪 Использовать", f"use:{pos}"))
+    elif equipped:
+        act.append(("➖ Снять", f"off:{pos}"))
+    elif itemui.wearable(it):
+        act.append(("✅ Надеть", f"on:{pos}"))
+    rows = [act] if act else []
     rows.append([("💰 Продать", f"sell:{pos}"), ("🗑 Выбросить", f"toss:{pos}")])
-    rows.append([("◀️ Назад", "bag")])
-    bon = "\n".join(f"• {k} +{v}" for k, v in it["bonus"].items()) or "—"
-    return Reply(text=(f"{it['icon']} <b>{it['name']}</b>\n"
-                       f"<i>{it['type']} · {it['rarity']}</i>\n\n{bon}\n\n"
-                       f"Цена продажи: {it['price'] // 2} 🪙"), keyboard=rows)
+    rows.append([("◀️ В сумку", f"bagp:{page}")])
+    return Reply(text=text, keyboard=rows)
 
 
 def equip(p, arg):
-    idx = p.inventory[int(arg)]
+    pos = int(arg)
+    if pos >= len(p.inventory):
+        return Reply(alert="Предмет не найден.")
+    idx = p.inventory[pos]
     it = rules.item(idx)
-    if it["type"] not in rules.SLOTS:
+    if not itemui.wearable(it):
         return Reply(alert="Это нельзя надеть.")
     p.equipped[it["type"]] = idx
-    r = bag(p)
+    r = card(p, pos)
     r.alert = f"Надето: {it['name']}"
     return r
 
 
 def unequip(p, arg):
-    idx = p.inventory[int(arg)]
+    pos = int(arg)
+    if pos >= len(p.inventory):
+        return Reply(alert="Предмет не найден.")
+    idx = p.inventory[pos]
     it = rules.item(idx)
+    if p.equipped.get(it["type"]) != idx:
+        return Reply(alert="Предмет и так не надет.")
     p.equipped.pop(it["type"], None)
-    return bag(p)
+    r = card(p, pos)
+    r.alert = f"Снято: {it['name']}"
+    return r
 
 
 def use(p, arg):
     pos = int(arg)
+    if pos >= len(p.inventory):
+        return Reply(alert="Предмет не найден.")
     idx = p.inventory[pos]
     it = rules.item(idx)
+    if it["type"] != "consumable":
+        return Reply(alert="Это не расходник.")
     s = rules.stats(p)
+    got = []
     if "heal" in it["bonus"]:
+        was = p.hp
         p.hp = min(s["max_hp"], p.hp + it["bonus"]["heal"])
+        got.append(f"❤️ +{p.hp - was}")
     if "mana" in it["bonus"]:
+        was = p.mp
         p.mp = min(s["max_mp"], p.mp + it["bonus"]["mana"])
+        got.append(f"💙 +{p.mp - was}")
     p.inventory.pop(pos)
-    r = combat.view(p) if p.combat else bag(p)
-    r.alert = f"Использовано: {it['name']}"
+    r = combat.view(p) if p.combat else bag(p, pos // itemui.PER_PAGE)
+    r.alert = f"{it['name']}: {' · '.join(got) if got else 'использовано'}"
     return r
 
 
 def sell(p, arg):
     pos = int(arg)
+    if pos >= len(p.inventory):
+        return Reply(alert="Предмет не найден.")
     idx = p.inventory.pop(pos)
     it = rules.item(idx)
     if p.equipped.get(it["type"]) == idx:
         p.equipped.pop(it["type"])
-    p.gold += it["price"] // 2
-    r = bag(p)
-    r.alert = f"Продано за {it['price'] // 2} 🪙"
+    paid = itemui.resale_of(idx)
+    p.gold += paid
+    r = bag(p, pos // itemui.PER_PAGE)
+    r.alert = f"Продано: {it['name']} за {paid} 🪙"
     return r
 
 
 def toss(p, arg):
-    idx = p.inventory.pop(int(arg))
+    pos = int(arg)
+    if pos >= len(p.inventory):
+        return Reply(alert="Предмет не найден.")
+    idx = p.inventory.pop(pos)
     it = rules.item(idx)
     if p.equipped.get(it["type"]) == idx:
         p.equipped.pop(it["type"])
-    return bag(p)
+    r = bag(p, pos // itemui.PER_PAGE)
+    r.alert = f"Выброшено: {it['name']}"
+    return r
