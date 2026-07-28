@@ -1117,3 +1117,131 @@ tr:hover td { background: var(--bg-hover); }
     color: var(--text-muted);
     padding: 1.5rem;
 }
+
+/* ── Mobile responsiveness ──────────────────────────────── */
+
+@media (max-width: 768px) {
+    .container { padding: 0.9rem; }
+    .card { padding: 1rem; margin-bottom: 1rem; }
+    .card h2 { font-size: 1rem; }
+
+    /* Tables → cards */
+    .table-wrap table,
+    .table-wrap thead,
+    .table-wrap tbody,
+    .table-wrap th,
+    .table-wrap td,
+    .table-wrap tr { display: block; }
+
+    .table-wrap thead tr {
+        position: absolute;
+        top: -9999px;
+        left: -9999px;
+    }
+
+    .table-wrap tr {
+        margin-bottom: 0.9rem;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 0.5rem;
+        background: var(--bg-dark);
+    }
+
+    .table-wrap td {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.5rem 0.6rem;
+        border-bottom: 1px solid var(--border);
+        font-size: 0.88rem;
+    }
+
+    .table-wrap td:last-child { border-bottom: none; }
+
+    .table-wrap td::before {
+        content: attr(data-label);
+        font-weight: 600;
+        color: var(--text-muted);
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        flex-shrink: 0;
+    }
+
+    .table-wrap td:has(.inline-form)::before { align-self: flex-start; }
+
+    /* Larger touch targets */
+    .btn,
+    .nav-link,
+    .nav-sublink,
+    .tab-btn,
+    .sort-header,
+    .theme-toggle {
+        min-height: 44px;
+    }
+
+    .btn-sm {
+        min-height: 36px;
+        padding: 0.4rem 0.7rem;
+    }
+
+    input, select, textarea, .search-box {
+        min-height: 44px;
+        font-size: 16px; /* prevents iOS zoom */
+    }
+
+    .row-check {
+        width: 22px;
+        height: 22px;
+    }
+
+    /* Sticky action bar */
+    .sticky-actions {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: var(--bg-card);
+        border-top: 1px solid var(--border);
+        padding: 0.6rem 1rem;
+        display: flex;
+        gap: 0.5rem;
+        justify-content: flex-end;
+        z-index: 50;
+        box-shadow: 0 -4px 20px rgba(0,0,0,0.25);
+    }
+
+    .sticky-actions + .container,
+    body:has(.sticky-actions) .container {
+        padding-bottom: 4.5rem;
+    }
+
+    /* Stats grid → 2 cols */
+    .stats-grid { grid-template-columns: repeat(2, 1fr); }
+    .stat-box { padding: 0.9rem; }
+    .stat-box .value { font-size: 1.5rem; }
+
+    /* Form grid → 1 col */
+    .form-grid { grid-template-columns: 1fr; }
+
+    /* Content hub → 1 col */
+    .content-hub-grid { grid-template-columns: 1fr; }
+
+    /* Toolbar wrap */
+    .toolbar,
+    .mass-bar {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.6rem;
+    }
+
+    .mass-bar .mass-count { margin-right: 0; }
+
+    /* Pagination */
+    .pagination { gap: 0.25rem; }
+    .pagination a, .pagination span {
+        min-width: 2.25rem;
+        height: 2.25rem;
+    }
+}

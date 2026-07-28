@@ -29,18 +29,23 @@ def render(ctx):
 """
 
 
-def _row(attrs, cols):
+def _row(attrs, cols, labels=None):
     """attrs — готовая строка data-act/data-arg, cols — ячейки."""
-    tds = "".join(f"<td>{c}</td>" for c in cols)
+    labels = labels or []
+    tds = ""
+    for i, c in enumerate(cols):
+        label = labels[i] if i < len(labels) else ""
+        tds += f"<td data-label='{esc(label)}'>{c}</td>"
     return (f"<tr class='clickable' {attrs}>{tds}"
-            f"<td><button class='btn'>✏️</button></td></tr>")
+            f"<td data-label=''><button class='btn'>✏️</button></td></tr>")
 
 
 def _mobs(ctx):
+    labels = ["Имя", "Описание", "Ур.", "HP", "Урон", "Защита", "Золото", "Опыт", "Локация"]
     rows = "".join(_row(f"data-act='mob-edit' data-arg='{i}'", [
         f"<b>{esc(m[0])}</b>", f"<span class='muted'>{esc(m[1])}</span>", m[2],
         m[3], m[4], m[5], f"{m[6]} 🪙", f"{m[7]} ⭐",
-        esc(data.LOCATIONS[m[8]][0])]) for i, m in enumerate(data.MOBS))
+        esc(data.LOCATIONS[m[8]][0])], labels) for i, m in enumerate(data.MOBS))
     return f"""
 <div class="card">
   <h2>👾 Мобы <span class="muted">({len(data.MOBS)})</span>
@@ -54,6 +59,7 @@ def _mobs(ctx):
 
 
 def _items(ctx):
+    labels = ["Предмет", "Тип", "Редкость", "Цена", "Бонусы"]
     rows = ""
     for i in range(len(data.ITEMS)):
         it = rules.item(i)
@@ -62,7 +68,7 @@ def _items(ctx):
             f"{it['icon']} <b>{esc(it['name'])}</b>",
             f"<span class='tag'>{it['type']}</span>",
             f"<span class='tag {it['rarity']}'>{it['rarity']}</span>",
-            f"{it['price']} 🪙", f"<span class='muted'>{esc(bon)}</span>"])
+            f"{it['price']} 🪙", f"<span class='muted'>{esc(bon)}</span>"], labels)
     return f"""
 <div class="card">
   <h2>⚔️ Предметы <span class="muted">({len(data.ITEMS)})</span>
@@ -75,9 +81,10 @@ def _items(ctx):
 
 
 def _npcs(ctx):
+    labels = ["Имя", "Роль", "Реплика"]
     rows = "".join(_row(f"data-act='npc-edit' data-arg='{i}'", [
         f"<b>{esc(n[0])}</b>", f"<span class='tag'>{n[2]}</span>",
-        f"<span class='muted'>{esc(n[1])}</span>"])
+        f"<span class='muted'>{esc(n[1])}</span>"], labels)
         for i, n in enumerate(data.NPCS))
     return f"""
 <div class="card">
@@ -91,12 +98,13 @@ def _npcs(ctx):
 
 
 def _classes(ctx):
+    labels = ["Класс", "Описание", "Стартовые статы"]
     rows = ""
     for key, (title, desc, st) in data.CLASSES.items():
         stats = " · ".join(f"{k} {v}" for k, v in st.items())
         rows += _row(f"data-act='class-edit' data-arg='{key}'", [
             f"<b>{esc(title)}</b>", f"<span class='muted'>{esc(desc)}</span>",
-            f"<span class='muted'>{esc(stats)}</span>"])
+            f"<span class='muted'>{esc(stats)}</span>"], labels)
     return f"""
 <div class="card">
   <h2>🧙 Классы <span class="muted">({len(data.CLASSES)})</span></h2>

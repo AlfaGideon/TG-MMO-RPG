@@ -74,22 +74,22 @@
         <tbody>
             {% for inst, item, owner in rows %}
             <tr>
-                <td><code>{{ inst.badge() }}{{ inst.uid }}</code></td>
-                <td>
+                <td data-label="ID предмета"><code>{{ inst.badge() }}{{ inst.uid }}</code></td>
+                <td data-label="Название">
                     {{ item.icon }} {{ inst.display_name(item) }}
                     {% if inst.is_one_of_a_kind %}<span class="badge badge-legendary">🌟 одна такая</span>{% endif %}
                     {% if inst.is_festive %}<span class="badge badge-epic">🎄 {{ inst.festive_event }}</span>{% endif %}
                 </td>
-                <td>{{ inst.quality }}%</td>
-                <td>{% if inst.upgrade_level %}+{{ inst.upgrade_level }}{% else %}—{% endif %}</td>
-                <td><span class="badge badge-{{ inst.rarity.value }}">{{ inst.rarity.value }}</span></td>
-                <td style="font-size:0.78rem;">{{ source_labels.get(inst.source, inst.source) }}
+                <td data-label="Кач.">{{ inst.quality }}%</td>
+                <td data-label="Зат.">{% if inst.upgrade_level %}+{{ inst.upgrade_level }}{% else %}—{% endif %}</td>
+                <td data-label="Редкость"><span class="badge badge-{{ inst.rarity.value }}">{{ inst.rarity.value }}</span></td>
+                <td data-label="Источник" style="font-size:0.78rem;">{{ source_labels.get(inst.source, inst.source) }}
                     {% if inst.source_detail %}<br><span style="color:var(--text-muted)">{{ inst.source_detail }}</span>{% endif %}
                 </td>
-                <td>{{ inst.trade_count or '—' }}</td>
-                <td>{% if owner %}<a href="/player/{{ owner.id }}">{{ owner.name }}</a>
+                <td data-label="Сделок">{{ inst.trade_count or '—' }}</td>
+                <td data-label="Владелец">{% if owner %}<a href="/player/{{ owner.id }}">{{ owner.name }}</a>
                     {% else %}<span style="color:var(--text-muted)">на витрине / ничей</span>{% endif %}</td>
-                <td><a href="/instance/{{ inst.id }}" class="btn btn-sm">📖 История</a></td>
+                <td data-label=""><a href="/instance/{{ inst.id }}" class="btn btn-sm">📖 История</a></td>
             </tr>
             {% else %}
             <tr><td colspan="9">

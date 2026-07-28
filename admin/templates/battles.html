@@ -36,10 +36,10 @@
         <tbody>
             {% for b in battles %}
             <tr>
-                <td>{{ b.id }}</td>
-                <td>{{ b.character.name }}</td>
-                <td>{{ b.mob.name }}</td>
-                <td>
+                <td data-label="ID">{{ b.id }}</td>
+                <td data-label="Игрок">{{ b.character.name }}</td>
+                <td data-label="Враг">{{ b.mob.name }}</td>
+                <td data-label="Результат">
                     {% if b.result.value == 'victory' %}
                         <span class="badge badge-uncommon">Победа</span>
                     {% elif b.result.value == 'defeat' %}
@@ -48,12 +48,12 @@
                         <span class="badge badge-common">Побег</span>
                     {% endif %}
                 </td>
-                <td>{{ b.rounds }}</td>
-                <td>{{ b.damage_dealt }}</td>
-                <td>{{ b.damage_taken }}</td>
-                <td>{{ b.gold_earned }}</td>
-                <td>{{ b.exp_earned }}</td>
-                <td>{{ b.created_at.strftime('%Y-%m-%d %H:%M') if b.created_at else '-' }}</td>
+                <td data-label="Раундов">{{ b.rounds }}</td>
+                <td data-label="Урон нанёс">{{ b.damage_dealt }}</td>
+                <td data-label="Урон получил">{{ b.damage_taken }}</td>
+                <td data-label="Золото">{{ b.gold_earned }}</td>
+                <td data-label="Опыт">{{ b.exp_earned }}</td>
+                <td data-label="Время">{{ b.created_at.strftime('%Y-%m-%d %H:%M') if b.created_at else '-' }}</td>
             </tr>
             {% else %}
             <tr><td colspan="10">

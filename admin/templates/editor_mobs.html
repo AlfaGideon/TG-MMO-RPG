@@ -53,25 +53,25 @@
         <tbody>
             {% for mob in mobs %}
             <tr>
-                <td>
+                <td data-label="Фото">
                     {% if mob.image_url %}
                     <img src="{{ mob.image_url }}" style="width:36px;height:36px;object-fit:cover;border-radius:6px;border:1px solid var(--border);">
                     {% else %}<span style="opacity:0.4;">🖼</span>{% endif %}
                 </td>
-                <td>{{ mob.id }}</td>
-                <td>{{ mob.name }}</td>
-                <td>{{ mob.level }}</td>
-                <td>{{ mob.hp }}</td>
-                <td>{{ mob.damage }}</td>
-                <td>{{ mob.defense }}</td>
-                <td>{{ mob.gold_min }}–{{ mob.gold_max }}{% if not mob.gold_max %}{{ mob.gold_reward }}{% endif %}</td>
-                <td>{{ mob.exp_reward }}</td>
-                <td>{{ mob.location.name if mob.location else '—' }}</td>
-                <td><b>{{ mob.population }}</b></td>
-                <td>{{ mob.respawn_seconds }}с</td>
-                <td>{{ '🚶 ' ~ mob.move_interval_seconds ~ 'с' if mob.can_roam and mob.move_interval_seconds else '🚫' }}</td>
-                <td>{{ '✅' if mob.is_boss else '—' }}</td>
-                <td>
+                <td data-label="ID">{{ mob.id }}</td>
+                <td data-label="Имя">{{ mob.name }}</td>
+                <td data-label="Ур.">{{ mob.level }}</td>
+                <td data-label="HP">{{ mob.hp }}</td>
+                <td data-label="Урон">{{ mob.damage }}</td>
+                <td data-label="Защ">{{ mob.defense }}</td>
+                <td data-label="Золото">{{ mob.gold_min }}–{{ mob.gold_max }}{% if not mob.gold_max %}{{ mob.gold_reward }}{% endif %}</td>
+                <td data-label="Опыт">{{ mob.exp_reward }}</td>
+                <td data-label="Локация">{{ mob.location.name if mob.location else '—' }}</td>
+                <td data-label="Поп."><b>{{ mob.population }}</b></td>
+                <td data-label="Респ.">{{ mob.respawn_seconds }}с</td>
+                <td data-label="Ход">{{ '🚶 ' ~ mob.move_interval_seconds ~ 'с' if mob.can_roam and mob.move_interval_seconds else '🚫' }}</td>
+                <td data-label="Босс">{{ '✅' if mob.is_boss else '—' }}</td>
+                <td data-label="Действия">
                     <button type="button" class="btn btn-primary btn-sm mob-edit"
                             data-id="{{ mob.id }}"
                             data-name="{{ mob.name }}"

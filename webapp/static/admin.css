@@ -161,3 +161,30 @@ tr.clickable:hover td{background:var(--accent-soft)}
 }
 .mass-bar .mass-count{font-size:.85rem;color:var(--text-muted);margin-right:auto}
 .row-check{width:18px;height:18px;accent-color:var(--accent);cursor:pointer}
+
+/* ── Mobile responsiveness ──────────────────────────────── */
+
+@media (max-width: 768px) {
+    .container{padding:.9rem}
+    .card{padding:1rem;margin-bottom:1rem}
+    .card h2{font-size:1rem}
+
+    table,thead,tbody,th,td,tr{display:block}
+    thead tr{position:absolute;top:-9999px;left:-9999px}
+    tr{margin-bottom:.9rem;border:1px solid var(--border);border-radius:10px;padding:.5rem;background:var(--bg-dark)}
+    td{display:flex;justify-content:space-between;align-items:center;gap:.75rem;padding:.5rem .6rem;border-bottom:1px solid var(--border);font-size:.88rem}
+    td:last-child{border-bottom:none}
+    td::before{content:attr(data-label);font-weight:600;color:var(--text-muted);font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;flex-shrink:0}
+
+    .btn,.nav-link,.theme-toggle{min-height:44px}
+    .btn-sm{min-height:36px;padding:.4rem .7rem}
+    input,select,textarea{min-height:44px;font-size:16px}
+    .row-check{width:22px;height:22px}
+
+    .sticky-actions{position:fixed;left:0;right:0;bottom:0;background:var(--bg-card);border-top:1px solid var(--border);padding:.6rem 1rem;display:flex;gap:.5rem;justify-content:flex-end;z-index:50;box-shadow:0 -4px 20px rgba(0,0,0,.25)}
+    body:has(.sticky-actions) .container{padding-bottom:4.5rem}
+
+    .grid.g4{grid-template-columns:repeat(2,1fr)}
+    .mapgrid{max-width:100%}
+    .breadcrumbs{padding:.4rem 0 .6rem}
+}

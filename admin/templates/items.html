@@ -47,47 +47,47 @@
                 </tr>
             </thead>
             <tbody>
-                {% for item in items %}
-                <tr>
-                    <td><input type="checkbox" name="ids" value="{{ item.id }}" class="row-check item-check"></td>
-                    <td>{{ item.id }}</td>
-                    <td>{{ item.icon }}</td>
-                    <td>{{ item.name }}</td>
-                    <td>{{ item.item_type.value }}</td>
-                    <td><span class="badge badge-{{ item.rarity.value }}">{{ item.rarity.value }}</span></td>
-                    <td>
-                        <form action="/api/item/{{ item.id }}/inline" method="post" class="inline-form" onsubmit="return inlineSave(this)">
-                            <input type="hidden" name="field" value="level_requirement">
-                            <input type="number" name="value" value="{{ item.level_requirement }}" min="1" class="search-box" style="max-width:70px">
-                        </form>
-                    </td>
-                    <td>
-                        <form action="/api/item/{{ item.id }}/inline" method="post" class="inline-form" onsubmit="return inlineSave(this)">
-                            <input type="hidden" name="field" value="price">
-                            <input type="number" name="value" value="{{ item.price }}" min="0" class="search-box" style="max-width:90px">
-                        </form>
-                    </td>
-                    <td>{% if item.is_unique_roll %}±{{ ((item.stat_variance or 0) * 100)|int }}%{% else %}<span style="color:var(--text-muted)">стак</span>{% endif %}</td>
-                    <td>{{ instance_counts.get(item.id, 0) }}</td>
-                    <td>
-                        <a href="/item/{{ item.id }}/edit" class="btn btn-primary btn-sm">✏️</a>
-                        <form action="/item/{{ item.id }}/clone" method="post" style="display:inline" title="Клонировать">
-                            <button type="submit" class="btn btn-sm">📋</button>
-                        </form>
-                        <form action="/item/{{ item.id }}/delete" method="post" style="display:inline" onsubmit="return confirm('Удалить предмет?')">
-                            <button type="submit" class="btn btn-danger btn-sm">🗑</button>
-                        </form>
-                    </td>
-                </tr>
-                {% else %}
-                <tr><td colspan="11">
-                    <div class="empty-state">
-                        <div class="empty-icon">🎒</div>
-                        <div>Предметов не найдено.</div>
-                        <a href="#new-item" class="btn btn-primary">➕ Создать первый предмет</a>
-                    </div>
-                </td></tr>
-                {% endfor %}
+            {% for item in items %}
+            <tr>
+                <td data-label="Выбрать"><input type="checkbox" name="ids" value="{{ item.id }}" class="row-check item-check"></td>
+                <td data-label="ID">{{ item.id }}</td>
+                <td data-label="Иконка">{{ item.icon }}</td>
+                <td data-label="Название">{{ item.name }}</td>
+                <td data-label="Тип">{{ item.item_type.value }}</td>
+                <td data-label="Редкость"><span class="badge badge-{{ item.rarity.value }}">{{ item.rarity.value }}</span></td>
+                <td data-label="Ур.">
+                    <form action="/api/item/{{ item.id }}/inline" method="post" class="inline-form" onsubmit="return inlineSave(this)">
+                        <input type="hidden" name="field" value="level_requirement">
+                        <input type="number" name="value" value="{{ item.level_requirement }}" min="1" class="search-box" style="max-width:70px">
+                    </form>
+                </td>
+                <td data-label="Цена">
+                    <form action="/api/item/{{ item.id }}/inline" method="post" class="inline-form" onsubmit="return inlineSave(this)">
+                        <input type="hidden" name="field" value="price">
+                        <input type="number" name="value" value="{{ item.price }}" min="0" class="search-box" style="max-width:90px">
+                    </form>
+                </td>
+                <td data-label="Разброс">{% if item.is_unique_roll %}±{{ ((item.stat_variance or 0) * 100)|int }}%{% else %}<span style="color:var(--text-muted)">стак</span>{% endif %}</td>
+                <td data-label="Копий">{{ instance_counts.get(item.id, 0) }}</td>
+                <td data-label="Действия">
+                    <a href="/item/{{ item.id }}/edit" class="btn btn-primary btn-sm">✏️</a>
+                    <form action="/item/{{ item.id }}/clone" method="post" style="display:inline" title="Клонировать">
+                        <button type="submit" class="btn btn-sm">📋</button>
+                    </form>
+                    <form action="/item/{{ item.id }}/delete" method="post" style="display:inline" onsubmit="return confirm('Удалить предмет?')">
+                        <button type="submit" class="btn btn-danger btn-sm">🗑</button>
+                    </form>
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="11">
+                <div class="empty-state">
+                    <div class="empty-icon">🎒</div>
+                    <div>Предметов не найдено.</div>
+                    <a href="#new-item" class="btn btn-primary">➕ Создать первый предмет</a>
+                </div>
+            </td></tr>
+            {% endfor %}
             </tbody>
         </table>
         </div>

@@ -51,13 +51,17 @@ def render(ctx):
                 f"font-weight:bold'>{esc(permissions.rank_title(p.web_admin_role))}</span>"
                 f" <span class='muted'>{n} прав</span>")
         rows += (
-            f"<tr><td><input type='checkbox' class='row-check player-check' value='{p.tg_id}' onchange='updatePlayersMassCount()'></td>"
-            f"<td><code>{p.tg_id}</code></td><td>{esc(p.name)}</td>"
-            f"<td>{esc(p.cls) or '—'}</td><td>{p.level}</td>"
-            f"<td>{p.hp}/{p.max_hp}</td><td>{p.gold} 🪙</td>"
-            f"<td>{esc(loc)} [{p.x},{p.y}]</td><td>{len(p.inventory)}</td>"
-            f"<td>{role_label}</td>"
-            f"<td><button class='btn' data-act='player-edit' data-arg='{p.tg_id}'>✏️</button> "
+            f"<tr><td data-label='Выбрать'><input type='checkbox' class='row-check player-check' value='{p.tg_id}' onchange='updatePlayersMassCount()'></td>"
+            f"<td data-label='TG ID'><code>{p.tg_id}</code></td>"
+            f"<td data-label='Имя'>{esc(p.name)}</td>"
+            f"<td data-label='Класс'>{esc(p.cls) or '—'}</td>"
+            f"<td data-label='Ур.'>{p.level}</td>"
+            f"<td data-label='HP'>{p.hp}/{p.max_hp}</td>"
+            f"<td data-label='Золото'>{p.gold} 🪙</td>"
+            f"<td data-label='Позиция'>{esc(loc)} [{p.x},{p.y}]</td>"
+            f"<td data-label='Предм.'>{len(p.inventory)}</td>"
+            f"<td data-label='Роль'>{role_label}</td>"
+            f"<td data-label=''><button class='btn' data-act='player-edit' data-arg='{p.tg_id}'>✏️</button> "
             f"<button class='btn danger' data-act='player-del' data-arg='{p.tg_id}'>🗑</button></td></tr>")
     if not rows:
         rows = ("<tr><td colspan='11'><div class='empty-state'>"

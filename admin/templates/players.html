@@ -47,38 +47,38 @@
                 </tr>
             </thead>
             <tbody>
-                {% for p in players %}
-                <tr>
-                    <td><input type="checkbox" name="ids" value="{{ p.id }}" class="row-check player-check"></td>
-                    <td>{{ p.id }}</td>
-                    <td>{{ p.user.telegram_id }}</td>
-                    <td>{{ p.name }}</td>
-                    <td>{{ p.character_class.value }}</td>
-                    <td>
-                        <form action="/api/player/{{ p.id }}/inline" method="post" class="inline-form" onsubmit="return inlineSave(this)">
-                            <input type="hidden" name="field" value="level">
-                            <input type="number" name="value" value="{{ p.level }}" min="1" class="search-box" style="max-width:70px">
-                        </form>
-                    </td>
-                    <td>{{ p.experience }}</td>
-                    <td>
-                        <form action="/api/player/{{ p.id }}/inline" method="post" class="inline-form" onsubmit="return inlineSave(this)">
-                            <input type="hidden" name="field" value="gold">
-                            <input type="number" name="value" value="{{ p.gold }}" min="0" class="search-box" style="max-width:90px">
-                        </form>
-                    </td>
-                    <td>{{ p.current_hp }}/{{ p.max_hp }}</td>
-                    <td>{{ p.location.name if p.location else '-' }}</td>
-                    <td>{{ '✅' if p.is_vip else '—' }}</td>
-                    <td>
-                        <a href="/player/{{ p.id }}" class="btn btn-primary btn-sm">✏️ Управление</a>
-                    </td>
-                </tr>
-                {% else %}
-                <tr><td colspan="12">
-                    <div class="empty-state"><div class="empty-icon">👥</div>Игроков не найдено.</div>
-                </td></tr>
-                {% endfor %}
+            {% for p in players %}
+            <tr>
+                <td data-label="Выбрать"><input type="checkbox" name="ids" value="{{ p.id }}" class="row-check player-check"></td>
+                <td data-label="ID">{{ p.id }}</td>
+                <td data-label="Telegram">{{ p.user.telegram_id }}</td>
+                <td data-label="Имя">{{ p.name }}</td>
+                <td data-label="Класс">{{ p.character_class.value }}</td>
+                <td data-label="Ур.">
+                    <form action="/api/player/{{ p.id }}/inline" method="post" class="inline-form" onsubmit="return inlineSave(this)">
+                        <input type="hidden" name="field" value="level">
+                        <input type="number" name="value" value="{{ p.level }}" min="1" class="search-box" style="max-width:70px">
+                    </form>
+                </td>
+                <td data-label="Опыт">{{ p.experience }}</td>
+                <td data-label="Золото">
+                    <form action="/api/player/{{ p.id }}/inline" method="post" class="inline-form" onsubmit="return inlineSave(this)">
+                        <input type="hidden" name="field" value="gold">
+                        <input type="number" name="value" value="{{ p.gold }}" min="0" class="search-box" style="max-width:90px">
+                    </form>
+                </td>
+                <td data-label="HP">{{ p.current_hp }}/{{ p.max_hp }}</td>
+                <td data-label="Локация">{{ p.location.name if p.location else '-' }}</td>
+                <td data-label="VIP">{{ '✅' if p.is_vip else '—' }}</td>
+                <td data-label="Действия">
+                    <a href="/player/{{ p.id }}" class="btn btn-primary btn-sm">✏️ Управление</a>
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="12">
+                <div class="empty-state"><div class="empty-icon">👥</div>Игроков не найдено.</div>
+            </td></tr>
+            {% endfor %}
             </tbody>
         </table>
         </div>

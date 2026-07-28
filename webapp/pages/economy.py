@@ -66,13 +66,14 @@ def _instances(ctx):
         dot, rare_name = itemui.RARITY.get(rar, ("⚪", rar))
         rows += (
             f"<tr class='clickable' data-act='inst-view' data-arg='{esc(inst['uid'])}'>"
-            f"<td><code>{items.badge(inst)}{esc(inst['uid'])}</code></td>"
-            f"<td>{esc(inst.get('icon',''))} <b>{esc(items.title(inst))}</b></td>"
-            f"<td><span class='tag {esc(rar)}'>{dot} {esc(rare_name)}</span></td>"
-            f"<td>{inst.get('quality', 100)} %</td>"
-            f"<td class='muted'>{esc(items.source_label(inst))}</td>"
-            f"<td>{who}</td><td>{items.price(inst)} 🪙</td>"
-            f"<td><button class='btn'>📖</button></td></tr>")
+            f"<td data-label='ID'><code>{items.badge(inst)}{esc(inst['uid'])}</code></td>"
+            f"<td data-label='Предмет'>{esc(inst.get('icon',''))} <b>{esc(items.title(inst))}</b></td>"
+            f"<td data-label='Редкость'><span class='tag {esc(rar)}'>{dot} {esc(rare_name)}</span></td>"
+            f"<td data-label='Качество'>{inst.get('quality', 100)} %</td>"
+            f"<td data-label='Происхождение' class='muted'>{esc(items.source_label(inst))}</td>"
+            f"<td data-label='Владелец'>{who}</td>"
+            f"<td data-label='Оценка'>{items.price(inst)} 🪙</td>"
+            f"<td data-label=''><button class='btn'>📖</button></td></tr>")
     if not rows:
         rows = ("<tr><td colspan='8'><div class='empty-state'>"
                 "<div class='empty-icon'>🆔</div>"
