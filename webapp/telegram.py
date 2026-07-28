@@ -13,6 +13,7 @@ class TelegramBot:
         self.me = None
         self.running = False
         self.offset = 0
+        self.last_update_id = -1
         self._task = None
         self.game = Game(store)
         self.transport = Transport(store.settings)
@@ -30,6 +31,9 @@ class TelegramBot:
     async def start(self, token):
         if self.running:
             return False, "Бот уже запущен"
+        if self._task and not self._task.done():
+            self._task.cancel()
+            self._task = None
         self.token = token.strip()
         data = await self.call("getMe")
         if not data.get("ok"):
@@ -59,7 +63,11 @@ class TelegramBot:
                 data = await self.call("getUpdates", offset=self.offset,
                                        timeout=25, allowed_updates=["message", "callback_query"])
                 for upd in data.get("result", []):
-                    self.offset = upd["update_id"] + 1
+                    upd_id = upd.get("update_id", 0)
+                    if upd_id <= self.last_update_id:
+                        continue
+                    self.last_update_id = upd_id
+                    self.offset = upd_id + 1
                     self.counters["updates"] += 1
                     try:
                         await self.dispatch(upd)
@@ -117,6 +125,9 @@ class TelegramBot:
             res = await self.call("editMessageText", message_id=p.msg_id, **args)
             if res.get("ok"):
                 self.log("out", reply.text.splitlines()[0][:60])
+                return
+            desc = (res.get("description") or "").lower()
+            if "message is not modified" in desc:
                 return
         res = await self.call("sendMessage", **args)
         if res.get("ok"):

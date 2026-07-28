@@ -43,7 +43,6 @@ def main():
     # Init DB synchronously before uvicorn starts
     asyncio.run(run_migrations())
     asyncio.run(seed_database())
-    asyncio.run(try_start_bot_from_db())
 
     logger.info(f"Starting admin panel on http://{admin_settings.ADMIN_HOST}:{admin_settings.ADMIN_PORT}")
     uvicorn.run(

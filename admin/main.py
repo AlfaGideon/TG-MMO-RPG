@@ -26,7 +26,16 @@ from bot.runner import bot_runner
 async def lifespan(app: FastAPI):
     os.makedirs("data", exist_ok=True)
     await run_migrations()
+    async with async_session() as session:
+        result = await session.execute(
+            select(AppSetting).where(AppSetting.key == "bot_token")
+        )
+        setting = result.scalar_one_or_none()
+        if setting and setting.value and setting.value.strip():
+            await bot_runner.start(setting.value.strip())
     yield
+    if bot_runner.is_running():
+        await bot_runner.stop()
 
 
 app = FastAPI(title="Shadow Lands Admin", lifespan=lifespan)

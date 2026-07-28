@@ -258,6 +258,17 @@ async def show_cell(callback, character, location, session):
     img_path = ensure_cell_image(cell, cells, cell.x, cell.y)
     kb = cell_movement_keyboard(can_dirs)
 
+    if callback.message.photo:
+        try:
+            from aiogram.types import InputMediaPhoto
+            await callback.message.edit_media(
+                media=InputMediaPhoto(media=FSInputFile(img_path), caption=text, parse_mode="HTML"),
+                reply_markup=kb,
+            )
+            return
+        except Exception:
+            pass
+
     try:
         await callback.message.delete()
     except Exception:

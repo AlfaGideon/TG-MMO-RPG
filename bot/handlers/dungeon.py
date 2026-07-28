@@ -418,7 +418,7 @@ async def dungeon_flee(callback: CallbackQuery):
     )
 
 
-@router.callback_query(F.data == "dungeon_attack")
+@router.callback_query(F.data == "dungeon_combat_attack")
 async def dungeon_combat_attack(callback: CallbackQuery):
     state = dungeon_combat_state.get(callback.from_user.id)
     if not state:
