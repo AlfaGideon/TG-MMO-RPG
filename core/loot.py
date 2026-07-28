@@ -9,16 +9,19 @@ import random
 import secrets
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from core.enums import ItemRarity, ItemSource, ItemType
 from core.models import (
-    DropEntry, InventoryItem, Item, ItemInstance, Mob, UpgradeRule,
+    AppSetting, DropEntry, InventoryItem, Item, ItemInstance, Mob, UpgradeRule,
 )
 
 # Типы, которые складываются в стопку и не получают уникальных статов
 STACKABLE_TYPES = {ItemType.CONSUMABLE, ItemType.MATERIAL}
+
+# Ключ настройки со списком включённых праздничных событий
+FESTIVE_EVENTS_KEY = "festive_events"
 
 # Редкость -> (множитель статов, шанс выпасть при перекате редкости)
 RARITY_MULTIPLIER = {
@@ -58,6 +61,44 @@ def _prefix_for(quality: int) -> str:
 
 def is_stackable(item: Item) -> bool:
     return item.item_type in STACKABLE_TYPES or not item.is_unique_roll
+
+
+async def one_of_a_kind_taken(session, item: Item) -> bool:
+    """Уникальная вещь уже кем-то получена?
+
+    Такой предмет существует ровно в одном экземпляре: как только он выпал
+    или был скрафчен, из таблиц лута он больше не приходит.
+    """
+    if not item.is_one_of_a_kind:
+        return False
+    existing = await session.scalar(
+        select(func.count(ItemInstance.id)).where(ItemInstance.item_id == item.id)
+    )
+    return bool(existing)
+
+
+async def active_events(session) -> set:
+    """Ключи включённых праздничных событий (из настроек приложения)."""
+    row = await session.scalar(
+        select(AppSetting.value).where(AppSetting.key == FESTIVE_EVENTS_KEY)
+    )
+    return {e.strip() for e in (row or "").split(",") if e.strip()}
+
+
+async def can_drop(session, item: Item, events: set | None = None) -> bool:
+    """Можно ли выдать предмет прямо сейчас.
+
+    Отсекает уже разобранные уникальные вещи и праздничные трофеи, чьё
+    событие сейчас выключено.
+    """
+    if await one_of_a_kind_taken(session, item):
+        return False
+    if item.is_festive and item.festive_event:
+        if events is None:
+            events = await active_events(session)
+        if item.festive_event not in events:
+            return False
+    return True
 
 
 def roll_quality(variance: float, luck: int = 0) -> int:
@@ -105,6 +146,14 @@ def create_instance(
         item.rarity or ItemRarity.COMMON, 1.0
     )
 
+    # Особые метки наследуются от шаблона: единственная в мире вещь и
+    # праздничный трофей остаются такими у любого экземпляра.
+    if item.is_one_of_a_kind:
+        source = ItemSource.UNIQUE.value
+    elif item.is_festive and source in (ItemSource.MOB.value, ItemSource.CHEST.value,
+                                        ItemSource.DUNGEON.value):
+        source = ItemSource.FESTIVE.value
+
     inst = ItemInstance(
         uid=new_uid(),
         item_id=item.id,
@@ -114,6 +163,11 @@ def create_instance(
         quality=quality,
         upgrade_level=0,
         prefix=_prefix_for(quality),
+        is_one_of_a_kind=bool(item.is_one_of_a_kind),
+        is_festive=bool(item.is_festive),
+        festive_event=(item.festive_event or "")[:64],
+        magic_school=item.magic_school,
+        magic_power=item.magic_power or 0,
     )
 
     for field, base in item.base_bonuses().items():
@@ -146,8 +200,14 @@ async def grant_item(
     Расходники и материалы складываются в стопку, снаряжение создаётся
     отдельными уникальными экземплярами — по одной строке на предмет.
     """
+    from core import history
+
     luck = getattr(character, "luck", 0) or 0
     added: list[InventoryItem] = []
+
+    # Уникальную вещь второй раз не выдаём
+    if not await can_drop(session, item):
+        return added
 
     if is_stackable(item):
         result = await session.execute(
@@ -170,13 +230,20 @@ async def grant_item(
             added.append(row)
         return added
 
-    for _ in range(max(1, quantity)):
+    count = max(1, quantity)
+    # Единственная в мире вещь приходит ровно одна, сколько ни проси
+    if item.is_one_of_a_kind:
+        count = 1
+
+    for _ in range(count):
         inst = create_instance(
             item, source=source, source_detail=source_detail,
             extra_variance=extra_variance, luck=luck,
         )
+        inst.owner_character_id = character.id
         session.add(inst)
         await session.flush()
+        await history.record_birth(session, inst, character, source_detail)
         row = InventoryItem(
             character_id=character.id, item_id=item.id,
             instance_id=inst.id, quantity=1,
@@ -204,10 +271,14 @@ async def roll_drops(session, owner_type: str, owner_id: int | None, luck: int =
 
     drops = []
     luck_bonus = min(0.15, (luck or 0) * 0.004)
+    events = await active_events(session)
     for entry in entries:
         if entry.item is None:
             continue
         if random.random() > min(1.0, (entry.chance or 0) + luck_bonus):
+            continue
+        # Уникальное уже разобрано или праздник не идёт — пропускаем
+        if not await can_drop(session, entry.item, events):
             continue
         low = max(1, entry.min_quantity or 1)
         high = max(low, entry.max_quantity or low)

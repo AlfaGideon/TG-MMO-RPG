@@ -12,7 +12,9 @@ from core.models import CharacterClassDef
 # Классы, которыми наполняется пустая таблица при первом запуске.
 DEFAULT_CLASSES = [
     dict(
-        key="warrior", name="Воин", icon="🛡", sort_order=10,
+        key="warrior",
+        affinity_chance=0.18, dual_affinity_chance=0.03,
+        preferred_schools="", name="Воин", icon="🛡", sort_order=10,
         description=(
             "Тяжёлые доспехи, мечи и щиты — твоя вера. Воины выдерживают удары, "
             "которые убили бы любого другого, и сокрушают врагов мощью."
@@ -23,7 +25,9 @@ DEFAULT_CLASSES = [
         growth_endurance=2, growth_luck=0, growth_hp=14, growth_mp=3,
     ),
     dict(
-        key="mage", name="Маг", icon="🔮", sort_order=20,
+        key="mage",
+        affinity_chance=1.0, dual_affinity_chance=0.35,
+        preferred_schools="fire,frost,storm", name="Маг", icon="🔮", sort_order=20,
         description=(
             "Ты познал запретные знания. Пламя и молнии срываются с кончиков "
             "пальцев, а враги превращаются в пепел до того, как успеют крикнуть."
@@ -34,7 +38,9 @@ DEFAULT_CLASSES = [
         growth_endurance=1, growth_luck=1, growth_hp=7, growth_mp=12,
     ),
     dict(
-        key="rogue", name="Разбойник", icon="🗡", sort_order=30,
+        key="rogue",
+        affinity_chance=0.35, dual_affinity_chance=0.06,
+        preferred_schools="shadow,storm", name="Разбойник", icon="🗡", sort_order=30,
         description=(
             "Тени — твой дом. Ты бьёшь туда, где брони нет, и исчезаешь прежде, "
             "чем враг поймёт, что произошло."
@@ -45,7 +51,9 @@ DEFAULT_CLASSES = [
         growth_endurance=1, growth_luck=2, growth_hp=9, growth_mp=5,
     ),
     dict(
-        key="cleric", name="Жрец", icon="✨", sort_order=40,
+        key="cleric",
+        affinity_chance=0.95, dual_affinity_chance=0.25,
+        preferred_schools="light,nature", name="Жрец", icon="✨", sort_order=40,
         description=(
             "Последний свет в тёмном мире. Твоё слово исцеляет раны союзников "
             "и обжигает нежить священным сиянием."
@@ -56,7 +64,9 @@ DEFAULT_CLASSES = [
         growth_endurance=2, growth_luck=1, growth_hp=11, growth_mp=9,
     ),
     dict(
-        key="paladin", name="Паладин", icon="⚜️", sort_order=50,
+        key="paladin",
+        affinity_chance=0.7, dual_affinity_chance=0.12,
+        preferred_schools="light", name="Паладин", icon="⚜️", sort_order=50,
         description=(
             "Латы, молот и клятва. Ты стоишь между тьмой и теми, кто ещё жив, "
             "и не отступаешь, пока держат ноги."
@@ -67,7 +77,9 @@ DEFAULT_CLASSES = [
         growth_endurance=3, growth_luck=0, growth_hp=15, growth_mp=6,
     ),
     dict(
-        key="ranger", name="Следопыт", icon="🏹", sort_order=60,
+        key="ranger",
+        affinity_chance=0.5, dual_affinity_chance=0.1,
+        preferred_schools="nature,storm", name="Следопыт", icon="🏹", sort_order=60,
         description=(
             "Лес читается тобой как книга. Стрела находит горло раньше, чем "
             "зверь успевает почуять человека."
@@ -78,7 +90,9 @@ DEFAULT_CLASSES = [
         growth_endurance=2, growth_luck=1, growth_hp=11, growth_mp=6,
     ),
     dict(
-        key="necromancer", name="Некромант", icon="💀", sort_order=70,
+        key="necromancer",
+        affinity_chance=1.0, dual_affinity_chance=0.4,
+        preferred_schools="shadow", name="Некромант", icon="💀", sort_order=70,
         description=(
             "Смерть — не конец, а материал. Ты поднимаешь павших и вытягиваешь "
             "жизнь из живых, платя за это собственным телом."
@@ -89,7 +103,9 @@ DEFAULT_CLASSES = [
         growth_endurance=1, growth_luck=1, growth_hp=6, growth_mp=13,
     ),
     dict(
-        key="berserker", name="Берсерк", icon="🪓", sort_order=80,
+        key="berserker",
+        affinity_chance=0.12, dual_affinity_chance=0.02,
+        preferred_schools="fire", name="Берсерк", icon="🪓", sort_order=80,
         description=(
             "Боли нет — есть только ярость. Чем меньше здоровья, тем страшнее "
             "твой удар. Броня — для трусов."
@@ -100,7 +116,9 @@ DEFAULT_CLASSES = [
         growth_endurance=1, growth_luck=0, growth_hp=13, growth_mp=2,
     ),
     dict(
-        key="druid", name="Друид", icon="🌿", sort_order=90,
+        key="druid",
+        affinity_chance=0.95, dual_affinity_chance=0.3,
+        preferred_schools="nature,frost", name="Друид", icon="🌿", sort_order=90,
         description=(
             "Ты слышишь, как шепчут корни. Природа мстит за выжженные земли "
             "твоими руками."
@@ -111,7 +129,9 @@ DEFAULT_CLASSES = [
         growth_endurance=2, growth_luck=1, growth_hp=11, growth_mp=9,
     ),
     dict(
-        key="assassin", name="Убийца", icon="🩸", sort_order=100,
+        key="assassin",
+        affinity_chance=0.3, dual_affinity_chance=0.05,
+        preferred_schools="shadow", name="Убийца", icon="🩸", sort_order=100,
         description=(
             "Один удар — один труп. Ты не сражаешься, ты выполняешь работу и "
             "растворяешься в темноте."
@@ -143,23 +163,68 @@ async def get_class(session, key: str) -> CharacterClassDef | None:
     return result.scalar_one_or_none()
 
 
+# Поля, которые появились позже и которые надо один раз проставить
+# уже существующим классам (иначе у них останутся дефолты миграции).
+BACKFILL_FIELDS = ("affinity_chance", "dual_affinity_chance", "preferred_schools")
+
+
 async def seed_default_classes(session) -> int:
-    """Наполняет таблицу классов дефолтами, не трогая уже существующие."""
-    result = await session.execute(select(CharacterClassDef.key))
-    existing = {row[0] for row in result.all()}
+    """Наполняет таблицу классов дефолтами, не трогая уже существующие.
+
+    Для классов, которые уже есть в базе, разово проставляет настройки
+    магической предрасположенности — на старых установках колонки завелись
+    миграцией с нейтральными значениями.
+    """
+    result = await session.execute(select(CharacterClassDef))
+    existing = {cls.key: cls for cls in result.scalars().all()}
     added = 0
+    touched = False
+
     for payload in DEFAULT_CLASSES:
-        if payload["key"] in existing:
+        current = existing.get(payload["key"])
+        if current is None:
+            session.add(CharacterClassDef(**payload))
+            added += 1
             continue
-        session.add(CharacterClassDef(**payload))
-        added += 1
-    if added:
+
+        # Класс уже есть: доливаем только незаполненную магию, чтобы не
+        # затирать ручные правки администратора.
+        if not (current.preferred_schools or "").strip():
+            for field in BACKFILL_FIELDS:
+                if field in payload:
+                    setattr(current, field, payload[field])
+            touched = True
+
+    if added or touched:
         await session.flush()
     return added
 
 
 def class_icon(cls_def: CharacterClassDef | None) -> str:
     return (cls_def.icon if cls_def and cls_def.icon else "👤")
+
+
+def affinity_hint(cls_def) -> str:
+    """Строка для экрана выбора класса: насколько вероятен магический дар."""
+    from core.magic import school_icon, school_name
+
+    chance = cls_def.affinity_chance if cls_def else 0.5
+    if chance >= 0.9:
+        base = "Дар к магии почти наверняка"
+    elif chance >= 0.6:
+        base = "Дар к магии вероятен"
+    elif chance >= 0.3:
+        base = "Дар к магии редок"
+    else:
+        base = "Магия — не твой путь"
+
+    schools = cls_def.preferred_school_list() if cls_def else []
+    if schools:
+        names = ", ".join(
+            f"{school_icon(s)} {school_name(s)}" for s in schools
+        )
+        return f"{base}. Склонность: {names}"
+    return f"{base}. Школа — какая выпадет"
 
 
 def level_up_gains(cls_def: CharacterClassDef | None) -> dict:

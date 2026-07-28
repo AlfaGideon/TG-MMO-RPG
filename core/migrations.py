@@ -180,5 +180,62 @@ async def run_migrations():
                 "WHERE character_class <> lower(character_class)"
             ))
 
+        # Особые предметы, магия и перекат статов
+        if "items" in tables:
+            cols_result = await conn.execute(text("PRAGMA table_info(items)"))
+            cols = {row[1] for row in cols_result.fetchall()}
+            for col, ddl in (
+                ("is_one_of_a_kind", "BOOLEAN DEFAULT 0"),
+                ("is_festive", "BOOLEAN DEFAULT 0"),
+                ("festive_event", "VARCHAR(64) DEFAULT ''"),
+                ("magic_school", "VARCHAR(16)"),
+                ("magic_power", "INTEGER DEFAULT 0"),
+            ):
+                if col not in cols:
+                    await conn.execute(text(f"ALTER TABLE items ADD COLUMN {col} {ddl}"))
+
+        if "item_instances" in tables:
+            cols_result = await conn.execute(text("PRAGMA table_info(item_instances)"))
+            cols = {row[1] for row in cols_result.fetchall()}
+            for col, ddl in (
+                ("is_one_of_a_kind", "BOOLEAN DEFAULT 0"),
+                ("is_festive", "BOOLEAN DEFAULT 0"),
+                ("festive_event", "VARCHAR(64) DEFAULT ''"),
+                ("magic_school", "VARCHAR(16)"),
+                ("magic_power", "INTEGER DEFAULT 0"),
+                ("trade_count", "INTEGER DEFAULT 0"),
+                ("owner_character_id", "INTEGER"),
+            ):
+                if col not in cols:
+                    await conn.execute(
+                        text(f"ALTER TABLE item_instances ADD COLUMN {col} {ddl}")
+                    )
+
+        if "characters" in tables:
+            cols_result = await conn.execute(text("PRAGMA table_info(characters)"))
+            cols = {row[1] for row in cols_result.fetchall()}
+            # Существующим героям переката не полагается — их статы давно в деле
+            if "rerolls_left" not in cols:
+                await conn.execute(text(
+                    "ALTER TABLE characters ADD COLUMN rerolls_left INTEGER DEFAULT 0"
+                ))
+            if "stats_locked" not in cols:
+                await conn.execute(text(
+                    "ALTER TABLE characters ADD COLUMN stats_locked BOOLEAN DEFAULT 1"
+                ))
+
+        if "character_classes" in tables:
+            cols_result = await conn.execute(text("PRAGMA table_info(character_classes)"))
+            cols = {row[1] for row in cols_result.fetchall()}
+            for col, ddl in (
+                ("affinity_chance", "FLOAT DEFAULT 0.5"),
+                ("dual_affinity_chance", "FLOAT DEFAULT 0.12"),
+                ("preferred_schools", "TEXT DEFAULT ''"),
+            ):
+                if col not in cols:
+                    await conn.execute(
+                        text(f"ALTER TABLE character_classes ADD COLUMN {col} {ddl}")
+                    )
+
         # Create new tables if not exist
         await conn.run_sync(Base.metadata.create_all)

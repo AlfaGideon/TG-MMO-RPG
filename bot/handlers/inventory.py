@@ -3,6 +3,7 @@ from aiogram.types import CallbackQuery
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from core import history
 from core.database import async_session
 from core.models import User, Character, InventoryItem, Item, ItemInstance
 from core.enums import ItemType
@@ -125,16 +126,20 @@ async def item_detail(callback: CallbackQuery):
             return
 
         item = inv_item.item
-        text = item_detail_text(inv_item)
+        # Летопись есть только у именных вещей
+        rows = await history.load(session, inv_item.instance_id) \
+            if inv_item.instance_id else []
+        text = item_detail_text(inv_item, rows)
         can_equip = item.item_type in EQUIPPABLE
         can_use = item.item_type == ItemType.CONSUMABLE
+        can_sell = bool(inv_item.instance_id) and item.is_sellable
 
     await send_or_edit_photo(
         callback,
         text,
         reply_markup=item_action_keyboard(
             inv_item.id, inv_item.is_equipped,
-            can_equip=can_equip, can_use=can_use,
+            can_equip=can_equip, can_use=can_use, can_sell=can_sell,
         ),
         image_url=item.image_url,
     )

@@ -5,6 +5,7 @@ from aiogram.types import CallbackQuery
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from core import magic
 from core.classes import get_class, level_up_gains
 from core.database import async_session
 from core.loot import give_mob_loot
@@ -336,7 +337,27 @@ async def combat_skill(callback: CallbackQuery):
 
         stats = await combat_stats(session, character)
         character.current_mp -= cost
-        char_dmg = max(2, int(attack_power(stats, character) * 1.8) + stats["intelligence"] // 2)
+
+        # Магический дар усиливает умение: без дара это просто сильный удар,
+        # с талантом — полноценное заклинание.
+        affinities = await magic.get_affinities(session, character.id)
+        school_bonus = magic.spell_bonus(affinities, stats["intelligence"])
+        best = magic.best_affinity(affinities)
+
+        # Фокус нужной школы в руках добавляет ещё сверху
+        focus_bonus = 0
+        if best is not None:
+            for inv in stats.get("gear", []):
+                inst = inv.instance if inv.instance_id else None
+                if inst is not None and inst.magic_school == best.school:
+                    focus_bonus += inst.magic_power or 0
+
+        char_dmg = max(
+            2,
+            int(attack_power(stats, character) * 1.8)
+            + stats["intelligence"] // 2
+            + school_bonus + focus_bonus,
+        )
         mob_dmg = max(0, mob.damage - damage_reduction(stats) + random.randint(-1, 2))
 
         state["mob_hp"] -= char_dmg
@@ -369,9 +390,17 @@ async def combat_skill(callback: CallbackQuery):
 
         await session.commit()
 
+    if best is not None:
+        head = (
+            f"{magic.school_icon(best.school)} <b>"
+            f"{magic.school_name(best.school)}!</b> (−{cost} MP)"
+        )
+    else:
+        head = f"✨ <b>Удар силой!</b> (−{cost} MP)"
+
     await send_or_edit_photo(
         callback,
-        f"✨ <b>Удар силой!</b> (−{cost} MP)\n\n"
+        f"{head}\n\n"
         f"Ты вкладываешься полностью: {char_dmg} урона!\n"
         f"{mob.name} отвечает {mob_dmg} урона.\n\n"
         f"❤️ Ты: {state['character_hp']}/{character.max_hp}\n"

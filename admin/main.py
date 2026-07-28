@@ -18,10 +18,12 @@ from core.models import (
     User, Character, Location, Mob, Item, ShopItem, Battle, AppSetting, Cell,
     Quest, AdminMessage, InventoryItem, VisitedCell, DungeonTemplate, DungeonRun,
     CharacterClassDef, ItemInstance, DropEntry, CraftRecipe, CraftIngredient,
-    UpgradeRule, MobSpawn,
+    UpgradeRule, MobSpawn, ItemHistory, AuctionLot, CharacterAffinity,
 )
 from core.enums import (
     LocationType, ItemType, ItemRarity, QuestStatus, ItemSource, CraftStation,
+    AuctionStatus, MagicSchool, AFFINITY_GRADES, MAGIC_SCHOOLS, SOURCE_BADGES,
+    SOURCE_LABELS,
 )
 from admin.config import settings
 from admin import auth as webauth
@@ -283,9 +285,11 @@ async def player_detail(request: Request, char_id: int):
 
         from core.classes import all_classes as list_classes, get_class
         from core.stats import combat_stats
+        from core import magic
         classes = await list_classes(session, only_enabled=False)
         class_def = await get_class(session, char.character_class)
         totals = await combat_stats(session, char)
+        affinities = await magic.get_affinities(session, char.id)
 
     equipped_by_slot = {
         inv.item.item_type.value: inv
@@ -308,6 +312,9 @@ async def player_detail(request: Request, char_id: int):
             "equipped_by_slot": equipped_by_slot,
             "slot_labels": SLOT_LABELS, "bonus_labels": BONUS_LABELS,
             "rarities": [r.value for r in ItemRarity],
+            "affinities": affinities,
+            "schools": [(k, v[0], v[1]) for k, v in MAGIC_SCHOOLS.items()],
+            "grades": [(k, v[0]) for k, v in AFFINITY_GRADES.items()],
         },
     )
 
@@ -421,6 +428,51 @@ async def player_heal(request: Request, char_id: int):
         if char:
             char.current_hp = char.max_hp
             char.current_mp = char.max_mp
+            await session.commit()
+    return RedirectResponse(url=f"/player/{char_id}", status_code=303)
+
+
+@app.post("/player/{char_id}/affinities")
+async def player_set_affinities(
+    request: Request, char_id: int,
+    school1: str = Form(""), grade1: str = Form("normal"),
+    school2: str = Form(""), grade2: str = Form("normal"),
+):
+    """Правка магического дара героя: до двух школ."""
+    guard(request, "manage_players")
+    from core import magic
+
+    async with async_session() as session:
+        char = await session.get(Character, char_id)
+        if char:
+            pairs = []
+            if school1.strip():
+                pairs.append((school1.strip(), grade1))
+            if school2.strip() and school2.strip() != school1.strip():
+                pairs.append((school2.strip(), grade2))
+            await magic.set_affinities(session, char, pairs)
+            await session.commit()
+    return RedirectResponse(url=f"/player/{char_id}", status_code=303)
+
+
+@app.post("/player/{char_id}/reroll-stats")
+async def player_reroll_stats(request: Request, char_id: int, grant: int = Form(0)):
+    """Перекатывает статы героя заново или выдаёт ему попытки переката."""
+    guard(request, "manage_players")
+    from core import statroll
+    from core.classes import get_class
+
+    async with async_session() as session:
+        char = await session.get(Character, char_id)
+        if char:
+            if grant > 0:
+                # Просто выдаём попытки — игрок перекатает сам в боте
+                char.rerolls_left = grant
+                char.stats_locked = False
+            else:
+                cls_def = await get_class(session, char.character_class)
+                if cls_def is not None:
+                    statroll.apply_stats(char, statroll.roll_stats(cls_def.base_stats()))
             await session.commit()
     return RedirectResponse(url=f"/player/{char_id}", status_code=303)
 
@@ -830,7 +882,10 @@ async def item_edit_page(request: Request, item_id: int):
 
     return templates.TemplateResponse(
         request, "item_edit.html",
-        {"item": item, "instances": instances, "instance_count": instance_count},
+        {
+            "item": item, "instances": instances, "instance_count": instance_count,
+            "schools": [(k, v[0], v[1]) for k, v in MAGIC_SCHOOLS.items()],
+        },
     )
 
 
@@ -858,6 +913,11 @@ async def item_edit(
     is_unique_roll: bool = Form(False),
     is_sellable: bool = Form(False),
     max_upgrade_level: int = Form(10),
+    is_one_of_a_kind: bool = Form(False),
+    is_festive: bool = Form(False),
+    festive_event: str = Form(""),
+    magic_school: str = Form(""),
+    magic_power: int = Form(0),
     image_url: str = Form(""),
     image: UploadFile = File(None),
 ):
@@ -885,6 +945,11 @@ async def item_edit(
             item.is_unique_roll = is_unique_roll
             item.is_sellable = is_sellable
             item.max_upgrade_level = max(0, max_upgrade_level)
+            item.is_one_of_a_kind = is_one_of_a_kind
+            item.is_festive = is_festive
+            item.festive_event = festive_event.strip()[:64]
+            item.magic_school = magic_school.strip() or None
+            item.magic_power = max(0, magic_power)
             if image and image.filename:
                 item.image_url = save_uploaded_image(image, "item", item.id)
             elif image_url.strip():
@@ -1088,6 +1153,10 @@ async def content_hub(request: Request):
         total_spawns = await session.scalar(
             select(func.count(MobSpawn.id)).where(MobSpawn.is_alive == True)  # noqa: E712
         ) or 0
+        total_instances = await session.scalar(select(func.count(ItemInstance.id))) or 0
+        total_unique = await session.scalar(
+            select(func.count(Item.id)).where(Item.is_one_of_a_kind == True)  # noqa: E712
+        ) or 0
     return templates.TemplateResponse(
         request,
         "content.html",
@@ -1102,6 +1171,8 @@ async def content_hub(request: Request):
             "total_drops": total_drops,
             "total_recipes": total_recipes,
             "total_spawns": total_spawns,
+            "total_instances": total_instances,
+            "total_unique": total_unique,
         },
     )
 
@@ -1993,7 +2064,10 @@ async def editor_classes(request: Request):
 
     return templates.TemplateResponse(
         request, "editor_classes.html",
-        {"classes": classes, "usage": usage},
+        {
+            "classes": classes, "usage": usage,
+            "schools": [(k, v[0], v[1]) for k, v in MAGIC_SCHOOLS.items()],
+        },
     )
 
 
@@ -2014,6 +2088,9 @@ def _class_payload(form: dict) -> dict:
         image_url=(form.get("image_url") or "").strip(),
         is_enabled=form.get("is_enabled", True),
         sort_order=form.get("sort_order", 100),
+        affinity_chance=max(0.0, min(1.0, form.get("affinity_chance", 0.5))),
+        dual_affinity_chance=max(0.0, min(1.0, form.get("dual_affinity_chance", 0.12))),
+        preferred_schools=",".join(form.get("preferred_schools", []) or []),
     )
 
 
@@ -2032,6 +2109,9 @@ async def class_new(
     growth_luck: int = Form(0), growth_hp: int = Form(10), growth_mp: int = Form(5),
     image_url: str = Form(""), sort_order: int = Form(100),
     is_enabled: bool = Form(False),
+    affinity_chance: float = Form(0.5),
+    dual_affinity_chance: float = Form(0.12),
+    preferred_schools: list[str] = Form(default=[]),
 ):
     """Добавляет новый класс — он сразу появится в боте при создании героя."""
     guard(request, "manage_content")
@@ -2066,6 +2146,9 @@ async def class_edit(
     growth_luck: int = Form(0), growth_hp: int = Form(10), growth_mp: int = Form(5),
     image_url: str = Form(""), sort_order: int = Form(100),
     is_enabled: bool = Form(False),
+    affinity_chance: float = Form(0.5),
+    dual_affinity_chance: float = Form(0.12),
+    preferred_schools: list[str] = Form(default=[]),
 ):
     guard(request, "manage_content")
     async with async_session() as session:
@@ -2478,6 +2561,246 @@ async def spawn_kill(request: Request, spawn_id: int):
             await kill_spawn(session, spawn, spawn.mob)
             await session.commit()
     return RedirectResponse(url="/editor/spawns", status_code=303)
+
+
+# ── Реестр экземпляров, аукцион и события ───────────────────
+
+@app.get("/editor/instances")
+async def editor_instances(request: Request, source: str = "", q: str = ""):
+    """Все уникальные экземпляры в игре: кто владеет, откуда взялся."""
+    guard(request, "manage_content")
+    async with async_session() as session:
+        query = (
+            select(ItemInstance, Item, Character)
+            .join(Item, Item.id == ItemInstance.item_id)
+            .outerjoin(Character, Character.id == ItemInstance.owner_character_id)
+            .order_by(ItemInstance.id.desc())
+            .limit(300)
+        )
+        if source:
+            query = query.where(ItemInstance.source == source)
+        if q.strip():
+            needle = f"%{q.strip()}%"
+            query = query.where(
+                (ItemInstance.uid.ilike(needle)) | (Item.name.ilike(needle))
+            )
+        rows = (await session.execute(query)).all()
+
+        total = await session.scalar(select(func.count(ItemInstance.id))) or 0
+        by_source = {
+            row[0]: row[1] for row in (await session.execute(
+                select(ItemInstance.source, func.count(ItemInstance.id))
+                .group_by(ItemInstance.source)
+            )).all()
+        }
+        uniques = await session.scalar(
+            select(func.count(ItemInstance.id))
+            .where(ItemInstance.is_one_of_a_kind == True)  # noqa: E712
+        ) or 0
+        festive = await session.scalar(
+            select(func.count(ItemInstance.id))
+            .where(ItemInstance.is_festive == True)  # noqa: E712
+        ) or 0
+        traded = await session.scalar(
+            select(func.count(ItemInstance.id)).where(ItemInstance.trade_count > 0)
+        ) or 0
+
+    return templates.TemplateResponse(
+        request, "editor_instances.html",
+        {
+            "rows": rows, "total": total, "by_source": by_source,
+            "uniques": uniques, "festive": festive, "traded": traded,
+            "source": source, "q": q,
+            "badges": SOURCE_BADGES, "source_labels": SOURCE_LABELS,
+        },
+    )
+
+
+@app.get("/instance/{instance_id}")
+async def instance_detail(request: Request, instance_id: int):
+    """Летопись конкретного предмета."""
+    guard(request, "manage_content")
+    async with async_session() as session:
+        result = await session.execute(
+            select(ItemInstance)
+            .where(ItemInstance.id == instance_id)
+            .options(selectinload(ItemInstance.item))
+        )
+        instance = result.scalar_one_or_none()
+        if instance is None:
+            return RedirectResponse(url="/editor/instances")
+
+        rows = (await session.execute(
+            select(ItemHistory)
+            .where(ItemHistory.instance_id == instance_id)
+            .order_by(ItemHistory.created_at, ItemHistory.id)
+        )).scalars().all()
+
+        owner = None
+        if instance.owner_character_id:
+            owner = await session.get(Character, instance.owner_character_id)
+
+    from core.history import event_icon, event_label
+
+    return templates.TemplateResponse(
+        request, "instance_detail.html",
+        {
+            "instance": instance, "item": instance.item, "rows": rows,
+            "owner": owner, "event_icon": event_icon, "event_label": event_label,
+            "bonus_labels": BONUS_LABELS,
+        },
+    )
+
+
+@app.get("/editor/auction")
+async def editor_auction(request: Request, status: str = "active"):
+    guard(request, "manage_content")
+    async with async_session() as session:
+        from core.auction import sweep_expired
+
+        await sweep_expired(session)
+        await session.commit()
+
+        query = (
+            select(AuctionLot)
+            .options(
+                selectinload(AuctionLot.item),
+                selectinload(AuctionLot.instance),
+                selectinload(AuctionLot.seller),
+                selectinload(AuctionLot.buyer),
+            )
+            .order_by(AuctionLot.id.desc())
+            .limit(200)
+        )
+        if status and status != "all":
+            query = query.where(AuctionLot.status == status)
+        lots = (await session.execute(query)).scalars().all()
+
+        counts = {
+            row[0]: row[1] for row in (await session.execute(
+                select(AuctionLot.status, func.count(AuctionLot.id))
+                .group_by(AuctionLot.status)
+            )).all()
+        }
+        turnover = await session.scalar(
+            select(func.sum(AuctionLot.price))
+            .where(AuctionLot.status == AuctionStatus.SOLD.value)
+        ) or 0
+
+    return templates.TemplateResponse(
+        request, "editor_auction.html",
+        {
+            "lots": lots, "counts": counts, "status": status,
+            "turnover": turnover,
+            "statuses": [s.value for s in AuctionStatus],
+        },
+    )
+
+
+@app.post("/editor/auction/{lot_id}/cancel")
+async def auction_lot_cancel(request: Request, lot_id: int):
+    """Снимает лот и возвращает вещь продавцу."""
+    guard(request, "manage_content")
+    async with async_session() as session:
+        from core.auction import _return_to_owner
+
+        lot = await session.get(AuctionLot, lot_id)
+        if lot and lot.status == AuctionStatus.ACTIVE.value:
+            lot.status = AuctionStatus.CANCELLED.value
+            seller = await session.get(Character, lot.seller_id) if lot.seller_id else None
+            if seller is not None:
+                await _return_to_owner(session, lot, seller, event="unlisted")
+            await session.commit()
+    return RedirectResponse(url="/editor/auction", status_code=303)
+
+
+@app.post("/settings/festive-events")
+async def save_festive_events(request: Request, events: list[str] = Form(default=[])):
+    """Включает праздничные события: только их трофеи падают из мобов."""
+    guard(request, "manage_content")
+    from core.loot import FESTIVE_EVENTS_KEY
+
+    value = ",".join(e.strip() for e in events if e.strip())
+    async with async_session() as session:
+        row = (await session.execute(
+            select(AppSetting).where(AppSetting.key == FESTIVE_EVENTS_KEY)
+        )).scalar_one_or_none()
+        if row:
+            row.value = value
+        else:
+            session.add(AppSetting(key=FESTIVE_EVENTS_KEY, value=value))
+        await session.commit()
+    return RedirectResponse(url="/editor/events", status_code=303)
+
+
+@app.get("/editor/events")
+async def editor_events(request: Request):
+    """Праздничные события и привязанные к ним трофеи."""
+    guard(request, "manage_content")
+    from core.loot import FESTIVE_EVENTS_KEY
+
+    async with async_session() as session:
+        raw = await session.scalar(
+            select(AppSetting.value).where(AppSetting.key == FESTIVE_EVENTS_KEY)
+        )
+        active = {e.strip() for e in (raw or "").split(",") if e.strip()}
+
+        festive_items = (await session.execute(
+            select(Item).where(Item.is_festive == True)  # noqa: E712
+            .order_by(Item.festive_event, Item.name)
+        )).scalars().all()
+
+        unique_items = (await session.execute(
+            select(Item).where(Item.is_one_of_a_kind == True)  # noqa: E712
+            .order_by(Item.name)
+        )).scalars().all()
+
+        # У каких реликвий уже есть владелец — они больше не выпадут
+        taken = {
+            row[0] for row in (await session.execute(
+                select(ItemInstance.item_id)
+                .where(ItemInstance.is_one_of_a_kind == True)  # noqa: E712
+            )).all()
+        }
+
+    events = sorted({i.festive_event for i in festive_items if i.festive_event})
+    by_event = {}
+    for item in festive_items:
+        by_event.setdefault(item.festive_event or "—", []).append(item)
+
+    return templates.TemplateResponse(
+        request, "editor_events.html",
+        {
+            "events": events, "active": active, "by_event": by_event,
+            "unique_items": unique_items, "taken": taken,
+        },
+    )
+
+
+@app.post("/editor/events/reset-unique/{item_id}")
+async def reset_unique(request: Request, item_id: int):
+    """Возвращает реликвию в пул: удаляет её единственный экземпляр.
+
+    Нужно, если вещь досталась не тому или её надо разыграть заново.
+    """
+    guard(request, "manage_content")
+    async with async_session() as session:
+        instances = (await session.execute(
+            select(ItemInstance).where(ItemInstance.item_id == item_id)
+        )).scalars().all()
+        for inst in instances:
+            await session.execute(
+                delete(InventoryItem).where(InventoryItem.instance_id == inst.id)
+            )
+            await session.execute(
+                delete(ItemHistory).where(ItemHistory.instance_id == inst.id)
+            )
+            await session.execute(
+                delete(AuctionLot).where(AuctionLot.instance_id == inst.id)
+            )
+            await session.delete(inst)
+        await session.commit()
+    return RedirectResponse(url="/editor/events", status_code=303)
 
 
 # ── Players Map (who is where) ──────────────────────────────

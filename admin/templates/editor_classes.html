@@ -19,7 +19,7 @@
                 <th>Ключ</th><th>Класс</th>
                 <th title="Сила/Ловкость/Интеллект/Выносливость/Удача">Статы (С/Л/И/В/У)</th>
                 <th>HP / MP</th><th>Прирост за ур.</th>
-                <th>Игроков</th><th>Вкл</th><th>Действия</th>
+                <th>Магия</th><th>Игроков</th><th>Вкл</th><th>Действия</th>
             </tr>
         </thead>
         <tbody>
@@ -33,6 +33,14 @@
                     +{{ c.growth_strength }}/{{ c.growth_agility }}/{{ c.growth_intelligence }}/{{ c.growth_endurance }}/{{ c.growth_luck }}
                     · ❤️+{{ c.growth_hp }} 💙+{{ c.growth_mp }}
                 </td>
+                <td style="font-size:0.78rem;">
+                    {{ (c.affinity_chance * 100)|int }}%
+                    {% if c.preferred_school_list() %}
+                    <br><span style="color:var(--text-muted)">
+                        {% for k in c.preferred_school_list() %}{{ {'fire':'🔥','frost':'❄️','storm':'⚡','shadow':'🌑','nature':'🌿','light':'✨'}.get(k, k) }}{% endfor %}
+                    </span>
+                    {% endif %}
+                </td>
                 <td>{{ usage.get(c.key, 0) }}</td>
                 <td>{{ '✅' if c.is_enabled else '🚫' }}</td>
                 <td>
@@ -44,7 +52,7 @@
                 </td>
             </tr>
             <tr id="cls-{{ c.id }}" style="display:none;">
-                <td colspan="8">
+                <td colspan="9">
                     <form action="/editor/classes/{{ c.id }}/edit" method="post">
                         <fieldset class="field-group">
                             <span class="group-title">Основное</span>
@@ -104,6 +112,33 @@
                             </div>
                         </fieldset>
 
+                        <fieldset class="field-group">
+                            <span class="group-title">🔮 Предрасположенность к магии</span>
+                            <div class="field-row">
+                                <div><label class="form-label">Шанс дара (0–1)</label>
+                                    <input type="number" name="affinity_chance" step="0.05" min="0" max="1"
+                                           value="{{ '%.2f'|format(c.affinity_chance or 0) }}" class="search-box"></div>
+                                <div><label class="form-label">Шанс двух школ (0–1)</label>
+                                    <input type="number" name="dual_affinity_chance" step="0.01" min="0" max="1"
+                                           value="{{ '%.2f'|format(c.dual_affinity_chance or 0) }}" class="search-box"></div>
+                            </div>
+                            <label class="form-label" style="margin-top:0.6rem;">Склонность к школам</label>
+                            <div class="field-row cols-2">
+                                {% set prefs = c.preferred_school_list() %}
+                                {% for key, icon, title in schools %}
+                                <label style="display:flex; align-items:center; gap:0.4rem; font-size:0.82rem;">
+                                    <input type="checkbox" name="preferred_schools" value="{{ key }}"
+                                           {% if key in prefs %}checked{% endif %}>
+                                    {{ icon }} {{ title }}
+                                </label>
+                                {% endfor %}
+                            </div>
+                            <p class="hint">
+                                Отмеченные школы выпадают этому классу в 4 раза чаще прочих.
+                                Ничего не отмечено — все шесть равновероятны.
+                            </p>
+                        </fieldset>
+
                         <label style="display:flex; align-items:center; gap:0.4rem; font-size:0.85rem; margin-bottom:0.6rem;">
                             <input type="checkbox" name="is_enabled" value="true" {% if c.is_enabled %}checked{% endif %}>
                             Доступен игрокам при создании героя
@@ -113,7 +148,7 @@
                 </td>
             </tr>
             {% else %}
-            <tr><td colspan="8">
+            <tr><td colspan="9">
                 <div class="empty-state"><div class="empty-icon">🎭</div>Классов пока нет.</div>
             </td></tr>
             {% endfor %}
@@ -183,6 +218,29 @@
                 <div class="stat-input"><span class="stat-emoji">💙</span><span class="stat-name">MP</span>
                     <input type="number" name="growth_mp" value="5"></div>
             </div>
+        </fieldset>
+
+        <fieldset class="field-group">
+            <span class="group-title">🔮 Предрасположенность к магии</span>
+            <div class="field-row">
+                <div><label class="form-label">Шанс дара (0–1)</label>
+                    <input type="number" name="affinity_chance" step="0.05" min="0" max="1"
+                           value="0.50" class="search-box"></div>
+                <div><label class="form-label">Шанс двух школ (0–1)</label>
+                    <input type="number" name="dual_affinity_chance" step="0.01" min="0" max="1"
+                           value="0.12" class="search-box"></div>
+            </div>
+            <label class="form-label" style="margin-top:0.6rem;">Склонность к школам</label>
+            <div class="field-row cols-2">
+                {% for key, icon, title in schools %}
+                <label style="display:flex; align-items:center; gap:0.4rem; font-size:0.82rem;">
+                    <input type="checkbox" name="preferred_schools" value="{{ key }}"> {{ icon }} {{ title }}
+                </label>
+                {% endfor %}
+            </div>
+            <p class="hint">
+                Дар бросается один раз при создании героя и перекатом статов не меняется.
+            </p>
         </fieldset>
 
         <label style="display:flex; align-items:center; gap:0.4rem; font-size:0.85rem; margin-bottom:0.6rem;">

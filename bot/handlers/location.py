@@ -175,7 +175,11 @@ async def inspect_cell(callback: CallbackQuery):
                 f"(ур. {spawn.mob.level}){hp_note}"
             )
         if cell.has_npc:
-            role = " — ремесленник" if cell.npc_type == "crafter" else ""
+            role = {
+                "crafter": " — ремесленник",
+                "auctioneer": " — скупщик",
+                "merchant": " — торговец",
+            }.get(cell.npc_type, "")
             found.append(f"💬 Здесь кто-то есть: {cell.npc_name}{role}")
         if chest_ready:
             found.append("📦 Ты нашёл сундук!")
@@ -192,6 +196,7 @@ async def inspect_cell(callback: CallbackQuery):
                 has_npc=cell.has_npc,
                 has_chest=chest_ready,
                 is_crafter=cell.npc_type == "crafter",
+                is_auctioneer=cell.npc_type == "auctioneer",
             ),
             parse_mode="HTML",
         )
@@ -312,6 +317,8 @@ async def talk_npc(callback: CallbackQuery):
             builder.button(text="🛒 Торговать", callback_data="shop")
         if cell.npc_type == "crafter":
             builder.button(text="🔨 Ремесло и заточка", callback_data="craft_menu")
+        if cell.npc_type == "auctioneer":
+            builder.button(text="⚖️ Аукцион", callback_data="auction_menu")
         builder.button(text="◀️ Назад", callback_data="back_to_cell")
         builder.adjust(1)
 

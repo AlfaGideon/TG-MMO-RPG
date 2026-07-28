@@ -8,8 +8,16 @@ WELCOME_TEXT = """
 <i>Выбери свой путь...</i>
 """
 
+def affinity_line(affinities) -> str:
+    """Дар к магии для профиля и экрана создания."""
+    from core.magic import affinity_line as _line
+    return _line(affinities)
+
+
 def class_description_text(cls_def):
     """Экран класса при создании героя — статы берутся из настроек админки."""
+    from core.classes import affinity_hint
+
     icon = cls_def.icon or "⚔️"
     stats = cls_def.base_stats()
     growth = cls_def.growth()
@@ -29,8 +37,59 @@ def class_description_text(cls_def):
         f"🏃 {line('Ловкость', 'agility')}\n"
         f"🧠 {line('Интеллект', 'intelligence')}\n"
         f"🛡 {line('Выносливость', 'endurance')}\n"
-        f"🍀 {line('Удача', 'luck')}"
+        f"🍀 {line('Удача', 'luck')}\n\n"
+        f"🔮 <i>{affinity_hint(cls_def)}</i>\n"
+        f"🎲 <i>Статы бросаются случайно (−10 %…+20 %), "
+        f"будет 10 попыток переката.</i>"
     )
+
+
+def reroll_text(character, cls_def, base, rolled, affinities, final=False):
+    """Экран броска стартовых характеристик."""
+    from core.statroll import ROLLED_STATS, diff_line, roll_quality, roll_verdict
+
+    quality = roll_quality(base, rolled)
+    icon = (cls_def.icon if cls_def else "⚔️") or "⚔️"
+    name = cls_def.name if cls_def else str(character.character_class)
+
+    labels = [
+        ("💪 Сила", "strength"), ("🏃 Ловкость", "agility"),
+        ("🧠 Интеллект", "intelligence"), ("🛡 Выносливость", "endurance"),
+        ("🍀 Удача", "luck"), ("❤️ HP", "max_hp"), ("💙 MP", "max_mp"),
+    ]
+    rows = [
+        f"{label}: <b>{rolled.get(key, base.get(key, 0))}</b>"
+        f"{diff_line(base, rolled, key)}"
+        for label, key in labels
+    ]
+
+    head = (
+        f"✅ Герой <b>{character.name}</b> создан!"
+        if final else f"{icon} <b>{character.name}</b> — {name}"
+    )
+
+    lines = [
+        head,
+        "",
+        f"<b>{roll_verdict(quality)}</b> — {quality}% от базы класса",
+        "",
+        "<b>━━ Характеристики ━━</b>",
+        *rows,
+        "",
+        "<b>━━ Магический дар ━━</b>",
+        affinity_line(affinities),
+    ]
+
+    if final:
+        lines += ["", "<i>Статы зафиксированы. Добро пожаловать в Теневые Земли.</i>"]
+    else:
+        left = character.rerolls_left or 0
+        lines += [
+            "",
+            f"🎲 Осталось попыток: <b>{left}</b>",
+            "<i>Перекат заменяет текущий бросок — вернуться к прошлому нельзя.</i>",
+        ]
+    return "\n".join(lines)
 
 
 SLOT_LABELS = {
@@ -39,7 +98,7 @@ SLOT_LABELS = {
 }
 
 
-def profile_text(character, class_def=None, combat=None):
+def profile_text(character, class_def=None, combat=None, affinities=None):
     """Профиль героя: база + бонусы от надетых уникальных предметов."""
     icon = (class_def.icon if class_def else None) or "👤"
     class_label = class_def.name if class_def else str(character.character_class)
@@ -87,6 +146,9 @@ def profile_text(character, class_def=None, combat=None):
         "<b>━━ Бой ━━</b>",
         f"⚔️ Урон от оружия: <b>+{stats.get('damage', 0)}</b>",
         f"🛡 Защита от брони: <b>+{stats.get('defense', 0)}</b>",
+        "",
+        "<b>━━ Магический дар ━━</b>",
+        affinity_line(affinities or []),
         "",
         "<b>━━ Снаряжение ━━</b>",
     ]
@@ -206,7 +268,11 @@ RARITY_ICONS = {
 
 
 def item_line(inv_item, show_uid: bool = False) -> str:
-    """Строка предмета для списков: иконка, имя, редкость, ID экземпляра."""
+    """Строка предмета для списков.
+
+    ID экземпляра печатается со значком способа получения: по «⚔️IT-…»
+    сразу видно, что вещь выбита в бою, а по «🔨IT-…» — что скована.
+    """
     item = inv_item.item
     inst = inv_item.instance
     icon = item.icon if item else "❔"
@@ -214,7 +280,7 @@ def item_line(inv_item, show_uid: bool = False) -> str:
     rarity = (inst.rarity if inst else item.rarity)
     dot = RARITY_ICONS.get(getattr(rarity, "value", str(rarity)), "⚪")
     qty = f" ×{inv_item.quantity}" if (inv_item.quantity or 1) > 1 else ""
-    uid = f" <code>{inst.uid}</code>" if (show_uid and inst) else ""
+    uid = f" <code>{inst.tagged_uid()}</code>" if (show_uid and inst) else ""
     return f"{dot} {icon} {name}{qty}{uid}"
 
 
@@ -228,25 +294,44 @@ def loot_text(inv_items) -> str:
     return "\n".join(lines)
 
 
-def item_detail_text(inv_item) -> str:
-    """Карточка предмета с уникальным ID, качеством и бонусами экземпляра."""
+def item_detail_text(inv_item, history_rows=None) -> str:
+    """Карточка предмета: ID со значком источника, качество, бонусы, история."""
+    from core.magic import school_icon, school_name
+
     item = inv_item.item
     inst = inv_item.instance
     rarity = inst.rarity if inst else item.rarity
     rarity_v = getattr(rarity, "value", str(rarity))
 
+    title = inv_item.display_name()
+    if inst and inst.is_one_of_a_kind:
+        title = f"🌟 {title}"
+    elif inst and inst.is_festive:
+        title = f"🎄 {title}"
+
     lines = [
-        f"{item.icon} <b>{inv_item.display_name()}</b>",
+        f"{item.icon} <b>{title}</b>",
         f"Тип: <code>{item.item_type.value}</code> | "
         f"Редкость: {RARITY_ICONS.get(rarity_v, '⚪')} <code>{rarity_v}</code>",
     ]
     if inst:
-        lines.append(f"🆔 ID предмета: <code>{inst.uid}</code>")
+        lines.append(f"🆔 ID предмета: <code>{inst.tagged_uid()}</code>")
+        lines.append(f"{inst.badge()} <i>{inst.source_title()}</i>"
+                     + (f" — {inst.source_detail}" if inst.source_detail else ""))
         lines.append(f"⚖️ Качество: <b>{inst.quality}%</b>"
                      + (f" | 🔨 Заточка: <b>+{inst.upgrade_level}</b>"
                         if inst.upgrade_level else ""))
-        if inst.source_detail:
-            lines.append(f"<i>Источник: {inst.source_detail}</i>")
+        if inst.is_one_of_a_kind:
+            lines.append("🌟 <b>Единственный в мире экземпляр</b>")
+        if inst.is_festive:
+            lines.append("🎄 <b>Праздничный трофей</b>")
+        if inst.magic_school:
+            lines.append(
+                f"{school_icon(inst.magic_school)} Школа: "
+                f"<b>{school_name(inst.magic_school)}</b> +{inst.magic_power}"
+            )
+        if inst.trade_count:
+            lines.append(f"🔁 Прошёл сделок: <b>{inst.trade_count}</b>")
     lines.append("")
     lines.append(item.description)
 
@@ -270,4 +355,11 @@ def item_detail_text(inv_item) -> str:
 
     lines.append("")
     lines.append("<b>Бонусы:</b>\n" + "\n".join(rows) if rows else "<b>Нет бонусов</b>")
+
+    if history_rows:
+        from core.history import format_history
+        lines.append("")
+        lines.append("<b>📖 История предмета</b>")
+        lines.append(format_history(history_rows))
+
     return "\n".join(lines)

@@ -6,9 +6,13 @@ from sqlalchemy.orm import selectinload
 
 from core.database import async_session
 from core.models import User, Character, Cell, AdminMessage, VisitedCell
-from bot.keyboards.inline import main_menu_keyboard, class_select_keyboard, confirm_class_keyboard, back_to_main_keyboard
-from bot.utils.texts import WELCOME_TEXT, class_description_text
+from bot.keyboards.inline import (
+    main_menu_keyboard, class_select_keyboard, confirm_class_keyboard,
+    back_to_main_keyboard, reroll_keyboard,
+)
+from bot.utils.texts import WELCOME_TEXT, class_description_text, reroll_text
 from bot.utils.photos import send_or_edit_photo
+from core import magic, statroll
 from core.classes import all_classes, get_class
 
 router = Router()
@@ -154,6 +158,11 @@ async def select_class(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("confirm_class:"))
 async def confirm_class(callback: CallbackQuery):
+    """Создаёт героя со случайными статами и бросает дар к магии.
+
+    Статы катаются от базы класса в диапазоне −10 %…+20 %, и игроку сразу
+    даётся 10 попыток переката — принять можно любой бросок.
+    """
     cls_key = callback.data.split(":")[1]
 
     async with async_session() as session:
@@ -177,7 +186,8 @@ async def confirm_class(callback: CallbackQuery):
             await callback.answer("Этот класс недоступен.", show_alert=True)
             return
 
-        s = cls_def.base_stats()
+        base = cls_def.base_stats()
+        rolled = statroll.roll_stats(base)
 
         result = await session.execute(
             select(Cell).where(Cell.location_id == 1).where(Cell.x == 5).where(Cell.y == 5)
@@ -191,21 +201,24 @@ async def confirm_class(callback: CallbackQuery):
             level=1,
             experience=0,
             gold=50,
-            strength=s["strength"],
-            agility=s["agility"],
-            intelligence=s["intelligence"],
-            endurance=s["endurance"],
-            luck=s["luck"],
-            max_hp=s["max_hp"],
-            current_hp=s["max_hp"],
-            max_mp=s["max_mp"],
-            current_mp=s["max_mp"],
             location_id=1,
             floor=0,
             cell_id=spawn_cell.id if spawn_cell else None,
+            rerolls_left=statroll.DEFAULT_REROLLS,
+            stats_locked=False,
+            **rolled,
         )
+        character.current_hp = character.max_hp
+        character.current_mp = character.max_mp
         session.add(character)
         await session.flush()
+
+        # Дар к магии бросается один раз и перекатом не меняется —
+        # с чем родился, с тем и живёшь.
+        pairs = magic.roll_affinities(cls_def)
+        await magic.set_affinities(session, character, pairs)
+        affinities = await magic.get_affinities(session, character.id)
+
         if spawn_cell:
             session.add(VisitedCell(
                 character_id=character.id,
@@ -215,12 +228,98 @@ async def confirm_class(callback: CallbackQuery):
                 y=spawn_cell.y,
             ))
         await session.commit()
-        char_name = character.name
+        char_id = character.id
+
+    await send_or_edit_photo(
+        callback,
+        reroll_text(character, cls_def, base, rolled, affinities),
+        reply_markup=reroll_keyboard(char_id, character.rerolls_left),
+        image_url=cls_def.image_url,
+    )
+
+
+@router.callback_query(F.data.startswith("reroll_stats:"))
+async def reroll_stats(callback: CallbackQuery):
+    """Перекатывает стартовые статы, пока есть попытки."""
+    char_id = int(callback.data.split(":")[1])
+
+    async with async_session() as session:
+        character = await session.get(Character, char_id)
+        if character is None:
+            await callback.answer("Персонаж не найден.", show_alert=True)
+            return
+
+        # Чужой персонаж перекатывать нельзя
+        user = await session.get(User, character.user_id)
+        if user is None or user.telegram_id != callback.from_user.id:
+            await callback.answer("Это не твой герой.", show_alert=True)
+            return
+
+        if character.stats_locked:
+            await callback.answer("Статы уже зафиксированы.", show_alert=True)
+            return
+        if (character.rerolls_left or 0) <= 0:
+            await callback.answer("Попытки закончились.", show_alert=True)
+            return
+
+        cls_def = await get_class(session, character.character_class)
+        base = cls_def.base_stats() if cls_def else {}
+        rolled = statroll.roll_stats(base)
+        statroll.apply_stats(character, rolled)
+        character.rerolls_left = (character.rerolls_left or 0) - 1
+
+        # Попытки кончились — бросок становится окончательным
+        if character.rerolls_left <= 0:
+            character.stats_locked = True
+
+        affinities = await magic.get_affinities(session, character.id)
+        await session.commit()
+        locked = character.stats_locked
+        left = character.rerolls_left
+
+    if locked:
+        await callback.message.edit_text(
+            reroll_text(character, cls_def, base, rolled, affinities, final=True),
+            reply_markup=main_menu_keyboard(has_character=True),
+            parse_mode="HTML",
+        )
+        return
 
     await callback.message.edit_text(
-        f"✅ Герой <b>{char_name}</b> создан!\n\n"
-        f"Класс: {cls_def.icon} <b>{cls_def.name}</b>\n\n"
-        f"Добро пожаловать в Теневые Земли, изгнанник.",
+        reroll_text(character, cls_def, base, rolled, affinities),
+        reply_markup=reroll_keyboard(char_id, left),
+        parse_mode="HTML",
+    )
+
+
+@router.callback_query(F.data.startswith("accept_stats:"))
+async def accept_stats(callback: CallbackQuery):
+    """Фиксирует текущий бросок и завершает создание героя."""
+    char_id = int(callback.data.split(":")[1])
+
+    async with async_session() as session:
+        character = await session.get(Character, char_id)
+        if character is None:
+            await callback.answer("Персонаж не найден.", show_alert=True)
+            return
+
+        user = await session.get(User, character.user_id)
+        if user is None or user.telegram_id != callback.from_user.id:
+            await callback.answer("Это не твой герой.", show_alert=True)
+            return
+
+        character.stats_locked = True
+        character.rerolls_left = 0
+        character.current_hp = character.max_hp
+        character.current_mp = character.max_mp
+        cls_def = await get_class(session, character.character_class)
+        affinities = await magic.get_affinities(session, character.id)
+        await session.commit()
+        base = cls_def.base_stats() if cls_def else {}
+        rolled = {k: getattr(character, k) for k in statroll.ROLLED_STATS}
+
+    await callback.message.edit_text(
+        reroll_text(character, cls_def, base, rolled, affinities, final=True),
         reply_markup=main_menu_keyboard(has_character=True),
         parse_mode="HTML",
     )
@@ -238,7 +337,20 @@ async def help_handler(callback: CallbackQuery):
         "• Подземелье — процедурные данжи (соло)\n\n"
         "<b>🆔 Уникальные предметы:</b>\n"
         "У каждой вещи свой ID и свои статы — два одинаковых меча всё равно "
-        "разные. Смотри «Качество»: чем выше процент, тем удачнее экземпляр.\n\n"
+        "разные. Смотри «Качество»: чем выше процент, тем удачнее экземпляр.\n"
+        "Значок перед ID говорит, откуда вещь: ⚔️ выбита в бою, 📦 из сундука, "
+        "🕳 из подземелья, 🔨 скована, 🏪 куплена, 🔁 с аукциона, "
+        "🎄 праздничная, 🌟 единственная в мире.\n\n"
+        "<b>📖 История:</b>\n"
+        "У именных вещей есть летопись — видно, кто её добыл и через сколько "
+        "рук она прошла. Ресурсы истории не имеют.\n\n"
+        "<b>⚖️ Аукцион:</b>\n"
+        "Продавай вещи другим игрокам или сразу скупщику — он даст меньше, "
+        "зато немедленно. Непроданный лот вернётся через сутки.\n\n"
+        "<b>🔮 Магия:</b>\n"
+        "Шесть школ: 🔥 огонь, ❄️ лёд, ⚡ гроза, 🌑 тьма, 🌿 природа, ✨ свет. "
+        "Дар бросается при создании героя — от полного его отсутствия до двух "
+        "школ сразу. Чем сильнее дар, тем мощнее «✨ Умение» в бою.\n\n"
         "<b>🔨 Ремесло:</b>\n"
         "Найди на карте кузнеца, алхимика или ювелира. Он скуёт вещь по рецепту "
         "из твоих материалов и заточит то, что уже носишь. Заточка растит статы, "

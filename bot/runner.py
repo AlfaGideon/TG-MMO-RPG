@@ -102,6 +102,11 @@ class BotRunner:
             try:
                 async with async_session() as session:
                     stats = await tick(session)
+                    # Заодно возвращаем продавцам протухшие лоты аукциона
+                    from core.auction import sweep_expired
+                    returned = await sweep_expired(session)
+                    if returned:
+                        stats["lots_returned"] = len(returned)
                     await session.commit()
                 if stats.get("spawned") or stats.get("moved"):
                     logger.debug(f"world tick: {stats}")

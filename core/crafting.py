@@ -14,6 +14,7 @@ import random
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from core import history
 from core.enums import CraftStation, ItemSource
 from core.loot import (
     apply_upgrade, create_instance, find_upgrade_rule, is_stackable,
@@ -151,8 +152,10 @@ async def craft(session, character, recipe: CraftRecipe) -> dict:
             extra_variance=recipe.quality_bonus or 0.0,
             luck=character.luck or 0,
         )
+        inst.owner_character_id = character.id
         session.add(inst)
         await session.flush()
+        await history.record_birth(session, inst, character, recipe.name)
         row = InventoryItem(
             character_id=character.id, item_id=item.id,
             instance_id=inst.id, quantity=1,
@@ -223,5 +226,9 @@ async def upgrade(session, character, inv_item: InventoryItem) -> dict:
         }
 
     gains = apply_upgrade(instance, item, cost["rule"])
+    await history.record(
+        session, instance, "upgraded", character,
+        detail=f"до +{instance.upgrade_level}", price=cost["gold"],
+    )
     await session.flush()
     return {"ok": True, "gains": gains, "level": instance.upgrade_level}

@@ -7,7 +7,8 @@ from sqlalchemy.orm import relationship, validates
 from core.database import Base
 from core.enums import (
     CharacterClass, ItemType, ItemRarity, LocationType, BattleResult, QuestStatus,
-    ItemSource, CraftStation,
+    ItemSource, CraftStation, MagicSchool, AffinityGrade, AuctionStatus,
+    source_badge, source_label,
 )
 
 
@@ -95,6 +96,16 @@ class CharacterClassDef(Base):
     image_url = Column(String(512), nullable=True)
     is_enabled = Column(Boolean, default=True)
     sort_order = Column(Integer, default=100)
+
+    # Шансы получить дар к магии при создании героя (0..1)
+    affinity_chance = Column(Float, default=0.5)      # хотя бы одна школа
+    dual_affinity_chance = Column(Float, default=0.12)  # сразу две школы
+    # Школы, к которым класс склонен, через запятую ("fire,shadow").
+    # Пусто — любая из шести равновероятна.
+    preferred_schools = Column(Text, default="")
+
+    def preferred_school_list(self) -> list:
+        return [s.strip() for s in (self.preferred_schools or "").split(",") if s.strip()]
 
     def base_stats(self) -> dict:
         return {
@@ -196,6 +207,11 @@ class Character(Base):
     vip_until = Column(DateTime(timezone=True), nullable=True)
     image_url = Column(String(512), nullable=True)
 
+    # Перекат стартовых статов: сколько попыток осталось из выданных при
+    # создании героя. Ноль — статы зафиксированы окончательно.
+    rerolls_left = Column(Integer, default=0)
+    stats_locked = Column(Boolean, default=False)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     user = relationship("User", back_populates="character")
@@ -206,6 +222,9 @@ class Character(Base):
     party = relationship("Party", back_populates="members", foreign_keys=[party_id], overlaps="leader")
     quests = relationship("CharacterQuest", back_populates="character", cascade="all, delete-orphan")
     dungeon_runs = relationship("DungeonRun", back_populates="character", order_by="DungeonRun.created_at.desc()")
+    affinities = relationship(
+        "CharacterAffinity", back_populates="character", cascade="all, delete-orphan"
+    )
 
     @validates("character_class")
     def _normalize_class(self, key, value):
@@ -370,6 +389,17 @@ class Item(Base):
     is_craftable = Column(Boolean, default=False)    # используется ли в крафте как результат
     max_upgrade_level = Column(Integer, default=10)
 
+    # ── Особые предметы ────────────────────────────────────
+    # Уникальный: существует ровно в одном экземпляре на весь мир. Как
+    # только он кем-то получен, повторно не выпадет и не скрафтится.
+    is_one_of_a_kind = Column(Boolean, default=False)
+    # Праздничный: выдаётся только когда включено соответствующее событие.
+    is_festive = Column(Boolean, default=False)
+    festive_event = Column(String(64), default="")   # ключ события, напр. "newyear"
+    # Школа магии, которую усиливает предмет (для посохов, амулетов и т.п.)
+    magic_school = Column(String(16), nullable=True)
+    magic_power = Column(Integer, default=0)
+
     BONUS_FIELDS = (
         "bonus_strength", "bonus_agility", "bonus_intelligence",
         "bonus_endurance", "bonus_luck", "bonus_hp", "bonus_mp",
@@ -412,14 +442,51 @@ class ItemInstance(Base):
     bonus_damage = Column(Integer, default=0)
     bonus_defense = Column(Integer, default=0)
 
+    # Особые метки экземпляра
+    is_one_of_a_kind = Column(Boolean, default=False)
+    is_festive = Column(Boolean, default=False)
+    festive_event = Column(String(64), default="")
+    magic_school = Column(String(16), nullable=True)
+    magic_power = Column(Integer, default=0)
+
+    # Сколько раз вещь меняла владельца через аукцион — «намоленность»
+    trade_count = Column(Integer, default=0)
+    # Текущий владелец (денормализация ради истории и админки)
+    owner_character_id = Column(Integer, ForeignKey("characters.id"), nullable=True)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     item = relationship("Item")
+    history = relationship(
+        "ItemHistory", back_populates="instance",
+        cascade="all, delete-orphan", order_by="ItemHistory.created_at",
+    )
 
     BONUS_FIELDS = Item.BONUS_FIELDS
 
     def bonuses(self) -> dict:
         return {f: getattr(self, f) or 0 for f in self.BONUS_FIELDS}
+
+    def badge(self) -> str:
+        """Эмодзи способа получения — печатается перед ID предмета.
+
+        Особые метки важнее исходного источника: единственная в мире вещь
+        всегда светится 🌟, праздничная — 🎄, прошедшая через аукцион — 🔁.
+        """
+        if self.is_one_of_a_kind:
+            return source_badge(ItemSource.UNIQUE.value)
+        if self.is_festive:
+            return source_badge(ItemSource.FESTIVE.value)
+        if (self.trade_count or 0) > 0:
+            return source_badge(ItemSource.AUCTION.value)
+        return source_badge(self.source)
+
+    def tagged_uid(self) -> str:
+        """ID предмета со значком источника: «⚔️IT-9AC99E61»."""
+        return f"{self.badge()}{self.uid}"
+
+    def source_title(self) -> str:
+        return source_label(self.source)
 
     def display_name(self, item=None) -> str:
         """Имя экземпляра: «Закалённый Стальной меч +3».
@@ -433,6 +500,73 @@ class ItemInstance(Base):
         if self.upgrade_level:
             name += f" +{self.upgrade_level}"
         return name
+
+
+class ItemHistory(Base):
+    """Летопись экземпляра: как появился, у кого побывал, что с ним делали.
+
+    Ведётся только для уникальных экземпляров (у ресурсов истории нет).
+    Благодаря ей вещь с аукциона приходит к покупателю «с историей».
+    """
+    __tablename__ = "item_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    instance_id = Column(Integer, ForeignKey("item_instances.id"), nullable=False, index=True)
+    # created / looted / crafted / bought / sold / traded / upgraded / gifted
+    event = Column(String(32), default="created")
+    character_id = Column(Integer, ForeignKey("characters.id"), nullable=True)
+    actor_name = Column(String(64), default="")     # имя на момент события
+    detail = Column(String(256), default="")
+    price = Column(Integer, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    instance = relationship("ItemInstance", back_populates="history")
+
+
+class AuctionLot(Base):
+    """Лот аукциона: игрок выставляет уникальный экземпляр за золото.
+
+    Купить может другой игрок; если до `expires_at` никто не выкупил, лот
+    возвращается продавцу. Скупщик-NPC может выкупить лот сам, чтобы вещь
+    не пропадала в мёртвых лотах.
+    """
+    __tablename__ = "auction_lots"
+
+    id = Column(Integer, primary_key=True, index=True)
+    instance_id = Column(Integer, ForeignKey("item_instances.id"), nullable=False)
+    item_id = Column(Integer, ForeignKey("items.id"), nullable=False)
+    seller_id = Column(Integer, ForeignKey("characters.id"), nullable=True)
+    seller_name = Column(String(64), default="")
+    buyer_id = Column(Integer, ForeignKey("characters.id"), nullable=True)
+
+    price = Column(Integer, default=0)          # цена «купить сразу»
+    status = Column(String(16), default=AuctionStatus.ACTIVE.value, index=True)
+    is_npc_lot = Column(Boolean, default=False)  # выставлено скупщиком
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    sold_at = Column(DateTime(timezone=True), nullable=True)
+
+    instance = relationship("ItemInstance")
+    item = relationship("Item")
+    seller = relationship("Character", foreign_keys=[seller_id])
+    buyer = relationship("Character", foreign_keys=[buyer_id])
+
+
+class CharacterAffinity(Base):
+    """Предрасположенность героя к школе магии.
+
+    У персонажа от 0 до 2 записей: кто-то рождается вовсе без дара, кто-то
+    с искрой одной школы, а редкие счастливчики — с талантом к двум.
+    """
+    __tablename__ = "character_affinities"
+
+    id = Column(Integer, primary_key=True, index=True)
+    character_id = Column(Integer, ForeignKey("characters.id"), nullable=False, index=True)
+    school = Column(String(16), nullable=False)
+    grade = Column(String(16), default=AffinityGrade.NORMAL.value)
+
+    character = relationship("Character", back_populates="affinities")
 
 
 class InventoryItem(Base):

@@ -62,6 +62,54 @@
         </div>
     </div>
 
+    <h3 style="margin-top:1.5rem;">🔮 Магический дар</h3>
+    <p class="section-sub">
+        Бросается один раз при создании героя. Влияет на силу умений и на
+        бонусы от предметов соответствующей школы.
+    </p>
+    {% if affinities %}
+    <p style="margin-bottom:0.75rem;">
+        {% for a in affinities %}
+        <span class="badge badge-rare" style="margin-right:0.35rem;">
+            {{ {'fire':'🔥','frost':'❄️','storm':'⚡','shadow':'🌑','nature':'🌿','light':'✨'}.get(a.school, '🔮') }}
+            {{ {'fire':'Огонь','frost':'Лёд','storm':'Гроза','shadow':'Тьма','nature':'Природа','light':'Свет'}.get(a.school, a.school) }}
+            — {{ {'weak':'Искра','normal':'Дар','strong':'Сильный дар','gifted':'Талант'}.get(a.grade, a.grade) }}
+        </span>
+        {% endfor %}
+    </p>
+    {% else %}
+    <p style="margin-bottom:0.75rem; color:var(--text-muted);">🚫 Магического дара нет.</p>
+    {% endif %}
+
+    <form action="/player/{{ char.id }}/affinities" method="post" class="inline-form">
+        {% set a1 = affinities[0] if affinities|length > 0 else None %}
+        {% set a2 = affinities[1] if affinities|length > 1 else None %}
+        <select name="school1" class="search-box" style="max-width:150px">
+            <option value="">— нет —</option>
+            {% for key, icon, title in schools %}
+            <option value="{{ key }}" {% if a1 and a1.school == key %}selected{% endif %}>{{ icon }} {{ title }}</option>
+            {% endfor %}
+        </select>
+        <select name="grade1" class="search-box" style="max-width:130px">
+            {% for key, title in grades %}
+            <option value="{{ key }}" {% if a1 and a1.grade == key %}selected{% endif %}>{{ title }}</option>
+            {% endfor %}
+        </select>
+        <span style="color:var(--text-muted)">+</span>
+        <select name="school2" class="search-box" style="max-width:150px">
+            <option value="">— нет —</option>
+            {% for key, icon, title in schools %}
+            <option value="{{ key }}" {% if a2 and a2.school == key %}selected{% endif %}>{{ icon }} {{ title }}</option>
+            {% endfor %}
+        </select>
+        <select name="grade2" class="search-box" style="max-width:130px">
+            {% for key, title in grades %}
+            <option value="{{ key }}" {% if a2 and a2.grade == key %}selected{% endif %}>{{ title }}</option>
+            {% endfor %}
+        </select>
+        <button type="submit" class="btn btn-primary btn-sm">💾 Сохранить дар</button>
+    </form>
+
     <h3 style="margin-top:1.5rem;">🎽 Слоты экипировки</h3>
     <div class="slot-grid">
         {% for slot, label in slot_labels.items() %}
@@ -209,6 +257,27 @@
         <button type="submit" class="btn btn-primary">💾 Сохранить изменения</button>
         <a href="/player/{{ char.id }}/heal" class="btn">✨ Полностью восстановить</a>
     </form>
+
+    <fieldset class="field-group" style="margin-top:1.25rem;">
+        <span class="group-title">🎲 Перекат стартовых статов</span>
+        <p class="hint" style="margin-top:0;">
+            При создании героя статы катаются от базы класса в диапазоне
+            −10 %…+20 %. Осталось попыток у игрока:
+            <b>{{ char.rerolls_left or 0 }}</b>{% if char.stats_locked %}
+            (статы зафиксированы){% endif %}.
+        </p>
+        <div class="inline-form" style="margin-top:0.5rem;">
+            <form action="/player/{{ char.id }}/reroll-stats" method="post" class="inline-form"
+                  onsubmit="return confirm('Перекатить статы прямо сейчас? Текущие значения будут потеряны.')">
+                <input type="hidden" name="grant" value="0">
+                <button type="submit" class="btn btn-sm">🎲 Перекатить сейчас</button>
+            </form>
+            <form action="/player/{{ char.id }}/reroll-stats" method="post" class="inline-form">
+                <input type="number" name="grant" value="10" min="1" max="50" title="Сколько попыток выдать">
+                <button type="submit" class="btn btn-primary btn-sm">🎁 Выдать попытки</button>
+            </form>
+        </div>
+    </fieldset>
 </div>
 </div>
 
@@ -246,7 +315,19 @@
             </div>
 
             {% if inv.instance %}
-            <div class="inv-uid">🆔 {{ inv.instance.uid }}</div>
+            <div class="inv-uid">
+                <a href="/instance/{{ inv.instance.id }}" style="color:inherit;">
+                    🆔 {{ inv.instance.badge() }}{{ inv.instance.uid }}
+                </a>
+            </div>
+            {% if inv.instance.is_one_of_a_kind %}
+            <span class="badge badge-legendary">🌟 единственная в мире</span>
+            {% elif inv.instance.is_festive %}
+            <span class="badge badge-epic">🎄 {{ inv.instance.festive_event }}</span>
+            {% endif %}
+            {% if inv.instance.trade_count %}
+            <div style="font-size:0.7rem; color:var(--text-muted);">🔁 сделок: {{ inv.instance.trade_count }}</div>
+            {% endif %}
             <div style="font-size:0.75rem;">
                 Качество: <b>{{ inv.instance.quality }}%</b>
                 {% if inv.instance.upgrade_level %} · Заточка <b>+{{ inv.instance.upgrade_level }}</b>{% endif %}

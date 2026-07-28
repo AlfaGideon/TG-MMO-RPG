@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block title %}{{ instance.uid }} — Shadow Lands{% endblock %}
+{% block page_title %}📖 {{ instance.badge() }} {{ instance.uid }}{% endblock %}
+{% block topbar_actions %}<a href="/editor/instances" class="btn">◀️ Назад</a>{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:2rem;">
+        <div>
+            <h3>{{ item.icon }} {{ instance.display_name(item) }}</h3>
+            {% if item.image_url %}
+            <img src="{{ item.image_url }}" style="max-width:140px; border-radius:8px; border:1px solid var(--border); margin-bottom:0.75rem;">
+            {% endif %}
+            <table style="font-size:0.9rem;">
+                <tr><td>ID предмета</td><td><code>{{ instance.badge() }}{{ instance.uid }}</code></td></tr>
+                <tr><td>Шаблон</td><td><a href="/item/{{ item.id }}/edit">{{ item.name }}</a></td></tr>
+                <tr><td>Тип</td><td>{{ item.item_type.value }}</td></tr>
+                <tr><td>Редкость</td><td><span class="badge badge-{{ instance.rarity.value }}">{{ instance.rarity.value }}</span></td></tr>
+                <tr><td>Качество</td><td><b>{{ instance.quality }}%</b></td></tr>
+                <tr><td>Заточка</td><td>+{{ instance.upgrade_level }}</td></tr>
+                <tr><td>Источник</td><td>{{ instance.source_title() }}
+                    {% if instance.source_detail %}<br><span style="color:var(--text-muted)">{{ instance.source_detail }}</span>{% endif %}</td></tr>
+                <tr><td>Сделок</td><td>{{ instance.trade_count or 0 }}</td></tr>
+                <tr><td>Владелец</td><td>
+                    {% if owner %}<a href="/player/{{ owner.id }}">{{ owner.name }}</a>
+                    {% else %}<span style="color:var(--text-muted)">нет (на витрине или выброшен)</span>{% endif %}
+                </td></tr>
+                <tr><td>Создан</td><td>{{ instance.created_at.strftime('%Y-%m-%d %H:%M') if instance.created_at else '—' }}</td></tr>
+            </table>
+
+            {% if instance.is_one_of_a_kind %}
+            <p style="margin-top:0.75rem;"><span class="badge badge-legendary">🌟 Единственный в мире экземпляр</span></p>
+            {% endif %}
+            {% if instance.is_festive %}
+            <p style="margin-top:0.5rem;"><span class="badge badge-epic">🎄 Праздничный: {{ instance.festive_event }}</span></p>
+            {% endif %}
+            {% if instance.magic_school %}
+            <p style="margin-top:0.5rem;"><span class="badge badge-rare">🔮 Школа: {{ instance.magic_school }} +{{ instance.magic_power }}</span></p>
+            {% endif %}
+        </div>
+
+        <div>
+            <h3>💪 Статы экземпляра</h3>
+            <p class="section-sub">В скобках — базовое значение шаблона.</p>
+            <table style="font-size:0.9rem;">
+                {% set base = item.base_bonuses() %}
+                {% for field, label in bonus_labels.items() %}
+                {% set value = instance.bonuses().get(field, 0) %}
+                {% if value or base.get(field) %}
+                <tr>
+                    <td>{{ label }} {{ field|replace('bonus_', '') }}</td>
+                    <td><b>{{ value }}</b>
+                        <span style="color:var(--text-muted)">(база {{ base.get(field, 0) }})</span></td>
+                </tr>
+                {% endif %}
+                {% endfor %}
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <h3>📖 Летопись предмета ({{ rows|length }})</h3>
+    <p class="section-sub">Полная история: как появился, у кого побывал, за сколько уходил.</p>
+    <div class="table-wrap">
+    <table>
+        <thead><tr><th>Когда</th><th>Событие</th><th>Кто</th><th>Цена</th><th>Подробности</th></tr></thead>
+        <tbody>
+            {% for row in rows %}
+            <tr>
+                <td style="white-space:nowrap;">{{ row.created_at.strftime('%Y-%m-%d %H:%M') if row.created_at else '—' }}</td>
+                <td>{{ event_icon(row.event) }} {{ event_label(row.event) }}</td>
+                <td>{{ row.actor_name or '—' }}</td>
+                <td>{% if row.price %}{{ row.price }} 🪙{% else %}—{% endif %}</td>
+                <td style="color:var(--text-muted); font-size:0.82rem;">{{ row.detail or '' }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5">
+                <div class="empty-state"><div class="empty-icon">📖</div>История пуста.</div>
+            </td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</div>
+{% endblock %}

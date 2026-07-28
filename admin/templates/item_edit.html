@@ -107,6 +107,47 @@
         </fieldset>
 
         <fieldset class="field-group">
+            <span class="group-title">🌟 Особый статус</span>
+            <div class="field-row cols-2">
+                <label style="display:flex; align-items:center; gap:0.4rem; font-size:0.85rem;">
+                    <input type="checkbox" name="is_one_of_a_kind" value="true"
+                           {% if item.is_one_of_a_kind %}checked{% endif %}>
+                    🌟 Единственный в мире экземпляр
+                </label>
+                <label style="display:flex; align-items:center; gap:0.4rem; font-size:0.85rem;">
+                    <input type="checkbox" name="is_festive" value="true"
+                           {% if item.is_festive %}checked{% endif %}>
+                    🎄 Праздничный трофей
+                </label>
+                <div>
+                    <label class="form-label">Ключ события</label>
+                    <input type="text" name="festive_event" value="{{ item.festive_event or '' }}"
+                           class="search-box" placeholder="winter / harvest / spirits">
+                </div>
+                <div>
+                    <label class="form-label">Школа магии</label>
+                    <select name="magic_school" class="search-box">
+                        <option value="">— обычный предмет —</option>
+                        {% for key, icon, title in schools %}
+                        <option value="{{ key }}" {% if item.magic_school == key %}selected{% endif %}>{{ icon }} {{ title }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label">Сила школы</label>
+                    <input type="number" name="magic_power" value="{{ item.magic_power or 0 }}" min="0" class="search-box">
+                </div>
+            </div>
+            <p class="hint">
+                <b>🌟 Единственный</b> — выпадает ровно один раз за всю игру и после
+                этого исчезает из таблиц лута. Сбросить можно в разделе
+                <a href="/editor/events">🎄 События</a>.<br>
+                <b>🎄 Праздничный</b> — падает, только пока включено событие с этим ключом.<br>
+                <b>Школа магии</b> — фокус усиливает умения героя с даром к той же школе.
+            </p>
+        </fieldset>
+
+        <fieldset class="field-group">
             <span class="group-title">🖼 Внешний вид</span>
             <div class="field-row cols-2">
                 <div><label class="form-label">Файл картинки</label>
@@ -131,7 +172,7 @@
         <tbody>
             {% for inst, owner in instances %}
             <tr>
-                <td><code>{{ inst.uid }}</code></td>
+                <td><a href="/instance/{{ inst.id }}"><code>{{ inst.badge() }}{{ inst.uid }}</code></a></td>
                 <td>{{ inst.display_name(item) }}</td>
                 <td>{{ inst.quality }}%</td>
                 <td>+{{ inst.upgrade_level }}</td>

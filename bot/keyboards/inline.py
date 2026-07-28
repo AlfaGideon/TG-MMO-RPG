@@ -15,6 +15,7 @@ def main_menu_keyboard(has_character: bool = False, is_admin: bool = False):
         builder.button(text="👥 Пати", callback_data="party_menu")
         builder.button(text="🏆 Топ", callback_data="leaderboard")
         builder.button(text="🗿 Подземелье", callback_data="dungeon_menu")
+        builder.button(text="⚖️ Аукцион", callback_data="auction_menu")
     builder.button(text="❓ Помощь", callback_data="help")
     builder.adjust(2)
     if is_admin:
@@ -69,6 +70,19 @@ def confirm_class_keyboard(char_class: str):
     builder = InlineKeyboardBuilder()
     builder.button(text="✅ Подтвердить", callback_data=f"confirm_class:{char_class}")
     builder.button(text="◀️ Выбрать другой", callback_data="create_character")
+    return builder.as_markup()
+
+
+def reroll_keyboard(char_id: int, rerolls_left: int):
+    """Экран броска статов: перекатить или принять как есть."""
+    builder = InlineKeyboardBuilder()
+    if rerolls_left > 0:
+        builder.button(
+            text=f"🎲 Перекатить ({rerolls_left})",
+            callback_data=f"reroll_stats:{char_id}",
+        )
+    builder.button(text="✅ Принять статы", callback_data=f"accept_stats:{char_id}")
+    builder.adjust(1)
     return builder.as_markup()
 
 
@@ -132,7 +146,7 @@ def map_view_keyboard():
 
 
 def inspect_keyboard(has_mob: bool, has_npc: bool, has_chest: bool,
-                     is_crafter: bool = False):
+                     is_crafter: bool = False, is_auctioneer: bool = False):
     builder = InlineKeyboardBuilder()
     if has_mob:
         builder.button(text="⚔️ Атаковать", callback_data="cell_attack")
@@ -140,6 +154,8 @@ def inspect_keyboard(has_mob: bool, has_npc: bool, has_chest: bool,
         builder.button(text="💬 Поговорить", callback_data="talk_npc")
     if is_crafter:
         builder.button(text="🔨 Ремесло и заточка", callback_data="craft_menu")
+    if is_auctioneer:
+        builder.button(text="⚖️ Аукцион", callback_data="auction_menu")
     if has_chest:
         builder.button(text="📦 Открыть сундук", callback_data="open_chest")
     builder.button(text="◀️ Назад", callback_data="back_to_cell")
@@ -168,8 +184,11 @@ def inventory_keyboard(items: list, page: int = 0, per_page: int = 6):
         icon = inv_item.item.icon if inv_item.item else "❔"
         name = inv_item.display_name()
         qty = f" ×{inv_item.quantity}" if (inv_item.quantity or 1) > 1 else ""
+        # Значок способа получения прямо в списке — видно происхождение вещи
+        inst = inv_item.instance if inv_item.instance_id else None
+        badge = f"{inst.badge()} " if inst else ""
         builder.button(
-            text=f"{eq}{icon} {name}{qty}",
+            text=f"{eq}{badge}{icon} {name}{qty}",
             callback_data=f"item:{inv_item.id}"
         )
 
@@ -188,7 +207,8 @@ def inventory_keyboard(items: list, page: int = 0, per_page: int = 6):
 
 
 def item_action_keyboard(inv_item_id: int, is_equipped: bool,
-                         can_equip: bool = True, can_use: bool = False):
+                         can_equip: bool = True, can_use: bool = False,
+                         can_sell: bool = False):
     builder = InlineKeyboardBuilder()
     if can_equip:
         if is_equipped:
@@ -197,9 +217,131 @@ def item_action_keyboard(inv_item_id: int, is_equipped: bool,
             builder.button(text="✅ Экипировать", callback_data=f"equip:{inv_item_id}")
     if can_use:
         builder.button(text="🧪 Использовать", callback_data=f"use:{inv_item_id}")
+    if can_sell and not is_equipped:
+        builder.button(text="⚖️ На аукцион", callback_data=f"auction_sell:{inv_item_id}")
     builder.button(text="🗑 Выбросить", callback_data=f"drop:{inv_item_id}")
     builder.button(text="◀️ Назад", callback_data="inventory")
     builder.adjust(2)
+    return builder.as_markup()
+
+
+# ── Аукцион ────────────────────────────────────────────────
+
+def auction_menu_keyboard(my_lot_count: int = 0):
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🛒 Витрина", callback_data="auction_browse:0")
+    builder.button(text="📢 Выставить вещь", callback_data="auction_my_items:0")
+    builder.button(text=f"📋 Мои лоты ({my_lot_count})", callback_data="auction_my_lots")
+    builder.button(text="◀️ Назад", callback_data="main_menu")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def auction_browse_keyboard(lots: list, page: int = 0, per_page: int = 6):
+    builder = InlineKeyboardBuilder()
+    start = page * per_page
+    chunk = lots[start:start + per_page]
+
+    for lot in chunk:
+        icon = lot.item.icon if lot.item else "❔"
+        inst = lot.instance
+        badge = inst.badge() if inst else "🔹"
+        name = inst.display_name(lot.item) if inst else (lot.item.name if lot.item else "Лот")
+        builder.button(
+            text=f"{badge}{icon} {name} — {lot.price}🪙",
+            callback_data=f"auction_lot:{lot.id}",
+        )
+    rows = [1] * len(chunk)
+
+    nav = 0
+    if page > 0:
+        builder.button(text="⬅️", callback_data=f"auction_browse:{page - 1}")
+        nav += 1
+    if start + per_page < len(lots):
+        builder.button(text="➡️", callback_data=f"auction_browse:{page + 1}")
+        nav += 1
+    if nav:
+        rows.append(nav)
+
+    builder.button(text="◀️ К аукциону", callback_data="auction_menu")
+    rows.append(1)
+    builder.adjust(*rows)
+    return builder.as_markup()
+
+
+def auction_lot_keyboard(lot_id: int, can_buy: bool, is_mine: bool = False):
+    builder = InlineKeyboardBuilder()
+    if is_mine:
+        builder.button(text="↩️ Снять с продажи", callback_data=f"auction_cancel:{lot_id}")
+    elif can_buy:
+        builder.button(text="💰 Купить", callback_data=f"auction_buy:{lot_id}")
+    builder.button(text="◀️ К витрине", callback_data="auction_browse:0")
+    builder.button(text="🏠 К аукциону", callback_data="auction_menu")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def auction_sell_list_keyboard(items: list, page: int = 0, per_page: int = 6):
+    builder = InlineKeyboardBuilder()
+    start = page * per_page
+    chunk = items[start:start + per_page]
+
+    for inv in chunk:
+        icon = inv.item.icon if inv.item else "❔"
+        inst = inv.instance
+        badge = inst.badge() if inst else "🔹"
+        builder.button(
+            text=f"{badge}{icon} {inv.display_name()}",
+            callback_data=f"auction_sell:{inv.id}",
+        )
+    rows = [1] * len(chunk)
+
+    nav = 0
+    if page > 0:
+        builder.button(text="⬅️", callback_data=f"auction_my_items:{page - 1}")
+        nav += 1
+    if start + per_page < len(items):
+        builder.button(text="➡️", callback_data=f"auction_my_items:{page + 1}")
+        nav += 1
+    if nav:
+        rows.append(nav)
+
+    builder.button(text="◀️ К аукциону", callback_data="auction_menu")
+    rows.append(1)
+    builder.adjust(*rows)
+    return builder.as_markup()
+
+
+def auction_price_keyboard(inv_id: int, prices: list, npc_price: int):
+    """Готовые варианты цены — вводить числа в чате неудобно."""
+    builder = InlineKeyboardBuilder()
+    for label, price in prices:
+        builder.button(
+            text=f"{label} — {price}🪙",
+            callback_data=f"auction_list:{inv_id}:{price}",
+        )
+    rows = [1] * len(prices)
+    builder.button(
+        text=f"⚡ Сразу скупщику — {npc_price}🪙",
+        callback_data=f"auction_npc_sell:{inv_id}",
+    )
+    builder.button(text="◀️ Назад", callback_data="auction_my_items:0")
+    rows.extend([1, 1])
+    builder.adjust(*rows)
+    return builder.as_markup()
+
+
+def auction_my_lots_keyboard(lots: list):
+    builder = InlineKeyboardBuilder()
+    for lot in lots:
+        icon = lot.item.icon if lot.item else "❔"
+        name = lot.instance.display_name(lot.item) if lot.instance else "Лот"
+        builder.button(
+            text=f"↩️ {icon} {name} ({lot.price}🪙)",
+            callback_data=f"auction_cancel:{lot.id}",
+        )
+    builder.button(text="◀️ К аукциону", callback_data="auction_menu")
+    builder.adjust(1)
     return builder.as_markup()
 
 
