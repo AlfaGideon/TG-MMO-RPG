@@ -45,6 +45,9 @@
                 <td>{{ '✅' if c.is_enabled else '🚫' }}</td>
                 <td>
                     <button class="btn btn-primary btn-sm" onclick="toggleForm('cls-{{ c.id }}')">✏️</button>
+                    <form action="/editor/classes/{{ c.id }}/clone" method="post" style="display:inline" title="Клонировать">
+                        <button type="submit" class="btn btn-sm">📋</button>
+                    </form>
                     <form action="/editor/classes/{{ c.id }}/delete" method="post" style="display:inline"
                           onsubmit="return confirm({% if usage.get(c.key, 0) %}'Классом играют {{ usage.get(c.key) }} героев — он будет просто выключен. Продолжить?'{% else %}'Удалить класс?'{% endif %})">
                         <button type="submit" class="btn btn-danger btn-sm">🗑</button>
@@ -53,7 +56,7 @@
             </tr>
             <tr id="cls-{{ c.id }}" style="display:none;">
                 <td colspan="9">
-                    <form action="/editor/classes/{{ c.id }}/edit" method="post">
+                    <form action="/editor/classes/{{ c.id }}/edit" method="post" data-validate data-autosave>
                         <fieldset class="field-group">
                             <span class="group-title">Основное</span>
                             <div class="field-row">
@@ -149,7 +152,11 @@
             </tr>
             {% else %}
             <tr><td colspan="9">
-                <div class="empty-state"><div class="empty-icon">🎭</div>Классов пока нет.</div>
+                <div class="empty-state">
+                    <div class="empty-icon">🎭</div>
+                    <div>Классов пока нет.</div>
+                    <a href="#new-class" class="btn btn-primary" onclick="document.getElementById('new-class').scrollIntoView({behavior:'smooth'})">➕ Создать первый класс</a>
+                </div>
             </td></tr>
             {% endfor %}
         </tbody>
@@ -159,7 +166,7 @@
 
 <div class="card" id="new-class">
     <h3>➕ Создать класс</h3>
-    <form action="/editor/classes/new" method="post">
+    <form action="/editor/classes/new" method="post" data-validate data-autosave>
         <fieldset class="field-group">
             <span class="group-title">Основное</span>
             <div class="field-row">

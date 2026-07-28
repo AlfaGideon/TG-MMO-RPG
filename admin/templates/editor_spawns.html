@@ -54,7 +54,11 @@
             </tr>
             {% else %}
             <tr><td colspan="7">
-                <div class="empty-state"><div class="empty-icon">👾</div>Мобов ещё нет.</div>
+                <div class="empty-state">
+                    <div class="empty-icon">👾</div>
+                    <div>Мобов ещё нет.</div>
+                    <a href="/editor/mobs" class="btn btn-primary">➕ Создать первого моба</a>
+                </div>
             </td></tr>
             {% endfor %}
         </tbody>

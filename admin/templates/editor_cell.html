@@ -4,12 +4,22 @@
 {% block page_title %}🧩 Клетка [{{ cell.x }},{{ cell.y }}]{% endblock %}
 {% block topbar_actions %}<a href="/editor/location/{{ cell.location_id }}" class="btn">◀️ Назад к локации</a>{% endblock %}
 
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+    <a href="/">Dashboard</a><span class="sep">/</span>
+    <a href="/content">Контент</a><span class="sep">/</span>
+    <a href="/editor/locations">Локации</a><span class="sep">/</span>
+    <a href="/editor/location/{{ cell.location_id }}">{{ cell.location.name if cell.location else 'Локация ' + cell.location_id|string }}</a><span class="sep">/</span>
+    <span class="current">Клетка [{{ cell.x }}, {{ cell.y }}]</span>
+</div>
+{% endblock %}
+
 {% block content %}
 <div class="card">
 
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
         <div>
-            <form action="/editor/cell/{{ cell.id }}/save" method="post" enctype="multipart/form-data">
+            <form action="/editor/cell/{{ cell.id }}/save" method="post" enctype="multipart/form-data" data-validate data-autosave>
                 <div style="margin-bottom: 1rem;">
                     <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Название клетки</label>
                     <input type="text" name="name" value="{{ cell.name }}" class="search-box" style="max-width: 100%;" required>
@@ -136,12 +146,14 @@
                 <h3 style="margin-bottom: 1rem;">🖼 Картинка клетки</h3>
                 {% if cell.image_url %}
                 <div style="margin-bottom: 1rem;">
-                    <img src="{{ cell.image_url }}" style="max-width: 200px; border-radius: 8px; border: 1px solid var(--border);">
+                    <img id="cellPreview" src="{{ cell.image_url }}" style="max-width: 200px; border-radius: 8px; border: 1px solid var(--border);">
                 </div>
+                {% else %}
+                <img id="cellPreview" style="display:none; max-width:200px; border-radius:8px; border:1px solid var(--border); margin-bottom:1rem;">
                 {% endif %}
                 <div style="margin-bottom: 1rem;">
                     <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Загрузить новую картинку</label>
-                    <input type="file" name="image" accept="image/*" class="search-box" style="max-width: 100%;">
+                    <input type="file" name="image" accept="image/*" class="search-box" style="max-width: 100%;" data-preview="#cellPreview">
                 </div>
                 <div style="margin-bottom: 1rem;">
                     <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Или URL картинки</label>

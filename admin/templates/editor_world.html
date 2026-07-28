@@ -48,12 +48,14 @@
         <span>➕ свободно — нажми, чтобы создать локацию</span>
         <span>👥 число персонажей в локации</span>
     </div>
-    <div class="world-100">
+    <div class="world-100" id="worldGrid">
         {% for wx in grid_range %}
             {% for wy in grid_range %}
                 {% set loc = grid.get((wx, wy)) %}
                 {% if loc %}
-                <a href="/editor/location/{{ loc.id }}" class="world-cell" title="{{ loc.name }} [{{ wx }},{{ wy }}]">
+                <a href="/editor/location/{{ loc.id }}" class="world-cell loc-cell" draggable="true"
+                   data-loc-id="{{ loc.id }}" data-x="{{ wx }}" data-y="{{ wy }}"
+                   title="{{ loc.name }} [{{ wx }},{{ wy }}] — перетащи на свободную клетку">
                     <span class="wc-icon">
                         {% if loc.location_type.value == 'boss' %}👹
                         {% elif loc.location_type.value == 'dungeon' %}💀
@@ -64,7 +66,8 @@
                     {% if pop_by_loc.get(loc.id) %}<span class="wc-pop">👥{{ pop_by_loc.get(loc.id) }}</span>{% endif %}
                 </a>
                 {% else %}
-                <a href="/editor/location/new?world_x={{ wx }}&world_y={{ wy }}" class="world-cell empty" title="Создать локацию [{{ wx }},{{ wy }}]">➕</a>
+                <a href="/editor/location/new?world_x={{ wx }}&world_y={{ wy }}" class="world-cell empty drop-zone"
+                   data-x="{{ wx }}" data-y="{{ wy }}" title="Создать локацию [{{ wx }},{{ wy }}]">➕</a>
                 {% endif %}
             {% endfor %}
         {% endfor %}
@@ -94,4 +97,59 @@
         <button type="submit" class="btn btn-primary">💾 Переставить</button>
     </form>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    const grid = document.getElementById('worldGrid');
+    if (!grid) return;
+    let draggedId = null;
+
+    grid.querySelectorAll('.loc-cell').forEach(el => {
+        el.addEventListener('dragstart', e => {
+            draggedId = el.dataset.locId;
+            e.dataTransfer.effectAllowed = 'move';
+            el.style.opacity = '0.5';
+        });
+        el.addEventListener('dragend', () => {
+            el.style.opacity = '';
+            draggedId = null;
+        });
+    });
+
+    grid.querySelectorAll('.drop-zone').forEach(el => {
+        el.addEventListener('dragover', e => {
+            e.preventDefault();
+            el.classList.add('drag-over');
+        });
+        el.addEventListener('dragleave', () => el.classList.remove('drag-over'));
+        el.addEventListener('drop', async e => {
+            e.preventDefault();
+            el.classList.remove('drag-over');
+            if (!draggedId) return;
+            const body = new URLSearchParams();
+            body.append('location_id', draggedId);
+            body.append('world_x', el.dataset.x);
+            body.append('world_y', el.dataset.y);
+            try {
+                const r = await fetch('/editor/world/place', {method: 'POST', body});
+                if (r.ok) {
+                    showToast('Локация перемещена');
+                    setTimeout(() => location.reload(), 400);
+                } else {
+                    showToast('Не удалось переместить', 'err');
+                }
+            } catch (err) {
+                showToast('Ошибка сети', 'err');
+            }
+        });
+    });
+})();
+</script>
+<style>
+.world-cell { cursor: grab; }
+.world-cell.empty { cursor: default; }
+.world-cell.drag-over { background: var(--accent-soft); border-color: var(--accent); }
+</style>
 {% endblock %}

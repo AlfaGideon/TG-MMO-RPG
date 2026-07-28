@@ -80,7 +80,11 @@
             </tr>
             {% else %}
             <tr><td colspan="9">
-                <div class="empty-state"><div class="empty-icon">⚖️</div>Лотов нет.</div>
+                <div class="empty-state">
+                    <div class="empty-icon">⚖️</div>
+                    <div>Лотов нет.</div>
+                    <span class="hint">Игроки выставляют вещи через бота в разделе «🏛 Аукцион».</span>
+                </div>
             </td></tr>
             {% endfor %}
         </tbody>

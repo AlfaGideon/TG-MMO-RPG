@@ -4,6 +4,14 @@
 {% block page_title %}👤 {{ char.name }} <span style="color:var(--text-muted); font-weight:400; font-size:0.85rem;">(ID: {{ char.id }})</span>{% endblock %}
 {% block topbar_actions %}<a href="/players" class="btn">◀️ Назад</a>{% endblock %}
 
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+    <a href="/">Dashboard</a><span class="sep">/</span>
+    <a href="/players">Игроки</a><span class="sep">/</span>
+    <span class="current">{{ char.name }}</span>
+</div>
+{% endblock %}
+
 {% block content %}
 
 <div class="tabs">
@@ -134,7 +142,7 @@
     <h3>✏️ Редактирование персонажа</h3>
     <p class="section-sub">Поля сгруппированы по смыслу: личность, прокачка, характеристики, витальность.</p>
 
-    <form action="/player/{{ char.id }}/edit" method="post" enctype="multipart/form-data">
+    <form action="/player/{{ char.id }}/edit" method="post" enctype="multipart/form-data" data-validate data-autosave>
         <fieldset class="field-group">
             <span class="group-title">👤 Личность</span>
             <div class="field-row cols-2">
@@ -237,13 +245,15 @@
             <span class="group-title">🖼 Аватар</span>
             {% if char.image_url %}
             <div style="margin-bottom:0.6rem;">
-                <img src="{{ char.image_url }}" style="max-width:120px; max-height:120px; border-radius:8px; border:1px solid var(--border);">
+                <img id="charPreview" src="{{ char.image_url }}" style="max-width:120px; max-height:120px; border-radius:8px; border:1px solid var(--border);">
             </div>
+            {% else %}
+            <img id="charPreview" style="display:none; max-width:120px; max-height:120px; border-radius:8px; border:1px solid var(--border); margin-bottom:0.6rem;">
             {% endif %}
             <div class="field-row cols-2">
                 <div>
                     <label class="form-label">Файл картинки</label>
-                    <input type="file" name="image" accept="image/*" class="search-box">
+                    <input type="file" name="image" accept="image/*" class="search-box" data-preview="#charPreview">
                 </div>
                 <div>
                     <label class="form-label">Или URL</label>
@@ -256,6 +266,9 @@
         <input type="hidden" name="vip_days" value="0">
         <button type="submit" class="btn btn-primary">💾 Сохранить изменения</button>
         <a href="/player/{{ char.id }}/heal" class="btn">✨ Полностью восстановить</a>
+        <div class="sticky-actions">
+            <button type="submit" class="btn btn-primary">💾 Сохранить</button>
+        </div>
     </form>
 
     <fieldset class="field-group" style="margin-top:1.25rem;">

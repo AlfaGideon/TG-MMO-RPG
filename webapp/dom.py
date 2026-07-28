@@ -98,3 +98,122 @@ def toast(text, kind="ok"):
     node.className = f"toast show {kind}"
     from js import setTimeout
     setTimeout(create_proxy(lambda *_: node.setAttribute("class", "toast")), 2600)
+
+
+def wire_forms():
+    """Подключает клиентскую валидацию и автосохранение черновиков форм."""
+    from js import window
+
+    def validate_input(inp):
+        msg = ""
+        val = inp.value.strip()
+        if inp.hasAttribute("required") and not val:
+            msg = "Обязательное поле"
+        elif inp.type == "number" and val:
+            try:
+                n = float(val)
+                if inp.hasAttribute("min") and n < float(inp.min):
+                    msg = f"Минимум {inp.min}"
+                if inp.hasAttribute("max") and n > float(inp.max):
+                    msg = f"Максимум {inp.max}"
+            except ValueError:
+                msg = "Введите число"
+        inp.setCustomValidity(msg)
+        return not msg
+
+    def validate_form(form):
+        ok = True
+        for inp in form.querySelectorAll("input, select, textarea"):
+            if not validate_input(inp):
+                ok = False
+        return ok
+
+    def save_draft(form):
+        key = "draft:" + (form.getAttribute("id") or form.action or "form")
+        data = {}
+        for inp in form.querySelectorAll("input, select, textarea"):
+            if inp.name or inp.id:
+                data[inp.name or inp.id] = inp.value
+        window.localStorage.setItem(key, __import__("json").dumps(data))
+
+    def restore_draft(form):
+        key = "draft:" + (form.getAttribute("id") or form.action or "form")
+        raw = window.localStorage.getItem(key)
+        if not raw:
+            return
+        try:
+            data = __import__("json").loads(raw)
+        except Exception:
+            return
+        for inp in form.querySelectorAll("input, select, textarea"):
+            k = inp.name or inp.id
+            if k and k in data and not inp.value:
+                inp.value = data[k]
+
+    def setup(form):
+        if form.hasAttribute("data-validate"):
+            for inp in form.querySelectorAll("input, select, textarea"):
+                proxy = create_proxy(lambda evt, i=inp: validate_input(i))
+                _proxies.append(proxy)
+                inp.addEventListener("input", proxy)
+            proxy = create_proxy(lambda evt, f=form: validate_form(f))
+            _proxies.append(proxy)
+            form.addEventListener("submit", proxy)
+        if form.hasAttribute("data-autosave"):
+            for inp in form.querySelectorAll("input, select, textarea"):
+                proxy = create_proxy(lambda evt, f=form: save_draft(f))
+                _proxies.append(proxy)
+                inp.addEventListener("input", proxy)
+            restore_draft(form)
+            proxy = create_proxy(lambda evt, f=form: window.localStorage.removeItem("draft:" + (f.getAttribute("id") or f.action or "form")))
+            _proxies.append(proxy)
+            form.addEventListener("submit", proxy)
+
+    for form in document.querySelectorAll("form[data-validate], form[data-autosave]"):
+        setup(form)
+
+    # image previews
+    for inp in document.querySelectorAll("input[type=file][data-preview]"):
+        target = document.querySelector(inp.getAttribute("data-preview"))
+        if target is None:
+            continue
+        def onchange(evt, t=target):
+            files = evt.target.files
+            if not files or not files.length:
+                return
+            reader = __import__("js").FileReader.new()
+            def done(e):
+                t.src = e.target.result
+            proxy = create_proxy(done)
+            _proxies.append(proxy)
+            reader.addEventListener("load", proxy)
+            reader.readAsDataURL(files.item(0))
+        proxy = create_proxy(onchange)
+        _proxies.append(proxy)
+        inp.addEventListener("change", proxy)
+
+    # inline editing: blur or Enter saves the value
+    for form in document.querySelectorAll("form.inline-form[data-act]"):
+        inp = form.querySelector("input, select, textarea")
+        if inp is None:
+            continue
+        def make_submit(f):
+            def submit(evt):
+                act = f.getAttribute("data-act")
+                arg = f.getAttribute("data-arg") or ""
+                val = evt.target.value
+                fn = _actions.get(act)
+                if fn is not None:
+                    fn(arg + ":" + val)
+            return submit
+        proxy = create_proxy(make_submit(form))
+        _proxies.append(proxy)
+        inp.addEventListener("change", proxy)
+        def make_key(p):
+            def key(evt):
+                if evt.key == "Enter":
+                    p(evt)
+            return key
+        key_proxy = create_proxy(make_key(proxy))
+        _proxies.append(key_proxy)
+        inp.addEventListener("keydown", key_proxy)

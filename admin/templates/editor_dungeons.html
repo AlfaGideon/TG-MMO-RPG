@@ -63,7 +63,11 @@
             </tr>
             {% else %}
             <tr><td colspan="11">
-                <div class="empty-state"><div class="empty-icon">🕳</div>Шаблонов подземелий пока нет.</div>
+                <div class="empty-state">
+                    <div class="empty-icon">🕳</div>
+                    <div>Шаблонов подземелий пока нет.</div>
+                    <a href="#dungeon-form-title" class="btn btn-primary" onclick="document.getElementById('dungeon-form-title').scrollIntoView({behavior:'smooth'})">➕ Создать первое подземелье</a>
+                </div>
             </td></tr>
             {% endfor %}
         </tbody>

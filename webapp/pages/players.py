@@ -3,10 +3,43 @@ from engine import data, permissions, rules
 from webapp.html import esc
 
 TITLE = "👥 Игроки"
+CRUMBS = [("Игроки", "players")]
+
+
+PER_PAGE = 15
+
+
+SORTABLE = [
+    ("name", "Имя"), ("level", "Ур."), ("gold", "Золото"),
+    ("hp", "HP"), ("kills", "Убийств"),
+]
 
 
 def render(ctx):
-    ps = sorted(ctx.store.players.values(), key=lambda p: -p.level)
+    page = max(1, ctx.state.get("players_page", 1))
+    sort = ctx.state.get("players_sort", "level")
+    order = ctx.state.get("players_order", "desc")
+    reverse = order == "desc"
+
+    def key(p):
+        val = getattr(p, sort, 0)
+        if sort == "name":
+            val = val.lower() if val else ""
+        return val
+
+    ps_all = sorted(ctx.store.players.values(), key=key, reverse=reverse)
+    total = len(ps_all)
+    pages = max(1, (total + PER_PAGE - 1) // PER_PAGE)
+    page = min(page, pages)
+    ctx.state["players_page"] = page
+    start = (page - 1) * PER_PAGE
+    ps = ps_all[start:start + PER_PAGE]
+
+    headers = "".join(
+        f"<th><button class='sort-btn {'active' if sort == k else ''}' data-act='players-sort' data-arg='{k}'>{label} "
+        f"{'▲' if sort == k and not reverse else '▼' if sort == k else '⇅'}</button></th>"
+        for k, label in [("tg_id", "TG ID")] + SORTABLE + [("loc", "Позиция"), ("inv", "Предм.")]
+    )
     rows = ""
     for p in ps:
         loc = data.LOCATIONS[p.loc][0] if p.loc < len(data.LOCATIONS) else "—"
@@ -18,24 +51,61 @@ def render(ctx):
                 f"font-weight:bold'>{esc(permissions.rank_title(p.web_admin_role))}</span>"
                 f" <span class='muted'>{n} прав</span>")
         rows += (
-            f"<tr><td><code>{p.tg_id}</code></td><td>{esc(p.name)}</td>"
-            f"<td>{esc(p.cls) or '—'}</td><td>{p.level}</td>"
-            f"<td>{p.hp}/{p.max_hp}</td><td>{p.gold} 🪙</td>"
-            f"<td>{esc(loc)} [{p.x},{p.y}]</td><td>{len(p.inventory)}</td>"
-            f"<td>{role_label}</td>"
-            f"<td><button class='btn' data-act='player-edit' data-arg='{p.tg_id}'>✏️</button> "
+            f"<tr><td data-label='Выбрать'><input type='checkbox' class='row-check player-check' value='{p.tg_id}' onchange='updatePlayersMassCount()'></td>"
+            f"<td data-label='TG ID'><code>{p.tg_id}</code></td>"
+            f"<td data-label='Имя'>{esc(p.name)}</td>"
+            f"<td data-label='Класс'>{esc(p.cls) or '—'}</td>"
+            f"<td data-label='Ур.'><form class='inline-form' data-act='player-inline' data-arg='{p.tg_id}:level' onsubmit='return false'><input type='number' class='inline-num' value='{p.level}' min='1' max='999'></form></td>"
+            f"<td data-label='HP'>{p.hp}/{p.max_hp}</td>"
+            f"<td data-label='Золото'><form class='inline-form' data-act='player-inline' data-arg='{p.tg_id}:gold' onsubmit='return false'><input type='number' class='inline-num' value='{p.gold}' min='0' max='999999'></form></td>"
+            f"<td data-label='Позиция'>{esc(loc)} [{p.x},{p.y}]</td>"
+            f"<td data-label='Предм.'>{len(p.inventory)}</td>"
+            f"<td data-label='Роль'>{role_label}</td>"
+            f"<td data-label=''><button class='btn' data-act='player-edit' data-arg='{p.tg_id}'>✏️</button> "
             f"<button class='btn danger' data-act='player-del' data-arg='{p.tg_id}'>🗑</button></td></tr>")
     if not rows:
-        rows = "<tr><td colspan='10' class='muted'>Пока никого. Запусти бота и напиши /start.</td></tr>"
+        rows = ("<tr><td colspan='11'><div class='empty-state'>"
+                "<div class='empty-icon'>👥</div>"
+                "<div>Пока никого. Запусти бота и напиши ему /start.</div>"
+                "<button class='btn primary' data-act='nav' data-arg='bot'>🤖 Запустить бота</button>"
+                "</div></td></tr>")
+
+    pagination = ""
+    if pages > 1:
+        pagination = '<div class="pagination">'
+        if page > 1:
+            pagination += f"<button data-act='players-page' data-arg='{page - 1}'>←</button>"
+        else:
+            pagination += "<span>←</span>"
+        for p in range(1, pages + 1):
+            if p == page:
+                pagination += f"<span class='current'>{p}</span>"
+            elif p == 1 or p == pages or abs(p - page) <= 2:
+                pagination += f"<button data-act='players-page' data-arg='{p}'>{p}</button>"
+            elif abs(p - page) == 3:
+                pagination += "<span>...</span>"
+        if page < pages:
+            pagination += f"<button data-act='players-page' data-arg='{page + 1}'>→</button>"
+        else:
+            pagination += "<span>→</span>"
+        pagination += "</div>"
 
     return f"""
 <div class="card">
-  <h2>👥 Игроки <span class="muted">({len(ps)})</span></h2>
+  <h2>👥 Игроки <span class="muted">({start + 1}–{min(start + PER_PAGE, total)} из {total})</span></h2>
+  <div class="mass-bar">
+    <label style="display:flex;align-items:center;gap:.4rem;font-size:.85rem;color:var(--text-muted);cursor:pointer;">
+      <input type="checkbox" class="row-check" data-act="players-select-all"> Все
+    </label>
+    <span class="mass-count" id="playersMassCount">Выбрано: 0</span>
+    <button class="btn primary" data-act="players-mass-vip">👑 VIP 7 дней</button>
+    <button class="btn danger" data-act="players-mass-del">🗑 Удалить</button>
+  </div>
   <div class="scroll"><table>
-    <tr><th>TG ID</th><th>Имя</th><th>Класс</th><th>Ур.</th><th>HP</th>
-        <th>Золото</th><th>Позиция</th><th>Предм.</th><th>Роль</th><th></th></tr>
+    <tr><th style="width:40px"><input type="checkbox" class="row-check" data-act="players-select-all-header"></th>{headers}<th>Роль</th><th></th></tr>
     {rows}
   </table></div>
+  {pagination}
   <div style="margin-top:.8rem">
     <button class="btn danger" data-act="players-wipe">🗑 Удалить всех игроков</button>
   </div>
@@ -58,6 +128,7 @@ def edit_form(ctx, tg_id):
     
     return f"""
 <h2>✏️ {esc(p.name)} <span class="muted">#{p.tg_id}</span></h2>
+<form data-validate data-autosave>
 <div class="row" style="margin-top:.7rem">
   {f('name','Имя',esc(p.name))}{f('level','Уровень',p.level)}{f('gold','Золото',p.gold)}
 </div>
@@ -84,6 +155,7 @@ def edit_form(ctx, tg_id):
   <button class="btn" data-act="player-access" data-arg="{p.tg_id}">🔑 Права доступа</button>
   <button class="btn" data-act="modal-close">Отмена</button>
 </div>
+</form>
 """
 
 

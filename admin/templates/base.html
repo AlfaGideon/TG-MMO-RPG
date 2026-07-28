@@ -5,6 +5,87 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Shadow Lands Admin{% endblock %}</title>
     <link rel="stylesheet" href="/static/style.css">
+    <style>
+        .breadcrumbs {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.78rem;
+            color: var(--text-muted);
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+        .breadcrumbs a {
+            color: var(--text-muted);
+            text-decoration: none;
+            transition: color 0.15s;
+        }
+        .breadcrumbs a:hover { color: var(--accent); }
+        .breadcrumbs .sep { opacity: 0.5; }
+        .breadcrumbs .current { color: var(--text); font-weight: 500; }
+
+        .search-modal-overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+            z-index: 100; display: none; align-items: flex-start; justify-content: center;
+            padding-top: 12vh;
+        }
+        .search-modal-overlay.open { display: flex; }
+        .search-modal {
+            width: min(560px, 92vw);
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+            overflow: hidden;
+        }
+        .search-input-wrap {
+            display: flex; align-items: center; gap: 0.6rem;
+            padding: 0.85rem 1rem; border-bottom: 1px solid var(--border);
+        }
+        .search-input-wrap input {
+            flex: 1; background: transparent; border: none; color: var(--text);
+            font-size: 1rem; outline: none;
+        }
+        .search-shortcut {
+            font-size: 0.7rem; color: var(--text-muted); border: 1px solid var(--border);
+            padding: 0.15rem 0.4rem; border-radius: 6px;
+        }
+        .search-results { max-height: 60vh; overflow-y: auto; }
+        .search-category {
+            font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.08em;
+            color: var(--accent); padding: 0.6rem 1rem 0.35rem;
+        }
+        .search-result-row {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 0.65rem 1rem; color: var(--text); text-decoration: none;
+            border-bottom: 1px solid var(--border); transition: background 0.1s;
+        }
+        .search-result-row:hover, .search-result-row.active {
+            background: var(--bg-hover); color: var(--text);
+        }
+        .search-result-meta { font-size: 0.72rem; color: var(--text-muted); }
+        .search-empty { padding: 1.5rem; text-align: center; color: var(--text-muted); }
+
+        .pagination {
+            display: flex; align-items: center; justify-content: center;
+            gap: 0.35rem; margin-top: 1rem; flex-wrap: wrap;
+        }
+        .pagination a, .pagination span {
+            min-width: 2rem; height: 2rem; display: inline-flex;
+            align-items: center; justify-content: center; border-radius: 8px;
+            border: 1px solid var(--border); color: var(--text-muted);
+            text-decoration: none; font-size: 0.82rem;
+        }
+        .pagination a:hover { border-color: var(--accent); color: var(--text); }
+        .pagination .current { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); font-weight: 600; }
+        .pagination .disabled { opacity: 0.4; pointer-events: none; }
+
+        .list-toolbar {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem;
+        }
+        .list-toolbar form { display: flex; align-items: center; gap: 0.5rem; }
+    </style>
 </head>
 <body>
 {% set path = request.path %}
@@ -31,6 +112,17 @@
             <a href="/players" class="nav-link {% if path.startswith('/player') %}active{% endif %}">
                 <span class="nav-icon">👥</span> Игроки
             </a>
+            {% set player_ctx = request.state.player_ctx if request.state and request.state.get('player_ctx') else None %}
+            {% if player_ctx %}
+            <div class="context-submenu">
+                <div class="context-label">👤 {{ player_ctx.name }}</div>
+                <a href="/player/{{ player_ctx.id }}" class="{% if path == '/player/' ~ player_ctx.id %}active{% endif %}">📊 Обзор</a>
+                <a href="/player/{{ player_ctx.id }}#stats" onclick="document.querySelector('[data-tab=tab-stats]')?.click(); return false;">✏️ Характеристики</a>
+                <a href="/player/{{ player_ctx.id }}#inventory" onclick="document.querySelector('[data-tab=tab-inventory]')?.click(); return false;">🎒 Инвентарь</a>
+                <a href="/player/{{ player_ctx.id }}#access" onclick="document.querySelector('[data-tab=tab-access]')?.click(); return false;">👑 VIP и доступ</a>
+                <a href="/player/{{ player_ctx.id }}#chat" onclick="document.querySelector('[data-tab=tab-chat]')?.click(); return false;">💬 Чат</a>
+            </div>
+            {% endif %}
             <a href="/map" class="nav-link {% if path == '/map' %}active{% endif %}">
                 <span class="nav-icon">🗺</span> Карта игроков
             </a>
@@ -101,11 +193,31 @@
         <header class="topbar">
             <button class="menu-toggle" onclick="toggleSidebar()">☰</button>
             <div class="page-title">{% block page_title %}{% endblock %}</div>
-            <div class="topbar-actions">{% block topbar_actions %}{% endblock %}</div>
+            <div class="topbar-actions">
+                <button type="button" class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Переключить тему">
+                    🌙
+                </button>
+                <button type="button" class="btn btn-sm" onclick="openSearchModal()" title="Поиск (Ctrl/Cmd+K)">
+                    🔍 Поиск <span class="search-shortcut" style="margin-left:0.3rem">Ctrl K</span>
+                </button>
+                {% block topbar_actions %}{% endblock %}
+            </div>
         </header>
         <div class="container">
+            {% block breadcrumbs %}{% endblock %}
             {% block content %}{% endblock %}
         </div>
+    </div>
+</div>
+
+<div class="search-modal-overlay" id="searchModal" onclick="closeSearchModal(event)">
+    <div class="search-modal" onclick="event.stopPropagation()">
+        <div class="search-input-wrap">
+            <span>🔍</span>
+            <input type="text" id="searchInput" placeholder="Поиск игроков, предметов, мобов, локаций..." autocomplete="off">
+            <span class="search-shortcut">ESC</span>
+        </div>
+        <div class="search-results" id="searchResults"></div>
     </div>
 </div>
 
@@ -117,6 +229,137 @@ function toggleSidebar(force) {
     } else {
         layout.classList.toggle('sidebar-open');
     }
+}
+
+(function initTheme() {
+    const saved = localStorage.getItem('admin-theme') || 'dark';
+    document.documentElement.setAttribute('data-theme', saved);
+    const btn = document.getElementById('themeToggle');
+    if (btn) btn.textContent = saved === 'light' ? '☀️' : '🌙';
+})();
+
+function toggleTheme() {
+    const html = document.documentElement;
+    const btn = document.getElementById('themeToggle');
+    const current = html.getAttribute('data-theme') || 'dark';
+    const next = current === 'light' ? 'dark' : 'light';
+    html.setAttribute('data-theme', next);
+    localStorage.setItem('admin-theme', next);
+    if (btn) btn.textContent = next === 'light' ? '☀️' : '🌙';
+}
+
+function showToast(msg, type='success') {
+    const t = document.createElement('div');
+    t.className = 'toast-msg ' + type;
+    t.textContent = msg;
+    document.body.appendChild(t);
+    requestAnimationFrame(() => t.classList.add('show'));
+    setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 300); }, 3500);
+}
+
+function setupImagePreviews() {
+    document.querySelectorAll('input[type=file][data-preview]').forEach(input => {
+        input.addEventListener('change', function() {
+            const target = document.querySelector(input.dataset.preview);
+            if (!target) return;
+            const file = input.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = e => {
+                target.src = e.target.result;
+                target.style.display = 'block';
+            };
+            reader.readAsDataURL(file);
+        });
+    });
+}
+
+async function inlineSave(form) {
+    const data = new FormData(form);
+    const btn = form.querySelector('button[type=submit]');
+    try {
+        const r = await fetch(form.action, {method: 'POST', body: data});
+        const json = await r.json();
+        if (json.success) {
+            showToast('Сохранено');
+            form.classList.add('saved');
+            setTimeout(() => form.classList.remove('saved'), 1000);
+        } else {
+            showToast(json.error || 'Ошибка', 'err');
+        }
+    } catch (e) {
+        showToast('Ошибка сети', 'err');
+    }
+    return false;
+}
+
+function validateForm(form) {
+    let firstInvalid = null;
+    for (const input of form.querySelectorAll('input, select, textarea')) {
+        if (input.disabled || input.type === 'submit' || input.type === 'button') continue;
+        let msg = '';
+        if (input.required && !input.value.trim()) {
+            msg = 'Заполните это поле';
+        } else if (input.min && input.value && Number(input.value) < Number(input.min)) {
+            msg = 'Минимальное значение: ' + input.min;
+        } else if (input.max && input.value && Number(input.value) > Number(input.max)) {
+            msg = 'Максимальное значение: ' + input.max;
+        } else if (input.minLength && input.value.length < input.minLength) {
+            msg = 'Минимум символов: ' + input.minLength;
+        } else if (input.pattern && input.value && !new RegExp(input.pattern).test(input.value)) {
+            msg = input.title || 'Неверный формат';
+        }
+        input.setCustomValidity(msg);
+        if (msg && !firstInvalid) firstInvalid = input;
+    }
+    if (firstInvalid) {
+        firstInvalid.focus();
+        showToast('Проверьте поле: ' + (firstInvalid.name || firstInvalid.placeholder || ''), 'err');
+        return false;
+    }
+    return true;
+}
+
+function setupFormValidation() {
+    document.querySelectorAll('form[data-validate]').forEach(form => {
+        form.addEventListener('submit', function(e) {
+            if (!validateForm(form)) e.preventDefault();
+        });
+    });
+}
+
+function setupAutosave() {
+    document.querySelectorAll('form[data-autosave]').forEach(form => {
+        const key = 'autosave:' + window.location.pathname + ':' + (form.action || '');
+        const saved = localStorage.getItem(key);
+        if (saved) {
+            try {
+                const data = JSON.parse(saved);
+                Object.entries(data).forEach(([name, value]) => {
+                    const input = form.querySelector('[name="' + name + '"]');
+                    if (input && !input.value) {
+                        if (input.type === 'checkbox') input.checked = value === 'on' || value === true;
+                        else if (input.type === 'radio') {
+                            const radio = form.querySelector('[name="' + name + '"][value="' + value + '"]');
+                            if (radio) radio.checked = true;
+                        } else input.value = value;
+                    }
+                });
+            } catch (e) {}
+        }
+
+        let debounce;
+        form.addEventListener('input', () => {
+            clearTimeout(debounce);
+            debounce = setTimeout(() => {
+                const data = {};
+                new FormData(form).forEach((v, k) => { data[k] = v; });
+                localStorage.setItem(key, JSON.stringify(data));
+            }, 500);
+        });
+
+        form.addEventListener('submit', () => localStorage.removeItem(key));
+    });
 }
 
 function toggleGroup(id) {
@@ -132,6 +375,112 @@ function toggleGroup(id) {
         const saved = localStorage.getItem('navGroup:' + el.id);
         if (saved === '1') el.classList.add('open');
     });
+})();
+
+document.addEventListener('DOMContentLoaded', () => {
+    setupImagePreviews();
+    setupFormValidation();
+    setupAutosave();
+});
+
+(function initGlobalSearch() {
+    const modal = document.getElementById('searchModal');
+    const input = document.getElementById('searchInput');
+    const resultsBox = document.getElementById('searchResults');
+    let activeIndex = -1;
+    let resultRows = [];
+
+    window.openSearchModal = function() {
+        modal.classList.add('open');
+        input.value = '';
+        input.focus();
+        resultsBox.innerHTML = '<div class="search-empty">Начни вводить название, ID или имя...</div>';
+        activeIndex = -1;
+    };
+
+    window.closeSearchModal = function(e) {
+        if (e && e.target !== modal && e.type === 'click') return;
+        modal.classList.remove('open');
+    };
+
+    document.addEventListener('keydown', function(e) {
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+            e.preventDefault();
+            modal.classList.contains('open') ? closeSearchModal() : openSearchModal();
+        }
+        if (e.key === 'Escape' && modal.classList.contains('open')) {
+            closeSearchModal();
+        }
+        if (!modal.classList.contains('open')) return;
+
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            activeIndex = (activeIndex + 1) % Math.max(1, resultRows.length);
+            updateActive();
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            activeIndex = (activeIndex - 1 + resultRows.length) % Math.max(1, resultRows.length);
+            updateActive();
+        } else if (e.key === 'Enter' && activeIndex >= 0 && resultRows[activeIndex]) {
+            e.preventDefault();
+            resultRows[activeIndex].click();
+        }
+    });
+
+    function updateActive() {
+        resultRows.forEach((r, i) => r.classList.toggle('active', i === activeIndex));
+        if (resultRows[activeIndex]) resultRows[activeIndex].scrollIntoView({block: 'nearest'});
+    }
+
+    let debounce;
+    input.addEventListener('input', function() {
+        clearTimeout(debounce);
+        const q = input.value.trim();
+        if (!q) {
+            resultsBox.innerHTML = '<div class="search-empty">Начни вводить название, ID или имя...</div>';
+            resultRows = []; activeIndex = -1; return;
+        }
+        resultsBox.innerHTML = '<div class="search-empty">⏳ Ищем...</div>';
+        debounce = setTimeout(() => fetchSearch(q), 180);
+    });
+
+    async function fetchSearch(q) {
+        try {
+            const r = await fetch('/api/search?q=' + encodeURIComponent(q));
+            const data = await r.json();
+            renderResults(data.results || {});
+        } catch (e) {
+            resultsBox.innerHTML = '<div class="search-empty">Ошибка поиска</div>';
+        }
+    }
+
+    function renderResults(results) {
+        const cats = [
+            {key: 'players', label: '👤 Игроки'},
+            {key: 'items', label: '🎒 Предметы'},
+            {key: 'mobs', label: '👾 Мобы'},
+            {key: 'locations', label: '🗺 Локации'},
+        ];
+        let html = '';
+        let total = 0;
+        cats.forEach(cat => {
+            const items = results[cat.key] || [];
+            if (!items.length) return;
+            total += items.length;
+            html += '<div class="search-category">' + cat.label + '</div>';
+            items.forEach(item => {
+                html += '<a href="' + item.url + '" class="search-result-row">' +
+                    '<span>' + item.title + '</span>' +
+                    '<span class="search-result-meta">' + (item.meta || '') + '</span>' +
+                    '</a>';
+            });
+        });
+        if (!total) html = '<div class="search-empty">Ничего не найдено</div>';
+        resultsBox.innerHTML = html;
+        resultRows = Array.from(resultsBox.querySelectorAll('.search-result-row'));
+        activeIndex = resultRows.length ? 0 : -1;
+        updateActive();
+    }
 })();
 
 async function updateGitHeader(btn) {
@@ -151,24 +500,24 @@ async function updateGitHeader(btn) {
                 : '✅ Код уже в актуальной версии.';
 
             if (data.bot_off) {
-                msg += '\n\n⚠️ Бот остановлен — уведомление игрокам не отправлено.';
+                msg += ' ⚠️ Бот остановлен — уведомление игрокам не отправлено.';
             } else if (data.notify_error) {
-                msg += '\n\n⚠️ Рассылка не удалась: ' + data.notify_error;
+                msg += ' ⚠️ Рассылка не удалась: ' + data.notify_error;
             } else {
-                msg += '\n\n📣 Уведомление об обновлении получили игроков: ' + (data.notified || 0);
+                msg += ' 📣 Уведомление об обновлении получили игроков: ' + (data.notified || 0);
             }
 
             if (data.restarting) {
-                msg += '\n\n♻️ Сервер перезапускается — обнови страницу через 5 секунд.';
+                msg += ' ♻️ Сервер перезапускается — обнови страницу через 5 секунд.';
             }
-            alert(msg);
+            showToast(msg);
         } else {
             btn.innerHTML = '❌ Ошибка';
-            alert('Ошибка обновления: ' + (data.error || data.output || 'Неизвестно'));
+            showToast('Ошибка обновления: ' + (data.error || data.output || 'Неизвестно'), 'err');
         }
     } catch (e) {
         btn.innerHTML = '❌ Ошибка сети';
-        alert('Ошибка сети: ' + e.message);
+        showToast('Ошибка сети: ' + e.message, 'err');
     }
     setTimeout(() => { btn.disabled = false; btn.innerHTML = origText; }, 4000);
 }

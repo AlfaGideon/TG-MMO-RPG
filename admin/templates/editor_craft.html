@@ -118,7 +118,11 @@
             </tr>
             {% else %}
             <tr><td colspan="9">
-                <div class="empty-state"><div class="empty-icon">📜</div>Рецептов пока нет.</div>
+                <div class="empty-state">
+                    <div class="empty-icon">📜</div>
+                    <div>Рецептов пока нет.</div>
+                    <a href="#new-recipe" class="btn btn-primary" onclick="document.getElementById('new-recipe').scrollIntoView({behavior:'smooth'})">➕ Создать первый рецепт</a>
+                </div>
             </td></tr>
             {% endfor %}
         </tbody>

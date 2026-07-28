@@ -9,7 +9,7 @@ from fastapi.responses import RedirectResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
-from sqlalchemy import select, func, delete
+from sqlalchemy import select, func, delete, String
 from sqlalchemy.orm import selectinload
 
 from core.database import init_db, async_session
@@ -74,6 +74,34 @@ BONUS_LABELS = {
 }
 
 BONUS_FIELDS = tuple(BONUS_LABELS.keys())
+
+
+def paginate(total: int, page: int, per_page: int):
+    """Возвращает словарь с метаданными пагинации."""
+    page = max(1, page)
+    per_page = max(5, min(100, per_page))
+    pages = max(1, (total + per_page - 1) // per_page)
+    page = min(page, pages) if total else 1
+    offset = (page - 1) * per_page
+    return {
+        "page": page,
+        "per_page": per_page,
+        "total": total,
+        "pages": pages,
+        "offset": offset,
+        "has_prev": page > 1,
+        "has_next": page < pages,
+    }
+
+
+def apply_sort(query, model, sort: str, order: str, default=("id", "desc")):
+    """Применяет сортировку к SQLAlchemy-запросу."""
+    allowed = {c.name for c in model.__table__.columns}
+    field = sort if sort in allowed else default[0]
+    direction = "desc" if order.lower() == "desc" else "asc"
+    col = getattr(model, field)
+    return query.order_by(col.desc() if direction == "desc" else col.asc())
+
 
 STATION_LABELS = {
     "forge": "🔨 Кузница", "alchemy": "⚗️ Алхимия",
@@ -187,6 +215,10 @@ async def admin_logout():
 
 @app.get("/")
 async def dashboard(request: Request):
+    from core.auction import sweep_expired
+    from core.dungeons import is_portal_open
+    from datetime import datetime
+
     async with async_session() as session:
         total_players = await session.scalar(select(func.count(User.id)))
         total_characters = await session.scalar(select(func.count(Character.id)))
@@ -213,6 +245,74 @@ async def dashboard(request: Request):
         )
         recent_battles = result.scalars().all()
 
+        # ── Chart data ──
+        # Players by level (buckets)
+        result = await session.execute(
+            select(Character.level, func.count(Character.id))
+            .group_by(Character.level)
+            .order_by(Character.level)
+        )
+        levels_chart = [(lvl, cnt) for lvl, cnt in result.all()]
+
+        # Gold by location
+        result = await session.execute(
+            select(Location.name, func.coalesce(func.sum(Character.gold), 0))
+            .outerjoin(Character, Character.location_id == Location.id)
+            .group_by(Location.id)
+            .order_by(func.coalesce(func.sum(Character.gold), 0).desc())
+            .limit(10)
+        )
+        gold_by_location = [(name, int(g or 0)) for name, g in result.all()]
+
+        # Items by rarity
+        result = await session.execute(
+            select(Item.rarity, func.count(Item.id))
+            .group_by(Item.rarity)
+        )
+        items_by_rarity = {r.value: c for r, c in result.all()}
+
+        # Battle results distribution
+        result = await session.execute(
+            select(Battle.result, func.count(Battle.id))
+            .group_by(Battle.result)
+        )
+        battle_results = {r.value: c for r, c in result.all()}
+
+        # ── Health panel ──
+        await sweep_expired(session)
+        await session.commit()
+
+        result = await session.execute(
+            select(Location).outerjoin(Character, Character.location_id == Location.id)
+            .group_by(Location.id)
+            .having(func.count(Character.id) == 0)
+        )
+        empty_locations = result.scalars().all()
+
+        result = await session.execute(
+            select(Mob).outerjoin(
+                MobSpawn,
+                (MobSpawn.mob_id == Mob.id) & (MobSpawn.is_alive == True)  # noqa: E712
+            )
+            .group_by(Mob.id)
+            .having(func.count(MobSpawn.id) == 0)
+        )
+        mobs_no_spawns = result.scalars().all()
+
+        result = await session.execute(
+            select(AuctionLot)
+            .where(AuctionLot.status == AuctionStatus.EXPIRED.value)
+            .order_by(AuctionLot.id.desc())
+            .limit(10)
+        )
+        expired_lots = result.scalars().all()
+
+        open_dungeons = await session.scalar(
+            select(func.count(DungeonTemplate.id))
+            .where(DungeonTemplate.portal_closed_at.is_(None))
+            .where(DungeonTemplate.portal_opened_at.isnot(None))
+        ) or 0
+
     return templates.TemplateResponse(
         request,
         "dashboard.html",
@@ -224,6 +324,15 @@ async def dashboard(request: Request):
             "avg_level": avg_level,
             "top_location": top_location,
             "recent_battles": recent_battles,
+            "levels_chart": levels_chart,
+            "gold_by_location": gold_by_location,
+            "items_by_rarity": items_by_rarity,
+            "battle_results": battle_results,
+            "empty_locations": empty_locations,
+            "mobs_no_spawns": mobs_no_spawns,
+            "expired_lots": expired_lots,
+            "open_dungeons": open_dungeons,
+            "bot_running": bot_runner.is_running(),
         },
     )
 
@@ -231,19 +340,63 @@ async def dashboard(request: Request):
 # ── Players ────────────────────────────────────────────────
 
 @app.get("/players")
-async def players(request: Request):
+async def players(
+    request: Request, page: int = 1, q: str = "",
+    sort: str = "level", order: str = "desc",
+):
+    per_page = 25
     async with async_session() as session:
+        base_query = select(Character).options(
+            selectinload(Character.user), selectinload(Character.location)
+        )
+        if q.strip():
+            needle = f"%{q.strip()}%"
+            base_query = base_query.where(Character.name.ilike(needle))
+
+        total = await session.scalar(
+            select(func.count(Character.id)).select_from(base_query.subquery())
+        ) or 0
+        meta = paginate(total, page, per_page)
+
+        base_query = apply_sort(base_query, Character, sort, order, ("level", "desc"))
         result = await session.execute(
-            select(Character)
-            .options(selectinload(Character.user), selectinload(Character.location))
-            .order_by(Character.level.desc())
+            base_query.offset(meta["offset"]).limit(per_page)
         )
         chars = result.scalars().all()
+
     return templates.TemplateResponse(
         request,
         "players.html",
-        {"players": chars},
+        {"players": chars, "pagination": meta, "q": q, "sort": sort, "order": order},
     )
+
+
+@app.post("/players/mass-action")
+async def players_mass_action(
+    request: Request,
+    action: str = Form(""),
+    ids: list[int] = Form(default=[]),
+):
+    """Массовые действия над выбранными персонажами: выдача VIP."""
+    guard(request, "manage_players")
+    ids = [i for i in ids if isinstance(i, int)]
+    if not ids:
+        return RedirectResponse(url="/players", status_code=303)
+
+    async with async_session() as session:
+        result = await session.execute(
+            select(Character).where(Character.id.in_(ids))
+        )
+        chars = result.scalars().all()
+
+        if action == "grant-vip":
+            until = datetime.utcnow() + timedelta(days=7)
+            for char in chars:
+                char.is_vip = True
+                char.vip_until = until
+        await session.commit()
+
+    return RedirectResponse(url="/players", status_code=303)
 
 
 @app.get("/player/{char_id}")
@@ -297,6 +450,8 @@ async def player_detail(request: Request, char_id: int):
     }
     active_caps = webauth.caps_for(char.user.web_admin_role, char.user.web_admin_caps) \
         if char.user.is_web_admin else set()
+
+    request.state.player_ctx = {"id": char.id, "name": char.name}
 
     return templates.TemplateResponse(
         request,
@@ -417,6 +572,35 @@ async def player_edit(
                 char.image_url = image_url.strip()
             await session.commit()
     return RedirectResponse(url=f"/player/{char_id}", status_code=303)
+
+
+@app.post("/api/player/{char_id}/inline")
+async def player_inline_edit(
+    request: Request, char_id: int,
+    field: str = Form(...), value: str = Form(...),
+):
+    """Inline-редактирование простых полей персонажа прямо в таблице."""
+    guard(request, "manage_players")
+    allowed = {"level", "gold", "strength", "agility", "intelligence", "endurance", "luck"}
+    if field not in allowed:
+        return JSONResponse({"success": False, "error": "Нельзя редактировать это поле"})
+    try:
+        num = int(value)
+    except ValueError:
+        return JSONResponse({"success": False, "error": "Нужно число"})
+
+    async with async_session() as session:
+        char = await session.get(Character, char_id)
+        if not char:
+            return JSONResponse({"success": False, "error": "Персонаж не найден"})
+        if field == "level":
+            char.level = max(1, num)
+        elif field == "gold":
+            char.gold = max(0, num)
+        else:
+            setattr(char, field, num)
+        await session.commit()
+    return JSONResponse({"success": True})
 
 
 @app.get("/player/{char_id}/heal")
@@ -833,10 +1017,28 @@ async def player_revoke_admin(request: Request, char_id: int):
 # ── Items ──────────────────────────────────────────────────
 
 @app.get("/items")
-async def items(request: Request):
+async def items(
+    request: Request, page: int = 1, q: str = "",
+    sort: str = "id", order: str = "asc",
+):
+    per_page = 25
     async with async_session() as session:
-        result = await session.execute(select(Item).order_by(Item.id))
+        base_query = select(Item)
+        if q.strip():
+            needle = f"%{q.strip()}%"
+            base_query = base_query.where(Item.name.ilike(needle))
+
+        total = await session.scalar(
+            select(func.count(Item.id)).select_from(base_query.subquery())
+        ) or 0
+        meta = paginate(total, page, per_page)
+
+        base_query = apply_sort(base_query, Item, sort, order, ("id", "asc"))
+        result = await session.execute(
+            base_query.offset(meta["offset"]).limit(per_page)
+        )
         all_items = result.scalars().all()
+
         result = await session.execute(
             select(ShopItem).options(selectinload(ShopItem.item)).order_by(ShopItem.id)
         )
@@ -849,12 +1051,17 @@ async def items(request: Request):
         )
         instance_counts = {row[0]: row[1] for row in result.all()}
 
+        # Для выпадающего списка «Добавить в лавку» нужны все предметы
+        all_items_result = await session.execute(select(Item).order_by(Item.name))
+        all_items_for_shop = all_items_result.scalars().all()
+
     return templates.TemplateResponse(
         request,
         "items.html",
         {
-            "items": all_items, "shop_items": shop_items,
-            "instance_counts": instance_counts,
+            "items": all_items, "all_items": all_items_for_shop,
+            "shop_items": shop_items, "instance_counts": instance_counts,
+            "pagination": meta, "q": q, "sort": sort, "order": order,
         },
     )
 
@@ -958,6 +1165,30 @@ async def item_edit(
     return RedirectResponse(url="/items", status_code=303)
 
 
+@app.post("/api/item/{item_id}/inline")
+async def item_inline_edit(
+    request: Request, item_id: int,
+    field: str = Form(...), value: str = Form(...),
+):
+    """Inline-редактирование простых полей предмета прямо в таблице."""
+    guard(request, "manage_content")
+    allowed = {"price", "level_requirement", "max_upgrade_level"}
+    if field not in allowed:
+        return JSONResponse({"success": False, "error": "Нельзя редактировать это поле"})
+    try:
+        num = int(value)
+    except ValueError:
+        return JSONResponse({"success": False, "error": "Нужно число"})
+
+    async with async_session() as session:
+        item = await session.get(Item, item_id)
+        if not item:
+            return JSONResponse({"success": False, "error": "Предмет не найден"})
+        setattr(item, field, max(0, num))
+        await session.commit()
+    return JSONResponse({"success": True})
+
+
 @app.post("/item/new")
 async def item_new(
     request: Request,
@@ -1005,43 +1236,117 @@ async def item_new(
     return RedirectResponse(url="/items", status_code=303)
 
 
+@app.post("/item/{item_id}/clone")
+async def item_clone(request: Request, item_id: int):
+    guard(request, "manage_content")
+    async with async_session() as session:
+        item = await session.get(Item, item_id)
+        if not item:
+            return RedirectResponse(url="/items", status_code=303)
+        new_item = Item(
+            name=f"{item.name} (копия)",
+            description=item.description,
+            item_type=item.item_type,
+            rarity=item.rarity,
+            level_requirement=item.level_requirement,
+            price=item.price,
+            bonus_strength=item.bonus_strength,
+            bonus_agility=item.bonus_agility,
+            bonus_intelligence=item.bonus_intelligence,
+            bonus_endurance=item.bonus_endurance,
+            bonus_luck=item.bonus_luck,
+            bonus_hp=item.bonus_hp,
+            bonus_mp=item.bonus_mp,
+            bonus_damage=item.bonus_damage,
+            bonus_defense=item.bonus_defense,
+            icon=item.icon,
+            stat_variance=item.stat_variance,
+            is_unique_roll=item.is_unique_roll,
+            is_sellable=item.is_sellable,
+            max_upgrade_level=item.max_upgrade_level,
+            is_one_of_a_kind=False,
+            is_festive=item.is_festive,
+            festive_event=item.festive_event,
+            magic_school=item.magic_school,
+            magic_power=item.magic_power,
+        )
+        session.add(new_item)
+        await session.flush()
+        await session.commit()
+    return RedirectResponse(url=f"/item/{new_item.id}/edit", status_code=303)
+
+
 @app.post("/item/{item_id}/delete")
 async def item_delete(request: Request, item_id: int):
     """Удаляет шаблон вместе со всеми его экземплярами и ссылками на него."""
     guard(request, "manage_content")
     async with async_session() as session:
-        await session.execute(
-            delete(InventoryItem).where(InventoryItem.item_id == item_id)
-        )
-        await session.execute(
-            delete(ItemInstance).where(ItemInstance.item_id == item_id)
-        )
-        await session.execute(delete(DropEntry).where(DropEntry.item_id == item_id))
-        await session.execute(
-            delete(CraftIngredient).where(CraftIngredient.item_id == item_id)
-        )
-        await session.execute(delete(ShopItem).where(ShopItem.item_id == item_id))
-        await session.execute(delete(Item).where(Item.id == item_id))
+        await _delete_item(session, item_id)
         await session.commit()
+    return RedirectResponse(url="/items", status_code=303)
+
+
+async def _delete_item(session, item_id: int):
+    """Вспомогательное удаление предмета и всех зависимостей."""
+    await session.execute(
+        delete(InventoryItem).where(InventoryItem.item_id == item_id)
+    )
+    await session.execute(
+        delete(ItemInstance).where(ItemInstance.item_id == item_id)
+    )
+    await session.execute(delete(DropEntry).where(DropEntry.item_id == item_id))
+    await session.execute(
+        delete(CraftIngredient).where(CraftIngredient.item_id == item_id)
+    )
+    await session.execute(delete(ShopItem).where(ShopItem.item_id == item_id))
+    await session.execute(delete(Item).where(Item.id == item_id))
+
+
+@app.post("/items/mass-action")
+async def items_mass_action(
+    request: Request,
+    action: str = Form(""),
+    ids: list[int] = Form(default=[]),
+):
+    """Массовые действия над выбранными предметами: удаление."""
+    guard(request, "manage_content")
+    ids = [i for i in ids if isinstance(i, int)]
+    if not ids:
+        return RedirectResponse(url="/items", status_code=303)
+
+    async with async_session() as session:
+        for item_id in ids:
+            await _delete_item(session, item_id)
+        await session.commit()
+
     return RedirectResponse(url="/items", status_code=303)
 
 
 # ── Battles ────────────────────────────────────────────────
 
 @app.get("/battles")
-async def battles(request: Request):
+async def battles(
+    request: Request, page: int = 1,
+    sort: str = "id", order: str = "desc",
+):
+    per_page = 50
     async with async_session() as session:
-        result = await session.execute(
+        total = await session.scalar(select(func.count(Battle.id))) or 0
+        meta = paginate(total, page, per_page)
+
+        base_query = (
             select(Battle)
             .options(selectinload(Battle.character), selectinload(Battle.mob))
-            .order_by(Battle.id.desc())
-            .limit(100)
+        )
+        base_query = apply_sort(base_query, Battle, sort, order, ("id", "desc"))
+        result = await session.execute(
+            base_query.offset(meta["offset"]).limit(per_page)
         )
         rows = result.scalars().all()
     return templates.TemplateResponse(
         request,
         "battles.html",
-        {"battles": rows},
+        {"battles": rows, "pagination": meta, "sort": sort, "order": order},
     )
 
 
@@ -1133,6 +1438,103 @@ async def api_bot_stop(request: Request):
 @app.get("/api/bot/status")
 async def api_bot_status():
     return {"running": bot_runner.is_running()}
+
+
+# ── Dashboard Quick Actions ────────────────────────────────
+
+@app.post("/api/heal-all")
+async def api_heal_all(request: Request):
+    guard(request, "manage_players")
+    async with async_session() as session:
+        result = await session.execute(select(Character))
+        chars = result.scalars().all()
+        for char in chars:
+            char.current_hp = char.max_hp
+            char.current_mp = char.max_mp
+        await session.commit()
+    return {"success": True, "healed": len(chars)}
+
+
+@app.post("/api/respawn-all")
+async def api_respawn_all(request: Request):
+    guard(request, "manage_content")
+    from core.spawns import ensure_all_populations
+    async with async_session() as session:
+        result = await session.execute(
+            select(MobSpawn).where(MobSpawn.is_alive == False)  # noqa: E712
+        )
+        for spawn in result.scalars().all():
+            spawn.respawn_at = datetime.utcnow() - timedelta(seconds=1)
+        await session.flush()
+        await ensure_all_populations(session)
+        await session.commit()
+    return {"success": True}
+
+
+@app.post("/api/broadcast")
+async def api_broadcast(request: Request, text: str = Form(...)):
+    guard(request, "broadcast")
+    if not text.strip():
+        return {"success": False, "error": "Пустое сообщение."}
+
+    notified = 0
+    async with async_session() as session:
+        result = await session.execute(select(User))
+        users = result.scalars().all()
+
+    if bot_runner.is_running() and bot_runner.bot:
+        for user in users:
+            try:
+                await bot_runner.bot.send_message(
+                    chat_id=user.telegram_id,
+                    text=f"📢 <b>Сообщение от администрации:</b>\n\n{text.strip()}",
+                    parse_mode="HTML",
+                )
+                notified += 1
+            except Exception:
+                pass
+
+    return {"success": True, "notified": notified}
+
+
+@app.post("/api/open-portal")
+async def api_open_portal(request: Request):
+    guard(request, "manage_content")
+    from core.dungeons import sweep_expired_portals
+    async with async_session() as session:
+        await sweep_expired_portals(session)
+        result = await session.execute(
+            select(DungeonTemplate).where(DungeonTemplate.is_active == True)
+        )
+        templates_list = result.scalars().all()
+        if not templates_list:
+            return {"success": False, "error": "Нет активных шаблонов подземелий."}
+
+        tpl = random.choice(templates_list)
+        result = await session.execute(
+            select(Cell).where(Cell.dungeon_template_id == tpl.id)
+        )
+        for cell in result.scalars().all():
+            cell.dungeon_template_id = None
+            if cell.tile_type == "portal":
+                cell.tile_type = "road"
+
+        portal_cell = await _open_dungeon_portal(session, tpl)
+        await session.commit()
+
+        if portal_cell and bot_runner.is_running() and bot_runner.bot:
+            try:
+                from bot.broadcast import notify_dungeon_portal_opened
+                await notify_dungeon_portal_opened(
+                    bot_runner.bot,
+                    portal_cell.location.name,
+                    portal_cell.x, portal_cell.y, portal_cell.floor or 0,
+                    tpl.name, tpl.image_url,
+                )
+            except Exception:
+                pass
+
+    return {"success": True, "template": tpl.name if tpl else None}
 
 
 # ── Content Hub ────────────────────────────────────────────
@@ -1346,6 +1748,7 @@ async def editor_cell(request: Request, cell_id: int):
         cell = await session.get(Cell, cell_id)
         if not cell:
             return RedirectResponse(url="/editor/locations")
+        await session.refresh(cell, ["location"])
 
         result = await session.execute(select(Location).order_by(Location.id))
         all_locations = result.scalars().all()
@@ -1501,20 +1904,115 @@ async def editor_world_place(request: Request, location_id: int = Form(...), wor
 # ── Mobs Editor ────────────────────────────────────────────
 
 @app.get("/editor/mobs")
-async def editor_mobs(request: Request):
+async def editor_mobs(request: Request, location_id: int = None):
     guard(request, "manage_content")
     async with async_session() as session:
-        result = await session.execute(
-            select(Mob).options(selectinload(Mob.location)).order_by(Mob.id)
-        )
+        base_query = select(Mob).options(selectinload(Mob.location))
+        if location_id:
+            base_query = base_query.where(Mob.location_id == location_id)
+        result = await session.execute(base_query.order_by(Mob.id))
         mobs = result.scalars().all()
         result = await session.execute(select(Location).order_by(Location.id))
         locations = result.scalars().all()
     return templates.TemplateResponse(
         request,
         "editor_mobs.html",
-        {"mobs": mobs, "locations": locations},
+        {"mobs": mobs, "locations": locations, "selected_location": location_id},
     )
+
+
+@app.post("/editor/mobs/respawn-location")
+async def mobs_respawn_location(request: Request, location_id: int = Form(...)):
+    """Мгновенно респавнит всех мобов в выбранной локации."""
+    guard(request, "manage_content")
+    from core.spawns import ensure_population
+
+    async with async_session() as session:
+        result = await session.execute(
+            select(MobSpawn)
+            .where(MobSpawn.location_id == location_id)
+            .where(MobSpawn.is_alive == False)  # noqa: E712
+        )
+        for spawn in result.scalars().all():
+            spawn.respawn_at = datetime.utcnow() - timedelta(seconds=1)
+
+        result = await session.execute(
+            select(Mob).where(Mob.location_id == location_id)
+        )
+        for mob in result.scalars().all():
+            await ensure_population(session, mob)
+
+        await session.commit()
+    return RedirectResponse(url=f"/editor/mobs?location_id={location_id}", status_code=303)
+
+
+@app.get("/api/mob/{mob_id}/drops")
+async def api_mob_drops(request: Request, mob_id: int):
+    """Возвращает таблицу лута моба для превью."""
+    async with async_session() as session:
+        result = await session.execute(
+            select(DropEntry)
+            .options(selectinload(DropEntry.item))
+            .where(DropEntry.owner_type == "mob")
+            .where(DropEntry.owner_id == mob_id)
+            .order_by(DropEntry.chance.desc())
+        )
+        entries = result.scalars().all()
+    return {
+        "drops": [
+            {
+                "name": e.item.name,
+                "icon": e.item.icon,
+                "rarity": e.item.rarity.value if e.item.rarity else "common",
+                "chance": e.chance,
+                "min": e.min_quantity,
+                "max": e.max_quantity,
+            }
+            for e in entries
+        ]
+    }
+
+
+@app.post("/api/cell/{cell_id}/paint")
+async def api_cell_paint(request: Request, cell_id: int, brush: str = Form("")):
+    """Быстрая покраска клетки из визуального редактора локации."""
+    guard(request, "manage_content")
+    tile_map = {
+        "wall": ("wall", False),
+        "grass": ("grass", True),
+        "forest": ("forest", True),
+        "water": ("water", False),
+        "road": ("road", True),
+        "village": ("village", True),
+        "cave": ("cave", True),
+        "portal": ("portal", True),
+    }
+    async with async_session() as session:
+        cell = await session.get(Cell, cell_id)
+        if not cell:
+            return JSONResponse({"success": False, "error": "Клетка не найдена"})
+
+        if brush in tile_map:
+            tile, passable = tile_map[brush]
+            cell.tile_type = tile
+            cell.is_passable = passable
+        elif brush == "npc":
+            cell.has_npc = True
+            if not cell.npc_name:
+                cell.npc_name = "Житель"
+                cell.npc_type = "storyteller"
+        elif brush == "chest":
+            cell.has_chest = True
+            cell.chest_tier = max(1, cell.chest_tier or 1)
+        elif brush == "clear":
+            cell.has_npc = False
+            cell.has_chest = False
+            cell.npc_name = None
+            cell.npc_type = None
+        else:
+            return JSONResponse({"success": False, "error": "Неизвестная кисть"})
+        await session.commit()
+    return JSONResponse({"success": True})
 
 
 @app.post("/editor/mobs/new")
@@ -1644,6 +2142,43 @@ async def mob_edit(
     return RedirectResponse(url="/editor/mobs", status_code=303)
 
 
+@app.post("/editor/mobs/{mob_id}/clone")
+async def mob_clone(request: Request, mob_id: int):
+    guard(request, "manage_content")
+    async with async_session() as session:
+        mob = await session.get(Mob, mob_id)
+        if not mob:
+            return RedirectResponse(url="/editor/mobs", status_code=303)
+        new_mob = Mob(
+            name=f"{mob.name} (копия)",
+            description=mob.description,
+            level=mob.level,
+            hp=mob.hp,
+            damage=mob.damage,
+            defense=mob.defense,
+            gold_reward=mob.gold_reward,
+            exp_reward=mob.exp_reward,
+            location_id=mob.location_id,
+            is_boss=mob.is_boss,
+            spawn_chance=mob.spawn_chance,
+            population=mob.population,
+            respawn_seconds=mob.respawn_seconds,
+            move_interval_seconds=mob.move_interval_seconds,
+            can_roam=mob.can_roam,
+            roam_radius=mob.roam_radius,
+            gold_min=mob.gold_min,
+            gold_max=mob.gold_max,
+        )
+        session.add(new_mob)
+        await session.flush()
+        await session.commit()
+
+        from core.spawns import ensure_population
+        await ensure_population(session, new_mob)
+        await session.commit()
+    return RedirectResponse(url="/editor/mobs", status_code=303)
+
+
 @app.post("/editor/mobs/{mob_id}/delete")
 async def mob_delete(request: Request, mob_id: int):
     guard(request, "manage_content")
@@ -1756,6 +2291,34 @@ async def quest_edit(
             elif image_url.strip():
                 q.image_url = image_url.strip()
             await session.commit()
+    return RedirectResponse(url="/editor/quests", status_code=303)
+
+
+@app.post("/editor/quests/{quest_id}/delete")
+@app.post("/editor/quests/{quest_id}/clone")
+async def quest_clone(request: Request, quest_id: int):
+    guard(request, "manage_content")
+    async with async_session() as session:
+        q = await session.get(Quest, quest_id)
+        if not q:
+            return RedirectResponse(url="/editor/quests", status_code=303)
+        new_q = Quest(
+            name=f"{q.name} (копия)",
+            description=q.description,
+            objective_type=q.objective_type,
+            objective_target=q.objective_target,
+            objective_count=q.objective_count,
+            reward_gold=q.reward_gold,
+            reward_exp=q.reward_exp,
+            reward_item_id=q.reward_item_id,
+            min_level=q.min_level,
+            location_id=q.location_id,
+            npc_name=q.npc_name,
+            image_url=q.image_url,
+        )
+        session.add(new_q)
+        await session.flush()
+        await session.commit()
     return RedirectResponse(url="/editor/quests", status_code=303)
 
 
@@ -2157,6 +2720,51 @@ async def class_edit(
             for field, value in _class_payload(locals()).items():
                 setattr(cls, field, value)
             await session.commit()
+    return RedirectResponse(url="/editor/classes", status_code=303)
+
+
+@app.post("/editor/classes/{class_id}/delete")
+@app.post("/editor/classes/{class_id}/clone")
+async def class_clone(request: Request, class_id: int):
+    guard(request, "manage_content")
+    async with async_session() as session:
+        cls = await session.get(CharacterClassDef, class_id)
+        if not cls:
+            return RedirectResponse(url="/editor/classes", status_code=303)
+
+        base_key = cls.key.rstrip("_copy")
+        for suffix in ["", "_2", "_3", "_4", "_5"]:
+            new_key = f"{base_key}_copy{suffix}" if suffix else f"{base_key}_copy"
+            existing = await session.execute(
+                select(CharacterClassDef).where(CharacterClassDef.key == new_key)
+            )
+            if not existing.scalar_one_or_none():
+                break
+        else:
+            new_key = f"{base_key}_copy_{int(datetime.utcnow().timestamp())}"
+
+        new_cls = CharacterClassDef(
+            key=new_key,
+            name=f"{cls.name} (копия)",
+            icon=cls.icon,
+            description=cls.description,
+            base_strength=cls.base_strength, base_agility=cls.base_agility,
+            base_intelligence=cls.base_intelligence,
+            base_endurance=cls.base_endurance, base_luck=cls.base_luck,
+            base_hp=cls.base_hp, base_mp=cls.base_mp,
+            growth_strength=cls.growth_strength, growth_agility=cls.growth_agility,
+            growth_intelligence=cls.growth_intelligence,
+            growth_endurance=cls.growth_endurance, growth_luck=cls.growth_luck,
+            growth_hp=cls.growth_hp, growth_mp=cls.growth_mp,
+            image_url=cls.image_url,
+            is_enabled=False,
+            sort_order=cls.sort_order,
+            affinity_chance=cls.affinity_chance,
+            dual_affinity_chance=cls.dual_affinity_chance,
+            preferred_schools=cls.preferred_schools,
+        )
+        session.add(new_cls)
+        await session.commit()
     return RedirectResponse(url="/editor/classes", status_code=303)
 
 
@@ -2566,27 +3174,37 @@ async def spawn_kill(request: Request, spawn_id: int):
 # ── Реестр экземпляров, аукцион и события ───────────────────
 
 @app.get("/editor/instances")
-async def editor_instances(request: Request, source: str = "", q: str = ""):
+async def editor_instances(
+    request: Request, page: int = 1, source: str = "", q: str = "",
+    sort: str = "id", order: str = "desc",
+):
     """Все уникальные экземпляры в игре: кто владеет, откуда взялся."""
     guard(request, "manage_content")
+    per_page = 50
     async with async_session() as session:
-        query = (
+        base_query = (
             select(ItemInstance, Item, Character)
             .join(Item, Item.id == ItemInstance.item_id)
             .outerjoin(Character, Character.id == ItemInstance.owner_character_id)
-            .order_by(ItemInstance.id.desc())
-            .limit(300)
         )
         if source:
-            query = query.where(ItemInstance.source == source)
+            base_query = base_query.where(ItemInstance.source == source)
         if q.strip():
             needle = f"%{q.strip()}%"
-            query = query.where(
+            base_query = base_query.where(
                 (ItemInstance.uid.ilike(needle)) | (Item.name.ilike(needle))
             )
-        rows = (await session.execute(query)).all()
 
-        total = await session.scalar(select(func.count(ItemInstance.id))) or 0
+        total = await session.scalar(
+            select(func.count(ItemInstance.id)).select_from(base_query.subquery())
+        ) or 0
+        meta = paginate(total, page, per_page)
+
+        base_query = apply_sort(base_query, ItemInstance, sort, order, ("id", "desc"))
+        rows = (await session.execute(
+            base_query.offset(meta["offset"]).limit(per_page)
+        )).all()
+
         by_source = {
             row[0]: row[1] for row in (await session.execute(
                 select(ItemInstance.source, func.count(ItemInstance.id))
@@ -2610,7 +3228,8 @@ async def editor_instances(request: Request, source: str = "", q: str = ""):
         {
             "rows": rows, "total": total, "by_source": by_source,
             "uniques": uniques, "festive": festive, "traded": traded,
-            "source": source, "q": q,
+            "source": source, "q": q, "pagination": meta,
+            "sort": sort, "order": order,
             "badges": SOURCE_BADGES, "source_labels": SOURCE_LABELS,
         },
     )
@@ -2803,6 +3422,224 @@ async def reset_unique(request: Request, item_id: int):
     return RedirectResponse(url="/editor/events", status_code=303)
 
 
+# ── DevOps: JSON export/import ─────────────────────────────
+
+@app.get("/settings/export")
+async def settings_export(request: Request):
+    """Экспорт контента мира в JSON."""
+    guard(request, "settings")
+    async with async_session() as session:
+        locations = [
+            {
+                "id": loc.id, "name": loc.name, "description": loc.description,
+                "location_type": loc.location_type.value if loc.location_type else "safe",
+                "min_level": loc.min_level, "grid_size": loc.grid_size,
+                "floors_count": loc.floors_count or 1,
+                "world_x": loc.world_x, "world_y": loc.world_y,
+                "image_url": loc.image_url,
+            }
+            for loc in (await session.execute(select(Location).order_by(Location.id))).scalars().all()
+        ]
+        mobs = [
+            {
+                "id": m.id, "name": m.name, "description": m.description,
+                "level": m.level, "hp": m.hp, "damage": m.damage, "defense": m.defense,
+                "gold_reward": m.gold_reward, "exp_reward": m.exp_reward,
+                "location_id": m.location_id, "is_boss": m.is_boss,
+                "population": m.population, "respawn_seconds": m.respawn_seconds,
+                "image_url": m.image_url,
+            }
+            for m in (await session.execute(select(Mob).order_by(Mob.id))).scalars().all()
+        ]
+        items = [
+            {
+                "id": it.id, "name": it.name, "description": it.description,
+                "item_type": it.item_type.value if it.item_type else "material",
+                "rarity": it.rarity.value if it.rarity else "common",
+                "level_requirement": it.level_requirement, "price": it.price,
+                "icon": it.icon, "is_unique_roll": it.is_unique_roll,
+                "image_url": it.image_url,
+            }
+            for it in (await session.execute(select(Item).order_by(Item.id))).scalars().all()
+        ]
+        classes = [
+            {
+                "key": cls.key, "name": cls.name, "description": cls.description,
+                "icon": cls.icon, "is_enabled": cls.is_enabled,
+                "base_strength": cls.base_strength, "base_agility": cls.base_agility,
+                "base_intelligence": cls.base_intelligence,
+                "base_endurance": cls.base_endurance, "base_luck": cls.base_luck,
+                "base_hp": cls.base_hp, "base_mp": cls.base_mp,
+            }
+            for cls in (await session.execute(select(CharacterClassDef).order_by(CharacterClassDef.id))).scalars().all()
+        ]
+
+    import json
+    data = {
+        "meta": {"exported_at": datetime.utcnow().isoformat()},
+        "locations": locations, "mobs": mobs, "items": items, "classes": classes,
+    }
+    return Response(
+        content=json.dumps(data, ensure_ascii=False, indent=2),
+        media_type="application/json",
+        headers={"Content-Disposition": "attachment; filename=shadowlands_export.json"},
+    )
+
+
+@app.get("/settings/import")
+async def settings_import_page(request: Request, preview: str = ""):
+    """Страница импорта контента из JSON с превью diff."""
+    guard(request, "settings")
+    return templates.TemplateResponse(request, "settings_import.html", {"preview": None})
+
+
+@app.post("/settings/import-preview")
+async def settings_import_preview(request: Request, file: UploadFile = File(...)):
+    """Показывает diff перед импортом JSON."""
+    guard(request, "settings")
+    import json
+
+    content = await file.read()
+    try:
+        data = json.loads(content.decode("utf-8"))
+    except Exception as e:
+        return templates.TemplateResponse(request, "settings_import.html", {"error": str(e), "preview": None})
+
+    async with async_session() as session:
+        locs = {loc.name: loc for loc in (await session.execute(select(Location))).scalars().all()}
+        mobs = {m.name: m for m in (await session.execute(select(Mob))).scalars().all()}
+        items_map = {it.name: it for it in (await session.execute(select(Item))).scalars().all()}
+        classes_map = {cls.key: cls for cls in (await session.execute(select(CharacterClassDef))).scalars().all()}
+
+    diff = {
+        "locations": {"new": 0, "updated": 0},
+        "mobs": {"new": 0, "updated": 0},
+        "items": {"new": 0, "updated": 0},
+        "classes": {"new": 0, "updated": 0},
+    }
+    for loc in data.get("locations", []):
+        if loc.get("name") in locs:
+            diff["locations"]["updated"] += 1
+        else:
+            diff["locations"]["new"] += 1
+    for mob in data.get("mobs", []):
+        if mob.get("name") in mobs:
+            diff["mobs"]["updated"] += 1
+        else:
+            diff["mobs"]["new"] += 1
+    for it in data.get("items", []):
+        if it.get("name") in items_map:
+            diff["items"]["updated"] += 1
+        else:
+            diff["items"]["new"] += 1
+    for cls in data.get("classes", []):
+        if cls.get("key") in classes_map:
+            diff["classes"]["updated"] += 1
+        else:
+            diff["classes"]["new"] += 1
+
+    return templates.TemplateResponse(request, "settings_import.html", {"preview": diff, "filename": file.filename, "import_json": json.dumps(data, ensure_ascii=False)})
+
+
+@app.post("/settings/import-apply")
+async def settings_import_apply(request: Request, import_json: str = Form("")):
+    """Применяет ранее загруженный JSON-импорт."""
+    guard(request, "settings")
+    import json
+
+    raw = import_json
+    if not raw:
+        return RedirectResponse(url="/settings/import", status_code=303)
+    try:
+        data = json.loads(raw)
+    except Exception:
+        return RedirectResponse(url="/settings/import", status_code=303)
+
+    async with async_session() as session:
+        for loc in data.get("locations", []):
+            existing = await session.execute(select(Location).where(Location.name == loc.get("name")))
+            obj = existing.scalar_one_or_none()
+            if obj is None:
+                obj = Location(name=loc.get("name"))
+                session.add(obj)
+            obj.description = loc.get("description", "")
+            obj.location_type = LocationType(loc.get("location_type", "safe"))
+            obj.min_level = loc.get("min_level", 1)
+            obj.grid_size = loc.get("grid_size", 10)
+            obj.floors_count = loc.get("floors_count", 1)
+            obj.world_x = loc.get("world_x", 0)
+            obj.world_y = loc.get("world_y", 0)
+            obj.image_url = loc.get("image_url", "")
+
+        for mob in data.get("mobs", []):
+            existing = await session.execute(select(Mob).where(Mob.name == mob.get("name")))
+            obj = existing.scalar_one_or_none()
+            if obj is None:
+                obj = Mob(name=mob.get("name"))
+                session.add(obj)
+            for k, v in mob.items():
+                if k == "id":
+                    continue
+                if hasattr(obj, k):
+                    setattr(obj, k, v)
+
+        for it in data.get("items", []):
+            existing = await session.execute(select(Item).where(Item.name == it.get("name")))
+            obj = existing.scalar_one_or_none()
+            if obj is None:
+                obj = Item(name=it.get("name"))
+                session.add(obj)
+            for k, v in it.items():
+                if k == "id":
+                    continue
+                if k in ("item_type", "rarity"):
+                    try:
+                        setattr(obj, k, {"item_type": ItemType, "rarity": ItemRarity}[k](v))
+                    except ValueError:
+                        pass
+                elif hasattr(obj, k):
+                    setattr(obj, k, v)
+
+        await session.commit()
+    return RedirectResponse(url="/settings/import?ok=1", status_code=303)
+
+
+# ── DevOps: SQL sandbox ────────────────────────────────────
+
+@app.get("/settings/sql")
+async def settings_sql_page(request: Request):
+    guard(request, "settings")
+    return templates.TemplateResponse(request, "settings_sql.html", {"rows": None, "cols": [], "query": "", "error": None})
+
+
+@app.post("/settings/sql")
+async def settings_sql_run(request: Request, query: str = Form("")):
+    guard(request, "settings")
+    import re
+
+    q = (query or "").strip()
+    forbidden = re.compile(r"\b(drop|delete|update|insert|alter|create|truncate|replace)\b", re.I)
+    error = None
+    rows = None
+    cols = []
+
+    if not q.lower().startswith("select") or forbidden.search(q):
+        error = "Разрешены только SELECT-запросы."
+    else:
+        try:
+            async with async_session() as session:
+                result = await session.execute(q)
+                cols = list(result.keys())
+                rows = [tuple(row) for row in result.all()]
+        except Exception as e:
+            error = str(e)
+
+    return templates.TemplateResponse(
+        request, "settings_sql.html",
+        {"rows": rows, "cols": cols, "query": q, "error": error},
+    )
+
+
 # ── Players Map (who is where) ──────────────────────────────
 
 @app.get("/map")
@@ -2839,6 +3676,86 @@ async def players_map(request: Request):
             "total_characters": total_online_proxy,
         },
     )
+
+
+# ── Global Search ──────────────────────────────────────────
+
+@app.get("/api/search")
+async def api_search(request: Request, q: str = ""):
+    """Глобальный поиск по игрокам, предметам, мобам и локациям."""
+    if len(q.strip()) < 2:
+        return {"results": {}}
+
+    needle = f"%{q.strip()}%"
+    results: dict[str, list[dict]] = {}
+
+    async with async_session() as session:
+        # Players (characters)
+        rows = (await session.execute(
+            select(Character, User)
+            .join(User, User.id == Character.user_id)
+            .where((Character.name.ilike(needle)) | (User.telegram_id.cast(String).ilike(needle)))
+            .order_by(Character.level.desc())
+            .limit(8)
+        )).all()
+        results["players"] = [
+            {
+                "title": f"{char.name} (ур. {char.level})",
+                "meta": f"TG {user.telegram_id}",
+                "url": f"/player/{char.id}",
+            }
+            for char, user in rows
+        ]
+
+        # Items
+        rows = (await session.execute(
+            select(Item)
+            .where(Item.name.ilike(needle))
+            .order_by(Item.name)
+            .limit(8)
+        )).scalars().all()
+        results["items"] = [
+            {
+                "title": f"{item.icon} {item.name}",
+                "meta": item.item_type.value if item.item_type else "",
+                "url": f"/item/{item.id}/edit",
+            }
+            for item in rows
+        ]
+
+        # Mobs
+        rows = (await session.execute(
+            select(Mob)
+            .where(Mob.name.ilike(needle))
+            .order_by(Mob.level)
+            .limit(8)
+        )).scalars().all()
+        results["mobs"] = [
+            {
+                "title": f"{item.name} (ур. {item.level})",
+                "meta": "босс" if item.is_boss else "моб",
+                "url": f"/editor/mobs",
+            }
+            for item in rows
+        ]
+
+        # Locations
+        rows = (await session.execute(
+            select(Location)
+            .where(Location.name.ilike(needle))
+            .order_by(Location.id)
+            .limit(8)
+        )).scalars().all()
+        results["locations"] = [
+            {
+                "title": f"{item.name}",
+                "meta": item.location_type.value if item.location_type else "",
+                "url": f"/editor/location/{item.id}",
+            }
+            for item in rows
+        ]
+
+    return {"results": results}
 
 
 # ── Update from Git ────────────────────────────────────────

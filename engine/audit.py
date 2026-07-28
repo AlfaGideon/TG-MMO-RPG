@@ -53,17 +53,41 @@ def record(store, actor, action, target="", detail="", source="panel"):
     return entry
 
 
-def entries(store, source="", who=0, limit=LIMIT):
+def entries(store, source="", who=0, search="", date_from="", date_to="", limit=LIMIT):
     """Записи от новых к старым, с необязательными фильтрами."""
     out = []
+    q = (search or "").lower()
+    df = _parse_ts(date_from, start=True) if date_from else None
+    dt = _parse_ts(date_to, start=False) if date_to else None
     for e in _log(store):
         if source and e.get("src") != source:
             continue
         if who and int(e.get("who") or 0) != int(who):
             continue
+        if df and int(e.get("ts", 0)) < df:
+            continue
+        if dt and int(e.get("ts", 0)) > dt:
+            continue
+        if q and q not in (e.get("act", "") + " " + e.get("target", "") + " " + e.get("detail", "")).lower():
+            continue
         out.append(e)
     out.reverse()
     return out[:limit]
+
+
+def _parse_ts(value, start=True):
+    """Парсит YYYY-MM-DD или DD.MM.YYYY в timestamp."""
+    import time
+    value = (value or "").strip()
+    for fmt in ("%Y-%m-%d", "%d.%m.%Y"):
+        try:
+            t = time.strptime(value, fmt)
+            if start:
+                return int(time.mktime((t.tm_year, t.tm_mon, t.tm_mday, 0, 0, 0, 0, 0, -1)))
+            return int(time.mktime((t.tm_year, t.tm_mon, t.tm_mday, 23, 59, 59, 0, 0, -1)))
+        except ValueError:
+            continue
+    return None
 
 
 def count(store, source=""):

@@ -38,7 +38,10 @@
     <header class="topbar">
       <button class="menu-toggle" onclick="sidebar()">☰</button>
       <div class="page-title" id="pageTitle">Панель управления</div>
+      <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Переключить тему">🌙</button>
+      <button class="btn" onclick="openSearch()" title="Поиск (Ctrl/Cmd+K)">🔍 Поиск</button>
     </header>
+    <div class="breadcrumbs" id="breadcrumbs"></div>
     <div class="container" id="view">
       <div id="boot">
         <h2>⏳ Запуск Python-среды</h2>
@@ -50,6 +53,12 @@
   </div>
 </div>
 <div class="modal" id="modal"><div class="box" id="modalBox"></div></div>
+<div class="search-overlay" id="searchOverlay" onclick="closeSearch(event)">
+  <div class="search-box-ui" onclick="event.stopPropagation()">
+    <input type="text" id="searchInput" placeholder="Поиск игроков..." autocomplete="off">
+    <div class="search-results-ui" id="searchResults"><div class="search-empty">Начни вводить имя игрока...</div></div>
+  </div>
+</div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -72,13 +81,15 @@ const FALLBACK = {
     "engine/inventory.py","engine/shop.py","engine/game.py",
     "engine/storage.py","webapp/html.py","webapp/backend.py",
     "webapp/dom.py","webapp/session.py","webapp/transport.py",
-    "webapp/telegram.py","webapp/pages/dashboard.py","webapp/pages/bot.py",
+    "webapp/telegram.py","webapp/pages/dashboard.py","webapp/charts.py",
+    "webapp/pages/bot.py",
     "webapp/pages/players.py","webapp/pages/dungeons.py",
     "webapp/pages/world.py","webapp/pages/content.py",
     "webapp/pages/economy.py","webapp/pages/audit.py",
     "webapp/pages/settings.py","webapp/actions/audit_actions.py",
     "webapp/actions/bot_actions.py","webapp/actions/content_actions.py",
-    "webapp/actions/economy_actions.py","webapp/actions/player_actions.py",
+    "webapp/actions/devops_actions.py","webapp/actions/economy_actions.py",
+    "webapp/actions/player_actions.py",
     "webapp/actions/world_actions.py","webapp/app.py","webapp/boot.py",
   ],
 };
@@ -94,6 +105,62 @@ function sidebar(force) {
   const l = document.getElementById("layout");
   l.classList.toggle("sidebar-open", typeof force === "boolean" ? force : undefined);
 }
+
+(function initTheme() {
+  const saved = localStorage.getItem("admin-theme") || "dark";
+  document.documentElement.setAttribute("data-theme", saved);
+  const btn = document.getElementById("themeToggle");
+  if (btn) btn.textContent = saved === "light" ? "☀️" : "🌙";
+})();
+
+function toggleTheme() {
+  const html = document.documentElement;
+  const btn = document.getElementById("themeToggle");
+  const current = html.getAttribute("data-theme") || "dark";
+  const next = current === "light" ? "dark" : "light";
+  html.setAttribute("data-theme", next);
+  localStorage.setItem("admin-theme", next);
+  if (btn) btn.textContent = next === "light" ? "☀️" : "🌙";
+}
+
+function updatePlayersMassCount() {
+  const label = document.getElementById("playersMassCount");
+  if (!label) return;
+  label.textContent = "Выбрано: " + document.querySelectorAll(".player-check:checked").length;
+}
+
+function openSearch() { document.getElementById("searchOverlay").classList.add("open"); document.getElementById("searchInput").focus(); }
+function closeSearch(e) { if (!e || e.target === document.getElementById("searchOverlay")) document.getElementById("searchOverlay").classList.remove("open"); }
+
+(function searchWire(){
+  const input = document.getElementById("searchInput");
+  const box = document.getElementById("searchResults");
+  if (!input) return;
+  input.addEventListener("input", function(){
+    const q = input.value.trim().toLowerCase();
+    if (!q) { box.innerHTML = '<div class="search-empty">Начни вводить имя игрока...</div>'; return; }
+    if (!window.__app) { box.innerHTML = '<div class="search-empty">Админка ещё загружается...</div>'; return; }
+    const out = [];
+    for (const p of Object.values(window.__app.store.players || {})) {
+      if (String(p.tg_id).includes(q) || (p.name && p.name.toLowerCase().includes(q))) {
+        out.push(`<div class="search-row" onclick="window.__app.go('players'); window.__app.modal(window.__app.pages.players.edit_form(window.__app, '${p.tg_id}'));">` +
+          `<span>${p.name} <small>(TG ${p.tg_id})</small></span><small>игрок</small></div>`);
+      }
+    }
+    for (let i = 0; i < (window.__app.store.items || []).length; i++) {
+      const it = window.__app.store.items[i];
+      if (it && it.name && it.name.toLowerCase().includes(q)) {
+        out.push(`<div class="search-row" onclick="window.__app.go('economy'); window.__app.state.eco_tab='instances';">` +
+          `<span>${it.icon || ''} ${it.name}</span><small>предмет</small></div>`);
+      }
+    }
+    box.innerHTML = out.length ? '<div class="search-cat">Результаты</div>' + out.join('') : '<div class="search-empty">Ничего не найдено</div>';
+  });
+  document.addEventListener("keydown", function(e){
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); openSearch(); }
+    if (e.key === "Escape") closeSearch();
+  });
+})();
 
 const say = (t) => { const n = document.getElementById("msg"); if (n) n.textContent = t; };
 

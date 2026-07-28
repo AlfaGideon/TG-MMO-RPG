@@ -1,55 +1,99 @@
 {% extends "base.html" %}
+{% import "macros.html" as macros %}
 
 {% block title %}Предметы — Shadow Lands{% endblock %}
 {% block page_title %}🎒 Предметы{% endblock %}
 {% block topbar_actions %}<a href="#new-item" class="btn btn-primary">➕ Новый предмет</a>{% endblock %}
 
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+    <a href="/">Dashboard</a><span class="sep">/</span><span class="current">Предметы</span>
+</div>
+{% endblock %}
+
 {% block content %}
 <div class="card">
-    <h2>🎒 Все предметы</h2>
-    <div class="table-wrap">
-    <table>
-        <thead>
-            <tr>
-                <th>ID</th>
-                <th>Иконка</th>
-                <th>Название</th>
-                <th>Тип</th>
-                <th>Редкость</th>
-                <th>Ур.</th>
-                <th>Цена</th>
-                <th title="Разброс статов у экземпляров">Разброс</th>
-                <th title="Сколько уникальных экземпляров в игре">Копий</th>
-                <th>Действия</th>
-            </tr>
-        </thead>
-        <tbody>
+    <div class="toolbar">
+        <h2 style="margin-bottom:0;">🎒 Все предметы</h2>
+        <span class="hint">{{ pagination.total }} предметов</span>
+    </div>
+
+    {{ macros.search_form('/items', q, 'Поиск по названию...') }}
+
+    <form action="/items/mass-action" method="post" id="itemsMassForm" onsubmit="return confirm('Удалить выбранные предметы? Это сотрёт и все их экземпляры.')">
+        <div class="mass-bar">
+            <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.85rem;color:var(--text-muted);cursor:pointer;">
+                <input type="checkbox" class="row-check" id="selectAllItems"> Все
+            </label>
+            <span class="mass-count" id="itemsMassCount">Выбрано: 0</span>
+            <button type="submit" name="action" value="delete" class="btn btn-danger btn-sm">🗑 Удалить выбранные</button>
+        </div>
+
+        <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th style="width:40px;"><input type="checkbox" class="row-check" id="selectAllItemsHeader"></th>
+                    <th>{{ macros.sort_link('ID', 'id', sort, order, '/items', q) }}</th>
+                    <th>Иконка</th>
+                    <th>{{ macros.sort_link('Название', 'name', sort, order, '/items', q) }}</th>
+                    <th>Тип</th>
+                    <th>Редкость</th>
+                    <th>{{ macros.sort_link('Ур.', 'level_requirement', sort, order, '/items', q) }}</th>
+                    <th>{{ macros.sort_link('Цена', 'price', sort, order, '/items', q) }}</th>
+                    <th title="Разброс статов у экземпляров">Разброс</th>
+                    <th title="Сколько уникальных экземпляров в игре">Копий</th>
+                    <th>Действия</th>
+                </tr>
+            </thead>
+            <tbody>
             {% for item in items %}
             <tr>
-                <td>{{ item.id }}</td>
-                <td>{{ item.icon }}</td>
-                <td>{{ item.name }}</td>
-                <td>{{ item.item_type.value }}</td>
-                <td><span class="badge badge-{{ item.rarity.value }}">{{ item.rarity.value }}</span></td>
-                <td>{{ item.level_requirement }}</td>
-                <td>{{ item.price }}</td>
-                <td>{% if item.is_unique_roll %}±{{ ((item.stat_variance or 0) * 100)|int }}%{% else %}<span style="color:var(--text-muted)">стак</span>{% endif %}</td>
-                <td>{{ instance_counts.get(item.id, 0) }}</td>
-                <td>
+                <td data-label="Выбрать"><input type="checkbox" name="ids" value="{{ item.id }}" class="row-check item-check"></td>
+                <td data-label="ID">{{ item.id }}</td>
+                <td data-label="Иконка">{{ item.icon }}</td>
+                <td data-label="Название">{{ item.name }}</td>
+                <td data-label="Тип">{{ item.item_type.value }}</td>
+                <td data-label="Редкость"><span class="badge badge-{{ item.rarity.value }}">{{ item.rarity.value }}</span></td>
+                <td data-label="Ур.">
+                    <form action="/api/item/{{ item.id }}/inline" method="post" class="inline-form" onsubmit="return inlineSave(this)">
+                        <input type="hidden" name="field" value="level_requirement">
+                        <input type="number" name="value" value="{{ item.level_requirement }}" min="1" class="search-box" style="max-width:70px">
+                    </form>
+                </td>
+                <td data-label="Цена">
+                    <form action="/api/item/{{ item.id }}/inline" method="post" class="inline-form" onsubmit="return inlineSave(this)">
+                        <input type="hidden" name="field" value="price">
+                        <input type="number" name="value" value="{{ item.price }}" min="0" class="search-box" style="max-width:90px">
+                    </form>
+                </td>
+                <td data-label="Разброс">{% if item.is_unique_roll %}±{{ ((item.stat_variance or 0) * 100)|int }}%{% else %}<span style="color:var(--text-muted)">стак</span>{% endif %}</td>
+                <td data-label="Копий">{{ instance_counts.get(item.id, 0) }}</td>
+                <td data-label="Действия">
                     <a href="/item/{{ item.id }}/edit" class="btn btn-primary btn-sm">✏️</a>
+                    <form action="/item/{{ item.id }}/clone" method="post" style="display:inline" title="Клонировать">
+                        <button type="submit" class="btn btn-sm">📋</button>
+                    </form>
                     <form action="/item/{{ item.id }}/delete" method="post" style="display:inline" onsubmit="return confirm('Удалить предмет?')">
                         <button type="submit" class="btn btn-danger btn-sm">🗑</button>
                     </form>
                 </td>
             </tr>
             {% else %}
-            <tr><td colspan="10">
-                <div class="empty-state"><div class="empty-icon">🎒</div>Предметов пока нет.</div>
+            <tr><td colspan="11">
+                <div class="empty-state">
+                    <div class="empty-icon">🎒</div>
+                    <div>Предметов не найдено.</div>
+                    <a href="#new-item" class="btn btn-primary">➕ Создать первый предмет</a>
+                </div>
             </td></tr>
             {% endfor %}
-        </tbody>
-    </table>
-    </div>
+            </tbody>
+        </table>
+        </div>
+    </form>
+
+    {{ macros.pagination(pagination, '/items', q) }}
 </div>
 
 <div class="card" id="new-item">
@@ -151,7 +195,7 @@
         <div>
             <label class="form-label">Добавить предмет в лавку</label>
             <select name="item_id" class="search-box" style="max-width:260px">
-                {% for item in items %}
+                {% for item in all_items %}
                 <option value="{{ item.id }}">{{ item.icon }} {{ item.name }}</option>
                 {% endfor %}
             </select>
@@ -167,4 +211,33 @@
         <button type="submit" class="btn btn-primary">➕ Добавить в лавку</button>
     </form>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    const form = document.getElementById('itemsMassForm');
+    if (!form) return;
+    const checks = form.querySelectorAll('.item-check');
+    const allHeader = document.getElementById('selectAllItemsHeader');
+    const allBar = document.getElementById('selectAllItems');
+    const countLabel = document.getElementById('itemsMassCount');
+
+    function updateCount() {
+        const n = form.querySelectorAll('.item-check:checked').length;
+        countLabel.textContent = 'Выбрано: ' + n;
+    }
+
+    function setAll(v) {
+        checks.forEach(c => c.checked = v);
+        if (allHeader) allHeader.checked = v;
+        if (allBar) allBar.checked = v;
+        updateCount();
+    }
+
+    checks.forEach(c => c.addEventListener('change', updateCount));
+    if (allHeader) allHeader.addEventListener('change', e => setAll(e.target.checked));
+    if (allBar) allBar.addEventListener('change', e => setAll(e.target.checked));
+})();
+</script>
 {% endblock %}

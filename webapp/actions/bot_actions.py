@@ -9,6 +9,7 @@ def register(app, A):
     A("token-eye", lambda _="": _eye())
     A("token-forget", lambda _="": _forget(app))
     A("broadcast", lambda _="": _broadcast(app))
+    A("dash-broadcast", lambda _="": _dash_broadcast(app))
     A("log-clear", lambda _="": _log_clear(app))
     A("proxy-save", lambda _="": _proxy_save(app))
     A("git-update", lambda _="": _git_update(app))
@@ -71,6 +72,18 @@ async def _broadcast(app):
         dom.toast("Сначала запусти бота", "err")
         return
     n = await app.bot.broadcast(text)
+    dom.toast(f"Отправлено: {n}")
+
+
+async def _dash_broadcast(app):
+    from js import window
+    if not app.bot.running:
+        dom.toast("Сначала запусти бота", "err")
+        return
+    text = window.prompt("Сообщение для всех игроков:", "")
+    if not text or not text.strip():
+        return
+    n = await app.bot.broadcast(text.strip())
     dom.toast(f"Отправлено: {n}")
 
 

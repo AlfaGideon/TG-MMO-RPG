@@ -15,19 +15,25 @@ def register(app, A):
     A("mob-new", lambda _="": app.modal(page.mob_form(app, None)))
     A("mob-save", lambda arg: _mob_save(app, arg))
     A("mob-del", lambda arg: _mob_del(app, arg))
+    A("mob-clone", lambda arg: _mob_clone(app, arg))
+    A("mob-drops", lambda arg: app.modal(page.mob_drops_form(app, int(arg))))
 
     A("item-edit", lambda arg: app.modal(page.item_form(app, int(arg))))
     A("item-new", lambda _="": app.modal(page.item_form(app, None)))
     A("item-save", lambda arg: _item_save(app, arg))
     A("item-del", lambda arg: _item_del(app, arg))
+    A("item-clone", lambda arg: _item_clone(app, arg))
+    A("item-inline", lambda arg: _item_inline(app, arg))
 
     A("npc-edit", lambda arg: app.modal(page.npc_form(app, int(arg))))
     A("npc-new", lambda _="": app.modal(page.npc_form(app, None)))
     A("npc-save", lambda arg: _npc_save(app, arg))
     A("npc-del", lambda arg: _npc_del(app, arg))
+    A("npc-clone", lambda arg: _npc_clone(app, arg))
 
     A("class-edit", lambda arg: app.modal(page.class_form(app, arg)))
     A("class-save", lambda arg: _class_save(app, arg))
+    A("class-clone", lambda arg: _class_clone(app, arg))
 
 
 def _tab(app, tab):
@@ -186,4 +192,62 @@ def _class_save(app, key):
     data.CLASSES[key] = (dom.value("#cf_title", old[0]).strip() or old[0],
                          dom.value("#cf_desc", old[1]).strip(), stats)
     dom.toast("Класс сохранён")
+    _persist(app)
+
+
+# ── клонирование ────────────────────────────────────────────
+
+def _mob_clone(app, arg):
+    idx = int(arg)
+    src = list(data.MOBS[idx])
+    src[0] = src[0] + " (копия)"
+    data.MOBS.append(tuple(src))
+    dom.toast(f"Моб «{src[0]}» склонирован")
+    _persist(app)
+
+
+def _item_clone(app, arg):
+    idx = int(arg)
+    src = list(data.ITEMS[idx])
+    src[0] = src[0] + " (копия)"
+    data.ITEMS.append(tuple(src))
+    dom.toast(f"Предмет «{src[0]}» склонирован")
+    _persist(app)
+
+
+def _item_inline(app, payload):
+    try:
+        idx, field, val = payload.rsplit(":", 2)
+        idx = int(idx)
+        val = int(val)
+    except (ValueError, TypeError):
+        dom.toast("Некорректное значение", "err")
+        return
+    if field != "price" or idx < 0 or idx >= len(data.ITEMS):
+        return
+    it = list(data.ITEMS[idx])
+    it[3] = val
+    data.ITEMS[idx] = tuple(it)
+    dom.toast("Цена обновлена")
+    _persist(app)
+
+
+def _npc_clone(app, arg):
+    idx = int(arg)
+    src = list(data.NPCS[idx])
+    src[0] = src[0] + " (копия)"
+    data.NPCS.append(tuple(src))
+    dom.toast(f"NPC «{src[0]}» склонирован")
+    _persist(app)
+
+
+def _class_clone(app, arg):
+    src = data.CLASSES.get(arg)
+    if not src:
+        return
+    new_key = arg + "_copy"
+    while new_key in data.CLASSES:
+        new_key += "_copy"
+    data.CLASSES[new_key] = (src[0] + " (копия)", src[1], dict(src[2]))
+    dom.toast(f"Класс «{data.CLASSES[new_key][0]}» склонирован")
     _persist(app)

@@ -101,7 +101,11 @@
             </tr>
             {% else %}
             <tr><td colspan="5">
-                <div class="empty-state"><div class="empty-icon">🌟</div>Реликвий не заведено.</div>
+                <div class="empty-state">
+                    <div class="empty-icon">🌟</div>
+                    <div>Реликвий не заведено.</div>
+                    <a href="/items#new-item" class="btn btn-primary">➕ Создать предмет-реликвию</a>
+                </div>
             </td></tr>
             {% endfor %}
         </tbody>

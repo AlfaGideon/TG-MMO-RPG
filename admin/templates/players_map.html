@@ -78,7 +78,11 @@
             </tr>
             {% else %}
             <tr><td colspan="5">
-                <div class="empty-state"><div class="empty-icon">🧙</div>Персонажей пока нет.</div>
+                <div class="empty-state">
+                    <div class="empty-icon">🧙</div>
+                    <div>Персонажей пока нет.</div>
+                    <a href="/players" class="btn btn-primary">👥 Перейти к игрокам</a>
+                </div>
             </td></tr>
             {% endfor %}
         </tbody>

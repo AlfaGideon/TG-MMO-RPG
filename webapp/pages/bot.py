@@ -3,6 +3,7 @@ from webapp.html import esc
 from webapp.transport import PRESETS
 
 TITLE = "🤖 Бот"
+CRUMBS = [("Бот", "bot")]
 
 MODE_LABELS = {
     "direct": "Напрямую (без прокси)",

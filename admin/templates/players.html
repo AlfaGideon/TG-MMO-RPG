@@ -1,66 +1,118 @@
 {% extends "base.html" %}
+{% import "macros.html" as macros %}
 
 {% block title %}Игроки — Shadow Lands{% endblock %}
 {% block page_title %}👥 Игроки и персонажи{% endblock %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+    <a href="/">Dashboard</a><span class="sep">/</span><span class="current">Игроки</span>
+</div>
+{% endblock %}
 
 {% block content %}
 <div class="card">
     <div class="toolbar">
         <h2 style="margin-bottom:0;">👥 Список игроков</h2>
-        <input type="text" class="search-box" placeholder="Поиск по имени..." onkeyup="filterTable(this.value)">
+        <span class="hint">{{ pagination.total }} персонажей</span>
     </div>
-    <div class="table-wrap">
-    <table id="playersTable">
-        <thead>
-            <tr>
-                <th>ID</th>
-                <th>Telegram</th>
-                <th>Имя</th>
-                <th>Класс</th>
-                <th>Ур.</th>
-                <th>Опыт</th>
-                <th>Золото</th>
-                <th>HP</th>
-                <th>Локация</th>
-                <th>VIP</th>
-                <th>Действия</th>
-            </tr>
-        </thead>
-        <tbody>
+
+    {{ macros.search_form('/players', q, 'Поиск по имени...') }}
+
+    <form action="/players/mass-action" method="post" id="playersMassForm" data-validate>
+        <div class="mass-bar">
+            <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.85rem;color:var(--text-muted);cursor:pointer;">
+                <input type="checkbox" class="row-check" id="selectAllPlayers"> Все
+            </label>
+            <span class="mass-count" id="playersMassCount">Выбрано: 0</span>
+            <button type="submit" name="action" value="grant-vip" class="btn btn-primary btn-sm">👑 VIP 7 дней</button>
+        </div>
+
+        <div class="table-wrap">
+        <table id="playersTable">
+            <thead>
+                <tr>
+                    <th style="width:40px;"><input type="checkbox" class="row-check" id="selectAllPlayersHeader"></th>
+                    <th>{{ macros.sort_link('ID', 'id', sort, order, '/players', q) }}</th>
+                    <th>Telegram</th>
+                    <th>{{ macros.sort_link('Имя', 'name', sort, order, '/players', q) }}</th>
+                    <th>Класс</th>
+                    <th>{{ macros.sort_link('Ур.', 'level', sort, order, '/players', q) }}</th>
+                    <th>{{ macros.sort_link('Опыт', 'experience', sort, order, '/players', q) }}</th>
+                    <th>{{ macros.sort_link('Золото', 'gold', sort, order, '/players', q) }}</th>
+                    <th>HP</th>
+                    <th>Локация</th>
+                    <th>VIP</th>
+                    <th>Действия</th>
+                </tr>
+            </thead>
+            <tbody>
             {% for p in players %}
             <tr>
-                <td>{{ p.id }}</td>
-                <td>{{ p.user.telegram_id }}</td>
-                <td>{{ p.name }}</td>
-                <td>{{ p.character_class.value }}</td>
-                <td>{{ p.level }}</td>
-                <td>{{ p.experience }}</td>
-                <td>{{ p.gold }}</td>
-                <td>{{ p.current_hp }}/{{ p.max_hp }}</td>
-                <td>{{ p.location.name if p.location else '-' }}</td>
-                <td>{{ '✅' if p.is_vip else '—' }}</td>
-                <td>
+                <td data-label="Выбрать"><input type="checkbox" name="ids" value="{{ p.id }}" class="row-check player-check"></td>
+                <td data-label="ID">{{ p.id }}</td>
+                <td data-label="Telegram">{{ p.user.telegram_id }}</td>
+                <td data-label="Имя">{{ p.name }}</td>
+                <td data-label="Класс">{{ p.character_class.value }}</td>
+                <td data-label="Ур.">
+                    <form action="/api/player/{{ p.id }}/inline" method="post" class="inline-form" onsubmit="return inlineSave(this)">
+                        <input type="hidden" name="field" value="level">
+                        <input type="number" name="value" value="{{ p.level }}" min="1" class="search-box" style="max-width:70px">
+                    </form>
+                </td>
+                <td data-label="Опыт">{{ p.experience }}</td>
+                <td data-label="Золото">
+                    <form action="/api/player/{{ p.id }}/inline" method="post" class="inline-form" onsubmit="return inlineSave(this)">
+                        <input type="hidden" name="field" value="gold">
+                        <input type="number" name="value" value="{{ p.gold }}" min="0" class="search-box" style="max-width:90px">
+                    </form>
+                </td>
+                <td data-label="HP">{{ p.current_hp }}/{{ p.max_hp }}</td>
+                <td data-label="Локация">{{ p.location.name if p.location else '-' }}</td>
+                <td data-label="VIP">{{ '✅' if p.is_vip else '—' }}</td>
+                <td data-label="Действия">
                     <a href="/player/{{ p.id }}" class="btn btn-primary btn-sm">✏️ Управление</a>
                 </td>
             </tr>
             {% else %}
-            <tr><td colspan="11">
-                <div class="empty-state"><div class="empty-icon">👥</div>Игроков пока нет.</div>
+            <tr><td colspan="12">
+                <div class="empty-state"><div class="empty-icon">👥</div>Игроков не найдено.</div>
             </td></tr>
             {% endfor %}
-        </tbody>
-    </table>
-    </div>
-</div>
+            </tbody>
+        </table>
+        </div>
+    </form>
 
+    {{ macros.pagination(pagination, '/players', q) }}
+</div>
+{% endblock %}
+
+{% block scripts %}
 <script>
-function filterTable(query) {
-    const rows = document.querySelectorAll('#playersTable tbody tr');
-    const lower = query.toLowerCase();
-    rows.forEach(row => {
-        const text = row.innerText.toLowerCase();
-        row.style.display = text.includes(lower) ? '' : 'none';
-    });
-}
+(function() {
+    const form = document.getElementById('playersMassForm');
+    if (!form) return;
+    const checks = form.querySelectorAll('.player-check');
+    const allHeader = document.getElementById('selectAllPlayersHeader');
+    const allBar = document.getElementById('selectAllPlayers');
+    const countLabel = document.getElementById('playersMassCount');
+
+    function updateCount() {
+        const n = form.querySelectorAll('.player-check:checked').length;
+        countLabel.textContent = 'Выбрано: ' + n;
+    }
+
+    function setAll(v) {
+        checks.forEach(c => c.checked = v);
+        if (allHeader) allHeader.checked = v;
+        if (allBar) allBar.checked = v;
+        updateCount();
+    }
+
+    checks.forEach(c => c.addEventListener('change', updateCount));
+    if (allHeader) allHeader.addEventListener('change', e => setAll(e.target.checked));
+    if (allBar) allBar.addEventListener('change', e => setAll(e.target.checked));
+})();
 </script>
 {% endblock %}

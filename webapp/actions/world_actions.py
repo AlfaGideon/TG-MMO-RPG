@@ -17,7 +17,6 @@ def register(app, A):
     A("cell-edit", lambda arg: app.modal(page.cell_form(app, arg)))
     A("cell-save", lambda arg: _cell_save(app, arg))
     A("data-export", lambda _="": _export(app))
-    A("data-import", lambda _="": _import(app))
     A("data-reset", lambda _="": _reset(app))
     A("settings-save", lambda _="": _settings_save(app))
     A("panel-url-save", lambda _="": _panel_url_save(app))
@@ -79,21 +78,6 @@ def _cell_save(app, key):
 def _export(app):
     dom.set_value("#ioBox", app.store.backend.get("shadowlands") or "{}")
     dom.toast("Экспортировано в поле ниже")
-
-
-def _import(app):
-    raw = dom.value("#ioBox").strip()
-    try:
-        json.loads(raw)
-    except Exception:
-        dom.toast("Невалидный JSON", "err")
-        return
-    app.store.backend.set("shadowlands", raw)
-    app.store.load()
-    app.bot.game.world = app.store.world
-    app.bot.transport.settings = app.store.settings
-    dom.toast("Импортировано")
-    app.render()
 
 
 def _reset(app):

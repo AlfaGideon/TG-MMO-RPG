@@ -3,7 +3,8 @@ from engine import permissions
 from engine.storage import Store
 from webapp import dom, session
 from webapp.actions import (audit_actions, bot_actions, content_actions,
-                            economy_actions, player_actions, world_actions)
+                            devops_actions, economy_actions, player_actions,
+                            world_actions)
 from webapp.backend import LocalStorage
 from webapp.pages import audit as page_audit
 from webapp.pages import bot as page_bot
@@ -39,7 +40,8 @@ PAGE_CAPS = {
 }
 
 ACTION_MODULES = [audit_actions, bot_actions, content_actions,
-                  economy_actions, player_actions, world_actions]
+                  devops_actions, economy_actions, player_actions,
+                  world_actions]
 
 
 class App:
@@ -74,11 +76,14 @@ class App:
         if not self.visible(self.page):
             self.page = next((k for k, _ in PAGES if self.visible(k)), "audit")
         dom.html("#nav", self._nav_markup())
-        title = dict(PAGES)[self.page].TITLE
+        page_mod = dict(PAGES)[self.page]
+        title = page_mod.TITLE
         node = dom.el("#pageTitle")
         if node is not None:
             node.textContent = title
-        dom.html("#view", dict(PAGES)[self.page].render(self))
+        dom.html("#breadcrumbs", self._crumbs_markup(page_mod))
+        dom.html("#view", page_mod.render(self))
+        dom.wire_forms()
         self._paint_status()
 
     def _nav_markup(self):
@@ -95,10 +100,37 @@ class App:
                 active = " active" if key == self.page else ""
                 out += (f"<button class='nav-link{active}' data-act='nav' data-arg='{key}'>"
                         f"<span class='nav-icon'>{icon}</span> {text or icon}</button>")
+        out += self._player_ctx_markup()
         if self.actor is not None:
             out += ("<div class='nav-section-label'>Сессия</div>"
                     "<button class='nav-link' data-act='logout'>"
                     "<span class='nav-icon'>🚪</span> Выйти</button>")
+        return out
+
+    def _player_ctx_markup(self):
+        from webapp.html import esc
+        pid = self.state.get("player_ctx")
+        if self.page != "players" or not pid:
+            return ""
+        p = self.store.players.get(int(pid))
+        if not p:
+            return ""
+        return f"""
+<div class='nav-section-label'>👤 {esc(p.name)}</div>
+<button class='nav-link' data-act='player-edit' data-arg='{p.tg_id}'>✏️ Редактировать</button>
+<button class='nav-link' data-act='player-heal' data-arg='{p.tg_id}'>💊 Вылечить</button>
+<button class='nav-link' data-act='player-access' data-arg='{p.tg_id}'>🔑 Доступ</button>
+"""
+
+    def _crumbs_markup(self, page_mod):
+        from webapp.html import esc
+        crumbs = getattr(page_mod, "CRUMBS", None)
+        if not crumbs:
+            return f"<span class='current'>{esc(page_mod.TITLE)}</span>"
+        out = "<a href='#' data-act='nav' data-arg='dash'>Dashboard</a><span class='sep'>/</span>"
+        for label, key in crumbs[:-1]:
+            out += f"<a href='#' data-act='nav' data-arg='{esc(key)}'>{esc(label)}</a><span class='sep'>/</span>"
+        out += f"<span class='current'>{esc(crumbs[-1][0])}</span>"
         return out
 
     def _paint_status(self):
@@ -134,6 +166,28 @@ class App:
         session.logout()
         from js import location
         location.replace("admin-login.html")
+
+    def paint_cell(self, key, tile):
+        """Drag-to-paint клетки локации (вызывается из inline JS)."""
+        from engine import data
+        c = self.store.world.get(key)
+        if c is None or tile not in data.TILE_COLORS:
+            return
+        c.tile = tile
+        self.store.save()
+        self.render()
+
+    def edit_cell(self, key):
+        """Открыть форму клетки (вызывается из inline JS)."""
+        from webapp.pages import world as page
+        self.modal(page.cell_form(self, key))
+
+    def move_world_loc(self, loc_idx, wx, wy):
+        """Переместить локацию на глобальной сетке (drag-and-drop)."""
+        grid = self.store.settings.setdefault("world_grid", {})
+        grid[str(loc_idx)] = [int(wx), int(wy)]
+        self.store.save()
+        self.render()
 
     # ── запуск ──────────────────────────────────────────────
     def wire(self):

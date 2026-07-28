@@ -9,6 +9,15 @@
 </form>
 {% endblock %}
 
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+    <a href="/">Dashboard</a><span class="sep">/</span>
+    <a href="/content">Контент</a><span class="sep">/</span>
+    <a href="/editor/locations">Локации</a><span class="sep">/</span>
+    <span class="current">{{ location.name }}</span>
+</div>
+{% endblock %}
+
 {% block content %}
 <style>
 .cell-grid {
@@ -54,11 +63,13 @@
 <div class="card">
     <h2>✏️ Редактирование: {{ location.name }}</h2>
 
-    <form action="/editor/location/{{ location.id }}/save" method="post" enctype="multipart/form-data" style="margin-bottom: 1.5rem;">
+    <form action="/editor/location/{{ location.id }}/save" method="post" enctype="multipart/form-data" style="margin-bottom: 1.5rem;" data-validate data-autosave>
         {% if location.image_url %}
         <div style="margin-bottom: 1rem;">
-            <img src="{{ location.image_url }}" style="max-width: 200px; border-radius: 8px; border: 1px solid var(--border);">
+            <img id="locPreview" src="{{ location.image_url }}" style="max-width: 200px; border-radius: 8px; border: 1px solid var(--border);">
         </div>
+        {% else %}
+        <img id="locPreview" style="display:none; max-width:200px; border-radius:8px; border:1px solid var(--border); margin-bottom:1rem;">
         {% endif %}
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
             <div>
@@ -102,7 +113,7 @@
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
             <div>
                 <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">🖼 Картинка локации (файл)</label>
-                <input type="file" name="image" accept="image/*" class="search-box" style="max-width: 100%;">
+                <input type="file" name="image" accept="image/*" class="search-box" style="max-width: 100%;" data-preview="#locPreview">
             </div>
             <div>
                 <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Или URL картинки</label>
@@ -124,15 +135,35 @@
         </div>
         {% endif %}
     </div>
-    <p style="color: var(--text-muted); font-size: 0.8rem; margin-bottom: 1rem;">
-        Кликни на клетку чтобы отредактировать. Легенда: 🧱 стена | 🌿 трава | 🌲 лес | 💧 вода | 🛤 дорога | 🏘 деревня | 🕳 пещера | 🌀 портал подземелья | 👾 враг | 💬 NPC | 📦 сундук
-    </p>
-    <div class="cell-grid">
+    <div style="margin-bottom:1rem;">
+        <div class="toolbar" style="margin-bottom:0.75rem; flex-wrap:wrap;">
+            <h3 style="margin:0; font-size:0.95rem;">🖌 Кисть</h3>
+            <div style="display:flex; gap:0.35rem; flex-wrap:wrap;">
+                <button type="button" class="btn btn-sm brush active" data-brush="wall" title="Стена / непроходимо">🧱 Стена</button>
+                <button type="button" class="btn btn-sm brush" data-brush="grass" title="Трава">🌿 Трава</button>
+                <button type="button" class="btn btn-sm brush" data-brush="forest" title="Лес">🌲 Лес</button>
+                <button type="button" class="btn btn-sm brush" data-brush="water" title="Вода">💧 Вода</button>
+                <button type="button" class="btn btn-sm brush" data-brush="road" title="Дорога">🛤 Дорога</button>
+                <button type="button" class="btn btn-sm brush" data-brush="village" title="Деревня">🏘 Деревня</button>
+                <button type="button" class="btn btn-sm brush" data-brush="cave" title="Пещера">🕳 Пещера</button>
+                <button type="button" class="btn btn-sm brush" data-brush="portal" title="Портал">🌀 Портал</button>
+                <button type="button" class="btn btn-sm brush" data-brush="npc" title="Добавить NPC">💬 NPC</button>
+                <button type="button" class="btn btn-sm brush" data-brush="chest" title="Добавить сундук">📦 Сундук</button>
+                <button type="button" class="btn btn-sm brush" data-brush="clear" title="Убрать NPC/сундук">🧹 Очистить</button>
+            </div>
+        </div>
+        <p style="color: var(--text-muted); font-size: 0.8rem; margin-bottom: 1rem;">
+            Кликни или веди по клеткам, чтобы закрасить. Удерживай мышь для быстрой заливки. Клик по клетке с зажатым Ctrl открывает детальное редактирование.
+        </p>
+    </div>
+    <div class="cell-grid" id="cellGrid">
         {% for y in range(location.grid_size) %}
             {% for x in range(location.grid_size) %}
                 {% set cell = cells_dict.get((x, y)) %}
                 {% if cell %}
-                    <a href="/editor/cell/{{ cell.id }}" class="cell cell-{{ cell.tile_type }} {% if not cell.is_passable %}cell-wall{% endif %} {% if cell.mob_id %}cell-mob{% endif %} {% if cell.has_npc %}cell-npc{% endif %} {% if cell.has_chest %}cell-chest{% endif %}">
+                    <a href="/editor/cell/{{ cell.id }}" class="cell cell-{{ cell.tile_type }} {% if not cell.is_passable %}cell-wall{% endif %} {% if cell.mob_id %}cell-mob{% endif %} {% if cell.has_npc %}cell-npc{% endif %} {% if cell.has_chest %}cell-chest{% endif %}"
+                       data-id="{{ cell.id }}" data-x="{{ x }}" data-y="{{ y }}" data-tile="{{ cell.tile_type }}" data-passable="{{ '1' if cell.is_passable else '' }}"
+                       onclick="return cellClick(event, this)">
                         {{ x }},{{ y }}
                     </a>
                 {% else %}
@@ -142,4 +173,77 @@
         {% endfor %}
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    let currentBrush = 'wall';
+    let isPainting = false;
+    const grid = document.getElementById('cellGrid');
+
+    document.querySelectorAll('.brush').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.brush').forEach(b => b.classList.remove('active', 'btn-primary'));
+            btn.classList.add('active', 'btn-primary');
+            currentBrush = btn.dataset.brush;
+        });
+    });
+
+    window.cellClick = function(e, el) {
+        if (e.ctrlKey || e.metaKey) return true;
+        e.preventDefault();
+        paintCell(el);
+        return false;
+    };
+
+    function paintCell(el) {
+        if (!el || !el.dataset.id) return;
+        applyVisual(el, currentBrush);
+        fetch('/api/cell/' + el.dataset.id + '/paint', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: 'brush=' + encodeURIComponent(currentBrush)
+        }).then(r => r.json()).then(data => {
+            if (!data.success) showToast(data.error || 'Ошибка', 'err');
+        }).catch(() => showToast('Ошибка сети', 'err'));
+    }
+
+    function applyVisual(el, brush) {
+        el.classList.remove('cell-wall','cell-grass','cell-forest','cell-water','cell-road','cell-village','cell-cave','cell-portal','cell-npc','cell-chest');
+        if (brush === 'clear') {
+            const tile = el.dataset.tile || 'grass';
+            el.classList.add('cell-' + tile);
+            if (el.dataset.passable !== '1') el.classList.add('cell-wall');
+            return;
+        }
+        if (['wall','grass','forest','water','road','village','cave','portal'].includes(brush)) {
+            el.dataset.tile = brush;
+            el.dataset.passable = brush === 'wall' ? '' : '1';
+            el.classList.add('cell-' + brush);
+            if (brush === 'wall') el.classList.add('cell-wall');
+            return;
+        }
+        const tile = el.dataset.tile || 'grass';
+        el.classList.add('cell-' + tile);
+        if (el.dataset.passable !== '1') el.classList.add('cell-wall');
+        if (brush === 'npc') el.classList.add('cell-npc');
+        if (brush === 'chest') el.classList.add('cell-chest');
+    }
+
+    if (grid) {
+        grid.addEventListener('mousedown', () => isPainting = true);
+        document.addEventListener('mouseup', () => isPainting = false);
+        grid.addEventListener('mouseover', e => {
+            if (!isPainting) return;
+            const el = e.target.closest('.cell[data-id]');
+            if (el) paintCell(el);
+        });
+    }
+})();
+</script>
+<style>
+.brush.active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+.cell { user-select: none; -webkit-user-select: none; }
+</style>
 {% endblock %}

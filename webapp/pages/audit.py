@@ -3,6 +3,7 @@ from engine import audit, permissions
 from webapp.html import esc
 
 TITLE = "📜 Действия"
+CRUMBS = [("Действия", "audit")]
 
 SRC_TABS = [("", "Все"), ("panel", "🖥 Панель"), ("bot", "🤖 Бот")]
 
@@ -10,7 +11,11 @@ SRC_TABS = [("", "Все"), ("panel", "🖥 Панель"), ("bot", "🤖 Бот
 def render(ctx):
     src = ctx.state.get("audit_src", "")
     who = ctx.state.get("audit_who", "")
-    items = audit.entries(ctx.store, source=src, who=int(who or 0))
+    search = ctx.state.get("audit_search", "")
+    date_from = ctx.state.get("audit_from", "")
+    date_to = ctx.state.get("audit_to", "")
+    items = audit.entries(ctx.store, source=src, who=int(who or 0),
+                          search=search, date_from=date_from, date_to=date_to)
 
     tabs = "".join(
         f"<button class='btn {'primary' if src == key else ''}' "
@@ -59,8 +64,11 @@ def render(ctx):
   <div style="display:flex;gap:.4rem;flex-wrap:wrap;margin-bottom:.6rem">{tabs}</div>
   <div class="row">
     <div><label>Администратор</label><select id="auditWho">{opts}</select></div>
+    <div><label>Поиск</label><input id="auditSearch" value="{esc(search)}" placeholder="Действие, цель, детали..."></div>
+    <div><label>С</label><input id="auditFrom" type="date" value="{esc(date_from)}"></div>
+    <div><label>По</label><input id="auditTo" type="date" value="{esc(date_to)}"></div>
     <div style="flex:0 0 auto"><label>&nbsp;</label>
-      <button class="btn" data-act="audit-who">Применить</button></div>
+      <button class="btn" data-act="audit-filter">Применить</button></div>
     <div style="flex:0 0 auto"><label>&nbsp;</label>
       <button class="btn danger" data-act="audit-clear">🗑 Очистить журнал</button></div>
   </div>

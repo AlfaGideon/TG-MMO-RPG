@@ -32,7 +32,11 @@
             </tr>
             {% else %}
             <tr><td colspan="6">
-                <div class="empty-state"><div class="empty-icon">🗺</div>Локаций пока нет.</div>
+                <div class="empty-state">
+                    <div class="empty-icon">🗺</div>
+                    <div>Локаций пока нет.</div>
+                    <a href="/editor/location/new" class="btn btn-primary">➕ Создать первую локацию</a>
+                </div>
             </td></tr>
             {% endfor %}
         </tbody>
