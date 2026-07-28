@@ -10,6 +10,7 @@ INT_FIELDS = ["level", "gold", "hp", "max_hp", "mp", "max_mp", "strength",
 
 
 def register(app, A):
+    A("dash-heal", lambda _="": _heal_all(app))
     A("player-edit", lambda arg: app.modal(page.edit_form(app, arg)))
     A("player-save", lambda arg: _save(app, arg))
     A("player-del", lambda arg: _delete(app, arg))
@@ -66,6 +67,18 @@ def _heal(app, tg_id):
     dom.toast("Игрок исцелён")
     app.render()
     _flush(app)
+
+
+def _heal_all(app):
+    if not app.can("heal_players"):
+        dom.toast("Недостаточно прав", "err")
+        return
+    for p in app.store.players.values():
+        p.hp = p.max_hp
+        p.mp = p.max_mp
+    app.store.save()
+    dom.toast("Все игроки вылечены")
+    app.render()
 
 
 def _give(app, tg_id):

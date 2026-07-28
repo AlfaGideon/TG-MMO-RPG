@@ -86,7 +86,11 @@
             </tr>
             {% else %}
             <tr><td colspan="9">
-                <div class="empty-state"><div class="empty-icon">🆔</div>Ничего не найдено.</div>
+                <div class="empty-state">
+                    <div class="empty-icon">🆔</div>
+                    <div>Экземпляров не найдено.</div>
+                    <span class="hint">Именные вещи появляются, когда игроки выбивают лут, открывают сундуки или крафтят.</span>
+                </div>
             </td></tr>
             {% endfor %}
         </tbody>

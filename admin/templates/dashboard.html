@@ -9,6 +9,10 @@
 </div>
 {% endblock %}
 
+{% block topbar_actions %}
+<button type="button" class="btn btn-primary" onclick="openBroadcastModal()">📣 Рассылка</button>
+{% endblock %}
+
 {% block content %}
 <div class="stats-grid">
     <div class="stat-box">
@@ -40,6 +44,75 @@
         <div class="stat-icon">🗺</div>
         <div class="value">{{ top_location }}</div>
         <div class="label">Популярная локация</div>
+    </div>
+</div>
+
+<div class="quick-actions">
+    <button class="btn" onclick="quickAction(this, '/api/heal-all', '✨ Вылечить всех')">✨ Вылечить всех</button>
+    <button class="btn" onclick="quickAction(this, '/api/respawn-all', '👣 Респавн мобов')">👣 Респавн мобов</button>
+    <button class="btn" onclick="openBroadcastModal()">📣 Отправить рассылку</button>
+    <button class="btn" onclick="quickAction(this, '/api/open-portal', '🌀 Открыть портал')">🌀 Открыть портал</button>
+</div>
+
+<div class="grid-2" style="margin-top:1.5rem;">
+    <div class="card">
+        <h2>🏥 Здоровье системы</h2>
+        <div class="health-list">
+            <div class="health-item {% if bot_running %}ok{% else %}warn{% endif %}">
+                <span class="health-dot"></span>
+                <span>{% if bot_running %}🤖 Бот работает{% else %}🤖 Бот остановлен{% endif %}</span>
+                <a href="/settings" class="btn btn-sm">Настройки</a>
+            </div>
+            <div class="health-item {% if not empty_locations %}ok{% else %}warn{% endif %}">
+                <span class="health-dot"></span>
+                <span>{% if empty_locations %}{{ empty_locations|length }} пустых локаций{% else %}✅ Все локации заселены{% endif %}</span>
+                {% if empty_locations %}<a href="/map" class="btn btn-sm">Карта</a>{% endif %}
+            </div>
+            <div class="health-item {% if not mobs_no_spawns %}ok{% else %}warn{% endif %}">
+                <span class="health-dot"></span>
+                <span>{% if mobs_no_spawns %}{{ mobs_no_spawns|length }} мобов без популяции{% else %}✅ Все мобы на карте{% endif %}</span>
+                {% if mobs_no_spawns %}<a href="/editor/spawns" class="btn btn-sm">Популяция</a>{% endif %}
+            </div>
+            <div class="health-item {% if not expired_lots %}ok{% else %}warn{% endif %}">
+                <span class="health-dot"></span>
+                <span>{% if expired_lots %}{{ expired_lots|length }} просроченных лотов{% else %}✅ Аукцион чист{% endif %}</span>
+                {% if expired_lots %}<a href="/editor/auction" class="btn btn-sm">Аукцион</a>{% endif %}
+            </div>
+            <div class="health-item ok">
+                <span class="health-dot"></span>
+                <span>🕳 Открыто порталов: {{ open_dungeons }}</span>
+                <a href="/editor/dungeons" class="btn btn-sm">Подземелья</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>📊 Распределение уровней</h2>
+        <div class="chart-wrap">
+            <canvas id="levelsChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<div class="grid-2" style="margin-top:1.5rem;">
+    <div class="card">
+        <h2>🪙 Золото по локациям</h2>
+        <div class="chart-wrap">
+            <canvas id="goldChart"></canvas>
+        </div>
+    </div>
+    <div class="card">
+        <h2>🎒 Предметы по редкости</h2>
+        <div class="chart-wrap">
+            <canvas id="rarityChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<div class="card" style="margin-top: 1.5rem;">
+    <h2>⚔️ Результаты боёв</h2>
+    <div class="chart-wrap" style="max-width:480px;">
+        <canvas id="battlesChart"></canvas>
     </div>
 </div>
 
@@ -82,4 +155,158 @@
     </table>
     </div>
 </div>
+
+<!-- Broadcast modal -->
+<div id="broadcastModal" class="modal-overlay" onclick="closeBroadcastModal(event)">
+    <div class="modal-box" onclick="event.stopPropagation()">
+        <h3>📣 Рассылка всем игрокам</h3>
+        <textarea id="broadcastText" rows="4" placeholder="Текст сообщения..."></textarea>
+        <div class="modal-actions">
+            <button class="btn" onclick="closeBroadcastModal()">Отмена</button>
+            <button class="btn btn-primary" onclick="sendBroadcast(this)">📨 Отправить</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+const chartFont = { family: "'Segoe UI', system-ui, sans-serif", size: 12 };
+const chartColors = {
+    common: '#9ca3af', uncommon: '#22c55e', rare: '#3b82f6',
+    epic: '#a855f7', legendary: '#eab308'
+};
+Chart.defaults.color = '#94a3b8';
+Chart.defaults.borderColor = '#2e2e3e';
+
+new Chart(document.getElementById('levelsChart'), {
+    type: 'bar',
+    data: {
+        labels: {{ levels_chart | map(attribute=0) | list | tojson }},
+        datasets: [{
+            label: 'Персонажей',
+            data: {{ levels_chart | map(attribute=1) | list | tojson }},
+            backgroundColor: '#8b5cf6',
+            borderRadius: 6
+        }]
+    },
+    options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
+    }
+});
+
+new Chart(document.getElementById('goldChart'), {
+    type: 'doughnut',
+    data: {
+        labels: {{ gold_by_location | map(attribute=0) | list | tojson }},
+        datasets: [{
+            data: {{ gold_by_location | map(attribute=1) | list | tojson }},
+            backgroundColor: ['#8b5cf6', '#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#14b8a6', '#a855f7', '#ec4899', '#6366f1', '#84cc16']
+        }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right' } } }
+});
+
+new Chart(document.getElementById('rarityChart'), {
+    type: 'bar',
+    data: {
+        labels: ['common', 'uncommon', 'rare', 'epic', 'legendary'],
+        datasets: [{
+            label: 'Предметов',
+            data: [
+                {{ items_by_rarity.get('common', 0) }},
+                {{ items_by_rarity.get('uncommon', 0) }},
+                {{ items_by_rarity.get('rare', 0) }},
+                {{ items_by_rarity.get('epic', 0) }},
+                {{ items_by_rarity.get('legendary', 0) }}
+            ],
+            backgroundColor: ['#9ca3af', '#22c55e', '#3b82f6', '#a855f7', '#eab308'],
+            borderRadius: 6
+        }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+});
+
+new Chart(document.getElementById('battlesChart'), {
+    type: 'pie',
+    data: {
+        labels: ['Победа', 'Поражение', 'Побег'],
+        datasets: [{
+            data: [
+                {{ battle_results.get('victory', 0) }},
+                {{ battle_results.get('defeat', 0) }},
+                {{ battle_results.get('flee', 0) }}
+            ],
+            backgroundColor: ['#22c55e', '#ef4444', '#6b7280']
+        }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right' } } }
+});
+
+function showToast(msg, type='success') {
+    const t = document.createElement('div');
+    t.className = 'toast-msg ' + type;
+    t.textContent = msg;
+    document.body.appendChild(t);
+    requestAnimationFrame(() => t.classList.add('show'));
+    setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 300); }, 3500);
+}
+
+async function quickAction(btn, url, label) {
+    const orig = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '⏳ ' + label;
+    try {
+        const r = await fetch(url, { method: 'POST' });
+        const data = await r.json();
+        if (data.success) {
+            showToast('✅ ' + (data.healed ? 'Вылечено ' + data.healed + ' персонажей' : label + ' выполнено'));
+        } else {
+            showToast('❌ ' + (data.error || 'Ошибка'), 'err');
+        }
+    } catch (e) {
+        showToast('❌ Ошибка сети', 'err');
+    }
+    btn.disabled = false;
+    btn.innerHTML = orig;
+}
+
+function openBroadcastModal() {
+    document.getElementById('broadcastModal').classList.add('open');
+    document.getElementById('broadcastText').focus();
+}
+function closeBroadcastModal(e) {
+    if (!e || e.target === document.getElementById('broadcastModal')) {
+        document.getElementById('broadcastModal').classList.remove('open');
+    }
+}
+
+async function sendBroadcast(btn) {
+    const text = document.getElementById('broadcastText').value.trim();
+    if (!text) return showToast('Введите текст сообщения', 'err');
+    btn.disabled = true;
+    const orig = btn.innerHTML;
+    btn.innerHTML = '⏳ Отправка...';
+    try {
+        const body = new FormData();
+        body.append('text', text);
+        const r = await fetch('/api/broadcast', { method: 'POST', body });
+        const data = await r.json();
+        if (data.success) {
+            showToast('✅ Сообщение получили ' + data.notified + ' игроков');
+            document.getElementById('broadcastText').value = '';
+            closeBroadcastModal();
+        } else {
+            showToast('❌ ' + (data.error || 'Ошибка'), 'err');
+        }
+    } catch (e) {
+        showToast('❌ Ошибка сети', 'err');
+    }
+    btn.disabled = false;
+    btn.innerHTML = orig;
+}
+</script>
 {% endblock %}

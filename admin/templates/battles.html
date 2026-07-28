@@ -1,10 +1,22 @@
 {% extends "base.html" %}
+{% import "macros.html" as macros %}
 
 {% block title %}Бои — Shadow Lands{% endblock %}
 {% block page_title %}⚔️ История боёв{% endblock %}
 
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+    <a href="/">Dashboard</a><span class="sep">/</span>
+    <span class="current">Бои</span>
+</div>
+{% endblock %}
+
 {% block content %}
 <div class="card">
+    <div class="toolbar">
+        <h2 style="margin-bottom:0;">⚔️ История боёв</h2>
+        <span class="hint">{{ pagination.total }} боёв</span>
+    </div>
     <div class="table-wrap">
     <table>
         <thead>
@@ -45,11 +57,17 @@
             </tr>
             {% else %}
             <tr><td colspan="10">
-                <div class="empty-state"><div class="empty-icon">⚔️</div>Боёв пока не было.</div>
+                <div class="empty-state">
+                    <div class="empty-icon">⚔️</div>
+                    <div>Боёв пока не было.</div>
+                    <a href="/players" class="btn btn-primary">👥 Перейти к игрокам</a>
+                </div>
             </td></tr>
             {% endfor %}
         </tbody>
     </table>
     </div>
+
+    {{ macros.pagination(pagination, '/battles') }}
 </div>
 {% endblock %}

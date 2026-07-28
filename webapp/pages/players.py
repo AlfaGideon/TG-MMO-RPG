@@ -37,7 +37,11 @@ def render(ctx):
             f"<td><button class='btn' data-act='player-edit' data-arg='{p.tg_id}'>✏️</button> "
             f"<button class='btn danger' data-act='player-del' data-arg='{p.tg_id}'>🗑</button></td></tr>")
     if not rows:
-        rows = "<tr><td colspan='10' class='muted'>Пока никого. Запусти бота и напиши /start.</td></tr>"
+        rows = ("<tr><td colspan='10'><div class='empty-state'>"
+                "<div class='empty-icon'>👥</div>"
+                "<div>Пока никого. Запусти бота и напиши ему /start.</div>"
+                "<button class='btn primary' data-act='nav' data-arg='bot'>🤖 Запустить бота</button>"
+                "</div></td></tr>")
 
     pagination = ""
     if pages > 1:

@@ -217,6 +217,15 @@ function toggleSidebar(force) {
     }
 }
 
+function showToast(msg, type='success') {
+    const t = document.createElement('div');
+    t.className = 'toast-msg ' + type;
+    t.textContent = msg;
+    document.body.appendChild(t);
+    requestAnimationFrame(() => t.classList.add('show'));
+    setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 300); }, 3500);
+}
+
 function toggleGroup(id) {
     const el = document.getElementById(id);
     const willOpen = !el.classList.contains('open');
@@ -349,24 +358,24 @@ async function updateGitHeader(btn) {
                 : '✅ Код уже в актуальной версии.';
 
             if (data.bot_off) {
-                msg += '\n\n⚠️ Бот остановлен — уведомление игрокам не отправлено.';
+                msg += ' ⚠️ Бот остановлен — уведомление игрокам не отправлено.';
             } else if (data.notify_error) {
-                msg += '\n\n⚠️ Рассылка не удалась: ' + data.notify_error;
+                msg += ' ⚠️ Рассылка не удалась: ' + data.notify_error;
             } else {
-                msg += '\n\n📣 Уведомление об обновлении получили игроков: ' + (data.notified || 0);
+                msg += ' 📣 Уведомление об обновлении получили игроков: ' + (data.notified || 0);
             }
 
             if (data.restarting) {
-                msg += '\n\n♻️ Сервер перезапускается — обнови страницу через 5 секунд.';
+                msg += ' ♻️ Сервер перезапускается — обнови страницу через 5 секунд.';
             }
-            alert(msg);
+            showToast(msg);
         } else {
             btn.innerHTML = '❌ Ошибка';
-            alert('Ошибка обновления: ' + (data.error || data.output || 'Неизвестно'));
+            showToast('Ошибка обновления: ' + (data.error || data.output || 'Неизвестно'), 'err');
         }
     } catch (e) {
         btn.innerHTML = '❌ Ошибка сети';
-        alert('Ошибка сети: ' + e.message);
+        showToast('Ошибка сети: ' + e.message, 'err');
     }
     setTimeout(() => { btn.disabled = false; btn.innerHTML = origText; }, 4000);
 }

@@ -206,6 +206,10 @@ async def admin_logout():
 
 @app.get("/")
 async def dashboard(request: Request):
+    from core.auction import sweep_expired
+    from core.dungeons import is_portal_open
+    from datetime import datetime
+
     async with async_session() as session:
         total_players = await session.scalar(select(func.count(User.id)))
         total_characters = await session.scalar(select(func.count(Character.id)))
@@ -232,6 +236,74 @@ async def dashboard(request: Request):
         )
         recent_battles = result.scalars().all()
 
+        # ── Chart data ──
+        # Players by level (buckets)
+        result = await session.execute(
+            select(Character.level, func.count(Character.id))
+            .group_by(Character.level)
+            .order_by(Character.level)
+        )
+        levels_chart = [(lvl, cnt) for lvl, cnt in result.all()]
+
+        # Gold by location
+        result = await session.execute(
+            select(Location.name, func.coalesce(func.sum(Character.gold), 0))
+            .outerjoin(Character, Character.location_id == Location.id)
+            .group_by(Location.id)
+            .order_by(func.coalesce(func.sum(Character.gold), 0).desc())
+            .limit(10)
+        )
+        gold_by_location = [(name, int(g or 0)) for name, g in result.all()]
+
+        # Items by rarity
+        result = await session.execute(
+            select(Item.rarity, func.count(Item.id))
+            .group_by(Item.rarity)
+        )
+        items_by_rarity = {r.value: c for r, c in result.all()}
+
+        # Battle results distribution
+        result = await session.execute(
+            select(Battle.result, func.count(Battle.id))
+            .group_by(Battle.result)
+        )
+        battle_results = {r.value: c for r, c in result.all()}
+
+        # ── Health panel ──
+        await sweep_expired(session)
+        await session.commit()
+
+        result = await session.execute(
+            select(Location).outerjoin(Character, Character.location_id == Location.id)
+            .group_by(Location.id)
+            .having(func.count(Character.id) == 0)
+        )
+        empty_locations = result.scalars().all()
+
+        result = await session.execute(
+            select(Mob).outerjoin(
+                MobSpawn,
+                (MobSpawn.mob_id == Mob.id) & (MobSpawn.is_alive == True)  # noqa: E712
+            )
+            .group_by(Mob.id)
+            .having(func.count(MobSpawn.id) == 0)
+        )
+        mobs_no_spawns = result.scalars().all()
+
+        result = await session.execute(
+            select(AuctionLot)
+            .where(AuctionLot.status == AuctionStatus.EXPIRED.value)
+            .order_by(AuctionLot.id.desc())
+            .limit(10)
+        )
+        expired_lots = result.scalars().all()
+
+        open_dungeons = await session.scalar(
+            select(func.count(DungeonTemplate.id))
+            .where(DungeonTemplate.portal_closed_at.is_(None))
+            .where(DungeonTemplate.portal_opened_at.isnot(None))
+        ) or 0
+
     return templates.TemplateResponse(
         request,
         "dashboard.html",
@@ -243,6 +315,15 @@ async def dashboard(request: Request):
             "avg_level": avg_level,
             "top_location": top_location,
             "recent_battles": recent_battles,
+            "levels_chart": levels_chart,
+            "gold_by_location": gold_by_location,
+            "items_by_rarity": items_by_rarity,
+            "battle_results": battle_results,
+            "empty_locations": empty_locations,
+            "mobs_no_spawns": mobs_no_spawns,
+            "expired_lots": expired_lots,
+            "open_dungeons": open_dungeons,
+            "bot_running": bot_runner.is_running(),
         },
     )
 
@@ -1080,19 +1161,22 @@ async def item_delete(request: Request, item_id: int):
 # ── Battles ────────────────────────────────────────────────
 
 @app.get("/battles")
-async def battles(request: Request):
+async def battles(request: Request, page: int = 1):
+    per_page = 50
     async with async_session() as session:
+        total = await session.scalar(select(func.count(Battle.id))) or 0
+        meta = paginate(total, page, per_page)
         result = await session.execute(
             select(Battle)
             .options(selectinload(Battle.character), selectinload(Battle.mob))
             .order_by(Battle.id.desc())
-            .limit(100)
+            .offset(meta["offset"]).limit(per_page)
         )
         rows = result.scalars().all()
     return templates.TemplateResponse(
         request,
         "battles.html",
-        {"battles": rows},
+        {"battles": rows, "pagination": meta},
     )
 
 
@@ -1184,6 +1268,103 @@ async def api_bot_stop(request: Request):
 @app.get("/api/bot/status")
 async def api_bot_status():
     return {"running": bot_runner.is_running()}
+
+
+# ── Dashboard Quick Actions ────────────────────────────────
+
+@app.post("/api/heal-all")
+async def api_heal_all(request: Request):
+    guard(request, "manage_players")
+    async with async_session() as session:
+        result = await session.execute(select(Character))
+        chars = result.scalars().all()
+        for char in chars:
+            char.current_hp = char.max_hp
+            char.current_mp = char.max_mp
+        await session.commit()
+    return {"success": True, "healed": len(chars)}
+
+
+@app.post("/api/respawn-all")
+async def api_respawn_all(request: Request):
+    guard(request, "manage_content")
+    from core.spawns import ensure_all_populations
+    async with async_session() as session:
+        result = await session.execute(
+            select(MobSpawn).where(MobSpawn.is_alive == False)  # noqa: E712
+        )
+        for spawn in result.scalars().all():
+            spawn.respawn_at = datetime.utcnow() - timedelta(seconds=1)
+        await session.flush()
+        await ensure_all_populations(session)
+        await session.commit()
+    return {"success": True}
+
+
+@app.post("/api/broadcast")
+async def api_broadcast(request: Request, text: str = Form(...)):
+    guard(request, "broadcast")
+    if not text.strip():
+        return {"success": False, "error": "Пустое сообщение."}
+
+    notified = 0
+    async with async_session() as session:
+        result = await session.execute(select(User))
+        users = result.scalars().all()
+
+    if bot_runner.is_running() and bot_runner.bot:
+        for user in users:
+            try:
+                await bot_runner.bot.send_message(
+                    chat_id=user.telegram_id,
+                    text=f"📢 <b>Сообщение от администрации:</b>\n\n{text.strip()}",
+                    parse_mode="HTML",
+                )
+                notified += 1
+            except Exception:
+                pass
+
+    return {"success": True, "notified": notified}
+
+
+@app.post("/api/open-portal")
+async def api_open_portal(request: Request):
+    guard(request, "manage_content")
+    from core.dungeons import sweep_expired_portals
+    async with async_session() as session:
+        await sweep_expired_portals(session)
+        result = await session.execute(
+            select(DungeonTemplate).where(DungeonTemplate.is_active == True)
+        )
+        templates_list = result.scalars().all()
+        if not templates_list:
+            return {"success": False, "error": "Нет активных шаблонов подземелий."}
+
+        tpl = random.choice(templates_list)
+        result = await session.execute(
+            select(Cell).where(Cell.dungeon_template_id == tpl.id)
+        )
+        for cell in result.scalars().all():
+            cell.dungeon_template_id = None
+            if cell.tile_type == "portal":
+                cell.tile_type = "road"
+
+        portal_cell = await _open_dungeon_portal(session, tpl)
+        await session.commit()
+
+        if portal_cell and bot_runner.is_running() and bot_runner.bot:
+            try:
+                from bot.broadcast import notify_dungeon_portal_opened
+                await notify_dungeon_portal_opened(
+                    bot_runner.bot,
+                    portal_cell.location.name,
+                    portal_cell.x, portal_cell.y, portal_cell.floor or 0,
+                    tpl.name, tpl.image_url,
+                )
+            except Exception:
+                pass
+
+    return {"success": True, "template": tpl.name if tpl else None}
 
 
 # ── Content Hub ────────────────────────────────────────────
