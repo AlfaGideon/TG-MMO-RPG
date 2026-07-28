@@ -7,8 +7,13 @@
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-    <header>
-        <h1>🌑 Shadow Lands — Admin</h1>
+    <header style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;">
+        <div style="display: flex; align-items: center; gap: 1rem;">
+            <h1 style="margin:0;">🌑 Shadow Lands — Admin</h1>
+            <button onclick="updateGitHeader(this)" style="background: var(--accent); color: #fff; border: none; padding: 0.4rem 0.85rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.35rem; transition: opacity 0.2s;">
+                🔄 Обновить с GitHub
+            </button>
+        </div>
         <nav>
             <a href="/" class="{% if request.path == '/' %}active{% endif %}">Dashboard</a>
             <a href="/players" class="{% if request.path.startswith('/player') %}active{% endif %}">Игроки</a>
@@ -25,5 +30,27 @@
     <div class="container">
         {% block content %}{% endblock %}
     </div>
+    <script>
+    async function updateGitHeader(btn) {
+        const origText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '⏳ Обновление...';
+        try {
+            const r = await fetch('/api/update', {method: 'POST'});
+            const data = await r.json();
+            if (data.success) {
+                btn.innerHTML = '✅ Обновлено!';
+                alert(data.restarting ? '✅ Код успешно обновлён с GitHub! Сервер перезапускается... Перезагрузи страницу через 5 секунд.' : '✅ Код уже в самой актуальной версии!');
+            } else {
+                btn.innerHTML = '❌ Ошибка';
+                alert('Ошибка обновления: ' + (data.error || data.output || 'Неизвестно'));
+            }
+        } catch (e) {
+            btn.innerHTML = '❌ Ошибка сети';
+            alert('Ошибка сети: ' + e.message);
+        }
+        setTimeout(() => { btn.disabled = false; btn.innerHTML = origText; }, 4000);
+    }
+    </script>
 </body>
 </html>

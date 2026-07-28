@@ -204,7 +204,7 @@ def dungeon_movement_keyboard(can_dirs: dict):
 
 def dungeon_combat_keyboard():
     builder = InlineKeyboardBuilder()
-    builder.button(text="⚔️ Атаковать", callback_data="dungeon_attack")
+    builder.button(text="⚔️ Атаковать", callback_data="dungeon_combat_attack")
     builder.button(text="🏃 Сбежать", callback_data="dungeon_flee")
     builder.adjust(2)
     return builder.as_markup()

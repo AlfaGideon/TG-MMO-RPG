@@ -35,7 +35,7 @@
                 <td>{{ q.location.name if q.location else '—' }}</td>
                 <td>{{ q.npc_name or '—' }}</td>
                 <td>
-                    <button onclick="editQuest({{ q.id }}, '{{ q.name|replace("'", "\\'") }}', '{{ q.description|replace("'", "\\'") }}', '{{ q.objective_type }}', '{{ q.objective_target|replace("'", "\\'") }}', {{ q.objective_count }}, {{ q.reward_gold }}, {{ q.reward_exp }}, {{ q.reward_item_id or 'null' }}, {{ q.min_level }}, {{ q.location_id or 'null' }}, '{{ q.npc_name or '' }}')" class="btn btn-primary" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">✏️</button>
+                    <button onclick="editQuest({{ q.id }}, '{{ q.name|replace("'", "\\'") }}', '{{ q.description|replace("'", "\\'") }}', '{{ q.objective_type }}', '{{ q.objective_target|replace("'", "\\'") }}', {{ q.objective_count }}, {{ q.reward_gold }}, {{ q.reward_exp }}, {{ q.reward_item_id or 'null' }}, {{ q.min_level }}, {{ q.location_id or 'null' }}, '{{ q.npc_name or '' }}', '{{ q.image_url or '' }}')" class="btn btn-primary" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">✏️</button>
                     <form action="/editor/quests/{{ q.id }}/delete" method="post" style="display:inline" onsubmit="return confirm('Удалить квест?')">
                         <button type="submit" class="btn btn-danger" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">🗑</button>
                     </form>
@@ -48,7 +48,7 @@
 
 <div class="card" id="quest-form">
     <h3 id="quest-form-title">➕ Новый квест</h3>
-    <form action="/editor/quests/new" method="post" id="questForm">
+    <form action="/editor/quests/new" method="post" id="questForm" enctype="multipart/form-data">
         <input type="hidden" name="quest_id" id="q_id" value="">
         <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem;">
             <div><label class="form-label">Название</label><input type="text" name="name" id="q_name" class="search-box" style="max-width:100%" required></div>
@@ -82,6 +82,8 @@
                 </select>
             </div>
             <div><label class="form-label">NPC</label><input type="text" name="npc_name" id="q_npc" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">🖼 Файл картинки</label><input type="file" name="image" accept="image/*" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">URL картинки</label><input type="text" name="image_url" id="q_image_url" class="search-box" style="max-width:100%" placeholder="https://..."></div>
         </div>
         <div style="margin-top: 0.75rem;">
             <label class="form-label">Описание</label>
@@ -93,7 +95,7 @@
 </div>
 
 <script>
-function editQuest(id, name, desc, type, target, count, gold, exp, itemId, lvl, locId, npc) {
+function editQuest(id, name, desc, type, target, count, gold, exp, itemId, lvl, locId, npc, imageUrl) {
     document.getElementById('quest-form-title').textContent = '✏️ Редактировать квест';
     const form = document.getElementById('questForm');
     form.action = '/editor/quests/' + id + '/edit';
@@ -108,6 +110,7 @@ function editQuest(id, name, desc, type, target, count, gold, exp, itemId, lvl, 
     document.getElementById('q_lvl').value = lvl;
     document.getElementById('q_loc').value = locId || '';
     document.getElementById('q_npc').value = npc;
+    document.getElementById('q_image_url').value = imageUrl || '';
     window.location.hash = 'quest-form';
 }
 function resetQuestForm() {

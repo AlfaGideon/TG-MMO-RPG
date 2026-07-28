@@ -71,6 +71,7 @@ class Character(Base):
 
     is_vip = Column(Boolean, default=False)
     vip_until = Column(DateTime(timezone=True), nullable=True)
+    image_url = Column(String(512), nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -165,6 +166,7 @@ class Mob(Base):
     is_boss = Column(Boolean, default=False)
     drop_items = Column(Text, default="")
     spawn_chance = Column(Float, default=0.3)
+    image_url = Column(String(512), nullable=True)
 
     location = relationship("Location", back_populates="mobs")
 
@@ -192,6 +194,7 @@ class Item(Base):
 
     is_sellable = Column(Boolean, default=True)
     icon = Column(String(16), default="⚔️")
+    image_url = Column(String(512), nullable=True)
 
 
 class InventoryItem(Base):
@@ -252,6 +255,7 @@ class Quest(Base):
     min_level = Column(Integer, default=1)
     location_id = Column(Integer, ForeignKey("locations.id"), nullable=True)
     npc_name = Column(String(128), nullable=True)
+    image_url = Column(String(512), nullable=True)
 
     reward_item = relationship("Item")
 

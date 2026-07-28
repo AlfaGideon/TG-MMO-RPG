@@ -48,7 +48,12 @@
         <a href="/editor/locations" class="btn">◀️ Назад</a>
     </div>
 
-    <form action="/editor/location/{{ location.id }}/save" method="post" style="margin-bottom: 1.5rem;">
+    <form action="/editor/location/{{ location.id }}/save" method="post" enctype="multipart/form-data" style="margin-bottom: 1.5rem;">
+        {% if location.image_url %}
+        <div style="margin-bottom: 1rem;">
+            <img src="{{ location.image_url }}" style="max-width: 200px; border-radius: 8px; border: 1px solid var(--border);">
+        </div>
+        {% endif %}
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
             <div>
                 <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Название</label>
@@ -75,6 +80,16 @@
         <div style="margin-bottom: 1rem;">
             <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Описание локации</label>
             <textarea name="description" class="search-box" style="max-width: 100%; width: 100%; min-height: 80px; resize: vertical;">{{ location.description }}</textarea>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+            <div>
+                <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">🖼 Картинка локации (файл)</label>
+                <input type="file" name="image" accept="image/*" class="search-box" style="max-width: 100%;">
+            </div>
+            <div>
+                <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Или URL картинки</label>
+                <input type="text" name="image_url" value="{{ location.image_url or '' }}" class="search-box" style="max-width: 100%;" placeholder="https://...">
+            </div>
         </div>
         <button type="submit" class="btn btn-primary">💾 Сохранить локацию</button>
     </form>

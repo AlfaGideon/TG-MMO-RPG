@@ -8,7 +8,12 @@
         <h2>✏️ Редактирование: {{ item.name }}</h2>
         <a href="/items" class="btn">◀️ Назад</a>
     </div>
-    <form action="/item/{{ item.id }}/edit" method="post">
+    <form action="/item/{{ item.id }}/edit" method="post" enctype="multipart/form-data">
+        {% if item.image_url %}
+        <div style="margin-bottom: 1rem; text-align: center;">
+            <img src="{{ item.image_url }}" style="max-width: 150px; max-height: 150px; border-radius: 8px; border: 1px solid var(--border);">
+        </div>
+        {% endif %}
         <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem;">
             <div><label class="form-label">Название</label><input type="text" name="name" value="{{ item.name }}" class="search-box" style="max-width:100%" required></div>
             <div><label class="form-label">Тип</label>
@@ -43,6 +48,8 @@
             <div><label class="form-label">MP</label><input type="number" name="bonus_mp" value="{{ item.bonus_mp }}" class="search-box" style="max-width:100%"></div>
             <div><label class="form-label">Урон</label><input type="number" name="bonus_damage" value="{{ item.bonus_damage }}" class="search-box" style="max-width:100%"></div>
             <div><label class="form-label">Защита</label><input type="number" name="bonus_defense" value="{{ item.bonus_defense }}" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">🖼 Картинка (файл)</label><input type="file" name="image" accept="image/*" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">URL картинки</label><input type="text" name="image_url" value="{{ item.image_url or '' }}" class="search-box" style="max-width:100%" placeholder="https://..."></div>
         </div>
         <div style="margin-top: 0.75rem;">
             <label class="form-label">Описание</label>

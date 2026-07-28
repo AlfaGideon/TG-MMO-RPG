@@ -31,7 +31,12 @@
         </div>
         <div>
             <h3>✏️ Редактировать</h3>
-            <form action="/player/{{ char.id }}/edit" method="post">
+            <form action="/player/{{ char.id }}/edit" method="post" enctype="multipart/form-data">
+                {% if char.image_url %}
+                <div style="margin-bottom: 0.75rem; text-align: center;">
+                    <img src="{{ char.image_url }}" style="max-width: 150px; max-height: 150px; border-radius: 8px; border: 1px solid var(--border);">
+                </div>
+                {% endif %}
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
                     <div><label class="form-label">Имя</label><input type="text" name="name" value="{{ char.name }}" class="search-box" style="max-width:100%"></div>
                     <div><label class="form-label">Уровень</label><input type="number" name="level" value="{{ char.level }}" class="search-box" style="max-width:100%"></div>
@@ -50,6 +55,14 @@
                     <div style="display:flex;align-items:flex-end;gap:0.5rem;">
                         <label style="font-size:0.85rem"><input type="checkbox" name="is_vip" {% if char.is_vip %}checked{% endif %}> VIP</label>
                     </div>
+                </div>
+                <div style="margin-top: 0.75rem;">
+                    <label class="form-label">🖼 Файл картинки (аватар)</label>
+                    <input type="file" name="image" accept="image/*" class="search-box" style="max-width:100%">
+                </div>
+                <div style="margin-top: 0.5rem;">
+                    <label class="form-label">Или URL картинки</label>
+                    <input type="text" name="image_url" value="{{ char.image_url or '' }}" class="search-box" style="max-width:100%" placeholder="https://...">
                 </div>
                 <button type="submit" class="btn btn-primary" style="margin-top:0.75rem">💾 Сохранить</button>
             </form>

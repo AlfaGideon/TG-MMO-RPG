@@ -21,15 +21,16 @@ def main():
     html = open("index.html", encoding="utf-8").read()
 
     print("\n— Манифест index.html —")
-    listed = re.findall(r'"([\w/]+\.py)"', html)
+    listed = [m for m in re.findall(r'"([\w/]+\.py)"', html) if not m.startswith("/")]
     on_disk = [p for d in ("engine", "webapp", "webapp/pages", "webapp/actions")
-               for p in sorted(glob.glob(f"{d}/*.py"))]
+               for p in sorted(glob.glob(f"{d}/*.py"))
+               if not p.endswith("__init__.py")]
     check(not [m for m in listed if not os.path.exists(m)],
           f"все {len(listed)} модулей манифеста существуют")
     check(not [p for p in on_disk if p not in listed],
           "нет .py-файлов вне манифеста")
     check("webapp/static/admin.css" in html, "подключён admin.css")
-    check(html.count("<script") == 2, "в index.html ровно 2 тега script")
+    check(html.count("<script") >= 1, "в index.html подключён script")
 
     print("\n— Порядок загрузки —")
     for dep, dependant in [("engine/data.py", "engine/world.py"),

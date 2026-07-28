@@ -26,7 +26,16 @@ from bot.runner import bot_runner
 async def lifespan(app: FastAPI):
     os.makedirs("data", exist_ok=True)
     await run_migrations()
+    async with async_session() as session:
+        result = await session.execute(
+            select(AppSetting).where(AppSetting.key == "bot_token")
+        )
+        setting = result.scalar_one_or_none()
+        if setting and setting.value and setting.value.strip():
+            await bot_runner.start(setting.value.strip())
     yield
+    if bot_runner.is_running():
+        await bot_runner.stop()
 
 
 app = FastAPI(title="Shadow Lands Admin", lifespan=lifespan)
@@ -123,6 +132,21 @@ async def player_detail(request: Request, char_id: int):
     )
 
 
+def save_uploaded_image(image: UploadFile, entity_type: str, entity_id: int, fallback_url: str = "") -> str:
+    if image and image.filename:
+        ext = os.path.splitext(image.filename)[1] or ".png"
+        filename = f"{entity_type}_{entity_id}{ext}"
+        upload_dir = f"admin/static/uploads/{entity_type}"
+        os.makedirs(upload_dir, exist_ok=True)
+        filepath = os.path.join(upload_dir, filename)
+        with open(filepath, "wb") as f:
+            shutil.copyfileobj(image.file, f)
+        return f"/static/uploads/{entity_type}/{filename}"
+    elif fallback_url and fallback_url.strip():
+        return fallback_url.strip()
+    return ""
+
+
 @app.post("/player/{char_id}/edit")
 async def player_edit(
     char_id: int,
@@ -141,6 +165,8 @@ async def player_edit(
     current_mp: int = Form(50),
     is_vip: bool = Form(False),
     vip_days: int = Form(0),
+    image_url: str = Form(""),
+    image: UploadFile = File(None),
 ):
     async with async_session() as session:
         char = await session.get(Character, char_id)
@@ -163,6 +189,10 @@ async def player_edit(
                 char.vip_until = datetime.utcnow() + timedelta(days=vip_days)
             elif not is_vip:
                 char.vip_until = None
+            if image and image.filename:
+                char.image_url = save_uploaded_image(image, "character", char.id)
+            elif image_url.strip():
+                char.image_url = image_url.strip()
             await session.commit()
     return RedirectResponse(url=f"/player/{char_id}", status_code=303)
 
@@ -247,6 +277,8 @@ async def item_edit(
     bonus_damage: int = Form(0),
     bonus_defense: int = Form(0),
     icon: str = Form("⚔️"),
+    image_url: str = Form(""),
+    image: UploadFile = File(None),
 ):
     async with async_session() as session:
         item = await session.get(Item, item_id)
@@ -267,6 +299,10 @@ async def item_edit(
             item.bonus_damage = bonus_damage
             item.bonus_defense = bonus_defense
             item.icon = icon
+            if image and image.filename:
+                item.image_url = save_uploaded_image(image, "item", item.id)
+            elif image_url.strip():
+                item.image_url = image_url.strip()
             await session.commit()
     return RedirectResponse(url="/items", status_code=303)
 
@@ -289,6 +325,8 @@ async def item_new(
     bonus_damage: int = Form(0),
     bonus_defense: int = Form(0),
     icon: str = Form("⚔️"),
+    image_url: str = Form(""),
+    image: UploadFile = File(None),
 ):
     async with async_session() as session:
         item = Item(
@@ -298,8 +336,12 @@ async def item_new(
             bonus_intelligence=bonus_intelligence, bonus_endurance=bonus_endurance,
             bonus_luck=bonus_luck, bonus_hp=bonus_hp, bonus_mp=bonus_mp,
             bonus_damage=bonus_damage, bonus_defense=bonus_defense, icon=icon,
+            image_url=image_url.strip(),
         )
         session.add(item)
+        await session.flush()
+        if image and image.filename:
+            item.image_url = save_uploaded_image(image, "item", item.id)
         await session.commit()
     return RedirectResponse(url="/items", status_code=303)
 
@@ -489,6 +531,8 @@ async def editor_location_save(
     grid_size: int = Form(10),
     world_x: int = Form(0),
     world_y: int = Form(0),
+    image_url: str = Form(""),
+    image: UploadFile = File(None),
 ):
     async with async_session() as session:
         location = await session.get(Location, location_id)
@@ -500,6 +544,10 @@ async def editor_location_save(
             location.grid_size = grid_size
             location.world_x = world_x
             location.world_y = world_y
+            if image and image.filename:
+                location.image_url = save_uploaded_image(image, "location", location.id)
+            elif image_url.strip():
+                location.image_url = image_url.strip()
             await session.commit()
     return RedirectResponse(url=f"/editor/location/{location_id}", status_code=303)
 
@@ -647,6 +695,8 @@ async def mob_new(
     location_id: int = Form(None),
     is_boss: bool = Form(False),
     spawn_chance: float = Form(0.3),
+    image_url: str = Form(""),
+    image: UploadFile = File(None),
 ):
     async with async_session() as session:
         mob = Mob(
@@ -654,8 +704,12 @@ async def mob_new(
             damage=damage, defense=defense, gold_reward=gold_reward,
             exp_reward=exp_reward, location_id=location_id,
             is_boss=is_boss, spawn_chance=spawn_chance,
+            image_url=image_url.strip(),
         )
         session.add(mob)
+        await session.flush()
+        if image and image.filename:
+            mob.image_url = save_uploaded_image(image, "mob", mob.id)
         await session.commit()
     return RedirectResponse(url="/editor/mobs", status_code=303)
 
@@ -674,6 +728,8 @@ async def mob_edit(
     location_id: int = Form(None),
     is_boss: bool = Form(False),
     spawn_chance: float = Form(0.3),
+    image_url: str = Form(""),
+    image: UploadFile = File(None),
 ):
     async with async_session() as session:
         mob = await session.get(Mob, mob_id)
@@ -689,6 +745,10 @@ async def mob_edit(
             mob.location_id = location_id
             mob.is_boss = is_boss
             mob.spawn_chance = spawn_chance
+            if image and image.filename:
+                mob.image_url = save_uploaded_image(image, "mob", mob.id)
+            elif image_url.strip():
+                mob.image_url = image_url.strip()
             await session.commit()
     return RedirectResponse(url="/editor/mobs", status_code=303)
 
@@ -734,6 +794,8 @@ async def quest_new(
     min_level: int = Form(1),
     location_id: str = Form(""),
     npc_name: str = Form(""),
+    image_url: str = Form(""),
+    image: UploadFile = File(None),
 ):
     async with async_session() as session:
         q = Quest(
@@ -744,8 +806,12 @@ async def quest_new(
             min_level=min_level,
             location_id=int(location_id) if location_id.strip() else None,
             npc_name=npc_name or None,
+            image_url=image_url.strip(),
         )
         session.add(q)
+        await session.flush()
+        if image and image.filename:
+            q.image_url = save_uploaded_image(image, "quest", q.id)
         await session.commit()
     return RedirectResponse(url="/editor/quests", status_code=303)
 
@@ -764,6 +830,8 @@ async def quest_edit(
     min_level: int = Form(1),
     location_id: str = Form(""),
     npc_name: str = Form(""),
+    image_url: str = Form(""),
+    image: UploadFile = File(None),
 ):
     async with async_session() as session:
         q = await session.get(Quest, quest_id)
@@ -779,6 +847,10 @@ async def quest_edit(
             q.min_level = min_level
             q.location_id = int(location_id) if location_id.strip() else None
             q.npc_name = npc_name or None
+            if image and image.filename:
+                q.image_url = save_uploaded_image(image, "quest", q.id)
+            elif image_url.strip():
+                q.image_url = image_url.strip()
             await session.commit()
     return RedirectResponse(url="/editor/quests", status_code=303)
 

@@ -11,6 +11,7 @@ from bot.keyboards.inline import (
     main_menu_keyboard, back_to_main_keyboard
 )
 from bot.utils.texts import location_text, cell_text
+from bot.utils.photos import send_or_edit_photo, get_photo_input
 
 router = Router()
 
@@ -187,10 +188,11 @@ async def talk_npc(callback: CallbackQuery):
         builder.button(text="◀️ Назад", callback_data="back_to_cell")
         builder.adjust(1)
 
-        await callback.message.edit_text(
+        await send_or_edit_photo(
+            callback,
             f"💬 <b>{cell.npc_name}</b>\n\n<i>{cell.npc_dialogue}</i>",
             reply_markup=builder.as_markup(),
-            parse_mode="HTML",
+            image_url=cell.image_url,
         )
 
 
@@ -227,10 +229,11 @@ async def open_chest(callback: CallbackQuery):
 async def show_cell(callback, character, location, session):
     cell = character.cell
     if not cell:
-        await callback.message.edit_text(
+        await send_or_edit_photo(
+            callback,
             location_text(location),
             reply_markup=main_menu_keyboard(has_character=True),
-            parse_mode="HTML",
+            image_url=location.image_url,
         )
         return
 
@@ -250,6 +253,17 @@ async def show_cell(callback, character, location, session):
 
     text = cell_text(cell, location.name)
 
+    # Use custom cell/location image if provided and valid
+    custom_img = cell.image_url or location.image_url
+    if custom_img and get_photo_input(custom_img):
+        await send_or_edit_photo(
+            callback,
+            text,
+            reply_markup=cell_movement_keyboard(can_dirs),
+            image_url=custom_img,
+        )
+        return
+
     result = await session.execute(
         select(Cell).where(Cell.location_id == location.id)
     )
@@ -258,14 +272,9 @@ async def show_cell(callback, character, location, session):
     img_path = ensure_cell_image(cell, cells, cell.x, cell.y)
     kb = cell_movement_keyboard(can_dirs)
 
-    try:
-        await callback.message.delete()
-    except Exception:
-        pass
-
-    await callback.message.answer_photo(
-        photo=FSInputFile(img_path),
-        caption=text,
+    await send_or_edit_photo(
+        callback,
+        text,
         reply_markup=kb,
-        parse_mode="HTML",
+        image_url=img_path,
     )

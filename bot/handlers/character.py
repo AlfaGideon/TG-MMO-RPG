@@ -7,6 +7,7 @@ from core.database import async_session
 from core.models import User, Character, Battle
 from bot.keyboards.inline import main_menu_keyboard, leaderboard_keyboard
 from bot.utils.texts import profile_text
+from bot.utils.photos import send_or_edit_photo
 
 router = Router()
 
@@ -32,10 +33,11 @@ async def profile(callback: CallbackQuery):
             await callback.answer("Сначала создай персонажа!", show_alert=True)
             return
 
-        await callback.message.edit_text(
+        await send_or_edit_photo(
+            callback,
             profile_text(character),
             reply_markup=main_menu_keyboard(has_character=True),
-            parse_mode="HTML",
+            image_url=character.image_url,
         )
 
 

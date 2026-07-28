@@ -13,6 +13,7 @@ class TelegramBot:
         self.me = None
         self.running = False
         self.offset = 0
+        self.last_update_id = -1
         self._task = None
         self.game = Game(store)
         self.transport = Transport(store.settings)
@@ -30,6 +31,9 @@ class TelegramBot:
     async def start(self, token):
         if self.running:
             return False, "Бот уже запущен"
+        if self._task and not self._task.done():
+            self._task.cancel()
+            self._task = None
         self.token = token.strip()
         data = await self.call("getMe")
         if not data.get("ok"):
@@ -59,7 +63,11 @@ class TelegramBot:
                 data = await self.call("getUpdates", offset=self.offset,
                                        timeout=25, allowed_updates=["message", "callback_query"])
                 for upd in data.get("result", []):
-                    self.offset = upd["update_id"] + 1
+                    upd_id = upd.get("update_id", 0)
+                    if upd_id <= self.last_update_id:
+                        continue
+                    self.last_update_id = upd_id
+                    self.offset = upd_id + 1
                     self.counters["updates"] += 1
                     try:
                         await self.dispatch(upd)
@@ -110,13 +118,26 @@ class TelegramBot:
     async def send(self, chat, p, reply, force_new=False):
         kb = {"inline_keyboard": [[{"text": t, "callback_data": d} for t, d in row]
                                   for row in reply.keyboard]}
+        self.counters["sent"] += 1
+
+        if getattr(reply, "image_url", None) and reply.image_url.startswith(("http://", "https://")):
+            photo_args = dict(chat_id=chat, photo=reply.image_url, caption=reply.text, parse_mode="HTML", reply_markup=kb)
+            res = await self.call("sendPhoto", **photo_args)
+            if res.get("ok"):
+                p.msg_id = res["result"]["message_id"]
+                self.store.save_player(p)
+                self.log("out", reply.text.splitlines()[0][:60])
+                return
+
         args = dict(chat_id=chat, text=reply.text, parse_mode="HTML",
                     reply_markup=kb)
-        self.counters["sent"] += 1
         if p.msg_id and not force_new and not reply.new_message:
             res = await self.call("editMessageText", message_id=p.msg_id, **args)
             if res.get("ok"):
                 self.log("out", reply.text.splitlines()[0][:60])
+                return
+            desc = (res.get("description") or "").lower()
+            if "message is not modified" in desc:
                 return
         res = await self.call("sendMessage", **args)
         if res.get("ok"):

@@ -7,6 +7,7 @@ from core.database import async_session
 from core.models import User, Character, InventoryItem, Item
 from core.enums import ItemType
 from bot.keyboards.inline import inventory_keyboard, item_action_keyboard, main_menu_keyboard
+from bot.utils.photos import send_or_edit_photo
 
 router = Router()
 
@@ -115,10 +116,11 @@ async def item_detail(callback: CallbackQuery):
         else:
             text += "<b>Нет бонусов</b>"
 
-        await callback.message.edit_text(
+        await send_or_edit_photo(
+            callback,
             text,
             reply_markup=item_action_keyboard(inv_item.id, inv_item.is_equipped),
-            parse_mode="HTML",
+            image_url=item.image_url,
         )
 
 

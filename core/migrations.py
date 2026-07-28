@@ -22,6 +22,8 @@ async def run_migrations():
                 await conn.execute(text("ALTER TABLE characters ADD COLUMN is_vip BOOLEAN DEFAULT 0"))
             if "vip_until" not in cols:
                 await conn.execute(text("ALTER TABLE characters ADD COLUMN vip_until DATETIME"))
+            if "image_url" not in cols:
+                await conn.execute(text("ALTER TABLE characters ADD COLUMN image_url VARCHAR(512)"))
 
         # Add missing columns to locations
         if "locations" in tables:
@@ -31,6 +33,8 @@ async def run_migrations():
                 await conn.execute(text("ALTER TABLE locations ADD COLUMN world_x INTEGER DEFAULT 0"))
             if "world_y" not in cols:
                 await conn.execute(text("ALTER TABLE locations ADD COLUMN world_y INTEGER DEFAULT 0"))
+            if "image_url" not in cols:
+                await conn.execute(text("ALTER TABLE locations ADD COLUMN image_url VARCHAR(512)"))
 
         # Add missing columns to cells
         if "cells" in tables:
@@ -42,6 +46,8 @@ async def run_migrations():
                 await conn.execute(text("ALTER TABLE cells ADD COLUMN target_x INTEGER"))
             if "target_y" not in cols:
                 await conn.execute(text("ALTER TABLE cells ADD COLUMN target_y INTEGER"))
+            if "image_url" not in cols:
+                await conn.execute(text("ALTER TABLE cells ADD COLUMN image_url VARCHAR(512)"))
 
         # Add missing columns to mobs
         if "mobs" in tables:
@@ -49,6 +55,22 @@ async def run_migrations():
             cols = {row[1] for row in cols_result.fetchall()}
             if "spawn_chance" not in cols:
                 await conn.execute(text("ALTER TABLE mobs ADD COLUMN spawn_chance FLOAT DEFAULT 0.3"))
+            if "image_url" not in cols:
+                await conn.execute(text("ALTER TABLE mobs ADD COLUMN image_url VARCHAR(512)"))
+
+        # Add missing columns to items
+        if "items" in tables:
+            cols_result = await conn.execute(text("PRAGMA table_info(items)"))
+            cols = {row[1] for row in cols_result.fetchall()}
+            if "image_url" not in cols:
+                await conn.execute(text("ALTER TABLE items ADD COLUMN image_url VARCHAR(512)"))
+
+        # Add missing columns to quests
+        if "quests" in tables:
+            cols_result = await conn.execute(text("PRAGMA table_info(quests)"))
+            cols = {row[1] for row in cols_result.fetchall()}
+            if "image_url" not in cols:
+                await conn.execute(text("ALTER TABLE quests ADD COLUMN image_url VARCHAR(512)"))
 
         # Create new tables if not exist
         await conn.run_sync(Base.metadata.create_all)

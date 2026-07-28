@@ -6,6 +6,14 @@ def render(ctx):
     s = ctx.store.settings
     return f"""
 <div class="card">
+  <h2>🔄 Обновление проекта с GitHub</h2>
+  <p class="muted">Нажми кнопку ниже, чтобы подтянуть последнюю версию интерфейса, функций бота и админки с GitHub.</p>
+  <div style="margin-top:.7rem">
+    <button class="btn ok" data-act="git-update">🔄 Обновить с GitHub</button>
+  </div>
+</div>
+
+<div class="card">
   <h2>💾 Данные</h2>
   <p class="muted">Состояние (игроки + мир + токен) хранится в localStorage браузера.</p>
   <div style="margin-top:.7rem;display:flex;gap:.5rem;flex-wrap:wrap">
