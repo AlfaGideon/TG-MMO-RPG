@@ -38,6 +38,7 @@
     <header class="topbar">
       <button class="menu-toggle" onclick="sidebar()">☰</button>
       <div class="page-title" id="pageTitle">Панель управления</div>
+      <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Переключить тему">🌙</button>
       <button class="btn" onclick="openSearch()" title="Поиск (Ctrl/Cmd+K)">🔍 Поиск</button>
     </header>
     <div class="breadcrumbs" id="breadcrumbs"></div>
@@ -101,6 +102,29 @@ const RUNTIMES = [
 function sidebar(force) {
   const l = document.getElementById("layout");
   l.classList.toggle("sidebar-open", typeof force === "boolean" ? force : undefined);
+}
+
+(function initTheme() {
+  const saved = localStorage.getItem("admin-theme") || "dark";
+  document.documentElement.setAttribute("data-theme", saved);
+  const btn = document.getElementById("themeToggle");
+  if (btn) btn.textContent = saved === "light" ? "☀️" : "🌙";
+})();
+
+function toggleTheme() {
+  const html = document.documentElement;
+  const btn = document.getElementById("themeToggle");
+  const current = html.getAttribute("data-theme") || "dark";
+  const next = current === "light" ? "dark" : "light";
+  html.setAttribute("data-theme", next);
+  localStorage.setItem("admin-theme", next);
+  if (btn) btn.textContent = next === "light" ? "☀️" : "🌙";
+}
+
+function updatePlayersMassCount() {
+  const label = document.getElementById("playersMassCount");
+  if (!label) return;
+  label.textContent = "Выбрано: " + document.querySelectorAll(".player-check:checked").length;
 }
 
 function openSearch() { document.getElementById("searchOverlay").classList.add("open"); document.getElementById("searchInput").focus(); }

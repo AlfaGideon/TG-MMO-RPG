@@ -194,6 +194,9 @@
             <button class="menu-toggle" onclick="toggleSidebar()">☰</button>
             <div class="page-title">{% block page_title %}{% endblock %}</div>
             <div class="topbar-actions">
+                <button type="button" class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Переключить тему">
+                    🌙
+                </button>
                 <button type="button" class="btn btn-sm" onclick="openSearchModal()" title="Поиск (Ctrl/Cmd+K)">
                     🔍 Поиск <span class="search-shortcut" style="margin-left:0.3rem">Ctrl K</span>
                 </button>
@@ -226,6 +229,23 @@ function toggleSidebar(force) {
     } else {
         layout.classList.toggle('sidebar-open');
     }
+}
+
+(function initTheme() {
+    const saved = localStorage.getItem('admin-theme') || 'dark';
+    document.documentElement.setAttribute('data-theme', saved);
+    const btn = document.getElementById('themeToggle');
+    if (btn) btn.textContent = saved === 'light' ? '☀️' : '🌙';
+})();
+
+function toggleTheme() {
+    const html = document.documentElement;
+    const btn = document.getElementById('themeToggle');
+    const current = html.getAttribute('data-theme') || 'dark';
+    const next = current === 'light' ? 'dark' : 'light';
+    html.setAttribute('data-theme', next);
+    localStorage.setItem('admin-theme', next);
+    if (btn) btn.textContent = next === 'light' ? '☀️' : '🌙';
 }
 
 function showToast(msg, type='success') {

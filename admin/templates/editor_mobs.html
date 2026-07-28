@@ -10,12 +10,32 @@
 
 {% block content %}
 <div class="card">
-    <h2>👾 Все монстры ({{ mobs|length }})</h2>
+    <div class="toolbar">
+        <h2 style="margin-bottom:0;">👾 Все монстры ({{ mobs|length }})</h2>
+        <form method="get" action="/editor/mobs" style="display:flex;gap:0.5rem;align-items:center;">
+            <select name="location_id" class="search-box" onchange="this.form.submit()">
+                <option value="">Все локации</option>
+                {% for loc in locations %}
+                <option value="{{ loc.id }}" {% if selected_location == loc.id %}selected{% endif %}>{{ loc.name }}</option>
+                {% endfor %}
+            </select>
+            {% if selected_location %}
+            <a href="/editor/mobs" class="btn btn-sm">Сбросить</a>
+            {% endif %}
+        </form>
+    </div>
     <p class="section-sub">
         Лимит популяции задаёт, сколько живых экземпляров моба одновременно
         держится в его локации. Слабые мобы могут забредать в локации уровнем
         выше, сильные к слабым — нет.
     </p>
+
+    {% if selected_location %}
+    <form action="/editor/mobs/respawn-location" method="post" style="margin-bottom:1rem;">
+        <input type="hidden" name="location_id" value="{{ selected_location }}">
+        <button type="submit" class="btn btn-primary">👾 Респавн всех мобов локации</button>
+    </form>
+    {% endif %}
 
     <div class="table-wrap">
     <table>
@@ -73,7 +93,7 @@
                             data-roam="{{ '1' if mob.can_roam else '' }}"
                             data-radius="{{ mob.roam_radius }}"
                             data-image="{{ mob.image_url or '' }}">✏️</button>
-                    <a href="/editor/drops?owner_type=mob" class="btn btn-sm" title="Таблица лута">🎁</a>
+                    <button type="button" class="btn btn-sm mob-drops" data-id="{{ mob.id }}" data-name="{{ mob.name }}" title="Что выпадает">🎁</button>
                     <form action="/editor/mobs/{{ mob.id }}/clone" method="post" style="display:inline" title="Клонировать">
                         <button type="submit" class="btn btn-sm">📋</button>
                     </form>
@@ -203,6 +223,47 @@
 
 {% block scripts %}
 <script>
+function openDropModal(mobName, rows) {
+    let html = '<div class="drop-preview-list">';
+    if (!rows.length) {
+        html += '<div class="drop-preview-empty">С этого моба ничего не падает.</div>';
+    } else {
+        rows.forEach(r => {
+            const chance = Math.round((r.chance || 0) * 100);
+            html += '<div class="drop-preview-row">' +
+                '<span class="drop-name"><span>' + (r.icon || '🎒') + '</span> <b>' + escHtml(r.name) + '</b> <span class="badge badge-' + (r.rarity || 'common') + '">' + (r.rarity || 'common') + '</span></span>' +
+                '<span class="drop-chance">' + r.min + '–' + r.max + ' шт. · ' + chance + '%</span>' +
+                '</div>';
+        });
+    }
+    html += '</div>';
+
+    const box = document.createElement('div');
+    box.className = 'modal-overlay open';
+    box.innerHTML = '<div class="modal-box" style="width:min(520px,92vw);">' +
+        '<h3>🎁 Что падает с ' + escHtml(mobName) + '</h3>' + html +
+        '<div class="modal-actions"><button type="button" class="btn" onclick="this.closest(\'.modal-overlay\').remove()">Закрыть</button></div>' +
+        '</div>';
+    box.addEventListener('click', e => { if (e.target === box) box.remove(); });
+    document.body.appendChild(box);
+}
+
+function escHtml(s) {
+    return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+document.querySelectorAll('.mob-drops').forEach(btn => {
+    btn.addEventListener('click', async () => {
+        try {
+            const r = await fetch('/api/mob/' + btn.dataset.id + '/drops');
+            const data = await r.json();
+            openDropModal(btn.dataset.name, data.drops || []);
+        } catch (e) {
+            showToast('Ошибка загрузки дропа', 'err');
+        }
+    });
+});
+
 // Данные передаются через data-атрибуты, а не через inline-аргументы:
 // имена и описания мобов содержат кавычки и переносы строк.
 document.querySelectorAll('.mob-edit').forEach(btn => {

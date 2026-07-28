@@ -371,6 +371,34 @@ async def players(
     )
 
 
+@app.post("/players/mass-action")
+async def players_mass_action(
+    request: Request,
+    action: str = Form(""),
+    ids: list[int] = Form(default=[]),
+):
+    """Массовые действия над выбранными персонажами: выдача VIP."""
+    guard(request, "manage_players")
+    ids = [i for i in ids if isinstance(i, int)]
+    if not ids:
+        return RedirectResponse(url="/players", status_code=303)
+
+    async with async_session() as session:
+        result = await session.execute(
+            select(Character).where(Character.id.in_(ids))
+        )
+        chars = result.scalars().all()
+
+        if action == "grant-vip":
+            until = datetime.utcnow() + timedelta(days=7)
+            for char in chars:
+                char.is_vip = True
+                char.vip_until = until
+        await session.commit()
+
+    return RedirectResponse(url="/players", status_code=303)
+
+
 @app.get("/player/{char_id}")
 async def player_detail(request: Request, char_id: int):
     async with async_session() as session:
@@ -1253,19 +1281,44 @@ async def item_delete(request: Request, item_id: int):
     """Удаляет шаблон вместе со всеми его экземплярами и ссылками на него."""
     guard(request, "manage_content")
     async with async_session() as session:
-        await session.execute(
-            delete(InventoryItem).where(InventoryItem.item_id == item_id)
-        )
-        await session.execute(
-            delete(ItemInstance).where(ItemInstance.item_id == item_id)
-        )
-        await session.execute(delete(DropEntry).where(DropEntry.item_id == item_id))
-        await session.execute(
-            delete(CraftIngredient).where(CraftIngredient.item_id == item_id)
-        )
-        await session.execute(delete(ShopItem).where(ShopItem.item_id == item_id))
-        await session.execute(delete(Item).where(Item.id == item_id))
+        await _delete_item(session, item_id)
         await session.commit()
+    return RedirectResponse(url="/items", status_code=303)
+
+
+async def _delete_item(session, item_id: int):
+    """Вспомогательное удаление предмета и всех зависимостей."""
+    await session.execute(
+        delete(InventoryItem).where(InventoryItem.item_id == item_id)
+    )
+    await session.execute(
+        delete(ItemInstance).where(ItemInstance.item_id == item_id)
+    )
+    await session.execute(delete(DropEntry).where(DropEntry.item_id == item_id))
+    await session.execute(
+        delete(CraftIngredient).where(CraftIngredient.item_id == item_id)
+    )
+    await session.execute(delete(ShopItem).where(ShopItem.item_id == item_id))
+    await session.execute(delete(Item).where(Item.id == item_id))
+
+
+@app.post("/items/mass-action")
+async def items_mass_action(
+    request: Request,
+    action: str = Form(""),
+    ids: list[int] = Form(default=[]),
+):
+    """Массовые действия над выбранными предметами: удаление."""
+    guard(request, "manage_content")
+    ids = [i for i in ids if isinstance(i, int)]
+    if not ids:
+        return RedirectResponse(url="/items", status_code=303)
+
+    async with async_session() as session:
+        for item_id in ids:
+            await _delete_item(session, item_id)
+        await session.commit()
+
     return RedirectResponse(url="/items", status_code=303)
 
 
@@ -1851,20 +1904,73 @@ async def editor_world_place(request: Request, location_id: int = Form(...), wor
 # ── Mobs Editor ────────────────────────────────────────────
 
 @app.get("/editor/mobs")
-async def editor_mobs(request: Request):
+async def editor_mobs(request: Request, location_id: int = None):
     guard(request, "manage_content")
     async with async_session() as session:
-        result = await session.execute(
-            select(Mob).options(selectinload(Mob.location)).order_by(Mob.id)
-        )
+        base_query = select(Mob).options(selectinload(Mob.location))
+        if location_id:
+            base_query = base_query.where(Mob.location_id == location_id)
+        result = await session.execute(base_query.order_by(Mob.id))
         mobs = result.scalars().all()
         result = await session.execute(select(Location).order_by(Location.id))
         locations = result.scalars().all()
     return templates.TemplateResponse(
         request,
         "editor_mobs.html",
-        {"mobs": mobs, "locations": locations},
+        {"mobs": mobs, "locations": locations, "selected_location": location_id},
     )
+
+
+@app.post("/editor/mobs/respawn-location")
+async def mobs_respawn_location(request: Request, location_id: int = Form(...)):
+    """Мгновенно респавнит всех мобов в выбранной локации."""
+    guard(request, "manage_content")
+    from core.spawns import ensure_population
+
+    async with async_session() as session:
+        result = await session.execute(
+            select(MobSpawn)
+            .where(MobSpawn.location_id == location_id)
+            .where(MobSpawn.is_alive == False)  # noqa: E712
+        )
+        for spawn in result.scalars().all():
+            spawn.respawn_at = datetime.utcnow() - timedelta(seconds=1)
+
+        result = await session.execute(
+            select(Mob).where(Mob.location_id == location_id)
+        )
+        for mob in result.scalars().all():
+            await ensure_population(session, mob)
+
+        await session.commit()
+    return RedirectResponse(url=f"/editor/mobs?location_id={location_id}", status_code=303)
+
+
+@app.get("/api/mob/{mob_id}/drops")
+async def api_mob_drops(request: Request, mob_id: int):
+    """Возвращает таблицу лута моба для превью."""
+    async with async_session() as session:
+        result = await session.execute(
+            select(DropEntry)
+            .options(selectinload(DropEntry.item))
+            .where(DropEntry.owner_type == "mob")
+            .where(DropEntry.owner_id == mob_id)
+            .order_by(DropEntry.chance.desc())
+        )
+        entries = result.scalars().all()
+    return {
+        "drops": [
+            {
+                "name": e.item.name,
+                "icon": e.item.icon,
+                "rarity": e.item.rarity.value if e.item.rarity else "common",
+                "chance": e.chance,
+                "min": e.min_quantity,
+                "max": e.max_quantity,
+            }
+            for e in entries
+        ]
+    }
 
 
 @app.post("/editor/mobs/new")

@@ -15,6 +15,61 @@
     --sidebar-width: 264px;
     --topbar-height: 64px;
     --radius: 12px;
+
+    /* Unified rarity palette */
+    --rarity-common: #94a3b8;
+    --rarity-common-bg: rgba(148, 163, 184, 0.12);
+    --rarity-uncommon: #22c55e;
+    --rarity-uncommon-bg: rgba(34, 197, 94, 0.12);
+    --rarity-rare: #3b82f6;
+    --rarity-rare-bg: rgba(59, 130, 246, 0.12);
+    --rarity-epic: #a855f7;
+    --rarity-epic-bg: rgba(168, 85, 247, 0.12);
+    --rarity-legendary: #f59e0b;
+    --rarity-legendary-bg: rgba(245, 158, 11, 0.12);
+
+    /* Unified magic school palette */
+    --school-fire: #ef4444;
+    --school-fire-bg: rgba(239, 68, 68, 0.12);
+    --school-ice: #38bdf8;
+    --school-ice-bg: rgba(56, 189, 248, 0.12);
+    --school-lightning: #f59e0b;
+    --school-lightning-bg: rgba(245, 158, 11, 0.12);
+    --school-nature: #22c55e;
+    --school-nature-bg: rgba(34, 197, 94, 0.12);
+    --school-arcane: #a855f7;
+    --school-arcane-bg: rgba(168, 85, 247, 0.12);
+    --school-shadow: #8b5cf6;
+    --school-shadow-bg: rgba(139, 92, 246, 0.12);
+    --school-holy: #fbbf24;
+    --school-holy-bg: rgba(251, 191, 36, 0.12);
+}
+
+[data-theme="light"] {
+    --bg-dark: #f8fafc;
+    --bg-card: #ffffff;
+    --bg-hover: #f1f5f9;
+    --bg-input: #f8fafc;
+    --text: #0f172a;
+    --text-muted: #64748b;
+    --border: #e2e8f0;
+    --accent: #7c3aed;
+    --accent-hover: #6d28d9;
+    --accent-soft: rgba(124, 58, 237, 0.10);
+    --danger: #dc2626;
+    --success: #16a34a;
+    --warning: #d97706;
+
+    --rarity-common: #64748b;
+    --rarity-common-bg: rgba(100, 116, 139, 0.10);
+    --rarity-uncommon: #16a34a;
+    --rarity-uncommon-bg: rgba(22, 163, 74, 0.10);
+    --rarity-rare: #2563eb;
+    --rarity-rare-bg: rgba(37, 99, 235, 0.10);
+    --rarity-epic: #9333ea;
+    --rarity-epic-bg: rgba(147, 51, 234, 0.10);
+    --rarity-legendary: #d97706;
+    --rarity-legendary-bg: rgba(217, 119, 6, 0.10);
 }
 
 * {
@@ -505,17 +560,26 @@ tr:hover td { background: var(--bg-hover); }
     white-space: nowrap;
 }
 
-.badge-common { background: #374151; color: #d1d5db; }
-.badge-uncommon { background: #14532d; color: #86efac; }
-.badge-rare { background: #1e3a8a; color: #93c5fd; }
-.badge-epic { background: #581c87; color: #d8b4fe; }
-.badge-legendary { background: #713f12; color: #fde047; }
-.badge-safe { background: #14532d; color: #86efac; }
-.badge-dangerous { background: #7c2d12; color: #fdba74; }
-.badge-dungeon { background: #312e81; color: #a5b4fc; }
-.badge-boss { background: #7f1d1d; color: #fca5a5; }
-.badge-danger { background: #7f1d1d; color: #fca5a5; }
-.badge-success { background: #14532d; color: #86efac; }
+.badge-common { background: var(--rarity-common-bg); color: var(--rarity-common); }
+.badge-uncommon { background: var(--rarity-uncommon-bg); color: var(--rarity-uncommon); }
+.badge-rare { background: var(--rarity-rare-bg); color: var(--rarity-rare); }
+.badge-epic { background: var(--rarity-epic-bg); color: var(--rarity-epic); }
+.badge-legendary { background: var(--rarity-legendary-bg); color: var(--rarity-legendary); }
+.badge-safe { background: var(--rarity-uncommon-bg); color: var(--rarity-uncommon); }
+.badge-dangerous { background: var(--school-fire-bg); color: var(--school-fire); }
+.badge-dungeon { background: var(--school-shadow-bg); color: var(--school-shadow); }
+.badge-boss { background: var(--school-fire-bg); color: var(--school-fire); }
+.badge-danger { background: var(--school-fire-bg); color: var(--school-fire); }
+.badge-success { background: var(--rarity-uncommon-bg); color: var(--rarity-uncommon); }
+
+/* Unified magic school badges */
+.badge-fire { background: var(--school-fire-bg); color: var(--school-fire); }
+.badge-ice { background: var(--school-ice-bg); color: var(--school-ice); }
+.badge-lightning { background: var(--school-lightning-bg); color: var(--school-lightning); }
+.badge-nature { background: var(--school-nature-bg); color: var(--school-nature); }
+.badge-arcane { background: var(--school-arcane-bg); color: var(--school-arcane); }
+.badge-shadow { background: var(--school-shadow-bg); color: var(--school-shadow); }
+.badge-holy { background: var(--school-holy-bg); color: var(--school-holy); }
 
 /* ── Buttons & forms ──────────────────────────────────── */
 
@@ -975,3 +1039,81 @@ tr:hover td { background: var(--bg-hover); }
 .empty-state .empty-icon { font-size: 2.2rem; margin-bottom: 0.5rem; }
 
 .empty-state .btn { margin-top: 0.75rem; }
+
+/* ── Theme toggle ───────────────────────────────────────── */
+
+.theme-toggle {
+    background: var(--bg-hover);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 0.45rem 0.65rem;
+    cursor: pointer;
+    font-size: 0.85rem;
+    line-height: 1;
+    transition: border-color 0.15s;
+}
+
+.theme-toggle:hover { border-color: var(--accent); }
+
+/* ── Mass actions toolbar ───────────────────────────────── */
+
+.mass-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    padding: 0.75rem 1rem;
+    background: var(--bg-hover);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 1rem;
+}
+
+.mass-bar .mass-count {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    margin-right: auto;
+}
+
+.row-check {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+
+/* ── Drop preview modal ─────────────────────────────────── */
+
+.drop-preview-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+.drop-preview-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.55rem 0.75rem;
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+}
+
+.drop-preview-row .drop-name { display: flex; align-items: center; gap: 0.4rem; }
+
+.drop-preview-row .drop-chance {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.drop-preview-empty {
+    text-align: center;
+    color: var(--text-muted);
+    padding: 1.5rem;
+}

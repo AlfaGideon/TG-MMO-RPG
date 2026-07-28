@@ -51,7 +51,8 @@ def render(ctx):
                 f"font-weight:bold'>{esc(permissions.rank_title(p.web_admin_role))}</span>"
                 f" <span class='muted'>{n} прав</span>")
         rows += (
-            f"<tr><td><code>{p.tg_id}</code></td><td>{esc(p.name)}</td>"
+            f"<tr><td><input type='checkbox' class='row-check player-check' value='{p.tg_id}' onchange='updatePlayersMassCount()'></td>"
+            f"<td><code>{p.tg_id}</code></td><td>{esc(p.name)}</td>"
             f"<td>{esc(p.cls) or '—'}</td><td>{p.level}</td>"
             f"<td>{p.hp}/{p.max_hp}</td><td>{p.gold} 🪙</td>"
             f"<td>{esc(loc)} [{p.x},{p.y}]</td><td>{len(p.inventory)}</td>"
@@ -59,7 +60,7 @@ def render(ctx):
             f"<td><button class='btn' data-act='player-edit' data-arg='{p.tg_id}'>✏️</button> "
             f"<button class='btn danger' data-act='player-del' data-arg='{p.tg_id}'>🗑</button></td></tr>")
     if not rows:
-        rows = ("<tr><td colspan='10'><div class='empty-state'>"
+        rows = ("<tr><td colspan='11'><div class='empty-state'>"
                 "<div class='empty-icon'>👥</div>"
                 "<div>Пока никого. Запусти бота и напиши ему /start.</div>"
                 "<button class='btn primary' data-act='nav' data-arg='bot'>🤖 Запустить бота</button>"
@@ -88,8 +89,16 @@ def render(ctx):
     return f"""
 <div class="card">
   <h2>👥 Игроки <span class="muted">({start + 1}–{min(start + PER_PAGE, total)} из {total})</span></h2>
+  <div class="mass-bar">
+    <label style="display:flex;align-items:center;gap:.4rem;font-size:.85rem;color:var(--text-muted);cursor:pointer;">
+      <input type="checkbox" class="row-check" data-act="players-select-all"> Все
+    </label>
+    <span class="mass-count" id="playersMassCount">Выбрано: 0</span>
+    <button class="btn primary" data-act="players-mass-vip">👑 VIP 7 дней</button>
+    <button class="btn danger" data-act="players-mass-del">🗑 Удалить</button>
+  </div>
   <div class="scroll"><table>
-    <tr>{headers}<th>Роль</th><th></th></tr>
+    <tr><th style="width:40px"><input type="checkbox" class="row-check" data-act="players-select-all-header"></th>{headers}<th>Роль</th><th></th></tr>
     {rows}
   </table></div>
   {pagination}
