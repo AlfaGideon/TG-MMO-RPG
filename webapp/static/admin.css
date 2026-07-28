@@ -162,6 +162,12 @@ tr.clickable:hover td{background:var(--accent-soft)}
 .mass-bar .mass-count{font-size:.85rem;color:var(--text-muted);margin-right:auto}
 .row-check{width:18px;height:18px;accent-color:var(--accent);cursor:pointer}
 
+/* ── Diff preview ───────────────────────────────────────── */
+.diff-row{padding:.45rem .6rem;border-radius:6px;margin-bottom:.35rem;font-size:.82rem;border-left:3px solid var(--border)}
+.diff-row.add{background:rgba(34,197,94,.10);border-left-color:var(--success)}
+.diff-row.change{background:rgba(139,92,246,.10);border-left-color:var(--accent)}
+.diff-row.remove{background:rgba(239,68,68,.10);border-left-color:var(--danger)}
+
 /* ── Mobile responsiveness ──────────────────────────────── */
 
 @media (max-width: 768px) {

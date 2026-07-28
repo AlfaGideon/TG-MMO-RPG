@@ -66,11 +66,26 @@ def render(ctx):
   <h2>💾 Данные</h2>
   <p class="muted">Состояние (игроки + мир + токен) хранится в localStorage браузера.</p>
   <div style="margin-top:.7rem;display:flex;gap:.5rem;flex-wrap:wrap">
-    <button class="btn" data-act="data-export">⬇️ Экспорт JSON</button>
-    <button class="btn" data-act="data-import">⬆️ Импорт JSON</button>
+    <button class="btn" data-act="data-export">⬇️ В поле</button>
+    <button class="btn" data-act="data-export-file">📤 Скачать JSON</button>
+    <button class="btn" data-act="data-import-preview">👁 Предпросмотр diff</button>
+    <button class="btn primary" data-act="data-import-apply">✅ Применить импорт</button>
     <button class="btn danger" data-act="data-reset">🗑 Полный сброс</button>
   </div>
   <textarea id="ioBox" rows="6" style="margin-top:.7rem" placeholder="Сюда попадёт экспорт / вставь JSON для импорта"></textarea>
+  <div id="diffBox" style="margin-top:.7rem"></div>
+</div>
+
+<div class="card">
+  <h2>🛠 SQL-песочница</h2>
+  <p class="muted">Только чтение. Доступны таблицы: players, world, settings. Пример:
+     <code>SELECT name, level, gold FROM players WHERE level > 5</code></p>
+  <textarea id="sqlQuery" rows="4" style="margin-top:.5rem; font-family: monospace;"
+            placeholder="SELECT ... FROM players|world|settings [WHERE ...]"></textarea>
+  <div style="margin-top:.5rem">
+    <button class="btn primary" data-act="data-sql-run">▶ Выполнить</button>
+  </div>
+  <div id="sqlResult" style="margin-top:.7rem"></div>
 </div>
 
 <div class="card">

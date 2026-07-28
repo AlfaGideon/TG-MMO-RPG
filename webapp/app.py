@@ -3,7 +3,8 @@ from engine import permissions
 from engine.storage import Store
 from webapp import dom, session
 from webapp.actions import (audit_actions, bot_actions, content_actions,
-                            economy_actions, player_actions, world_actions)
+                            devops_actions, economy_actions, player_actions,
+                            world_actions)
 from webapp.backend import LocalStorage
 from webapp.pages import audit as page_audit
 from webapp.pages import bot as page_bot
@@ -39,7 +40,8 @@ PAGE_CAPS = {
 }
 
 ACTION_MODULES = [audit_actions, bot_actions, content_actions,
-                  economy_actions, player_actions, world_actions]
+                  devops_actions, economy_actions, player_actions,
+                  world_actions]
 
 
 class App:
