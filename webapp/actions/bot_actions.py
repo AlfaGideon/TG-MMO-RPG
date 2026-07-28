@@ -11,6 +11,7 @@ def register(app, A):
     A("broadcast", lambda _="": _broadcast(app))
     A("log-clear", lambda _="": _log_clear(app))
     A("proxy-save", lambda _="": _proxy_save(app))
+    A("git-update", lambda _="": _git_update(app))
 
 
 async def _start(app):
@@ -85,3 +86,12 @@ def _proxy_save(app):
     app.log("sys", f"Транспорт переключён: {app.store.settings['proxy_mode']}")
     dom.toast("Транспорт применён")
     app.render()
+
+
+def _git_update(app):
+    from js import location
+    dom.toast("Перезагрузка интерфейса...", "sys")
+    try:
+        location.reload()
+    except Exception:
+        pass
