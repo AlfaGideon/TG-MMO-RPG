@@ -11,6 +11,7 @@
     <table>
         <thead>
             <tr>
+                <th>Фото</th>
                 <th>ID</th>
                 <th>Имя</th>
                 <th>Ур.</th>
@@ -27,6 +28,13 @@
         <tbody>
             {% for mob in mobs %}
             <tr>
+                <td>
+                    {% if mob.image_url %}
+                    <img src="{{ mob.image_url }}" style="width:36px;height:36px;object-fit:cover;border-radius:6px;border:1px solid var(--border);">
+                    {% else %}
+                    <span style="opacity:0.4;">🖼</span>
+                    {% endif %}
+                </td>
                 <td>{{ mob.id }}</td>
                 <td>{{ mob.name }}</td>
                 <td>{{ mob.level }}</td>
@@ -45,7 +53,7 @@
                 </td>
             </tr>
             {% else %}
-            <tr><td colspan="11">
+            <tr><td colspan="12">
                 <div class="empty-state"><div class="empty-icon">👾</div>Монстров пока нет.</div>
             </td></tr>
             {% endfor %}

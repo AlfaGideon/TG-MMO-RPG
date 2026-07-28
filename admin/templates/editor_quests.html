@@ -11,6 +11,7 @@
     <table>
         <thead>
             <tr>
+                <th>Фото</th>
                 <th>ID</th>
                 <th>Название</th>
                 <th>Тип</th>
@@ -26,6 +27,13 @@
         <tbody>
             {% for q in quests %}
             <tr>
+                <td>
+                    {% if q.image_url %}
+                    <img src="{{ q.image_url }}" style="width:36px;height:36px;object-fit:cover;border-radius:6px;border:1px solid var(--border);">
+                    {% else %}
+                    <span style="opacity:0.4;">🖼</span>
+                    {% endif %}
+                </td>
                 <td>{{ q.id }}</td>
                 <td>{{ q.name }}</td>
                 <td>{{ q.objective_type }}</td>
@@ -43,7 +51,7 @@
                 </td>
             </tr>
             {% else %}
-            <tr><td colspan="10">
+            <tr><td colspan="11">
                 <div class="empty-state"><div class="empty-icon">📜</div>Квестов пока нет.</div>
             </td></tr>
             {% endfor %}

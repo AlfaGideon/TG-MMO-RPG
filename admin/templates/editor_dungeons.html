@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+
+{% block title %}Подземелья — Shadow Lands{% endblock %}
+{% block page_title %}🕳 Шаблоны подземелий{% endblock %}
+{% block topbar_actions %}<a href="#dungeon-form" class="btn btn-primary">➕ Новый шаблон</a>{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>🕳 Процедурные подземелья</h2>
+    <p class="section-sub">
+        Подземелья существуют отдельно от мировой сетки 100×100 — каждый заход игрока генерирует уникальный
+        лабиринт по параметрам шаблона (25×25 по умолчанию, можно несколько этажей). Привяжи шаблон к клетке
+        через редактор клетки, чтобы она стала входом.
+    </p>
+    <div class="table-wrap">
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th><th>Название</th><th>Размер</th><th>Этажи</th><th>Мин.ур</th>
+                <th>Стены</th><th>Сундуки</th><th>Мобы</th><th>Активен</th><th>Действия</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for tpl in dungeon_templates %}
+            <tr>
+                <td>{{ tpl.id }}</td>
+                <td>{{ tpl.name }}</td>
+                <td>{{ tpl.grid_size }}×{{ tpl.grid_size }}</td>
+                <td>{{ tpl.floors_count }}</td>
+                <td>{{ tpl.min_level }}</td>
+                <td>{{ (tpl.wall_chance * 100)|round|int }}%</td>
+                <td>{{ (tpl.chest_chance * 100)|round|int }}%</td>
+                <td>{{ (tpl.mob_chance * 100)|round|int }}%</td>
+                <td>{{ '✅' if tpl.is_active else '—' }}</td>
+                <td>
+                    <button onclick="editDungeon({{ tpl.id }}, '{{ tpl.name|replace("'", "\\'") }}', '{{ tpl.description|replace("'", "\\'") }}', {{ tpl.grid_size }}, {{ tpl.floors_count }}, {{ tpl.min_level }}, {{ tpl.wall_chance }}, {{ tpl.chest_chance }}, {{ tpl.mob_chance }}, {{ tpl.mob_level_min }}, {{ tpl.mob_level_max }}, '{{ tpl.mob_pool|replace("'", "\\'") }}', '{{ tpl.image_url or '' }}', {{ 'true' if tpl.is_active else 'false' }})" class="btn btn-primary btn-sm">✏️</button>
+                    <form action="/editor/dungeons/{{ tpl.id }}/delete" method="post" style="display:inline" onsubmit="return confirm('Удалить шаблон подземелья?')">
+                        <button type="submit" class="btn btn-danger btn-sm">🗑</button>
+                    </form>
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="10">
+                <div class="empty-state"><div class="empty-icon">🕳</div>Шаблонов подземелий пока нет.</div>
+            </td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</div>
+
+<div class="card" id="dungeon-form">
+    <h3 id="dungeon-form-title">➕ Новый шаблон подземелья</h3>
+    <form action="/editor/dungeons/new" method="post" id="dungeonForm">
+        <div class="form-grid">
+            <div><label class="form-label">Название</label><input type="text" name="name" id="d_name" class="search-box" style="max-width:100%" required></div>
+            <div><label class="form-label">Размер сетки</label><input type="number" name="grid_size" id="d_grid" value="25" min="5" max="60" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">Этажей</label><input type="number" name="floors_count" id="d_floors" value="1" min="1" max="20" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">Мин. уровень</label><input type="number" name="min_level" id="d_lvl" value="1" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">Шанс стены (0-1)</label><input type="number" step="0.01" name="wall_chance" id="d_wall" value="0.22" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">Шанс сундука (0-1)</label><input type="number" step="0.01" name="chest_chance" id="d_chest" value="0.06" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">Шанс моба (0-1)</label><input type="number" step="0.01" name="mob_chance" id="d_mob" value="0.18" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">Мин. ур. моба</label><input type="number" name="mob_level_min" id="d_mlmin" value="1" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">Макс. ур. моба</label><input type="number" name="mob_level_max" id="d_mlmax" value="5" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">Пул мобов (через запятую)</label><input type="text" name="mob_pool" id="d_pool" class="search-box" style="max-width:100%" placeholder="Скелет-страж, Пещерный паук"></div>
+            <div><label class="form-label">URL картинки (фон)</label><input type="text" name="image_url" id="d_image" class="search-box" style="max-width:100%" placeholder="https://..."></div>
+            <div style="display:flex;align-items:flex-end;gap:0.5rem;">
+                <label style="font-size:0.85rem"><input type="checkbox" name="is_active" id="d_active" checked> Активен</label>
+            </div>
+        </div>
+        <div style="margin-top: 0.75rem;">
+            <label class="form-label">Описание</label>
+            <textarea name="description" id="d_desc" class="search-box" style="max-width:100%; width:100%; min-height:60px; resize:vertical;"></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary" style="margin-top:0.75rem">💾 Сохранить</button>
+        <button type="button" class="btn" style="margin-top:0.75rem; background:var(--bg-hover)" onclick="resetDungeonForm()">Отмена</button>
+    </form>
+</div>
+
+<script>
+function editDungeon(id, name, desc, grid, floors, lvl, wall, chest, mob, mlmin, mlmax, pool, image, active) {
+    document.getElementById('dungeon-form-title').textContent = '✏️ Редактировать шаблон';
+    const form = document.getElementById('dungeonForm');
+    form.action = '/editor/dungeons/' + id + '/edit';
+    document.getElementById('d_name').value = name;
+    document.getElementById('d_desc').value = desc;
+    document.getElementById('d_grid').value = grid;
+    document.getElementById('d_floors').value = floors;
+    document.getElementById('d_lvl').value = lvl;
+    document.getElementById('d_wall').value = wall;
+    document.getElementById('d_chest').value = chest;
+    document.getElementById('d_mob').value = mob;
+    document.getElementById('d_mlmin').value = mlmin;
+    document.getElementById('d_mlmax').value = mlmax;
+    document.getElementById('d_pool').value = pool;
+    document.getElementById('d_image').value = image || '';
+    document.getElementById('d_active').checked = active;
+    window.location.hash = 'dungeon-form';
+}
+function resetDungeonForm() {
+    document.getElementById('dungeon-form-title').textContent = '➕ Новый шаблон подземелья';
+    const form = document.getElementById('dungeonForm');
+    form.action = '/editor/dungeons/new';
+    form.reset();
+}
+</script>
+{% endblock %}

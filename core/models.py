@@ -20,6 +20,12 @@ class User(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     last_active = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
+    # Web admin panel access, grantable per-player from the admin UI
+    is_web_admin = Column(Boolean, default=False)
+    web_admin_role = Column(String(32), nullable=True)  # viewer / moderator / admin
+    web_admin_password_hash = Column(String(128), nullable=True)
+    web_admin_granted_at = Column(DateTime(timezone=True), nullable=True)
+
     character = relationship("Character", back_populates="user", uselist=False)
     messages = relationship("AdminMessage", back_populates="user", order_by="AdminMessage.created_at.desc()")
 
@@ -60,6 +66,7 @@ class Character(Base):
 
     location_id = Column(Integer, ForeignKey("locations.id"), default=1)
     cell_id = Column(Integer, ForeignKey("cells.id"), nullable=True)
+    floor = Column(Integer, default=0)
 
     party_id = Column(Integer, ForeignKey("parties.id"), nullable=True)
 
@@ -106,8 +113,9 @@ class Location(Base):
     min_level = Column(Integer, default=1)
     image_url = Column(String(512), nullable=True)
     grid_size = Column(Integer, default=10)
+    floors_count = Column(Integer, default=1)
 
-    # World map coordinates for seamless world
+    # World map coordinates for seamless world (0..9 by default, world is 10x10 locations of 10x10 cells = 100x100)
     world_x = Column(Integer, default=0)
     world_y = Column(Integer, default=0)
 
@@ -122,6 +130,7 @@ class Cell(Base):
     location_id = Column(Integer, ForeignKey("locations.id"), nullable=False)
     x = Column(Integer, nullable=False)
     y = Column(Integer, nullable=False)
+    floor = Column(Integer, default=0)
     name = Column(String(128), default="")
     description = Column(Text, default="")
     image_url = Column(String(512), nullable=True)
@@ -139,15 +148,21 @@ class Cell(Base):
     has_campfire = Column(Boolean, default=False)
     has_tree = Column(Boolean, default=False)
 
-    # Seamless world: links to neighbor locations at borders
-    # If set, moving beyond this cell transitions to target_location_id at target_x, target_y
+    # Dungeon entrance: stepping on this cell can start a procedural dungeon run
+    dungeon_template_id = Column(Integer, ForeignKey("dungeon_templates.id"), nullable=True)
+
+    # Seamless world: links to neighbor locations at borders, or floor transitions (stairs)
+    # within the same location (target_location_id == location_id, different target_floor)
+    # If set, moving beyond this cell transitions to target_location_id at target_x, target_y, target_floor
     target_location_id = Column(Integer, ForeignKey("locations.id"), nullable=True)
     target_x = Column(Integer, nullable=True)
     target_y = Column(Integer, nullable=True)
+    target_floor = Column(Integer, nullable=True)
 
     location = relationship("Location", back_populates="cells", foreign_keys=[location_id])
     mob = relationship("Mob")
     target_location = relationship("Location", foreign_keys=[target_location_id])
+    dungeon_template = relationship("DungeonTemplate", foreign_keys=[dungeon_template_id])
 
 
 class Mob(Base):
@@ -275,11 +290,50 @@ class CharacterQuest(Base):
     quest = relationship("Quest")
 
 
+class VisitedCell(Base):
+    """Tracks fog-of-war: which world cells a character has physically visited."""
+    __tablename__ = "visited_cells"
+
+    id = Column(Integer, primary_key=True, index=True)
+    character_id = Column(Integer, ForeignKey("characters.id"), nullable=False)
+    location_id = Column(Integer, ForeignKey("locations.id"), nullable=False)
+    floor = Column(Integer, default=0)
+    x = Column(Integer, nullable=False)
+    y = Column(Integer, nullable=False)
+    visited_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    character = relationship("Character")
+    location = relationship("Location")
+
+
+class DungeonTemplate(Base):
+    """Admin-configurable procedural dungeon blueprint (standalone, not tied to the 100x100 world grid)."""
+    __tablename__ = "dungeon_templates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(128), nullable=False)
+    description = Column(Text, default="")
+    grid_size = Column(Integer, default=25)
+    floors_count = Column(Integer, default=1)
+    min_level = Column(Integer, default=1)
+    wall_chance = Column(Float, default=0.22)
+    chest_chance = Column(Float, default=0.06)
+    mob_chance = Column(Float, default=0.18)
+    mob_level_min = Column(Integer, default=1)
+    mob_level_max = Column(Integer, default=5)
+    mob_pool = Column(Text, default="")  # comma-separated mob names used for flavor
+    image_url = Column(String(512), nullable=True)
+    is_active = Column(Boolean, default=True)
+
+    dungeon_runs = relationship("DungeonRun", back_populates="template")
+
+
 class DungeonRun(Base):
     __tablename__ = "dungeon_runs"
 
     id = Column(Integer, primary_key=True, index=True)
     character_id = Column(Integer, ForeignKey("characters.id"), nullable=False)
+    template_id = Column(Integer, ForeignKey("dungeon_templates.id"), nullable=True)
     dungeon_type = Column(String(32), default="procedural")  # procedural, fixed
     seed = Column(Integer, default=0)
     floor = Column(Integer, default=1)
@@ -288,6 +342,7 @@ class DungeonRun(Base):
     completed_at = Column(DateTime(timezone=True), nullable=True)
 
     character = relationship("Character", back_populates="dungeon_runs")
+    template = relationship("DungeonTemplate", back_populates="dungeon_runs")
     cells = relationship("DungeonCell", back_populates="run", cascade="all, delete-orphan")
 
 

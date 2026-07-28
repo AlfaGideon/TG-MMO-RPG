@@ -8,8 +8,8 @@
 </head>
 <body>
 {% set path = request.path %}
-{% set content_paths = ['/editor/world', '/editor/locations', '/editor/mobs', '/editor/npcs', '/editor/quests'] %}
 {% set content_active = path.startswith('/editor/') %}
+{% set role = request.state.role if request is defined else None %}
 <div class="layout" id="layout">
     <div class="sidebar-overlay" onclick="toggleSidebar(false)"></div>
     <aside class="sidebar">
@@ -17,7 +17,9 @@
             <span class="brand-icon">🌑</span>
             <div>
                 <div class="brand-title">Shadow Lands</div>
-                <div class="brand-sub">Admin panel</div>
+                <div class="brand-sub">
+                    {% if role %}Роль: {{ {'viewer': 'Наблюдатель', 'moderator': 'Модератор', 'admin': 'Админ'}.get(role, role) }}{% else %}Admin panel{% endif %}
+                </div>
             </div>
         </div>
         <nav class="sidebar-nav">
@@ -29,6 +31,9 @@
             <a href="/players" class="nav-link {% if path.startswith('/player') %}active{% endif %}">
                 <span class="nav-icon">👥</span> Игроки
             </a>
+            <a href="/map" class="nav-link {% if path == '/map' %}active{% endif %}">
+                <span class="nav-icon">🗺</span> Карта игроков
+            </a>
             <a href="/battles" class="nav-link {% if path == '/battles' %}active{% endif %}">
                 <span class="nav-icon">⚔️</span> Бои
             </a>
@@ -38,6 +43,7 @@
                 <span class="nav-icon">🎒</span> Предметы
             </a>
 
+            {% if role is none or role == 'admin' %}
             <div class="nav-section-label">Контент мира</div>
             <div class="nav-group {% if content_active or path == '/content' %}open active{% endif %}" id="content-group">
                 <div class="nav-group-row {% if content_active or path == '/content' %}active{% endif %}">
@@ -51,21 +57,32 @@
                 <div class="nav-subitems">
                     <a href="/editor/world" class="nav-sublink {% if path == '/editor/world' %}active{% endif %}">🌍 Мир</a>
                     <a href="/editor/locations" class="nav-sublink {% if path.startswith('/editor/location') %}active{% endif %}">🗺 Локации</a>
+                    <a href="/editor/dungeons" class="nav-sublink {% if path == '/editor/dungeons' %}active{% endif %}">🕳 Подземелья</a>
                     <a href="/editor/mobs" class="nav-sublink {% if path == '/editor/mobs' %}active{% endif %}">👾 Мобы</a>
                     <a href="/editor/npcs" class="nav-sublink {% if path == '/editor/npcs' %}active{% endif %}">🎭 NPC</a>
                     <a href="/editor/quests" class="nav-sublink {% if path == '/editor/quests' %}active{% endif %}">📜 Квесты</a>
                 </div>
             </div>
+            {% endif %}
 
+            {% if role is none or role == 'admin' %}
             <div class="nav-section-label">Система</div>
             <a href="/settings" class="nav-link {% if path == '/settings' %}active{% endif %}">
                 <span class="nav-icon">⚙️</span> Настройки
             </a>
+            {% endif %}
+            {% if role %}
+            <a href="/admin-logout" class="nav-link">
+                <span class="nav-icon">🚪</span> Выйти
+            </a>
+            {% endif %}
         </nav>
         <div class="sidebar-footer">
+            {% if role is none or role == 'admin' %}
             <button onclick="updateGitHeader(this)" class="btn btn-primary" style="width: 100%; justify-content: center;">
                 🔄 Обновить с GitHub
             </button>
+            {% endif %}
         </div>
     </aside>
 

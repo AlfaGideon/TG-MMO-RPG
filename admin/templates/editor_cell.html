@@ -41,9 +41,9 @@
 
                 <hr style="border-color: var(--border); margin: 1.5rem 0;">
 
-                <h3 style="margin-bottom: 1rem;">🌍 Переход в другую локацию</h3>
-                <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">Если игрок заходит на эту клетку, он телепортируется в указанную локацию и координаты.</p>
-                <div style="display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 0.5rem; margin-bottom: 1rem;">
+                <h3 style="margin-bottom: 1rem;">🌍 Переход в другую локацию / на этаж</h3>
+                <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">Если игрок заходит на эту клетку, он телепортируется в указанную локацию, координаты и этаж (для переходов внутри одной локации между этажами укажи ту же локацию и нужный этаж).</p>
+                <div style="display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 0.5rem; margin-bottom: 1rem;">
                     <div>
                         <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Целевая локация</label>
                         <select name="target_location_id" class="search-box" style="max-width: 100%;">
@@ -61,6 +61,23 @@
                         <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Y</label>
                         <input type="number" name="target_y" value="{{ cell.target_y or '' }}" class="search-box" style="max-width: 100%;">
                     </div>
+                    <div>
+                        <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Этаж</label>
+                        <input type="number" name="target_floor" value="{{ cell.target_floor if cell.target_floor is not none else '' }}" class="search-box" style="max-width: 100%;" placeholder="0">
+                    </div>
+                </div>
+
+                <hr style="border-color: var(--border); margin: 1.5rem 0;">
+
+                <h3 style="margin-bottom: 1rem;">🕳 Вход в процедурное подземелье</h3>
+                <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">Если выбран шаблон, эта клетка становится входом в подземелье (генерируется отдельно от карты мира, не занимает клетки 100×100).</p>
+                <div style="margin-bottom: 1rem;">
+                    <select name="dungeon_template_id" class="search-box" style="max-width: 100%;">
+                        <option value="">— нет —</option>
+                        {% for tpl in dungeon_templates %}
+                        <option value="{{ tpl.id }}" {% if cell.dungeon_template_id == tpl.id %}selected{% endif %}>{{ tpl.name }} ({{ tpl.grid_size }}×{{ tpl.grid_size }})</option>
+                        {% endfor %}
+                    </select>
                 </div>
 
                 <hr style="border-color: var(--border); margin: 1.5rem 0;">

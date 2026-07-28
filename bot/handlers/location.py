@@ -4,11 +4,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from core.database import async_session
-from core.models import User, Character, Location, Cell
-from core.map_renderer import ensure_cell_image
+from core.models import User, Character, Location, Cell, VisitedCell
+from core.map_renderer import ensure_cell_image, render_player_map, get_player_map_path
 from bot.keyboards.inline import (
     cell_movement_keyboard, inspect_keyboard,
-    main_menu_keyboard, back_to_main_keyboard
+    main_menu_keyboard, back_to_main_keyboard, map_view_keyboard,
 )
 from bot.utils.texts import location_text, cell_text
 from bot.utils.photos import send_or_edit_photo, get_photo_input
@@ -33,15 +33,36 @@ EMPTY_INSPECT_LINES = [
     "Ты нашёл лишь старый окурок и потрескавшийся камень. Больше ничего.",
 ]
 
+DIRECTIONS = {
+    "north": (-1, 0), "south": (1, 0), "west": (0, -1), "east": (0, 1),
+    "nw": (-1, -1), "ne": (-1, 1), "sw": (1, -1), "se": (1, 1),
+}
+
+
+async def mark_visited(session, character: Character, cell: Cell):
+    """Record fog-of-war progress for the player's current cell."""
+    result = await session.execute(
+        select(VisitedCell)
+        .where(VisitedCell.character_id == character.id)
+        .where(VisitedCell.location_id == cell.location_id)
+        .where(VisitedCell.floor == (cell.floor or 0))
+        .where(VisitedCell.x == cell.x)
+        .where(VisitedCell.y == cell.y)
+    )
+    if result.scalar_one_or_none() is None:
+        session.add(VisitedCell(
+            character_id=character.id,
+            location_id=cell.location_id,
+            floor=cell.floor or 0,
+            x=cell.x,
+            y=cell.y,
+        ))
+
 
 @router.callback_query(F.data.startswith("move:"))
 async def move_direction(callback: CallbackQuery):
     direction = callback.data.split(":")[1]
-    deltas = {
-        "north": (-1, 0), "south": (1, 0), "west": (0, -1), "east": (0, 1),
-        "nw": (-1, -1), "ne": (-1, 1), "sw": (1, -1), "se": (1, 1),
-    }
-    dx, dy = deltas.get(direction, (0, 0))
+    dx, dy = DIRECTIONS.get(direction, (0, 0))
 
     async with async_session() as session:
         result = await session.execute(
@@ -64,6 +85,7 @@ async def move_direction(callback: CallbackQuery):
         result = await session.execute(
             select(Cell)
             .where(Cell.location_id == character.location_id)
+            .where(Cell.floor == (character.floor or 0))
             .where(Cell.x == new_x)
             .where(Cell.y == new_y)
         )
@@ -72,23 +94,28 @@ async def move_direction(callback: CallbackQuery):
             await callback.answer("Туда нельзя пройти!", show_alert=True)
             return
 
-        # Check seamless transition
+        # Check seamless / floor transition
         if target.target_location_id is not None and target.target_x is not None and target.target_y is not None:
+            dest_floor = target.target_floor if target.target_floor is not None else 0
             result = await session.execute(
                 select(Cell)
                 .where(Cell.location_id == target.target_location_id)
+                .where(Cell.floor == dest_floor)
                 .where(Cell.x == target.target_x)
                 .where(Cell.y == target.target_y)
             )
             dest_cell = result.scalar_one_or_none()
             if dest_cell:
                 character.location_id = target.target_location_id
+                character.floor = dest_floor
                 character.cell_id = dest_cell.id
+                await mark_visited(session, character, dest_cell)
                 await session.commit()
                 await show_cell(callback, character, dest_cell.location, session)
                 return
 
         character.cell_id = target.id
+        await mark_visited(session, character, target)
         await session.commit()
         await show_cell(callback, character, character.location, session)
 
@@ -143,6 +170,79 @@ async def inspect_cell(callback: CallbackQuery):
             ),
             parse_mode="HTML",
         )
+
+
+@router.callback_query(F.data == "show_map")
+async def show_map(callback: CallbackQuery):
+    async with async_session() as session:
+        result = await session.execute(
+            select(User).where(User.telegram_id == callback.from_user.id)
+        )
+        user = result.scalar_one_or_none()
+        result = await session.execute(
+            select(Character)
+            .where(Character.user_id == user.id)
+            .options(selectinload(Character.location), selectinload(Character.cell))
+        )
+        character = result.scalar_one_or_none()
+        if not character or not character.cell:
+            await callback.answer("Ошибка.", show_alert=True)
+            return
+
+        location = character.location
+        floor = character.floor or 0
+
+        result = await session.execute(
+            select(Cell)
+            .where(Cell.location_id == location.id)
+            .where(Cell.floor == floor)
+        )
+        cells = result.scalars().all()
+
+        result = await session.execute(
+            select(VisitedCell)
+            .where(VisitedCell.character_id == character.id)
+            .where(VisitedCell.location_id == location.id)
+            .where(VisitedCell.floor == floor)
+        )
+        visited_rows = result.scalars().all()
+        visited = {(v.x, v.y) for v in visited_rows}
+        # Always show the current cell even if somehow missing
+        visited.add((character.cell.x, character.cell.y))
+
+        map_path = get_player_map_path(character.id, location.id, floor)
+        render_player_map(
+            cells, visited, character.cell.x, character.cell.y,
+            location.grid_size, map_path,
+        )
+
+        floor_label = f" (этаж {floor})" if location.floors_count and location.floors_count > 1 else ""
+        caption = f"🗺 <b>{location.name}</b>{floor_label}\n\nИсследовано клеток: {len(visited)}"
+
+        photo = FSInputFile(map_path)
+        msg = callback.message
+        try:
+            if msg and msg.photo:
+                from aiogram.types import InputMediaPhoto
+                await msg.edit_media(
+                    media=InputMediaPhoto(media=photo, caption=caption, parse_mode="HTML"),
+                    reply_markup=map_view_keyboard(),
+                )
+            else:
+                if msg:
+                    try:
+                        await msg.delete()
+                    except Exception:
+                        pass
+                await callback.message.answer_photo(
+                    photo=photo, caption=caption, parse_mode="HTML",
+                    reply_markup=map_view_keyboard(),
+                )
+        except Exception:
+            await callback.message.answer_photo(
+                photo=FSInputFile(map_path), caption=caption, parse_mode="HTML",
+                reply_markup=map_view_keyboard(),
+            )
 
 
 @router.callback_query(F.data == "back_to_cell")
@@ -238,13 +338,11 @@ async def show_cell(callback, character, location, session):
         return
 
     can_dirs = {}
-    for direction, (dx, dy) in {
-        "north": (-1, 0), "south": (1, 0), "west": (0, -1), "east": (0, 1),
-        "nw": (-1, -1), "ne": (-1, 1), "sw": (1, -1), "se": (1, 1),
-    }.items():
+    for direction, (dx, dy) in DIRECTIONS.items():
         result = await session.execute(
             select(Cell)
             .where(Cell.location_id == location.id)
+            .where(Cell.floor == (character.floor or 0))
             .where(Cell.x == cell.x + dx)
             .where(Cell.y == cell.y + dy)
         )
@@ -259,18 +357,20 @@ async def show_cell(callback, character, location, session):
         await send_or_edit_photo(
             callback,
             text,
-            reply_markup=cell_movement_keyboard(can_dirs),
+            reply_markup=cell_movement_keyboard(can_dirs, cell.dungeon_template_id),
             image_url=custom_img,
         )
         return
 
     result = await session.execute(
-        select(Cell).where(Cell.location_id == location.id)
+        select(Cell)
+        .where(Cell.location_id == location.id)
+        .where(Cell.floor == (character.floor or 0))
     )
     cells = result.scalars().all()
 
     img_path = ensure_cell_image(cell, cells, cell.x, cell.y)
-    kb = cell_movement_keyboard(can_dirs)
+    kb = cell_movement_keyboard(can_dirs, cell.dungeon_template_id)
 
     await send_or_edit_photo(
         callback,

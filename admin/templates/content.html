@@ -19,8 +19,14 @@
         <a href="/editor/locations" class="content-card">
             <div class="content-icon">🗺</div>
             <div class="content-title">Локации</div>
-            <div class="content-desc">Список локаций, их клетки, тип и уровень.</div>
+            <div class="content-desc">Список локаций, их клетки, тип, этажи и уровень.</div>
             <span class="content-count">{{ total_locations }} шт.</span>
+        </a>
+        <a href="/editor/dungeons" class="content-card">
+            <div class="content-icon">🕳</div>
+            <div class="content-title">Подземелья</div>
+            <div class="content-desc">Шаблоны процедурных подземелий 25×25: стены, сундуки, мобы.</div>
+            <span class="content-count">{{ total_dungeons }} шт.</span>
         </a>
         <a href="/editor/mobs" class="content-card">
             <div class="content-icon">👾</div>
@@ -39,6 +45,12 @@
             <div class="content-title">Квесты</div>
             <div class="content-desc">Задания игроков: цели, условия и награды.</div>
             <span class="content-count">{{ total_quests }} шт.</span>
+        </a>
+        <a href="/items" class="content-card">
+            <div class="content-icon">🎒</div>
+            <div class="content-title">Предметы и лавка</div>
+            <div class="content-desc">Каталог предметов и товары в магазине торговца.</div>
+            <span class="content-count">{{ total_items }} шт.</span>
         </a>
     </div>
 </div>

@@ -95,4 +95,61 @@
         <button type="submit" class="btn btn-primary" style="margin-top:0.75rem">💾 Создать</button>
     </form>
 </div>
+
+<div class="card" id="shop">
+    <div class="toolbar">
+        <h2 style="margin-bottom:0;">🏪 Лавка торговца</h2>
+    </div>
+    <p class="section-sub">Товары, доступные игрокам в лавке через бота. Сток -1 означает бесконечный запас.</p>
+    <div class="table-wrap">
+    <table>
+        <thead>
+            <tr><th>Предмет</th><th>Цена</th><th>Сток</th><th>Действия</th></tr>
+        </thead>
+        <tbody>
+            {% for si in shop_items %}
+            <tr>
+                <td>{{ si.item.icon }} {{ si.item.name }}</td>
+                <td>
+                    <form action="/shop/{{ si.id }}/edit" method="post" style="display:flex; gap:0.4rem; align-items:center;">
+                        <input type="number" name="price" value="{{ si.price }}" class="search-box" style="max-width:90px">
+                        <input type="number" name="stock" value="{{ si.stock }}" class="search-box" style="max-width:70px" title="Сток (-1 = безлимит)">
+                        <button type="submit" class="btn btn-primary btn-sm">💾</button>
+                    </form>
+                </td>
+                <td>{{ 'без лимита' if si.stock < 0 else si.stock }}</td>
+                <td>
+                    <form action="/shop/{{ si.id }}/delete" method="post" onsubmit="return confirm('Убрать товар из лавки?')">
+                        <button type="submit" class="btn btn-danger btn-sm">🗑</button>
+                    </form>
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4">
+                <div class="empty-state"><div class="empty-icon">🏪</div>В лавке пока пусто.</div>
+            </td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    <form action="/shop/add" method="post" style="margin-top:1rem; display:flex; gap:0.5rem; flex-wrap:wrap; align-items:flex-end;">
+        <div>
+            <label class="form-label">Добавить предмет в лавку</label>
+            <select name="item_id" class="search-box" style="max-width:260px">
+                {% for item in items %}
+                <option value="{{ item.id }}">{{ item.icon }} {{ item.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label class="form-label">Цена</label>
+            <input type="number" name="price" value="10" class="search-box" style="max-width:100px">
+        </div>
+        <div>
+            <label class="form-label">Сток</label>
+            <input type="number" name="stock" value="-1" class="search-box" style="max-width:90px">
+        </div>
+        <button type="submit" class="btn btn-primary">➕ Добавить в лавку</button>
+    </form>
+</div>
 {% endblock %}
