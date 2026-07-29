@@ -4,17 +4,20 @@ import random
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 
-from fastapi import FastAPI, Request, Form, UploadFile, File, HTTPException
+from fastapi import FastAPI, Request, Form, UploadFile, File, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import RedirectResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
 from sqlalchemy import select, func, delete, String
 from sqlalchemy.orm import selectinload
+import asyncio
 
 from core.database import init_db, async_session
 from core.migrations import run_migrations
 from core import worldgen as W, worldops as WO
+from core import realtime as RT
+from core import vip as VIP
 from core.models import (
     User, Character, Location, Mob, Item, ShopItem, Battle, AppSetting, Cell,
     Quest, AdminMessage, InventoryItem, VisitedCell, DungeonTemplate, DungeonRun,
@@ -1765,13 +1768,17 @@ async def editor_location(request: Request, location_id: int, floor: int = 0,
                 if seams:
                     linked_dirs.add(d)
 
+        result = await session.execute(select(Location).order_by(Location.id))
+        all_locations = result.scalars().all()
+
     return templates.TemplateResponse(
         request,
         "editor_location.html",
         {"location": location, "cells_dict": cells_dict, "current_floor": floor,
          "floors_range": range(location.floors_count or 1),
          "linked": linked, "warn": warn.replace("+", " "), "note": note.replace("+", " "),
-         "neighbors": neighbors, "linked_dirs": linked_dirs},
+         "neighbors": neighbors, "linked_dirs": linked_dirs,
+         "all_locations": all_locations},
     )
 
 
@@ -1988,13 +1995,157 @@ async def editor_world_place(request: Request, location_id: int = Form(...), wor
     guard(request, "manage_content")
     async with async_session() as session:
         loc = await session.get(Location, location_id)
-        if loc:
-            ok, msg = await WO.move_location(session, loc, world_x, world_y)
-            # Переходы между локациями обязаны соответствовать новой карте
-            # соседства — пересобираем все швы мира.
-            await W.relink_all(session)
-            await session.commit()
+        if not loc:
+            return JSONResponse({"success": False, "error": "Локация не найдена"})
+        ok, msg = await WO.move_location(session, loc, world_x, world_y)
+        await W.relink_all(session)
+        await session.commit()
+        # realtime
+        try:
+            await RT.publish("world_moved", {"location_id": loc.id, "name": loc.name, "x": loc.world_x, "y": loc.world_y, "msg": msg})
+        except Exception:
+            pass
     return JSONResponse({"success": True, "message": msg})
+
+
+@app.post("/editor/world/shuffle")
+async def editor_world_shuffle(request: Request):
+    """Перемешивает все существующие локации случайным образом по свободным клеткам мира."""
+    guard(request, "manage_content")
+    async with async_session() as session:
+        result = await session.execute(select(Location).order_by(Location.id))
+        locs = result.scalars().all()
+        if len(locs) <= 1:
+            return JSONResponse({"success": False, "error": "Недостаточно локаций для перемешивания"})
+
+        # Генерируем все координаты мира и перемешиваем
+        all_coords = [(x, y) for x in range(WORLD_GRID_SIZE) for y in range(WORLD_GRID_SIZE)]
+        random.shuffle(all_coords)
+        # Берём столько координат сколько локаций
+        chosen = all_coords[:len(locs)]
+        random.shuffle(chosen)
+
+        for loc, (wx, wy) in zip(locs, chosen):
+            loc.world_x = wx
+            loc.world_y = wy
+
+        pairs = await W.relink_all(session)
+        await session.commit()
+
+        try:
+            await RT.publish("world_shuffled", {"count": len(locs), "pairs": pairs})
+        except Exception:
+            pass
+
+    return JSONResponse({"success": True, "count": len(locs), "pairs": pairs})
+
+
+@app.post("/api/world/create")
+async def api_world_create(
+    request: Request,
+    name: str = Form(...),
+    description: str = Form(""),
+    location_type: str = Form("safe"),
+    min_level: int = Form(1),
+    grid_size: int = Form(10),
+    floors_count: int = Form(1),
+    world_x: int = Form(0),
+    world_y: int = Form(0),
+):
+    """Быстрое создание локации прямо с карты мира (модалка)."""
+    guard(request, "manage_content")
+    from core.seed import CELL_STORIES
+
+    grid_size = max(5, min(25, grid_size))
+    floors_count = max(1, min(10, floors_count))
+
+    async with async_session() as session:
+        occupant = await WO.world_occupant(session, world_x, world_y)
+        if occupant:
+            # ищем свободную рядом
+            free = await WO.find_free_spot(session)
+            if free:
+                world_x, world_y = free
+            else:
+                return JSONResponse({"success": False, "error": f"Клетка занята {occupant.name}"})
+
+        loc = Location(
+            name=name,
+            description=description,
+            location_type=LocationType(location_type),
+            min_level=min_level,
+            grid_size=grid_size,
+            floors_count=floors_count,
+            world_x=world_x,
+            world_y=world_y,
+        )
+        session.add(loc)
+        await session.flush()
+        await W.build_cells(session, loc, CELL_STORIES)
+        await W.autolink(session, loc)
+        await session.commit()
+
+        try:
+            await RT.publish("world_created", {"location_id": loc.id, "name": loc.name, "x": world_x, "y": world_y})
+        except Exception:
+            pass
+
+        return JSONResponse({
+            "success": True,
+            "location": {
+                "id": loc.id,
+                "name": loc.name,
+                "world_x": loc.world_x,
+                "world_y": loc.world_y,
+                "grid_size": loc.grid_size,
+                "floors_count": loc.floors_count,
+                "type": loc.location_type.value,
+            }
+        })
+
+
+@app.post("/editor/location/{location_id}/floors/add")
+async def location_floor_add(request: Request, location_id: int):
+    """Добавляет один этаж к локации (визуализация подуровней)."""
+    guard(request, "manage_content")
+    from core.seed import CELL_STORIES
+    async with async_session() as session:
+        loc = await session.get(Location, location_id)
+        if not loc:
+            return JSONResponse({"success": False, "error": "Локация не найдена"})
+        if (loc.floors_count or 1) >= 10:
+            return JSONResponse({"success": False, "error": "Максимум 10 этажей"})
+
+        new_floors = (loc.floors_count or 1) + 1
+        ok, msg = await WO.resize(session, loc, new_size=loc.grid_size, new_floors=new_floors, stories=CELL_STORIES)
+        if not ok:
+            await session.rollback()
+            return JSONResponse({"success": False, "error": msg})
+        await session.commit()
+        return JSONResponse({"success": True, "floors_count": new_floors, "msg": msg})
+
+
+@app.post("/editor/location/{location_id}/floors/remove")
+async def location_floor_remove(request: Request, location_id: int, floor: int = Form(0)):
+    """Удаляет верхний этаж (или указанный) если там нет игроков."""
+    guard(request, "manage_content")
+    from core.seed import CELL_STORIES
+    async with async_session() as session:
+        loc = await session.get(Location, location_id)
+        if not loc:
+            return JSONResponse({"success": False, "error": "Локация не найдена"})
+        cur = loc.floors_count or 1
+        if cur <= 1:
+            return JSONResponse({"success": False, "error": "Нельзя удалить последний этаж"})
+
+        # Удаляем именно верхний, чтобы не ломать нумерацию
+        new_floors = cur - 1
+        ok, msg = await WO.resize(session, loc, new_size=loc.grid_size, new_floors=new_floors, stories=CELL_STORIES)
+        if not ok:
+            await session.rollback()
+            return JSONResponse({"success": False, "error": msg})
+        await session.commit()
+        return JSONResponse({"success": True, "floors_count": new_floors, "msg": msg})
 
 
 @app.post("/editor/world/relink")
@@ -2080,8 +2231,19 @@ async def api_mob_drops(request: Request, mob_id: int):
 
 
 @app.post("/api/cell/{cell_id}/paint")
-async def api_cell_paint(request: Request, cell_id: int, brush: str = Form("")):
-    """Быстрая покраска клетки из визуального редактора локации."""
+async def api_cell_paint(
+    request: Request,
+    cell_id: int,
+    brush: str = Form(""),
+    target_location_id: str = Form(""),
+    target_x: str = Form(""),
+    target_y: str = Form(""),
+    target_floor: str = Form(""),
+):
+    """Быстрая покраска клетки из визуального редактора локации.
+
+    Поддерживает тайлы, объекты, двери (переходы) и лестницы через кисть.
+    """
     guard(request, "manage_content")
     tile_map = {
         "wall": ("wall", False),
@@ -2115,10 +2277,87 @@ async def api_cell_paint(request: Request, cell_id: int, brush: str = Form("")):
             cell.has_chest = False
             cell.npc_name = None
             cell.npc_type = None
+        elif brush == "door":
+            # Создание/редактирование двери: переход в соседнюю локацию или на этаж
+            cell.is_passable = True
+            if cell.tile_type == "wall":
+                cell.tile_type = "road"
+            if target_location_id.strip():
+                try:
+                    cell.target_location_id = int(target_location_id)
+                except ValueError:
+                    cell.target_location_id = None
+            if target_x.strip():
+                try:
+                    cell.target_x = int(target_x)
+                except ValueError:
+                    pass
+            if target_y.strip():
+                try:
+                    cell.target_y = int(target_y)
+                except ValueError:
+                    pass
+            if target_floor.strip():
+                try:
+                    cell.target_floor = int(target_floor)
+                except ValueError:
+                    pass
+            # Если координаты не переданы, но есть target_location — ставим центр цели
+            if cell.target_location_id and (cell.target_x is None or cell.target_y is None):
+                # попробуем найти центр целевой локации
+                tgt = await session.get(Location, cell.target_location_id)
+                if tgt:
+                    cell.target_x = tgt.grid_size // 2
+                    cell.target_y = tgt.grid_size // 2
+                    if cell.target_floor is None:
+                        cell.target_floor = 0
+        elif brush == "clear_door":
+            cell.target_location_id = None
+            cell.target_x = None
+            cell.target_y = None
+            cell.target_floor = None
+        elif brush == "stairs_up":
+            cell.is_passable = True
+            cell.tile_type = "road"
+            cell.target_location_id = cell.location_id
+            cell.target_floor = (cell.floor or 0) + 1
+            # target_x/y = собственная позиция (лестница на том же месте этажом выше)
+            cell.target_x = cell.x
+            cell.target_y = cell.y
+        elif brush == "stairs_down":
+            cell.is_passable = True
+            cell.tile_type = "road"
+            cell.target_location_id = cell.location_id
+            cell.target_floor = max(0, (cell.floor or 0) - 1)
+            cell.target_x = cell.x
+            cell.target_y = cell.y
+        elif brush == "erase":
+            # Полная очистка клетки до травы без объектов и переходов
+            cell.tile_type = "grass"
+            cell.is_passable = True
+            cell.has_npc = False
+            cell.has_chest = False
+            cell.target_location_id = None
+            cell.target_x = None
+            cell.target_y = None
+            cell.target_floor = None
         else:
             return JSONResponse({"success": False, "error": "Неизвестная кисть"})
         await session.commit()
-    return JSONResponse({"success": True})
+        return JSONResponse({
+            "success": True,
+            "cell": {
+                "id": cell.id,
+                "tile_type": cell.tile_type,
+                "is_passable": cell.is_passable,
+                "has_npc": cell.has_npc,
+                "has_chest": cell.has_chest,
+                "target_location_id": cell.target_location_id,
+                "target_x": cell.target_x,
+                "target_y": cell.target_y,
+                "target_floor": cell.target_floor,
+            }
+        })
 
 
 @app.post("/editor/mobs/new")
@@ -3782,6 +4021,135 @@ async def players_map(request: Request):
             "total_characters": total_online_proxy,
         },
     )
+
+
+# ── Realtime & VIP ────────────────────────────────────────
+
+@app.get("/api/live/state")
+async def api_live_state(request: Request):
+    """Снапшот для первичной загрузки live-страниц: игроки, порталы, экономика."""
+    async with async_session() as session:
+        # Игроки с позициями
+        result = await session.execute(
+            select(Character, Location)
+            .join(Location, Character.location_id == Location.id, isouter=True)
+            .options(selectinload(Character.cell))
+            .order_by(Character.id.desc())
+            .limit(200)
+        )
+        players = []
+        for char, loc in result.all():
+            players.append({
+                "id": char.id,
+                "name": char.name,
+                "level": char.level,
+                "location_id": char.location_id,
+                "location_name": loc.name if loc else "",
+                "floor": char.floor or 0,
+                "x": char.cell.x if char.cell else None,
+                "y": char.cell.y if char.cell else None,
+                "is_vip": VIP.is_vip_active(char),
+                "gold": char.gold,
+            })
+
+        # Порталы
+        result = await session.execute(
+            select(DungeonTemplate).order_by(DungeonTemplate.portal_opened_at.desc())
+        )
+        portals = []
+        from core.dungeons import is_portal_open
+        for tpl in result.scalars().all():
+            portals.append({
+                "id": tpl.id,
+                "name": tpl.name,
+                "is_open": is_portal_open(tpl),
+                "opened_at": tpl.portal_opened_at.isoformat() if tpl.portal_opened_at else None,
+                "closed_at": tpl.portal_closed_at.isoformat() if tpl.portal_closed_at else None,
+                "min_level": tpl.min_level,
+                "grid_size": tpl.grid_size,
+            })
+
+        # Экономика — последние лоты
+        result = await session.execute(
+            select(AuctionLot).order_by(AuctionLot.id.desc()).limit(20)
+        )
+        economy = []
+        for lot in result.scalars().all():
+            economy.append({
+                "id": lot.id,
+                "item_id": lot.item_id,
+                "price": lot.price,
+                "status": lot.status,
+                "seller_id": lot.seller_id,
+                "created_at": lot.created_at.isoformat() if lot.created_at else None,
+            })
+
+        # Популяция по локациям
+        result = await session.execute(
+            select(Character.location_id, func.count(Character.id)).group_by(Character.location_id)
+        )
+        pop = {loc_id: cnt for loc_id, cnt in result.all()}
+
+    history = RT.get_history(limit=80)
+    return {
+        "players": players,
+        "portals": portals,
+        "economy": economy,
+        "pop_by_loc": pop,
+        "vip_benefits": VIP.vip_benefits_list(),
+        "history": history,
+    }
+
+
+@app.get("/api/vip/benefits")
+async def api_vip_benefits():
+    return {"benefits": VIP.vip_benefits_list()}
+
+
+@app.get("/api/live/portals")
+async def api_live_portals():
+    async with async_session() as session:
+        result = await session.execute(select(DungeonTemplate).order_by(DungeonTemplate.id))
+        from core.dungeons import is_portal_open
+        out = []
+        for tpl in result.scalars().all():
+            out.append({
+                "id": tpl.id,
+                "name": tpl.name,
+                "is_open": is_portal_open(tpl),
+                "opened_at": tpl.portal_opened_at.isoformat() if tpl.portal_opened_at else None,
+                "closed_at": tpl.portal_closed_at.isoformat() if tpl.portal_closed_at else None,
+                "time_left_sec": (
+                    max(0, int(7200 - (datetime.utcnow() - tpl.portal_opened_at).total_seconds()))
+                    if tpl.portal_opened_at and tpl.portal_closed_at is None else None
+                ),
+            })
+        return {"portals": out}
+
+
+@app.websocket("/ws/live")
+async def ws_live(websocket):
+    await websocket.accept()
+    q = await RT.subscribe()
+    try:
+        # отдаём историю сразу
+        for ev in RT.get_history(limit=30):
+            await websocket.send_json(ev)
+        while True:
+            try:
+                ev = await asyncio.wait_for(q.get(), timeout=25.0)
+                await websocket.send_json(ev)
+            except asyncio.TimeoutError:
+                # ping чтобы не отвалился
+                await websocket.send_json({"type": "ping", "ts": datetime.utcnow().isoformat()})
+    except Exception:
+        pass
+    finally:
+        await RT.unsubscribe(q)
+        try:
+            await websocket.close()
+        except Exception:
+            pass
 
 
 # ── Global Search ──────────────────────────────────────────

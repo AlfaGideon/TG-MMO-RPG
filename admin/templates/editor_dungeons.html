@@ -6,25 +6,25 @@
 
 {% block content %}
 <div class="card">
-    <h2>🕳 Процедурные подземелья</h2>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.6rem">
+        <h2 style="margin:0">🕳 Процедурные подземелья — LIVE таймеры без перезагрузки</h2>
+        <span class="hint" id="portalLiveStatus">● LIVE</span>
+    </div>
     <p class="section-sub">
-        Подземелья существуют отдельно от мировой сетки 100×100 — каждый заход игрока генерирует уникальный
-        лабиринт по параметрам шаблона (25×25 по умолчанию, можно несколько этажей). При создании шаблона
-        портал автоматически появляется в случайном месте карты, и все игроки получают уведомление с координатами.
-        Портал открыт для новых входов не дольше 2 часов, потом закрывается автоматически; «Закрыть портал»
-        сразу блокирует новые входы, но игроки, уже зашедшие внутрь, доигрывают до смерти или самостоятельного выхода.
+        Подземелья отдельно от мировой сетки 100×100. Портал открыт 2 часа — таймер живой (обновляется каждую секунду без F5).
+        При WS-событии портал появляется/закрывается мгновенно. Экономика: оборот по лотам тоже live.
     </p>
     <div class="table-wrap">
-    <table>
+    <table id="portalTable">
         <thead>
             <tr>
                 <th>ID</th><th>Название</th><th>Размер</th><th>Этажи</th><th>Мин.ур</th>
-                <th>Стены</th><th>Сундуки</th><th>Мобы</th><th>Активен</th><th>Портал</th><th>Действия</th>
+                <th>Стены</th><th>Сундуки</th><th>Мобы</th><th>Активен</th><th>Портал (live)</th><th>Действия</th>
             </tr>
         </thead>
         <tbody>
             {% for tpl in dungeon_templates %}
-            <tr>
+            <tr data-tpl-id="{{ tpl.id }}">
                 <td>{{ tpl.id }}</td>
                 <td>{{ tpl.name }}</td>
                 <td>{{ tpl.grid_size }}×{{ tpl.grid_size }}</td>
@@ -37,14 +37,17 @@
                 <td>
                     {% set portal = portal_by_template.get(tpl.id) %}
                     {% set is_open = portal_open_by_template.get(tpl.id) %}
+                    <div data-portal-id="{{ tpl.id }}" data-opened="{{ tpl.portal_opened_at.isoformat() if tpl.portal_opened_at else '' }}" data-is-open="{{ '1' if is_open else '0' }}">
                     {% if portal and is_open %}
-                    <span class="badge badge-success">🌀 открыт</span><br>
-                    <span style="font-size:0.78rem;">{{ portal.location.name }} [{{ portal.x }},{{ portal.y }}]{% if portal.floor %} эт.{{ portal.floor }}{% endif %}</span>
+                        <span class="badge badge-success">🌀 открыт</span><br>
+                        <span style="font-size:0.78rem;">{{ portal.location.name }} [{{ portal.x }},{{ portal.y }}]{% if portal.floor %} эт.{{ portal.floor }}{% endif %}</span><br>
+                        <span class="live-timer badge" style="margin-top:4px" data-timer="{{ tpl.id }}">⏳ загрузка...</span>
                     {% elif tpl.portal_opened_at and not is_open %}
-                    <span class="badge badge-danger">🚫 закрыт</span>
+                        <span class="badge badge-danger">🚫 закрыт</span>
                     {% else %}
-                    <span style="color:var(--text-muted)">нет портала</span>
+                        <span style="color:var(--text-muted)">нет портала</span>
                     {% endif %}
+                    </div>
                 </td>
                 <td>
                     <button onclick="editDungeon({{ tpl.id }}, '{{ tpl.name|replace("'", "\\'") }}', '{{ tpl.description|replace("'", "\\'") }}', {{ tpl.grid_size }}, {{ tpl.floors_count }}, {{ tpl.min_level }}, {{ tpl.wall_chance }}, {{ tpl.chest_chance }}, {{ tpl.mob_chance }}, {{ tpl.mob_level_min }}, {{ tpl.mob_level_max }}, '{{ tpl.mob_pool|replace("'", "\\'") }}', '{{ tpl.image_url or '' }}', {{ 'true' if tpl.is_active else 'false' }})" class="btn btn-primary btn-sm">✏️</button>
@@ -72,6 +75,10 @@
             {% endfor %}
         </tbody>
     </table>
+    </div>
+    <div style="margin-top:0.8rem;display:flex;gap:0.6rem;flex-wrap:wrap">
+        <div class="hint">⏱ Таймеры обновляются каждую секунду без перезагрузки страницы. При WS-событии portal_opened/closed — строка перерисовывается live.</div>
+        <div class="hint" id="portalLog" style="margin-left:auto"></div>
     </div>
 </div>
 
@@ -129,5 +136,52 @@ function resetDungeonForm() {
     form.action = '/editor/dungeons/new';
     form.reset();
 }
+
+// ── LIVE таймеры порталов ──
+(function(){
+    function fmtSec(sec){
+        if(sec<=0) return '⏰ Закрыт';
+        const h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60), s = sec%60;
+        return `${h}ч ${m}м ${s}с`;
+    }
+    function startTimers(){
+        document.querySelectorAll('[data-portal-id]').forEach(el=>{
+            const openedIso = el.dataset.opened;
+            const isOpen = el.dataset.isOpen==='1';
+            if(!openedIso || !isOpen) return;
+            const opened = new Date(openedIso).getTime();
+            const timerEl = el.querySelector('[data-timer]');
+            if(!timerEl) return;
+            function tick(){
+                const left = 7200 - Math.floor((Date.now()-opened)/1000);
+                if(timerEl) timerEl.textContent = '⏳ '+fmtSec(left);
+                if(left<=0){ timerEl.textContent='🚫 Авто-закрыт'; timerEl.classList.add('badge-danger'); return; }
+                requestAnimationFrame(()=>setTimeout(tick,1000));
+            }
+            tick();
+        });
+    }
+    startTimers();
+
+    // live WS for portal open/close
+    try{
+        const proto = location.protocol==='https:'?'wss:':'ws:';
+        const ws = new WebSocket(proto+'//'+location.host+'/ws/live');
+        const logEl = document.getElementById('portalLog');
+        const statusEl = document.getElementById('portalLiveStatus');
+        ws.onopen = ()=>{ if(statusEl) statusEl.textContent='● LIVE подключен'; };
+        ws.onmessage = (ev)=>{
+            try{
+                const data = JSON.parse(ev.data);
+                if(data.type==='portal_opened' || data.type==='portal_closed' || data.type==='auction_new' || data.type==='auction_sold'){
+                    if(logEl) logEl.textContent = new Date().toLocaleTimeString()+' — '+data.type+': '+(data.payload.name||data.payload.id||'');
+                    showToast('🌀 Событие: '+data.type);
+                    // обновить таймеры
+                    setTimeout(()=>location.reload(), 1500);
+                }
+            }catch(e){}
+        };
+    }catch(e){}
+})();
 </script>
 {% endblock %}

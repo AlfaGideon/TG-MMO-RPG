@@ -1,53 +1,67 @@
 {% extends "base.html" %}
 
 {% block title %}Карта игроков — Shadow Lands{% endblock %}
-{% block page_title %}🗺 Карта игроков{% endblock %}
+{% block page_title %}🗺 Карта игроков <span id="liveBadge" style="font-size:0.75rem;color:var(--success)">● LIVE</span>{% endblock %}
 
 {% block content %}
 <style>
-.pm-grid {
-    display: grid;
-    grid-template-columns: repeat(10, minmax(56px, 1fr));
-    gap: 4px;
-    max-width: 760px;
+.pm-grid{
+    display:grid;
+    grid-template-columns:repeat(10, minmax(56px,1fr));
+    gap:6px;
+    max-width:800px;
+    padding:10px;
+    background:var(--bg-card);
+    border:1px solid var(--border);
+    border-radius:14px;
 }
-.pm-cell {
-    aspect-ratio: 1;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: var(--bg-hover);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.6rem;
-    text-align: center;
-    padding: 2px;
-    position: relative;
-    overflow: hidden;
+.pm-cell{
+    aspect-ratio:1;
+    border:1px solid var(--border);
+    border-radius:10px;
+    background:var(--bg-hover);
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    font-size:0.6rem;
+    text-align:center;
+    padding:2px;
+    position:relative;
+    overflow:hidden;
+    transition:all .2s;
 }
-.pm-cell.has-players { border-color: var(--accent); background: var(--accent-soft); }
-.pm-cell .pm-name { font-size: 0.58rem; line-height: 1.1; }
-.pm-cell .pm-count {
-    position: absolute; top: 2px; right: 3px;
-    background: var(--accent); color: #fff; border-radius: 999px;
-    font-size: 0.6rem; font-weight: 700; padding: 0 4px;
+.pm-cell.has-players{border-color:var(--accent);background:var(--accent-soft)}
+.pm-cell.empty{color:var(--text-muted);border-style:dashed;opacity:.5}
+.pm-name{font-size:0.58rem;line-height:1.1;font-weight:600}
+.pm-count{
+    position:absolute;top:2px;right:3px;
+    background:var(--accent);color:#fff;border-radius:999px;
+    font-size:0.6rem;font-weight:700;padding:0 4px;min-width:16px;text-align:center
 }
-.pm-cell.empty { color: var(--text-muted); border-style: dashed; opacity: 0.5; }
+.pm-cell.moving{outline:2px solid var(--success);transform:scale(1.06);z-index:2;box-shadow:0 0 0 6px rgba(34,197,94,.15)}
+.pm-cell .vip-dot{position:absolute;top:2px;left:3px;font-size:0.65rem}
+.live-log{max-height:180px;overflow-y:auto;font-size:0.78rem;display:flex;flex-direction:column;gap:4px}
+.live-log div{padding:4px 8px;background:var(--bg-hover);border-radius:8px;border:1px solid var(--border);animation:fadeIn .25s ease}
+@keyframes fadeIn{from{opacity:0;transform:translateX(-6px)}to{opacity:1;transform:none}}
 </style>
 
 <div class="card">
-    <h2>🗺 Кто и где на карте мира</h2>
-    <p class="section-sub">Упрощённая карта: показывает количество персонажей в каждой локации (по всем этажам).</p>
-    <div class="pm-grid">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.6rem">
+        <h2 style="margin:0">🗺 Кто и где на карте мира — LIVE без обновления</h2>
+        <span class="hint">Клик по клетке подсвечивает игроков • Движения приходят по WebSocket</span>
+    </div>
+    <p class="section-sub">Упрощённая карта: показывает количество персонажей в каждой локации (по всем этажам). При движении — подсветка зелёным без перезагрузки.</p>
+    <div class="pm-grid" id="pmGrid">
         {% for wx in grid_range %}
             {% for wy in grid_range %}
                 {% set loc = grid.get((wx, wy)) %}
                 {% if loc %}
                     {% set floors = pop_by_loc.get(loc.id, {}) %}
                     {% set total = floors.values() | sum %}
-                    <div class="pm-cell {% if total %}has-players{% endif %}" title="{{ loc.name }}">
-                        {% if total %}<span class="pm-count">{{ total }}</span>{% endif %}
+                    <div class="pm-cell {% if total %}has-players{% endif %}" data-loc-id="{{ loc.id }}" data-x="{{ wx }}" data-y="{{ wy }}" title="{{ loc.name }} [{{ wx }},{{ wy }}] — этажей {{ loc.floors_count or 1 }}">
+                        {% if loc.floors_count and loc.floors_count>1 %}<span class="vip-dot" title="Этажей {{ loc.floors_count }}">🏢×{{ loc.floors_count }}</span>{% endif %}
+                        {% if total %}<span class="pm-count" data-count="{{ loc.id }}">{{ total }}</span>{% endif %}
                         <div class="pm-name">{{ loc.name[:10] }}</div>
                     </div>
                 {% else %}
@@ -60,24 +74,27 @@
 
 <div class="card">
     <div class="toolbar">
-        <h2 style="margin-bottom:0;">👥 Персонажи по локациям ({{ total_characters }})</h2>
+        <h2 style="margin-bottom:0;">👥 Персонажи по локациям ({{ total_characters }}) — <span id="liveCount">{{ total_characters }}</span> live</h2>
+        <span class="hint" id="wsStatus">Подключение…</span>
     </div>
-    <div class="table-wrap">
-    <table>
+    <div class="live-log" id="liveLog"></div>
+    <div class="table-wrap" style="margin-top:0.8rem">
+    <table id="liveTable">
         <thead>
-            <tr><th>Игрок</th><th>Локация</th><th>Этаж</th><th>Уровень</th><th>Онлайн действия</th></tr>
+            <tr><th>Игрок</th><th>Локация</th><th>Этаж</th><th>Уровень</th><th>VIP</th><th>Действия</th></tr>
         </thead>
         <tbody>
             {% for c in characters %}
-            <tr>
-                <td>{{ c.name }}</td>
-                <td>{{ c.location.name if c.location else '—' }}</td>
-                <td>{{ c.floor or 0 }}</td>
+            <tr data-char-id="{{ c.id }}" data-loc-id="{{ c.location_id }}">
+                <td>{{ c.name }} {% if c.is_vip %}👑{% endif %}</td>
+                <td class="live-loc-name">{{ c.location.name if c.location else '—' }}</td>
+                <td class="live-floor">{{ c.floor or 0 }} {% if c.location and (c.location.floors_count or 1)>1 %}<span class="badge" style="font-size:0.65rem">🏢×{{ c.location.floors_count }}</span>{% endif %}</td>
                 <td>{{ c.level }}</td>
+                <td>{{ '✅' if c.is_vip else '—' }}</td>
                 <td><a href="/player/{{ c.id }}" class="btn btn-primary btn-sm">👤 Профиль</a></td>
             </tr>
             {% else %}
-            <tr><td colspan="5">
+            <tr><td colspan="6">
                 <div class="empty-state">
                     <div class="empty-icon">🧙</div>
                     <div>Персонажей пока нет.</div>
@@ -89,4 +106,127 @@
     </table>
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function(){
+    const grid = document.getElementById('pmGrid');
+    const log = document.getElementById('liveLog');
+    const status = document.getElementById('wsStatus');
+    const liveCount = document.getElementById('liveCount');
+    const table = document.getElementById('liveTable')?.querySelector('tbody');
+
+    function addLog(text){
+        if(!log) return;
+        const div = document.createElement('div');
+        div.textContent = new Date().toLocaleTimeString() + ' — ' + text;
+        log.prepend(div);
+        while(log.children.length>30) log.removeChild(log.lastChild);
+    }
+
+    function flashCell(locId){
+        const cell = grid.querySelector(`[data-loc-id='${locId}']`);
+        if(!cell) return;
+        cell.classList.add('moving');
+        setTimeout(()=>cell.classList.remove('moving'), 1200);
+        // обновить счётчик (опционально пересчитать с сервера, но пока просто пульс)
+        const cnt = cell.querySelector('.pm-count');
+        if(cnt){
+            cnt.style.transform='scale(1.3)';
+            setTimeout(()=>cnt.style.transform='',300);
+        }
+    }
+
+    function updateTableMove(p){
+        if(!table) return;
+        const row = table.querySelector(`tr[data-char-id='${p.character_id}']`);
+        if(row){
+            const locNameEl = row.querySelector('.live-loc-name');
+            const floorEl = row.querySelector('.live-floor');
+            if(locNameEl){
+                locNameEl.textContent = p.location_name || p.location_id;
+                locNameEl.style.background='var(--accent-soft)';
+                setTimeout(()=>locNameEl.style.background='',800);
+            }
+            if(floorEl) floorEl.textContent = p.floor ?? floorEl.textContent;
+            row.dataset.locId = p.location_id;
+            row.style.outline='1px solid var(--success)';
+            setTimeout(()=>row.style.outline='',800);
+        }else{
+            // новый игрок появился в таблице live
+            const tr = document.createElement('tr');
+            tr.dataset.charId = p.character_id;
+            tr.dataset.locId = p.location_id;
+            tr.innerHTML = `<td>${p.name||'—'} ${p.is_vip?'👑':''}</td><td class="live-loc-name">${p.location_name||p.location_id}</td><td>${p.floor||0}</td><td>—</td><td>${p.is_vip?'✅':'—'}</td><td><a href="/player/${p.character_id}" class="btn btn-primary btn-sm">👤</a></td>`;
+            table.prepend(tr);
+        }
+    }
+
+    // live websocket
+    try{
+        const proto = location.protocol==='https:'?'wss:':'ws:';
+        const ws = new WebSocket(proto+'//'+location.host+'/ws/live');
+        ws.onopen = ()=>{ status.textContent='🟢 LIVE подключен'; status.style.color='var(--success)'; addLog('Live соединение установлено'); };
+        ws.onclose = ()=>{ status.textContent='🔴 Отключен, переподключение...'; status.style.color='var(--danger)'; setTimeout(()=>location.reload(),5000); };
+        ws.onerror = ()=>{ status.textContent='⚠️ Ошибка WS'; };
+        ws.onmessage = (ev)=>{
+            try{
+                const data = JSON.parse(ev.data);
+                if(data.type==='ping') return;
+                if(data.type==='player_move'){
+                    const p = data.payload;
+                    flashCell(p.location_id);
+                    updateTableMove(p);
+                    addLog(`🏃 ${p.name} → ${p.location_name||p.location_id} [${p.x},${p.y}] эт.${p.floor} ${p.via? '('+p.via+')':''}`);
+                }
+                if(data.type==='player_joined'){
+                    addLog(`🆕 Новый игрок: ${data.payload.name} (класс ${data.payload.class})`);
+                    // увеличить счётчик
+                    if(liveCount) liveCount.textContent = parseInt(liveCount.textContent||0)+1;
+                }
+                if(data.type==='battle_victory'){
+                    addLog(`⚔️ ${data.payload.character_name} победил ${data.payload.mob_name} (+${data.payload.gold} золота)`);
+                }
+                if(data.type==='chest_opened'){
+                    addLog(`📦 ${data.payload.name} открыл сундук (+${data.payload.gold})`);
+                }
+            }catch(e){}
+        };
+    }catch(e){
+        status.textContent='WS не поддерживается, fallback polling';
+        // fallback polling каждые 5 сек
+        setInterval(async ()=>{
+            try{
+                const r = await fetch('/api/live/state'); const j = await r.json();
+                // простая сверка — если кол-во игроков изменилось
+                if(j.pop_by_loc){
+                    Object.entries(j.pop_by_loc).forEach(([locId, cnt])=>{
+                        const cell = grid.querySelector(`[data-loc-id='${locId}']`);
+                        if(cell){
+                            let badge = cell.querySelector('.pm-count');
+                            if(!badge && cnt>0){
+                                badge = document.createElement('span'); badge.className='pm-count'; badge.dataset.count=locId; cell.appendChild(badge);
+                            }
+                            if(badge) badge.textContent = cnt;
+                        }
+                    });
+                }
+            }catch(_){}
+        },5000);
+    }
+
+    // клик по клетке — подсветить игроков этой локации
+    grid?.addEventListener('click', e=>{
+        const cell = e.target.closest('.pm-cell[data-loc-id]');
+        if(!cell) return;
+        const locId = cell.dataset.locId;
+        table.querySelectorAll('tr').forEach(tr=>{
+            tr.style.display = (tr.dataset.locId===locId || !tr.dataset.locId) ? '' : (locId? 'none' : '');
+        });
+        if(!locId) table.querySelectorAll('tr').forEach(tr=>tr.style.display='');
+        addLog(`Фильтр: локация ${locId}`);
+    });
+})();
+</script>
 {% endblock %}

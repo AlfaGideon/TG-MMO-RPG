@@ -136,12 +136,47 @@ async def move_direction(callback: CallbackQuery):
                 character.cell_id = dest_cell.id
                 await mark_visited(session, character, dest_cell)
                 await session.commit()
+
+                # realtime — переход между локациями / этажами
+                try:
+                    from core.realtime import publish as rt_publish
+                    from core.vip import is_vip_active as vip_active
+                    await rt_publish("player_move", {
+                        "character_id": character.id,
+                        "name": character.name,
+                        "location_id": character.location_id,
+                        "location_name": dest_cell.location.name if hasattr(dest_cell, 'location') and dest_cell.location else "",
+                        "floor": dest_floor,
+                        "x": dest_cell.x,
+                        "y": dest_cell.y,
+                        "from_location_id": current.location_id if current else None,
+                        "is_vip": vip_active(character),
+                    })
+                except Exception:
+                    pass
                 await show_cell(callback, character, dest_cell.location, session)
                 return
 
         character.cell_id = target.id
         await mark_visited(session, character, target)
         await session.commit()
+
+        # realtime — движение внутри локации
+        try:
+            from core.realtime import publish as rt_publish
+            from core.vip import is_vip_active as vip_active
+            await rt_publish("player_move", {
+                "character_id": character.id,
+                "name": character.name,
+                "location_id": character.location_id,
+                "location_name": character.location.name if character.location else "",
+                "floor": character.floor or 0,
+                "x": target.x,
+                "y": target.y,
+                "is_vip": vip_active(character),
+            })
+        except Exception:
+            pass
         await show_cell(callback, character, character.location, session)
 
 
@@ -327,13 +362,20 @@ async def world_map(callback: CallbackQuery):
                    f"Исследовано локаций: <b>{len(visited_ids)} из {total}</b>\n"
                    f"📍 Ты здесь: <b>{character.location.name}</b>")
 
-        # Быстрый travel — только в посещённые безопасные локации.
-        safe_targets = [
-            l for l in locations
-            if l.location_type == LocationType.SAFE
-            and l.id in visited_ids and l.id != character.location_id
-        ]
-        kb = travel_keyboard(safe_targets)
+        # Быстрый travel — обычные только в safe, VIP в любые посещённые
+        from core.vip import is_vip_active
+        if is_vip_active(character):
+            travel_targets = [
+                l for l in locations
+                if l.id in visited_ids and l.id != character.location_id
+            ]
+        else:
+            travel_targets = [
+                l for l in locations
+                if l.location_type == LocationType.SAFE
+                and l.id in visited_ids and l.id != character.location_id
+            ]
+        kb = travel_keyboard(travel_targets)
 
         photo = FSInputFile(map_path)
         msg = callback.message
@@ -362,9 +404,10 @@ async def world_map(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("travel:"))
 async def travel_to(callback: CallbackQuery):
-    """Быстрое перемещение в посещённую безопасную локацию."""
+    """Быстрое перемещение в посещённую локацию (VIP — в любую, обычные — только safe)."""
     from core.enums import LocationType
     from core import worldops as WO
+    from core.vip import is_vip_active
 
     loc_id = int(callback.data.split(":")[1])
     async with async_session() as session:
@@ -381,8 +424,12 @@ async def travel_to(callback: CallbackQuery):
             return
 
         loc = await session.get(Location, loc_id)
-        if not loc or loc.location_type != LocationType.SAFE:
-            await callback.answer("Путешествовать можно только в безопасные локации.",
+        if not loc:
+            await callback.answer("Локация не найдена.", show_alert=True)
+            return
+        # Обычные игроки — только в safe, VIP — в любые посещённые
+        if not is_vip_active(character) and loc.location_type != LocationType.SAFE:
+            await callback.answer("Путешествовать можно только в безопасные локации. VIP — в любые.",
                                   show_alert=True)
             return
         visited = await session.scalar(
@@ -405,6 +452,24 @@ async def travel_to(callback: CallbackQuery):
         character.cell_id = dest.id
         await mark_visited(session, character, dest)
         await session.commit()
+
+        # realtime
+        try:
+            from core.realtime import publish as rt_publish
+            await rt_publish("player_move", {
+                "character_id": character.id,
+                "name": character.name,
+                "location_id": loc.id,
+                "location_name": loc.name,
+                "floor": 0,
+                "x": dest.x,
+                "y": dest.y,
+                "via": "travel",
+                "is_vip": is_vip_active(character),
+            })
+        except Exception:
+            pass
+
         await callback.answer(f"🏠 Ты в локации «{loc.name}».")
         await show_cell(callback, character, loc, session)
 
@@ -487,20 +552,40 @@ async def open_chest(callback: CallbackQuery):
             return
 
         import random
+        from core.vip import apply_vip_chest_gold, is_vip_active
         tier = max(1, cell.chest_tier or 1)
-        gold = random.randint(5 * tier, 25 * tier)
+        base_gold = random.randint(5 * tier, 25 * tier)
+        gold = apply_vip_chest_gold(base_gold, character)
         character.gold += gold
 
         # Уникальный лут: статы предметов катаются в момент открытия
         loot = await give_chest_loot(session, character, cell.location_id, tier)
 
         # Сундук не исчезает навсегда — восстановится через некоторое время
+        # VIP — быстрее восстановление (личный множитель не влияет на глобальный, но показываем)
         cell.chest_respawn_at = datetime.utcnow() + timedelta(
             minutes=random.randint(20, 60)
         )
         await session.commit()
 
+        # realtime — открытие сундука
+        try:
+            from core.realtime import publish as rt_publish
+            await rt_publish("chest_opened", {
+                "character_id": character.id,
+                "name": character.name,
+                "location_id": character.location_id,
+                "x": cell.x,
+                "y": cell.y,
+                "gold": gold,
+                "is_vip": is_vip_active(character),
+            })
+        except Exception:
+            pass
+
         text = f"📦 <b>Сундук открыт!</b>\n\nВнутри ты нашёл {gold}🪙 золота."
+        if is_vip_active(character) and gold != base_gold:
+            text += f" <i>(+{gold - base_gold} бонус VIP)</i>"
         if loot:
             text += "\n\n" + loot_text(loot)
         else:
