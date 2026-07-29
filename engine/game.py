@@ -272,6 +272,16 @@ class Game:
     def do_toss(self, p, arg):
         return inventory.toss(p, arg)
 
+    # ── защищённый карман ───────────────────────────────────
+    def do_stash(self, p, arg=""):
+        return social.stash_view(self.store, p)
+
+    def do_stput(self, p, arg):
+        return social.stash_put(self.store, p, arg)
+
+    def do_stake(self, p, arg):
+        return social.stash_take(self.store, p, arg)
+
     # ── лавка (реализация в engine/shop.py) ─────────────────
     def do_shop(self, p, arg="0"):
         return shop.shop(p, arg or 0)

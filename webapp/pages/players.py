@@ -1,5 +1,5 @@
 """Страница: игроки и редактирование персонажа."""
-from engine import data, permissions, rules
+from engine import data, permissions, rules, stash
 from webapp.html import esc
 
 TITLE = "👥 Игроки"
@@ -123,6 +123,14 @@ def edit_form(ctx, tg_id):
                    for i, l in enumerate(data.LOCATIONS))
     inv = "".join(f"<span class='chip'>{rules.item(i)['icon']} {esc(rules.item(i)['name'])}</span>"
                   for i in p.inventory) or "<span class='muted'>пусто</span>"
+    kept = getattr(p, "stash", None) or []
+    days = stash.vip_left_days(p)
+    vip_state = ("активен" + (f", {days} дн." if days else ", бессрочно")
+                 if stash.is_vip(p) else "нет")
+    vip_btn = "👑 Снять VIP" if stash.is_vip(p) else "👑 Выдать VIP (30 дн.)"
+    stash_chips = "".join(
+        f"<span class='chip'>{rules.item(i)['icon']} {esc(rules.item(i)['name'])}</span>"
+        for i in kept) or "<span class='muted'>пусто</span>"
     give = "".join(f"<option value='{i}'>{esc(rules.item(i)['name'])}</option>"
                    for i in range(len(data.ITEMS)))
     
@@ -144,13 +152,18 @@ def edit_form(ctx, tg_id):
   <div><label>Локация</label><select id='pf_loc'>{locs}</select></div>
   {f('x','X',p.x)}{f('y','Y',p.y)}
 </div>
-<h3>Инвентарь</h3><div>{inv}</div>
+<h3>🎒 Сумка — теряется при гибели</h3><div>{inv}</div>
+<h3>🔒 Защищённый карман — {len(kept)}/{stash.capacity(p)} · цел при гибели</h3>
+<div>{stash_chips}</div>
 <div class="row" style="margin-top:.5rem">
   <div><label>Выдать предмет</label><select id='pf_give'>{give}</select></div>
   <div style="flex:0 0 auto"><button class="btn" data-act="player-give" data-arg="{p.tg_id}">🎁 Выдать</button></div>
 </div>
+<div class="hint" style="margin-top:.6rem">👑 VIP: <b>{vip_state}</b> — карман
+   {stash.SLOTS} → {stash.SLOTS + stash.VIP_BONUS} ячеек.</div>
 <div style="margin-top:1rem;display:flex;gap:.5rem;flex-wrap:wrap">
   <button class="btn primary" data-act="player-save" data-arg="{p.tg_id}">💾 Сохранить</button>
+  <button class="btn" data-act="player-vip" data-arg="{p.tg_id}">{vip_btn}</button>
   <button class="btn" data-act="player-heal" data-arg="{p.tg_id}">💊 Восстановить</button>
   <button class="btn" data-act="player-access" data-arg="{p.tg_id}">🔑 Права доступа</button>
   <button class="btn" data-act="modal-close">Отмена</button>

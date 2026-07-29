@@ -32,6 +32,7 @@
     "engine/adminbot.py",
     "engine/adminroute.py",
     "engine/itemui.py",
+    "engine/stash.py",
     "engine/craft.py",
     "engine/auction.py",
     "engine/trade.py",

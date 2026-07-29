@@ -102,6 +102,8 @@ def hero_created(p, cls):
 
 
 def profile(p, store=None):
+    from engine import death, stash
+
     s = rules.stats(p, store)
     icon = data.CLASSES[p.cls][0].split()[0] if p.cls in data.CLASSES else "👤"
     eq = []
@@ -110,9 +112,14 @@ def profile(p, store=None):
         eq.append(f"{it['icon']} {it['name']}")
     magic = hero.magic_lines(getattr(p, "magic", []))
     magic_body = "\n".join(magic) if magic else "<i>дара нет</i>"
+    crown = " 👑" if stash.is_vip(p) else ""
+    kept = len(getattr(p, "stash", None) or [])
+    hurt = f"\n{death.note(p)}" if death.wounded(p) else ""
     return (
-        f"{icon} <b>{p.name}</b> · ур. {p.level}\n"
-        f"Класс: <code>{p.cls}</code> · Золото: <code>{p.gold}</code> 🪙\n\n"
+        f"{icon} <b>{p.name}</b>{crown} · ур. {p.level}\n"
+        f"Класс: <code>{p.cls}</code> · Золото: <code>{p.gold}</code> 🪙\n"
+        f"🎒 Сумка: {len(p.inventory)} · 🔒 Карман: {kept}/{stash.capacity(p)}"
+        f"{hurt}\n\n"
         f"❤️ HP {p.hp}/{s['max_hp']}\n{rules.bar(p.hp, s['max_hp'])}\n"
         f"💙 MP {p.mp}/{s['max_mp']}\n{rules.bar(p.mp, s['max_mp'], '🟦')}\n"
         f"⭐ Опыт {p.exp}/{rules.exp_needed(p.level)}\n\n"

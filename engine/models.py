@@ -43,7 +43,8 @@ class Player:
     loc: int = 0
     x: int = 5
     y: int = 5
-    inventory: list = field(default_factory=list)   # [item_index, ...]
+    inventory: list = field(default_factory=list)   # сумка: теряется при смерти
+    stash: list = field(default_factory=list)       # защищённый карман: цел всегда
     equipped: dict = field(default_factory=dict)    # {slot: item_index}
     magic: list = field(default_factory=list)       # [(школа, ступень), ...]
     worn: dict = field(default_factory=dict)        # {slot: uid экземпляра}
@@ -54,6 +55,8 @@ class Player:
     quest_day: str = ""                             # дата сброса ежедневных
     wounded_until: float = 0.0                      # до какого времени ранен
     party_invite: int = 0                           # id отряда, куда позвали
+    is_vip: bool = False                            # VIP-статус
+    vip_until: float = 0.0                          # до какого времени (0 — бессрочно)
     combat: dict = field(default_factory=dict)      # активный бой
     msg_id: int = 0                                 # id сообщения для edit
     created: str = ""
