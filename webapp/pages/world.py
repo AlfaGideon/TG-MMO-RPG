@@ -158,28 +158,28 @@ def _render_map(ctx):
   let painting = false;
   let currentMode = 'paint';
   // brush buttons
-  document.querySelectorAll('[data-brush]').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
+  document.querySelectorAll('[data-brush]').forEach(btn=>{{
+    btn.addEventListener('click', ()=>{{
       const b = btn.dataset.brush;
       const sel = document.getElementById('paintBrush');
       if(sel) sel.value = b;
       document.getElementById('brushLabel').textContent = b;
       document.querySelectorAll('[data-brush]').forEach(x=>x.classList.remove('primary'));
       btn.classList.add('primary');
-    });
-  });
-  document.getElementById('modePaint')?.addEventListener('click', ()=>{
+    }});
+  }});
+  document.getElementById('modePaint')?.addEventListener('click', ()=>{{
     currentMode='paint';
     document.getElementById('modePaint').classList.add('primary');
     document.getElementById('modeInspect')?.classList.remove('primary');
     grid.style.cursor='crosshair';
-  });
-  document.getElementById('modeInspect')?.addEventListener('click', ()=>{
+  }});
+  document.getElementById('modeInspect')?.addEventListener('click', ()=>{{
     currentMode='inspect';
     document.getElementById('modeInspect').classList.add('primary');
     document.getElementById('modePaint')?.classList.remove('primary');
     grid.style.cursor='pointer';
-  });
+  }});
   grid.addEventListener('mousedown', function(e){{
     const cell = e.target.closest('.c');
     if (!cell) return;

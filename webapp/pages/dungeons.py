@@ -66,9 +66,9 @@ def render(ctx):
     setTimeout(tick,1000);
   }}
   tick();
-}})();
+  }})();
 </script>
-"""
+</div>
 
 {_portal_map(ctx, dungeons)}
 
