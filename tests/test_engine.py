@@ -28,7 +28,8 @@ def main():
     spawn = world.cell_at(cells, 0, 5, 5)
     check(spawn and spawn.passable, "спавн [5,5] проходим")
     links = [c for c in cells.values() if c.link]
-    check(len(links) == (len(data.LOCATIONS) - 1) * 2 * 8, f"переходов {len(links)}")
+    # Шов между соседями — ОДНА дверь с каждой стороны, а не стена из дверей.
+    check(len(links) == (len(data.LOCATIONS) - 1) * 2, f"переходов {len(links)}")
     check(any(c.npc >= 0 for c in cells.values()), "NPC расставлены")
     check(sum(1 for c in cells.values() if c.mob >= 0) >= len(data.MOBS), "мобы расставлены")
     check(any(c.chest for c in cells.values()), "сундуки расставлены")
@@ -112,7 +113,7 @@ def main():
              if c.loc == li and c.link and c.link[0] != li]
     back = [c for c in store.world.values()
             if c.loc == li - 1 and c.link and c.link[0] == li]
-    check(len(seams) == 8 and len(back) == 8, f"автошов с соседом: {len(seams)}/{len(back)} ворот")
+    check(len(seams) == 1 and len(back) == 1, f"автошов с соседом: {len(seams)}/{len(back)} ворот")
     check(any("↔" in r for r in report), f"отчёт связывания: {report}")
     check(store.settings["locations"][-1][0] == "Мглистые топи",
           "список локаций сохранён в настройках")
@@ -123,7 +124,8 @@ def main():
     check(len(store3.world) == len(store.world), "мир восстановлен с новой локацией")
 
     # предупреждение min_level при входе в опасную локацию
-    p.loc, p.x, p.y, p.combat = li - 1, 1, 8, None
+    # Дверь на восточной границе — в центре ряда (mid=5), встаём рядом с ней.
+    p.loc, p.x, p.y, p.combat = li - 1, world.SIZE // 2, world.SIZE - 2, None
     r = game.handle(p, "go:e")
     check(p.loc == li, "переход в новую локацию сработал")
     check("опасно" in (r.alert or "").lower(), f"alert по min_level: {r.alert!r}")
@@ -134,6 +136,27 @@ def main():
     check(len(data.LOCATIONS) == n0, "список локаций вернулся к исходному")
     check(p.loc == 0 and (p.x, p.y) == world.SPAWN, "игрок эвакуирован на спавн")
     check(not any(c.loc >= n0 for c in store.world.values()), "клеток удалённой локации нет")
+
+    # правка существующей локации: свойства меняются, клетки остаются
+    print("\n— Правка локации —")
+    a, _ = store.add_location("Черновик", "как есть", "dangerous", 1, 7, 0)
+    cells_before = sum(1 for c in store.world.values() if c.loc == a)
+    links_before = sum(1 for c in store.world.values() if c.loc == a and c.link)
+    msg = store.update_location(a, "Ледяной Предел", "Вечная мерзлота.", "boss", 15, 3)
+    check("обновлена" in msg, f"отчёт правки: {msg}")
+    check(data.LOCATIONS[a] == ("Ледяной Предел", "Вечная мерзлота.", "boss", 15),
+          "свойства локации применены")
+    check(store.settings["location_floors"].get(str(a)) == 3, "этажи сохранены")
+    check(sum(1 for c in store.world.values() if c.loc == a) == cells_before,
+          "клетки не пересобирались")
+    check(sum(1 for c in store.world.values() if c.loc == a and c.link) == links_before,
+          "швы остались на месте")
+    check(store.settings["locations"][a][0] == "Ледяной Предел",
+          "правка сохранена в настройках")
+    store.update_location(a, "", "", "мусор", "не число")
+    check(data.LOCATIONS[a][0] == "Ледяной Предел" and data.LOCATIONS[a][2] == "boss",
+          "пустые и битые значения не портят локацию")
+    store.remove_location(a)
 
     # удаление средней: реиндексация хвоста
     a, _ = store.add_location("Остров А", "а", "dangerous", 1, 5, 0)

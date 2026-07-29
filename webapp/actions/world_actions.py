@@ -1,71 +1,82 @@
-"""Действия вкладок «Мир» и «Настройки»."""
-import json
+"""Действия вкладки «Мир»: карта, клетки, сетка, сиды."""
 import random
 
-from engine import adminops, world as W, data
+from engine import world as W
 from webapp import dom
-from webapp.pages import dungeons as page_dungeons
+from webapp.actions import cataclysm_actions, settings_actions
 from webapp.pages import world as page
 
-DEFAULTS = {"token": "", "seed": 1337, "welcome_bonus": 50,
-            "proxy_mode": "direct", "proxy_url": ""}
-
-
 def register(app, A):
-    A("world-loc", lambda arg: _pick_loc(app, arg))
-    A("world-regen", lambda _="": _regen(app))
-    A("cell-edit", lambda arg: app.modal(page.cell_form(app, arg)))
-    A("cell-save", lambda arg: _cell_save(app, arg))
-    A("data-export", lambda _="": _export(app))
-    A("data-reset", lambda _="": _reset(app))
-    A("settings-save", lambda _="": _settings_save(app))
-    A("panel-url-save", lambda _="": _panel_url_save(app))
-    
-    # New overhauled actions
     A("world-tab", lambda arg: _pick_tab(app, arg))
+    A("world-loc", lambda arg: _pick_loc(app, arg))
     A("world-fog-select", lambda _="": _fog_select(app))
+    A("world-regen", lambda _="": _regen(app))
+    A("world-seeds-save", lambda _="": _seeds_save(app))
+    A("world-seeds-roll", lambda _="": _seeds_roll(app))
+
+    A("cell-close", lambda _="": _cell_close(app))
+    A("cell-save", lambda arg: _cell_save(app, arg))
+
     A("world-grid-place", lambda arg: _grid_place(app, arg))
     A("world-grid-edit", lambda arg: _grid_edit(app, arg))
-    A("world-grid-save", lambda arg: _grid_save(app, arg))
     A("world-grid-remove", lambda arg: _grid_remove(app, arg))
-    A("world-loc-new", lambda _="": app.modal(page.loc_form(app)))
-    A("world-loc-add", lambda _="": _loc_add(app))
-    A("world-loc-del", lambda arg: _loc_del(app, int(arg)))
     A("world-relink", lambda _="": _relink(app))
+    A("respawn-save", lambda _="": _respawn_save(app))
+    A("respawn-now", lambda _="": _respawn_now(app))
     A("world-shuffle", lambda _="": _grid_shuffle(app))
-    A("dungeon-create", lambda _="": _dungeon_create(app))
-    A("dungeon-open", lambda arg: _dungeon_open(app, arg))
-    A("dungeon-close", lambda arg: _dungeon_close(app, arg))
-    A("dungeon-delete", lambda arg: _dungeon_delete(app, arg))
-    A("portal-loc", lambda arg: _portal_loc(app, arg))
-    A("dungeon-focus", lambda arg: _dungeon_focus(app, arg))
+
+    A("world-loc-new", lambda _="": app.modal(page.loc_form(app)))
+    A("world-loc-add", lambda arg="": _loc_add(app, arg))
+    A("world-loc-edit", lambda arg: app.modal(page.loc_edit_form(app, arg)))
+    A("world-loc-save", lambda arg: _loc_save(app, int(arg)))
+    A("world-loc-del", lambda arg: _loc_del(app, int(arg)))
+
+    cataclysm_actions.register(app, A)
+    settings_actions.register(app, A)
+
+
+# ── навигация ───────────────────────────────────────────────
+
+def _pick_tab(app, tab):
+    app.state["world_tab"] = tab
+    app.render()
 
 
 def _pick_loc(app, idx):
     app.state["loc"] = int(idx)
+    app.state["cell_pick"] = ""        # выделение чужой локации ни к чему
     app.render()
 
 
-def _regen(app):
-    from js import window
-    if not window.confirm("Пересоздать мир? Позиции игроков сбросятся."):
+def _fog_select(app):
+    app.state["fog_player"] = dom.value("#fogPlayerSelect", "")
+    app.render()
+
+
+# ── клетки ──────────────────────────────────────────────────
+
+def _cell_edit(app, key):
+    """Показать клетку в боковом редакторе (док справа от карты).
+
+    Зовётся из inline-JS карты, а не через data-act: делегированный клик
+    срабатывал бы на каждом мазке кистью и сбивал рисование.
+    """
+    if key not in app.store.world:
+        dom.toast("Клетка не найдена", "err")
         return
-    try:
-        seed = int(dom.value("#seedInput", "1337"))
-    except ValueError:
-        seed = 1337
-    app.store.regen_world(seed)
-    for p in app.store.players.values():
-        p.loc, p.x, p.y = 0, W.SPAWN[0], W.SPAWN[1]
-    app.store.save()
-    app.bot.game.world = app.store.world
-    dom.toast(f"Мир пересоздан (seed {seed})")
+    app.state["cell_pick"] = key
+    app.render()
+
+
+def _cell_close(app):
+    app.state["cell_pick"] = ""
     app.render()
 
 
 def _cell_save(app, key):
     c = app.store.world.get(key)
     if not c:
+        dom.toast("Клетка не найдена", "err")
         return
     c.name = dom.value("#cf_name", c.name)
     c.desc = dom.value("#cf_desc", c.desc)
@@ -75,63 +86,63 @@ def _cell_save(app, key):
     c.mob = int(dom.value("#cf_mob", "-1"))
     c.npc = int(dom.value("#cf_npc", "-1"))
     app.store.save()
-    app.close_modal()
-    dom.toast("Клетка сохранена")
+    dom.toast(f"Клетка [{c.x},{c.y}] сохранена")
     app.render()
 
 
-def _export(app):
-    dom.set_value("#ioBox", app.store.backend.get("shadowlands") or "{}")
-    dom.toast("Экспортировано в поле ниже")
+# ── сиды и пересоздание ─────────────────────────────────────
 
-
-def _reset(app):
+def _regen(app):
     from js import window
-    if not window.confirm("Стереть ВСЁ: игроков, мир и токен?"):
+    if not window.confirm("Пересоздать мир? Позиции игроков сбросятся."):
         return
-    app.store.backend.clear("shadowlands")
-    app.store.players = {}
-    app.store.settings = dict(DEFAULTS)
-    app.store.regen_world()
-    app.bot.game.world = app.store.world
-    app.bot.transport.settings = app.store.settings
-    dom.toast("Сброшено")
-    app.render()
-
-
-def _settings_save(app):
+    _collect_seeds(app)
     try:
-        app.store.settings["seed"] = int(dom.value("#setSeed", "1337"))
-        app.store.settings["welcome_bonus"] = int(dom.value("#setGold", "50"))
+        seed = int(dom.value("#seedInput", "1337"))
     except ValueError:
-        dom.toast("Числа, пожалуйста", "err")
-        return
+        seed = 1337
+    app.store.regen_world(seed)
+    for p in app.store.players.values():
+        p.loc, p.x, p.y = 0, W.SPAWN[0], W.SPAWN[1]
+    app.state["cell_pick"] = ""
     app.store.save()
-    dom.toast("Настройки сохранены")
+    app.bot.game.world = app.store.world
+    dom.toast(f"Мир пересоздан (seed {seed})")
+    app.render()
 
 
-def _panel_url_save(app):
-    """Адрес панели для инлайн-кнопки «Открыть панель» в боте."""
-    from engine.permissions import normalize_url
+def _collect_seeds(app):
+    """Считать поля сидов с формы. Пустое/0 — вернуть к выводу из базового."""
+    values = {}
+    for key in W.SEED_KEYS:
+        values[key] = dom.value(f"#seed_{key}", "")
+    try:
+        app.store.settings["seed"] = int(dom.value("#seedInput", "1337"))
+    except ValueError:
+        pass
+    return app.store.set_seeds(values)
 
-    url = normalize_url(dom.value("#panelUrl", ""))
-    app.store.settings["panel_url"] = url
+
+def _seeds_save(app):
+    seeds = _collect_seeds(app)
+    dom.toast(f"Сиды сохранены ({len(seeds)} шт). Применятся при перегенерации.")
+    app.render()
+
+
+def _seeds_roll(app):
+    """Раскатать случайные значения по всем частным сидам."""
+    rnd = random.Random()
+    app.store.settings["seeds"] = {k: rnd.randrange(1, 2_147_483_647)
+                                   for k in W.SEED_KEYS}
     app.store.save()
-    dom.toast("Адрес панели сохранён" if url else "Адрес панели очищен")
+    dom.toast("Сиды перекатаны — жми «Перегенерировать»")
     app.render()
 
 
-def _pick_tab(app, tab):
-    app.state["world_tab"] = tab
-    app.render()
-
-
-def _fog_select(app):
-    app.state["fog_player"] = dom.value("#fogPlayerSelect", "")
-    app.render()
-
+# ── мировая сетка ───────────────────────────────────────────
 
 def _grid_place(app, arg):
+    """Клик по пустой клетке сетки — мастер новой локации на этих координатах."""
     wx, wy = map(int, arg.split(":"))
     app.modal(page.grid_place_form(app, wx, wy))
 
@@ -141,84 +152,98 @@ def _grid_edit(app, arg):
     app.modal(page.grid_edit_form(app, wx, wy, loc_idx))
 
 
-def _grid_save(app, arg):
-    wx, wy = map(int, arg.split(":"))
-    try:
-        loc_idx = int(dom.value("#grid_loc_idx", "0"))
-    except ValueError:
-        return
-
+def place_loc(app, loc_idx, wx, wy):
+    """Поставить локацию на клетку сетки; занятая — обмен. Пересшивает швы."""
+    loc_idx, wx, wy = int(loc_idx), int(wx), int(wy)
     grid = app.store.settings.setdefault("world_grid", {})
-    # если на целевой клетке уже кто-то — обмен местами
-    occupant_key = None
-    for k, v in list(grid.items()):
-        if v[0] == wx and v[1] == wy:
-            occupant_key = k
-            break
-    old_pos = grid.get(str(loc_idx))
-    if occupant_key is not None and int(occupant_key) != loc_idx:
-        # swap
-        if old_pos is not None:
-            grid[occupant_key] = old_pos
+    occupant = next((k for k, v in grid.items()
+                     if v[0] == wx and v[1] == wy and int(k) != loc_idx), None)
+    old = grid.get(str(loc_idx))
+    if occupant is not None:
+        if old is not None:
+            grid[occupant] = old
         else:
-            grid.pop(occupant_key, None)
-    else:
-        # просто убрать старую позицию перемещаемой
-        for k, v in list(grid.items()):
-            if int(k) == loc_idx:
-                grid.pop(k, None)
-
+            grid.pop(occupant, None)
     grid[str(loc_idx)] = [wx, wy]
-    # пересшить швы одной дверью
-    from engine import world as W
-    cells = app.store.world
-    for k, c in list(cells.items()):
+    _reseam(app, grid)
+    return occupant is not None
+
+
+def _reseam(app, grid):
+    """Снять старые швы и пересшить мир по сетке одной дверью на границу."""
+    for c in app.store.world.values():
         if c.link:
             c.link = ()
-    W._link_by_grid(cells, grid)
+    W._link_by_grid(app.store.world, grid)
     app.store.save()
-    app.close_modal()
-    dom.toast(f"Локация {loc_idx} на [{wx},{wy}] (обмен)" if occupant_key else f"Локация {loc_idx} на [{wx},{wy}]")
-    app.render()
+    app.bot.game.world = app.store.world
 
 
 def _grid_shuffle(app):
-    """Перемешивает все локации по свободным клеткам — без удаления."""
-    import random
     grid = app.store.settings.setdefault("world_grid", {})
     if len(grid) <= 1:
         dom.toast("Недостаточно локаций для перемешивания", "err")
         return
-    # все координаты 10x10
-    all_coords = [(x, y) for x in range(10) for y in range(10)]
-    random.shuffle(all_coords)
-    keys = list(grid.keys())
-    random.shuffle(all_coords)
-    for k, (wx, wy) in zip(keys, all_coords[:len(keys)]):
+    coords = [(x, y) for x in range(10) for y in range(10)]
+    random.shuffle(coords)
+    for k, (wx, wy) in zip(list(grid.keys()), coords):
         grid[k] = [wx, wy]
-    # пересшить
-    from engine import world as W
-    cells = app.store.world
-    for k, c in list(cells.items()):
-        if c.link:
-            c.link = ()
-    W._link_by_grid(cells, grid)
-    app.store.save()
-    dom.toast(f"Перемешано {len(keys)} локаций, переходы пересшиты (1 дверь)")
+    _reseam(app, grid)
+    dom.toast(f"Перемешано {len(grid)} локаций, переходы пересшиты")
     app.render()
 
 
 def _grid_remove(app, loc_idx):
     grid = app.store.settings.setdefault("world_grid", {})
     grid.pop(str(loc_idx), None)
-    app.store.save()
+    _reseam(app, grid)
     app.close_modal()
     dom.toast("Локация убрана с сетки")
     app.render()
 
 
-def _loc_add(app):
-    """Создать локацию: клетки + автошов с соседями по сетке мира."""
+def _relink(app):
+    _reseam(app, app.store.settings.get("world_grid", {}))
+    dom.toast("Переходы пересшиты по сетке мира")
+    app.render()
+
+
+# ── жизнь мира ──────────────────────────────────────────────
+
+def _respawn_save(app):
+    """Задержки возвращения тварей и сундуков по типам локаций."""
+    from engine import respawn
+    from webapp.pages.world_living import LOC_TYPES
+
+    app.store.settings[respawn.SETTING_ON] = dom.value("#rspOn", "1") == "1"
+    for kind, prefix in (("mob", "rsp_mob_"), ("chest", "rsp_chest_")):
+        values = {key: dom.value(f"#{prefix}{key}", "") for key, _ in LOC_TYPES}
+        respawn.set_delays(app.store, kind, values)
+    dom.toast("Настройки респавна сохранены")
+    app.render()
+
+
+def _respawn_now(app):
+    """Вернуть всё, что ждёт очереди, немедленно."""
+    import time
+
+    from engine import respawn
+    for c in app.store.world.values():
+        if c.mob_at:
+            c.mob_at = time.time() - 1
+        if c.chest_at:
+            c.chest_at = time.time() - 1
+    mobs, chests = respawn.tick(app.store)
+    app.bot.game.world = app.store.world
+    dom.toast(f"Вернулось: 👾 {mobs} · 📦 {chests}"
+              if mobs or chests else "Возвращать было нечего")
+    app.render()
+
+
+# ── локации ─────────────────────────────────────────────────
+
+def _loc_add(app, arg=""):
+    """Создать локацию. `arg` = "wx:wy" — координаты клика по сетке."""
     name = dom.value("#loc_name", "").strip()
     if not name:
         dom.toast("Введите название локации!", "err")
@@ -227,22 +252,40 @@ def _loc_add(app):
     ltype = dom.value("#loc_type", "dangerous")
     try:
         lvl = int(dom.value("#loc_level", "1"))
-        wx = int(dom.value("#loc_wx", "0"))
-        wy = int(dom.value("#loc_wy", "0"))
         floors = int(dom.value("#loc_floors", "1"))
+        if arg and ":" in arg:
+            wx, wy = map(int, arg.split(":"))
+        else:
+            wx = int(dom.value("#loc_wx", "0"))
+            wy = int(dom.value("#loc_wy", "0"))
     except ValueError:
         dom.toast("Уровень, координаты и этажи — числа", "err")
         return
     grid = app.store.settings.setdefault("world_grid", {})
-    taken = {tuple(v) for v in grid.values()}
-    if (wx, wy) in taken:
+    if (wx, wy) in {tuple(v) for v in grid.values()}:
         dom.toast(f"Клетка [{wx},{wy}] уже занята — выберите другую", "err")
         return
     li, report = app.store.add_location(name, desc, ltype, lvl, wx, wy, floors)
     app.bot.game.world = app.store.world
     app.state["loc"] = li
+    app.state["cell_pick"] = ""
     app.close_modal()
     dom.toast(f"Локация «{name}» создана! " + " · ".join(report))
+    app.render()
+
+
+def _loc_save(app, li):
+    """Сохранить правки существующей локации."""
+    name = dom.value("#loc_name", "").strip()
+    if not name:
+        dom.toast("Название не может быть пустым", "err")
+        return
+    msg = app.store.update_location(
+        li, name, dom.value("#loc_desc", ""), dom.value("#loc_type", "dangerous"),
+        dom.value("#loc_level", "1"), dom.value("#loc_floors", "1"))
+    app.bot.game.world = app.store.world
+    app.close_modal()
+    dom.toast(msg)
     app.render()
 
 
@@ -259,112 +302,6 @@ def _loc_del(app, li):
     app.bot.game.world = app.store.world
     if app.state.get("loc", 0) >= len(D.LOCATIONS):
         app.state["loc"] = 0
+    app.state["cell_pick"] = ""
     dom.toast(msg)
-    app.render()
-
-
-def _relink(app):
-    """Пересшить переходы всех локаций по текущей сетке мира."""
-    from engine import world as W
-    cells = app.store.world
-    for k, c in list(cells.items()):          # снять старые швы
-        if c.link:
-            c.link = ()
-    grid = app.store.settings.get("world_grid", {})
-    W._link_by_grid(cells, grid)
-    app.store.save()
-    app.bot.game.world = cells
-    dom.toast("Переходы пересшиты по сетке мира")
-    app.render()
-
-
-def _portal_loc(app, idx):
-    """Переключает локацию на карте порталов."""
-    app.state["world_tab"] = "dungeons"
-    app.state["portal_loc"] = int(idx)
-    app.render()
-
-
-def _dungeon_focus(app, dg_id):
-    """Клик по 🌀 на карте — карточка подземелья."""
-    tpls = app.store.settings.setdefault("dungeon_templates", [])
-    dg = next((t for t in tpls if t["id"] == int(dg_id)), None)
-    if not dg:
-        dom.toast("Шаблон не найден", "err")
-        return
-    app.modal(page_dungeons.dungeon_form(app, dg))
-
-
-def _dungeon_create(app):
-    name = dom.value("#dg_name").strip()
-    desc = dom.value("#dg_desc").strip() or "Загадочные катакомбы."
-    try:
-        min_level = int(dom.value("#dg_level", "1"))
-        grid_size = int(dom.value("#dg_size", "10"))
-    except ValueError:
-        dom.toast("Уровень и размер должны быть числами", "err")
-        return
-        
-    if not name:
-        dom.toast("Введите название!", "err")
-        return
-        
-    tpls = app.store.settings.setdefault("dungeon_templates", [])
-    new_id = max([t["id"] for t in tpls] + [-1]) + 1
-    tpls.append({
-        "id": new_id,
-        "name": name,
-        "desc": desc,
-        "min_level": min_level,
-        "grid_size": grid_size,
-        "portal_cell": None
-    })
-    app.store.save()
-    dom.toast("Шаблон подземелья создан!")
-    app.render()
-
-
-def _dungeon_open(app, dg_id):
-    from engine import adminmenu
-    try:
-        _, info = adminops.portal_open(app.store, app.actor, dg_id,
-                                       adminmenu.pick_cell)
-    except adminops.Denied as e:
-        dom.toast(str(e), "err")
-        return
-    app.log("sys", f"📢 Портал открыт: {info}")
-    dom.toast("Портал успешно открыт!")
-    app.render()
-    _flush(app)
-
-
-def _dungeon_close(app, dg_id):
-    try:
-        adminops.portal_close(app.store, app.actor, dg_id)
-    except adminops.Denied as e:
-        dom.toast(str(e), "err")
-        return
-    app.log("sys", "❌ Портал закрыт администратором.")
-    dom.toast("Портал закрыт")
-    app.render()
-    _flush(app)
-
-
-def _flush(app):
-    if not getattr(app.bot, "running", False):
-        return
-    import asyncio
-    asyncio.ensure_future(app.bot.flush_outbox())
-
-
-def _dungeon_delete(app, dg_id):
-    from js import window
-    if not window.confirm("Удалить этот шаблон подземелья?"):
-        return
-        
-    _dungeon_close(app, dg_id)
-    tpls = app.store.settings.setdefault("dungeon_templates", [])
-    app.store.settings["dungeon_templates"] = [t for t in tpls if t["id"] != int(dg_id)]
-    app.store.save()
-    dom.toast("Шаблон подземелья удалён")
     app.render()

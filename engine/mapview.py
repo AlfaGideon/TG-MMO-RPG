@@ -19,6 +19,7 @@ TILE = {
 
 FOG = "⬜"        # не исследовано
 PLAYER = "🔴"     # ты
+OTHER = "🔵"      # другой герой
 DOOR = "🚪"       # переход в соседнюю локацию
 PORTAL = "🌀"     # открытый портал в подземелье
 CHEST = "📦"
@@ -48,6 +49,24 @@ def is_visited(p, loc, x, y):
     return ckey(loc, x, y) in set(getattr(p, "visited", []) or [])
 
 
+def others_here(store, p, loc=None, x=None, y=None):
+    """Другие герои в клетке. Пустой список, если хранилища нет."""
+    if store is None:
+        return []
+    loc = p.loc if loc is None else loc
+    return [q for q in store.players.values()
+            if q.created_char and q.tg_id != p.tg_id and q.loc == loc
+            and (x is None or (q.x == x and q.y == y))]
+
+
+def other_keys(store, p):
+    """{ключ клетки: [герои]} — где сейчас стоят остальные в этой локации."""
+    out = {}
+    for q in others_here(store, p):
+        out.setdefault(ckey(q.loc, q.x, q.y), []).append(q)
+    return out
+
+
 def portal_keys(store):
     """Ключи клеток, где сейчас открыты порталы подземелий."""
     out = {}
@@ -75,8 +94,13 @@ def glyph(cell, portals=()):
     return TILE.get(cell.tile, TILE["grass"])
 
 
-def grid(p, cells, portals=()):
-    """Список строк карты текущей локации игрока."""
+def grid(p, cells, portals=(), others=None):
+    """Список строк карты текущей локации игрока.
+
+    `others` — {ключ: [герои]}: соседи видны синей точкой, но только в уже
+    изученных клетках, иначе карта выдавала бы содержимое тумана.
+    """
+    others = others or {}
     rows = []
     for x in range(W.SIZE):
         row = ""
@@ -87,6 +111,9 @@ def grid(p, cells, portals=()):
             if not is_visited(p, p.loc, x, y):
                 row += FOG
                 continue
+            if others.get(ckey(p.loc, x, y)):
+                row += OTHER
+                continue
             row += glyph(cells.get(ckey(p.loc, x, y)), portals)
         rows.append(row)
     return rows
@@ -95,18 +122,22 @@ def grid(p, cells, portals=()):
 def render(p, cells, store=None):
     """Reply с картой локации: туман войны, легенда, прогресс исследования."""
     portals = portal_keys(store) if store is not None else {}
-    rows = grid(p, cells, portals)
+    others = other_keys(store, p) if store is not None else {}
+    rows = grid(p, cells, portals, others)
 
     total = sum(1 for c in cells.values() if c.loc == p.loc)
     seen = sum(1 for k in (getattr(p, "visited", []) or []) if k.startswith(f"{p.loc}:"))
     pct = int(seen / total * 100) if total else 0
 
     loc = data.LOCATIONS[p.loc] if p.loc < len(data.LOCATIONS) else ("Неизвестность",)
-    legend = (f"{PLAYER} ты · {FOG} не изучено · {TILE['wall']} стена · {DOOR} переход\n"
+    legend = (f"{PLAYER} ты · {OTHER} герой · {FOG} не изучено · "
+              f"{TILE['wall']} стена · {DOOR} переход\n"
               f"{PORTAL} портал · {MOB} враг · {NPC} житель · {CHEST} сундук")
 
+    nearby = len(others)
+    company = f" · {OTHER} рядом героев: {nearby}" if nearby else ""
     text = (f"🗺 <b>{loc[0]}</b>\n"
-            f"📍 Ты на [{p.x},{p.y}] · изучено {seen}/{total} ({pct}%)\n\n"
+            f"📍 Ты на [{p.x},{p.y}] · изучено {seen}/{total} ({pct}%){company}\n\n"
             + "\n".join(rows) + "\n\n" + legend)
 
     return Reply(text=text, keyboard=[

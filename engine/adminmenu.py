@@ -15,6 +15,8 @@ def sections(p):
     line = []
     if permissions.can(p, "dungeons"):
         line.append(("🕳 Порталы", "adm:portals"))
+    if permissions.can(p, "cataclysms"):
+        line.append(("🌋 Катаклизмы", "adm:cata"))
     if permissions.can(p, "broadcast"):
         line.append(("📣 Рассылка", "adm:cast"))
     if line:
@@ -190,6 +192,34 @@ def portals(p, store):
             + ("\n\n".join(lines) if lines else "<i>Шаблонов нет.</i>")
             + "\n\n<i>Открытие/закрытие видно и в веб-панели.</i>")
     return Reply(text=text, keyboard=_back(rows))
+
+
+def cataclysms(p, store):
+    """Экран бедствий в боте: что бушует и чем ударить."""
+    from engine import cataclysm as C
+
+    if not permissions.can(p, "cataclysms"):
+        return Reply(alert="Нет права насылать катаклизмы.")
+    live = C.active(store, None)
+    lines, rows = [], []
+    for e in live:
+        left = max(0, int(e["until"] - __import__("time").time())) // 60
+        lines.append(f"{C.title(e['kind'])}\n   {C.place(e['loc'])} · ещё {left} мин"
+                     f" · {e.get('cells', 0)} кл.")
+        rows.append([(f"🕊 Прекратить: {C.KINDS[e['kind']]['name'][:16]}",
+                      f"adm:cataoff:{e['id']}")])
+    for i in range(0, len(C.ORDER), 2):
+        rows.append([(C.title(k), f"adm:catahit:{k}") for k in C.ORDER[i:i + 2]])
+    text = ("🌋 <b>Катаклизмы</b>\n\n"
+            + ("\n\n".join(lines) if lines else "<i>Сейчас всё спокойно.</i>")
+            + "\n\n<i>Удар накрывает случайную локацию; тонкая настройка — "
+              "в веб-панели, вкладка «Мир → Катаклизмы».</i>")
+    return Reply(text=text, keyboard=_back(rows))
+
+
+def pick_loc(store):
+    """Случайная локация для удара из бота."""
+    return random.randrange(len(data.LOCATIONS)) if data.LOCATIONS else 0
 
 
 def pick_cell(store):

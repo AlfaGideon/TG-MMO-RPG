@@ -59,8 +59,56 @@ def main():
     try:
         f = world.cell_form(ctx, "0:5:5")
         check("cf_name" in f and "cf_mob" in f, "форма клетки")
+        check("cell-close" in f, "у клетки есть кнопка закрытия дока")
+        empty = world.cell_form(ctx, "")
+        check("dock-empty" in empty, "без выбора док показывает подсказку")
     except Exception as e:
         check(False, f"форма клетки → {e}")
+    try:
+        f = world.cataclysm_form(ctx, "wildfire")
+        check("cata-strike" in f and "cata_loc" in f, "форма катаклизма")
+    except Exception as e:
+        check(False, f"форма катаклизма → {e}")
+
+    print("\n— Сетка мира создаёт, а не переселяет —")
+    try:
+        f = world.grid_place_form(ctx, 7, 7)
+        check("world-loc-add" in f, "пустая клетка ведёт к созданию локации")
+        check("grid_loc_idx" not in f, "нет выбора из существующих локаций")
+        check('data-arg="7:7"' in f, "координаты клика вшиты в кнопку")
+        check("loc_name" in f and "loc_type" in f, "поля новой локации на месте")
+    except Exception as e:
+        check(False, f"форма пустой клетки → {e}")
+    try:
+        f = world.grid_edit_form(ctx, 0, 0, 0)
+        check("world-loc-edit" in f, "занятая клетка даёт правку свойств")
+        check("world-grid-remove" in f, "и снятие с сетки")
+    except Exception as e:
+        check(False, f"форма занятой клетки → {e}")
+
+    print("\n— Правка существующей локации —")
+    try:
+        f = world.loc_edit_form(ctx, 1)
+        from engine import data as D
+        check(D.LOCATIONS[1][0] in f, "имя локации подставлено")
+        check(f"value=\"{D.LOCATIONS[1][3]}\"" in f, "мин. уровень подставлен")
+        check("world-loc-save" in f and "world-loc-del" in f,
+              "есть сохранение и удаление")
+        check("loc_wx" not in f, "координаты не правятся тут — только drag&drop")
+    except Exception as e:
+        check(False, f"форма правки локации → {e}")
+    markup = world.render(ctx)
+    check("world-loc-edit" in markup, "в списке локаций есть кнопка правки")
+
+    print("\n— Вкладки мира —")
+    for tab in ("map", "grid", "cataclysms", "dungeons"):
+        ctx.state["world_tab"] = tab
+        try:
+            m = world.render(ctx)
+            check(len(m) > 200, f"вкладка {tab} ({len(m)} симв.)")
+        except Exception as e:
+            check(False, f"вкладка {tab} → {type(e).__name__}: {e}")
+    ctx.state["world_tab"] = "map"
 
     print("\n— Экранирование —")
     evil = ctx.store.player(8, "<script>alert(1)</script>")
@@ -73,7 +121,8 @@ def main():
         ctx.state["loc"] = i
         try:
             m = world.render(ctx)
-            check(m.count("class='c'") == 100, f"локация {i}: 100 клеток")
+            check(m.count("class='c'") + m.count("class='c picked'") == 100,
+                  f"локация {i}: 100 клеток")
         except Exception as e:
             check(False, f"локация {i} → {e}")
 

@@ -39,6 +39,7 @@ PAGE_CAPS = {
     "audit": "",                     # журнал доступен любому админу
 }
 
+# cataclysm_actions регистрируется из world_actions — вкладка живёт там же.
 ACTION_MODULES = [audit_actions, bot_actions, content_actions,
                   devops_actions, economy_actions, player_actions,
                   world_actions]
@@ -52,7 +53,7 @@ class App:
         self.bot = TelegramBot(self.store, self.log)
         self.actor = None                # None = владелец панели
         self.page = "dash"
-        self.state = {"loc": 0}
+        self.state = {"loc": 0, "cell_pick": "", "brush": "grass"}
 
     # ── права ───────────────────────────────────────────────
     def can(self, cap):
@@ -168,25 +169,76 @@ class App:
         location.replace("admin-login.html")
 
     def paint_cell(self, key, tile):
-        """Drag-to-paint клетки локации (вызывается из inline JS)."""
+        """Мазок кистью по клетке (вызывается из inline JS карты).
+
+        Полный ре-рендер тут недопустим: он сносит сетку из-под курсора и
+        рисование обрывается на первой же клетке. Красим точечно — сам
+        элемент карты, — а состояние сохраняем в хранилище.
+        """
         from engine import data
         c = self.store.world.get(key)
-        if c is None or tile not in data.TILE_COLORS:
+        if c is None:
             return
-        c.tile = tile
+        if tile in data.TILE_COLORS:
+            c.tile = tile
+            c.passable = tile != "wall"
+        elif tile == "npc":
+            c.npc = max(0, c.npc)
+        elif tile == "chest":
+            c.chest = True
+        elif tile == "clear":
+            c.mob, c.npc, c.chest = -1, -1, False
+        else:
+            return
         self.store.save()
-        self.render()
+        self._repaint_cell(key, c)
+
+    def _repaint_cell(self, key, c):
+        """Обновить одну плитку карты без перерисовки страницы."""
+        from engine import data
+        node = dom.el(f".mapgrid .c[data-key='{key}']")
+        if node is None:
+            return
+        node.style.background = data.TILE_COLORS.get(c.tile, "#333")
+        if c.link:
+            node.textContent = "🚪"
+        elif c.mob >= 0:
+            node.textContent = "👾"
+        elif c.npc >= 0:
+            node.textContent = "💬"
+        elif c.chest:
+            node.textContent = "📦"
+        else:
+            node.textContent = ""
+
+    def set_brush(self, brush):
+        """Запомнить выбранную кисть, чтобы она пережила ре-рендер."""
+        self.state["brush"] = str(brush)
+
+    def pick_brush(self, key):
+        """Пипетка: подобрать кисть с клетки (средняя кнопка мыши)."""
+        c = self.store.world.get(key)
+        if c is None:
+            return
+        self.state["brush"] = c.tile
+        node = dom.el("#paintBrush")
+        if node is not None:
+            node.value = c.tile
+        label = dom.el("#brushLabel")
+        if label is not None:
+            label.textContent = c.tile
+        dom.toast(f"Пипетка: {c.tile}")
 
     def edit_cell(self, key):
-        """Открыть форму клетки (вызывается из inline JS)."""
-        from webapp.pages import world as page
-        self.modal(page.cell_form(self, key))
+        """Показать клетку в боковом редакторе карты (вызов из inline JS)."""
+        from webapp.actions import world_actions
+        world_actions._cell_edit(self, key)
 
     def move_world_loc(self, loc_idx, wx, wy):
         """Переместить локацию на глобальной сетке (drag-and-drop)."""
-        grid = self.store.settings.setdefault("world_grid", {})
-        grid[str(loc_idx)] = [int(wx), int(wy)]
-        self.store.save()
+        from webapp.actions import world_actions
+        swapped = world_actions.place_loc(self, loc_idx, wx, wy)
+        dom.toast(f"Локация {loc_idx} → [{wx},{wy}]" + (" (обмен)" if swapped else ""))
         self.render()
 
     # ── запуск ──────────────────────────────────────────────

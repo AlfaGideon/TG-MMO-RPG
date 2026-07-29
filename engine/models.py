@@ -15,6 +15,8 @@ class Cell:
     npc: int = -1            # индекс в data.NPCS
     chest: bool = False
     link: tuple = ()         # (loc, x, y) — бесшовный переход
+    mob_at: float = 0.0      # когда тварь вернётся сюда (0 — не ждём)
+    chest_at: float = 0.0    # когда здесь снова появится сундук
 
     @property
     def key(self):
@@ -48,6 +50,8 @@ class Player:
     rolls: int = 0                                  # осталось перекатов статов
     roll_state: dict = field(default_factory=dict)  # текущий бросок при создании
     kills: int = 0
+    quests: dict = field(default_factory=dict)      # {id: {n, done}} — задания
+    quest_day: str = ""                             # дата сброса ежедневных
     combat: dict = field(default_factory=dict)      # активный бой
     msg_id: int = 0                                 # id сообщения для edit
     created: str = ""
