@@ -59,8 +59,26 @@ def main():
     try:
         f = world.cell_form(ctx, "0:5:5")
         check("cf_name" in f and "cf_mob" in f, "форма клетки")
+        check("cell-close" in f, "у клетки есть кнопка закрытия дока")
+        empty = world.cell_form(ctx, "")
+        check("dock-empty" in empty, "без выбора док показывает подсказку")
     except Exception as e:
         check(False, f"форма клетки → {e}")
+    try:
+        f = world.cataclysm_form(ctx, "wildfire")
+        check("cata-strike" in f and "cata_loc" in f, "форма катаклизма")
+    except Exception as e:
+        check(False, f"форма катаклизма → {e}")
+
+    print("\n— Вкладки мира —")
+    for tab in ("map", "grid", "cataclysms", "dungeons"):
+        ctx.state["world_tab"] = tab
+        try:
+            m = world.render(ctx)
+            check(len(m) > 200, f"вкладка {tab} ({len(m)} симв.)")
+        except Exception as e:
+            check(False, f"вкладка {tab} → {type(e).__name__}: {e}")
+    ctx.state["world_tab"] = "map"
 
     print("\n— Экранирование —")
     evil = ctx.store.player(8, "<script>alert(1)</script>")
@@ -73,7 +91,8 @@ def main():
         ctx.state["loc"] = i
         try:
             m = world.render(ctx)
-            check(m.count("class='c'") == 100, f"локация {i}: 100 клеток")
+            check(m.count("class='c'") + m.count("class='c picked'") == 100,
+                  f"локация {i}: 100 клеток")
         except Exception as e:
             check(False, f"локация {i} → {e}")
 

@@ -123,10 +123,11 @@ def profile(p, store=None):
     )
 
 
-def cell_view(p, cell):
+def cell_view(p, cell, alarm=""):
     loc = data.LOCATIONS[p.loc]
+    head = f"{alarm}\n\n" if alarm else ""
     return (
-        f"🗺 <b>{loc[0]}</b>\n"
+        f"{head}🗺 <b>{loc[0]}</b>\n"
         f"📍 [{cell.x},{cell.y}] · <i>{cell.name}</i>\n\n"
         f"{cell.desc}\n\n"
         f"❤️ {p.hp}/{rules.stats(p)['max_hp']}  💙 {p.mp}  🪙 {p.gold}"

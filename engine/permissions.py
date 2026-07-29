@@ -19,6 +19,7 @@ CAPS = [
     ("edit_world",   "🧱 Править клетки мира",      "Мир"),
     ("regen_world",  "🎲 Пересоздавать мир",        "Мир"),
     ("dungeons",     "🕳 Порталы и подземелья",     "Мир"),
+    ("cataclysms",   "🌋 Насылать катаклизмы",      "Мир"),
     ("edit_content", "📝 Править контент игры",     "Контент"),
     ("bot_control",  "🤖 Запуск/остановка бота",    "Система"),
     ("broadcast",    "📣 Рассылка игрокам",         "Система"),
@@ -43,7 +44,7 @@ RANKS = {
     "gamemaster": ("🎲 Гейм-мастер", [
         "view_dash", "view_players", "view_world", "view_content",
         "edit_players", "heal_players", "give_items",
-        "edit_world", "dungeons", "edit_content", "broadcast"]),
+        "edit_world", "dungeons", "cataclysms", "edit_content", "broadcast"]),
     "admin": ("👑 Администратор", list(CAP_KEYS)),
 }
 

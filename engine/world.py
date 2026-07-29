@@ -18,6 +18,40 @@ SPAWN = (5, 5)
 # Дефолтная раскладка стартовых пяти локаций — ряд на восток.
 DEFAULT_GRID = {str(i): [i, 0] for i in range(5)}
 
+# Сиды мира: у каждой стороны генерации свой, чтобы правка одного не
+# перетряхивала всё остальное. (ключ, подпись, за что отвечает, множитель)
+SEEDS = [
+    ("terrain",   "🗺 Рельеф",     "стены, тропы и форма локаций",      31),
+    ("stories",   "📖 Описания",   "названия и тексты клеток",          97),
+    ("mobs",      "👾 Мобы",       "расстановка тварей по клеткам",     193),
+    ("chests",    "📦 Сундуки",    "где лежит добыча",                  389),
+    ("npc",       "💬 NPC",        "места жителей в безопасных землях", 769),
+    ("cataclysm", "🌋 Катаклизмы", "череда бедствий и их размах",       1543),
+]
+SEED_KEYS = [k for k, _, _, _ in SEEDS]
+SEED_LABELS = {k: lbl for k, lbl, _, _ in SEEDS}
+SEED_ABOUT = {k: about for k, _, about, _ in SEEDS}
+_SEED_MUL = {k: mul for k, _, _, mul in SEEDS}
+
+
+def seeds_of(settings):
+    """Все сиды мира: явно заданные в панели или выведенные из базового.
+
+    Один «Seed» остаётся главным: пока частные сиды не тронуты, они
+    выводятся из него, и мир целиком воспроизводим по одному числу.
+    """
+    base = int(settings.get("seed", 1337) or 0)
+    saved = settings.get("seeds") or {}
+    out = {}
+    for key in SEED_KEYS:
+        raw = saved.get(key)
+        try:
+            val = int(raw)
+        except (TypeError, ValueError):
+            val = 0
+        out[key] = val or ((base * _SEED_MUL[key] + len(key) * 7919) % 2_147_483_647)
+    return out
+
 
 def _connect(cells):
     """Отсечь недостижимые от спавна клетки."""
@@ -42,14 +76,21 @@ def _connect(cells):
             c.tile = "wall"
 
 
-def gen_cells(li, rnd, story=0):
-    """Клетки одной локации li со спавном в центре. Возвращает (batch, story)."""
+def gen_cells(li, rnd, story=0, story_rnd=None):
+    """Клетки одной локации li со спавном в центре. Возвращает (batch, story).
+
+    `rnd` задаёт рельеф, `story_rnd` (если передан) — тексты клеток: разные
+    сиды правят разные стороны мира независимо друг от друга.
+    """
     batch = []
     for x in range(SIZE):
         for y in range(SIZE):
             border = x in (0, SIZE - 1) or y in (0, SIZE - 1)
             wall = border or (rnd.random() < 0.15 and (x, y) != SPAWN)
-            name, desc, tile = data.STORIES[story % len(data.STORIES)]
+            if story_rnd is not None:
+                name, desc, tile = story_rnd.choice(data.STORIES)
+            else:
+                name, desc, tile = data.STORIES[story % len(data.STORIES)]
             story += 1
             batch.append(Cell(loc=li, x=x, y=y, name=name, desc=desc,
                               tile="wall" if wall else tile, passable=not wall))
@@ -57,14 +98,20 @@ def gen_cells(li, rnd, story=0):
     return batch, story
 
 
-def generate(seed=1337, locations=None, grid=None):
+def generate(seed=1337, locations=None, grid=None, seeds=None):
     """Возвращает {key: Cell}. `grid` — {str(loc): [wx, wy]} на мировой сетке;
-    если не задан, локации связываются цепочкой, как раньше."""
+    если не задан, локации связываются цепочкой, как раньше.
+
+    `seeds` — словарь частных сидов (см. SEEDS). Без него всё выводится из
+    одного `seed`, как и раньше.
+    """
     locs = locations if locations is not None else data.LOCATIONS
-    rnd = random.Random(seed)
+    seeds = seeds or seeds_of({"seed": seed})
+    rnd = random.Random(seeds.get("terrain", seed))
+    story_rnd = random.Random(seeds.get("stories", seed))
     cells, story = {}, 0
     for li in range(len(locs)):
-        batch, story = gen_cells(li, rnd, story)
+        batch, story = gen_cells(li, rnd, story, story_rnd)
         for c in batch:
             cells[c.key] = c
     if grid:
@@ -72,7 +119,7 @@ def generate(seed=1337, locations=None, grid=None):
     else:
         for a in range(len(locs) - 1):
             _link_east(cells, a, a + 1)
-    _populate(cells, rnd, locs)
+    _populate(cells, rnd, locs, seeds)
     return cells
 
 
@@ -183,9 +230,17 @@ def link_new_location(cells, li, grid):
 
 # ── заселение ─────────────────────────────────────────────
 
-def _populate(cells, rnd, locs=None):
-    """Расставить NPC, мобов и сундуки по типам локаций."""
+def _populate(cells, rnd, locs=None, seeds=None):
+    """Расставить NPC, мобов и сундуки по типам локаций.
+
+    У жителей, тварей и сундуков свои сиды: можно перетряхнуть добычу,
+    не трогая рельеф и расстановку мобов.
+    """
     locs = locs if locs is not None else data.LOCATIONS
+    seeds = seeds or {}
+    npc_rnd = random.Random(seeds.get("npc")) if seeds.get("npc") else rnd
+    mob_rnd = random.Random(seeds.get("mobs")) if seeds.get("mobs") else rnd
+    chest_rnd = random.Random(seeds.get("chests")) if seeds.get("chests") else rnd
     free = lambda li: [c for c in cells.values()
                        if c.loc == li and c.passable and not c.link
                        and (c.x, c.y) != SPAWN and c.mob < 0 and c.npc < 0]
@@ -193,7 +248,7 @@ def _populate(cells, rnd, locs=None):
     # NPC — в первой безопасной локации (или в нулевой, если такой нет)
     safe = next((i for i, l in enumerate(locs) if l[2] == "safe"), 0)
     spots = free(safe)
-    rnd.shuffle(spots)
+    npc_rnd.shuffle(spots)
     for i in range(min(len(data.NPCS), len(spots))):
         spots[i].npc = i
 
@@ -204,7 +259,7 @@ def _populate(cells, rnd, locs=None):
             continue
         count = 1 if m[0] == "Пожиратель Глубин" else 4
         spots = free(li)
-        rnd.shuffle(spots)
+        mob_rnd.shuffle(spots)
         for c in spots[:count]:
             c.mob = mi
 
@@ -212,7 +267,7 @@ def _populate(cells, rnd, locs=None):
     for li, l in enumerate(locs):
         if l[2] in ("dangerous", "dungeon", "boss"):
             spots = free(li)
-            rnd.shuffle(spots)
+            chest_rnd.shuffle(spots)
             for c in spots[:5]:
                 c.chest = True
 

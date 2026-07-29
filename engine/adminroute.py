@@ -77,6 +77,23 @@ def _content(p, store, rest):
     return adminmenu.content(p, store)
 
 
+def _cata(p, store, rest):
+    return adminmenu.cataclysms(p, store)
+
+
+def _cata_hit(p, store, rest):
+    """Удар из бота: бедствие по случайной локации, срок по умолчанию."""
+    kind_key = str(rest).split(":")[0]
+    adminops.cataclysm_strike(store, p, kind_key, adminmenu.pick_loc(store),
+                              source=SRC)
+    return adminmenu.cataclysms(p, store)
+
+
+def _cata_off(p, store, rest):
+    adminops.cataclysm_end(store, p, _int(rest), source=SRC)
+    return adminmenu.cataclysms(p, store)
+
+
 def _audit(p, store, rest):
     return adminmenu.audit_log(p, store, _int(rest))
 
@@ -204,4 +221,5 @@ ROUTES = {
     "heal": _heal, "give": _give, "gold": _gold, "lvl": _level, "tp": _tp,
     "del": _del, "rank": _rank, "revoke": _revoke, "pass": _newpass,
     "popen": _portal_open, "pclose": _portal_close,
+    "cata": _cata, "catahit": _cata_hit, "cataoff": _cata_off,
 }

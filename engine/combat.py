@@ -1,5 +1,5 @@
 """Пошаговый бой."""
-from engine import craft, data, items, rules, texts
+from engine import cataclysm, craft, data, items, rules, texts
 from engine.models import Reply
 
 
@@ -19,7 +19,10 @@ def view(p):
 def _finish_win(p, world, store=None):
     st = p.combat
     m = data.MOBS[st["mob"]]
-    gold, exp = m[6], m[7]
+    # Бедствие щедрее/скупее на награду: множители из engine.cataclysm.
+    eff = cataclysm.effects(store, p.loc) if store is not None else {}
+    gold = max(1, int(m[6] * eff.get("gold", 1.0)))
+    exp = max(1, int(m[7] * eff.get("loot", 1.0)))
     p.gold += gold
     p.kills += 1
     levels = rules.add_exp(p, exp)
@@ -31,6 +34,10 @@ def _finish_win(p, world, store=None):
     loot = rules.loot_roll(st["mob"])
     lines = [f"🎉 <b>Победа!</b>\n\nТы поверг: {m[0]}",
              f"💰 +{gold} 🪙   ⭐ +{exp} опыта"]
+    if store is not None:
+        alarm = cataclysm.banner(store, p.loc)
+        if alarm:
+            lines.append(alarm)
     if loot >= 0:
         p.inventory.append(loot)
         # Именной экземпляр со своим ID и статами — если есть куда записать.
@@ -112,6 +119,8 @@ def action(p, what, world, store=None):
         return _finish_win(p, world, store)
 
     mdmg, dodged = rules.mob_roll(p, m[4])
+    if store is not None:
+        mdmg = int(mdmg * cataclysm.effects(store, p.loc).get("damage", 1.0))
     if st.get("defend"):
         mdmg //= 2
         st["defend"] = False

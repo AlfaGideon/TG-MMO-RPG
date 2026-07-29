@@ -102,10 +102,14 @@
 .brush-preview{width:14px;height:14px;border-radius:4px;border:1px solid var(--border);display:inline-block;margin-right:4px}
 .hint{font-size:0.75rem;color:var(--text-muted)}
 
-/* door modal */
-.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);z-index:90;display:none;align-items:center;justify-content:center;padding:1rem}
-.modal-overlay.open{display:flex}
-.modal-box{width:min(460px,92vw);background:var(--bg-card);border:1px solid var(--border);border-radius:16px;padding:1.2rem;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+/* Боковая панель двери: раньше это была модалка на весь экран — она
+   перекрывала сетку, и кисть в режиме рисования теряла клетки. */
+.side-dock{position:fixed;top:var(--topbar-height,64px);right:0;bottom:0;width:min(380px,92vw);
+    background:var(--bg-card);border-left:1px solid var(--border);padding:1.2rem;overflow-y:auto;
+    z-index:60;transform:translateX(102%);transition:transform .22s cubic-bezier(.2,.8,.2,1);
+    box-shadow:-12px 0 40px rgba(0,0,0,.35)}
+.side-dock.open{transform:none}
+.side-dock h3{margin:0}
 </style>
 
 <div class="loc-layout">
@@ -261,9 +265,9 @@
     </div>
 </div>
 
-<!-- модалка двери -->
-<div class="modal-overlay" id="doorModal" onclick="if(event.target===this)closeDoorModal()">
-    <div class="modal-box">
+<!-- боковая панель двери: карта остаётся видимой и кликабельной -->
+<aside class="side-dock" id="doorModal">
+    <div>
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.8rem">
             <h3 style="margin:0">🚪 Настройка двери/перехода</h3>
             <button class="btn btn-sm" onclick="closeDoorModal()">✕</button>
@@ -290,7 +294,7 @@
             </div>
         </form>
     </div>
-</div>
+</aside>
 
 {% endblock %}
 
@@ -399,26 +403,13 @@
         const id = el.dataset.id;
         location.href='/editor/cell/'+id;
     });
-    // левый клик в inspect режиме
+    // Левый клик: только Ctrl-переход и режим осмотра. Покраска целиком
+    // висит на mousedown/mousemove — иначе клик красил клетку второй раз.
     grid?.addEventListener('click', e=>{
         const el = e.target.closest('.cell[data-id]');
         if(!el) return;
-        if(e.ctrlKey || e.metaKey){
+        if(e.ctrlKey || e.metaKey || currentMode==='inspect'){
             location.href='/editor/cell/'+el.dataset.id;
-            return;
-        }
-        if(currentMode==='inspect'){
-            location.href='/editor/cell/'+el.dataset.id;
-        }
-        // в paint режиме уже обработано mousedown, но если клик без drag — тоже покрасить
-        if(currentMode==='paint' && !isPainting){
-            // если это дверная кисть — модалка
-            if(currentBrush==='door'){
-                openDoorModal(el.dataset.id, el.dataset.target);
-            }else{
-                // уже покрашено в mousedown, но для надёжности
-                paintCell(el);
-            }
         }
     });
     // средняя кнопка — пипетка
