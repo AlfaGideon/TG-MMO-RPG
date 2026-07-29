@@ -123,10 +123,11 @@ def profile(p, store=None):
     )
 
 
-def cell_view(p, cell):
+def cell_view(p, cell, alarm=""):
     loc = data.LOCATIONS[p.loc]
+    head = f"{alarm}\n\n" if alarm else ""
     return (
-        f"🗺 <b>{loc[0]}</b>\n"
+        f"{head}🗺 <b>{loc[0]}</b>\n"
         f"📍 [{cell.x},{cell.y}] · <i>{cell.name}</i>\n\n"
         f"{cell.desc}\n\n"
         f"❤️ {p.hp}/{rules.stats(p)['max_hp']}  💙 {p.mp}  🪙 {p.gold}"
@@ -142,12 +143,18 @@ def item_line(idx, equipped=False):
 
 def battle_view(p, st):
     m = data.MOBS[st["mob"]]
+    queue = st.get("queue") or []
+    waiting = ""
+    if queue:
+        names = ", ".join(data.MOBS[i][0] for i in queue)
+        waiting = f"\n⏳ Ждут своей очереди ({len(queue)}): <i>{names}</i>\n"
     return (
         f"⚔️ <b>Бой: {m[0]}</b> (ур. {m[2]})\n"
         f"<i>{m[1]}</i>\n\n"
         f"👾 {m[0]}: {max(0, st['mob_hp'])}/{m[3]}\n"
-        f"{rules.bar(st['mob_hp'], m[3], '🟪')}\n\n"
+        f"{rules.bar(st['mob_hp'], m[3], '🟪')}\n"
+        f"{waiting}\n"
         f"❤️ Ты: {p.hp}/{rules.stats(p)['max_hp']}\n"
         f"{rules.bar(p.hp, rules.stats(p)['max_hp'])}\n\n"
-        + ("\n".join(st.get("log", [])[-3:]) if st.get("log") else "<i>Твой ход.</i>")
+        + ("\n".join(st.get("log", [])[-4:]) if st.get("log") else "<i>Твой ход.</i>")
     )

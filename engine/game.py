@@ -1,8 +1,9 @@
 """Роутер бота: команда/callback -> Reply. Не знает ничего про Telegram."""
 import random
 
-from engine import (adminbot, adminroute, combat, data, hero, inventory,
-                    items, mapview, rules, shop, texts, trade, world)
+from engine import (adminbot, adminroute, cataclysm, combat, data, explore,
+                    hero, inventory, items, mapview, rules, shop, texts,
+                    trade, world)
 from engine.models import Reply
 
 
@@ -147,7 +148,10 @@ class Game:
             rows.append(row)
         rows.append([("🏕 Отдых", "rest"), ("🎒 Инвентарь", "bag")])
         rows.append([("🗺 Карта", "map"), ("◀️ Меню", "menu")])
-        return Reply(text=texts.cell_view(p, cell), keyboard=rows)
+        alarm = cataclysm.banner(self.store, p.loc)
+        if alarm:
+            rows.insert(0, [("🌋 Что происходит?", "disaster")])
+        return Reply(text=texts.cell_view(p, cell, alarm), keyboard=rows)
 
     def do_wall(self, p, arg=""):
         return Reply(alert="Туда нельзя пройти.")
@@ -170,8 +174,13 @@ class Game:
         else:
             p.x, p.y = target.x, target.y
         mapview.mark_visited(p)
+        cataclysm.auto(self.store)           # мир может тряхнуть на ходу
         cell = self._cell(p)
-        if cell.mob >= 0 and random.random() < 0.75:
+        rate = min(0.98, 0.75 * cataclysm.effects(self.store, p.loc)["mob_rate"])
+        ambusher = cataclysm.prowl(self.store, p)
+        if ambusher is not None:             # тварь бросилась сама
+            r = combat.start(p, ambusher, ambush=True, store=self.store)
+        elif cell.mob >= 0 and random.random() < rate:
             r = combat.start(p, cell.mob)
         else:
             r = self.do_world(p)
@@ -179,28 +188,17 @@ class Game:
             r.alert = warn
         return r
 
+    def do_disaster(self, p, arg=""):
+        """Карточка бедствий, накрывших землю под ногами игрока."""
+        return cataclysm.card(self.store, p.loc)
+
     def do_map(self, p, arg=""):
         mapview.mark_visited(p)
         self.store.save_player(p)
         return mapview.render(p, self.world, self.store)
 
     def do_look(self, p, arg=""):
-        cell = self._cell(p)
-        found, rows = [], []
-        if cell.mob >= 0:
-            found.append(f"👾 Враг: {data.MOBS[cell.mob][0]} (ур. {data.MOBS[cell.mob][2]})")
-            rows.append([("⚔️ Атаковать", f"hunt:{cell.mob}")])
-        if cell.npc >= 0:
-            n = data.NPCS[cell.npc]
-            found.append(f"💬 {n[0]}")
-            rows.append([("💬 Поговорить", f"talk:{cell.npc}")])
-        if cell.chest:
-            found.append("📦 Сундук!")
-            rows.append([("📦 Открыть", "chest")])
-        body = "\n".join(found) if found else f"<i>{random.choice(data.EMPTY_LOOK)}</i>"
-        rows.append([("◀️ Назад", "world")])
-        return Reply(text=f"🔍 <b>Осмотр [{cell.x},{cell.y}]</b>\n<i>{cell.name}</i>\n\n"
-                          f"{cell.desc}\n\n{body}", keyboard=rows)
+        return explore.look(p, self._cell(p))
 
     def do_hunt(self, p, arg):
         cell = self._cell(p)
@@ -212,53 +210,16 @@ class Game:
         return combat.action(p, what, self.world, self.store)
 
     def do_talk(self, p, arg):
-        n = data.NPCS[int(arg)]
-        rows = []
-        if n[2] == "merchant":
-            rows.append([("🛒 Торговать", "shop")])
-        if n[2] == "healer":
-            rows.append([("💊 Исцелиться", "heal")])
-        rows.append([("◀️ Назад", "world")])
-        return Reply(text=f"💬 <b>{n[0]}</b>\n\n<i>{n[1]}</i>", keyboard=rows)
+        return explore.talk(arg)
 
     def do_heal(self, p, arg=""):
-        s = rules.stats(p)
-        p.hp, p.mp = s["max_hp"], s["max_mp"]
-        return Reply(text="💊 Лекарь Мира кладёт ладонь тебе на лоб.\n\n"
-                          "❤️ Здоровье и мана полностью восстановлены.",
-                     keyboard=[[("◀️ В мир", "world")]])
+        return explore.heal(p)
 
     def do_chest(self, p, arg=""):
-        cell = self._cell(p)
-        if not cell.chest:
-            return Reply(alert="Сундук уже пуст.")
-        cell.chest = False
-        gold = random.randint(10, 45)
-        p.gold += gold
-        lines = [f"📦 <b>Сундук открыт!</b>\n\nВнутри: {gold} 🪙"]
-        if random.random() < 0.5:
-            idx = random.randrange(len(data.ITEMS))
-            p.inventory.append(idx)
-            inst = items.create(self.store, idx, source="chest", owner=p.tg_id,
-                                luck=p.luck, detail="сундук")
-            if inst is not None:
-                lines.append(f"И ещё: {inst['icon']} <b>{items.title(inst)}</b>")
-                lines.append(f"   <code>{items.tag(inst)}</code> · {items.stats_line(inst)}")
-            else:
-                it = rules.item(idx)
-                lines.append(f"И ещё: {it['icon']} {it['name']}")
-        return Reply(text="\n".join(lines), keyboard=[[("◀️ В мир", "world")]])
+        return explore.chest(p, self._cell(p), self.store)
 
     def do_rest(self, p, arg=""):
-        s = rules.stats(p)
-        hp = max(1, s["max_hp"] // 3)
-        mp = max(1, s["max_mp"] // 3)
-        p.hp = min(s["max_hp"], p.hp + hp)
-        p.mp = min(s["max_mp"], p.mp + mp)
-        return Reply(text=(f"🏕 <b>Привал</b>\n\nТы отдохнул у костра.\n"
-                           f"❤️ +{hp} HP · 💙 +{mp} MP\n\n"
-                           f"Сейчас: {p.hp}/{s['max_hp']} HP"),
-                     keyboard=[[("◀️ В мир", "world")]])
+        return explore.rest(p, self.store)
 
     # ── инвентарь (реализация в engine/inventory.py) ────────
     def do_bag(self, p, arg=""):

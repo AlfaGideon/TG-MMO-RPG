@@ -7,7 +7,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SUITES = ["test_engine.py", "test_pages.py", "test_transport.py", "test_access.py",
           "test_admin_sync.py", "test_shop_bag.py", "test_wiring.py",
           "test_economy.py", "test_gameplay.py", "test_items_magic.py",
-          "test_worldgen.py"]
+          "test_worldgen.py", "test_cataclysm.py"]
 
 
 def main():
