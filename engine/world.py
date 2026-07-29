@@ -87,17 +87,37 @@ def _road(c, link):
 
 
 def _link_east(cells, a, b):
-    """Восточная граница A ↔ западная граница B."""
-    for row in range(1, SIZE - 1):
-        _road(cells[f"{a}:{row}:{SIZE - 1}"], (b, row, 1))
-        _road(cells[f"{b}:{row}:0"], (a, row, SIZE - 2))
+    """Восточная граница A ↔ западная граница B — одна дверь в центре, а не стена."""
+    mid = SIZE // 2
+    _road(cells[f"{a}:{mid}:{SIZE - 1}"], (b, mid, 1))
+    _road(cells[f"{b}:{mid}:0"], (a, mid, SIZE - 2))
+    # дорога от центра к двери
+    for x in range(1, SIZE - 1):
+        c = cells.get(f"{a}:{x}:{mid}")
+        if c and not c.passable:
+            _road(c, c.link)
+    for x in range(1, SIZE - 1):
+        c = cells.get(f"{b}:{x}:{mid}")
+        if c and not c.passable:
+            _road(c, c.link)
+    for y in range(1, SIZE - 1):
+        # вертикальная ветка к двери уже включает центр
+        pass
 
 
 def _link_south(cells, a, b):
-    """Южная граница A ↔ северная граница B."""
-    for col in range(1, SIZE - 1):
-        _road(cells[f"{a}:{SIZE - 1}:{col}"], (b, 1, col))
-        _road(cells[f"{b}:0:{col}"], (a, SIZE - 2, col))
+    """Южная граница A ↔ северная граница B — одна дверь в центре."""
+    mid = SIZE // 2
+    _road(cells[f"{a}:{SIZE - 1}:{mid}"], (b, 1, mid))
+    _road(cells[f"{b}:0:{mid}"], (a, SIZE - 2, mid))
+    for y in range(1, SIZE - 1):
+        c = cells.get(f"{a}:{mid}:{y}")
+        if c and not c.passable:
+            _road(c, c.link)
+    for y in range(1, SIZE - 1):
+        c = cells.get(f"{b}:{mid}:{y}")
+        if c and not c.passable:
+            _road(c, c.link)
 
 
 def _link_by_grid(cells, grid):
@@ -130,22 +150,19 @@ def link_new_location(cells, li, grid):
     dirs = {"восток": (1, 0, "e"), "запад": (-1, 0, "w"),
             "юг": (0, 1, "s"), "север": (0, -1, "n")}
     loc_name = data.LOCATIONS[li][0] if li < len(data.LOCATIONS) else str(li)
+    mid = SIZE // 2
     for name, (dx, dy, side) in dirs.items():
         nb = next((j for j, (x, y) in pos.items() if (x, y) == (ax + dx, ay + dy)), None)
         if nb is None:
             continue
         if side == "e":
-            mine, theirs = [(li, r, SIZE - 1) for r in range(1, SIZE - 1)], \
-                           [(nb, r, 0) for r in range(1, SIZE - 1)]
+            mine, theirs = [(li, mid, SIZE - 1)], [(nb, mid, 0)]
         elif side == "w":
-            mine, theirs = [(li, r, 0) for r in range(1, SIZE - 1)], \
-                           [(nb, r, SIZE - 1) for r in range(1, SIZE - 1)]
+            mine, theirs = [(li, mid, 0)], [(nb, mid, SIZE - 1)]
         elif side == "s":
-            mine, theirs = [(li, SIZE - 1, c) for c in range(1, SIZE - 1)], \
-                           [(nb, 0, c) for c in range(1, SIZE - 1)]
+            mine, theirs = [(li, SIZE - 1, mid)], [(nb, 0, mid)]
         else:
-            mine, theirs = [(li, 0, c) for c in range(1, SIZE - 1)], \
-                           [(nb, SIZE - 1, c) for c in range(1, SIZE - 1)]
+            mine, theirs = [(li, 0, mid)], [(nb, SIZE - 1, mid)]
         busy = any(cells[f"{l}:{x}:{y}"].link for l, x, y in mine + theirs)
         if busy:
             report.append(f"{name}: граница с «{data.LOCATIONS[nb][0]}» уже занята швом.")
@@ -158,7 +175,7 @@ def link_new_location(cells, li, grid):
             _link_south(cells, li, nb)
         else:
             _link_south(cells, nb, li)
-        report.append(f"🔗 {name} ↔ {data.LOCATIONS[nb][0]}")
+        report.append(f"🔗 {name} ↔ {data.LOCATIONS[nb][0]} (1 дверь)")
     if not report:
         report.append(f"Соседей у «{loc_name}» на сетке нет.")
     return report
