@@ -32,6 +32,7 @@ def register(app, A):
     A("world-loc-add", lambda _="": _loc_add(app))
     A("world-loc-del", lambda arg: _loc_del(app, int(arg)))
     A("world-relink", lambda _="": _relink(app))
+    A("world-shuffle", lambda _="": _grid_shuffle(app))
     A("dungeon-create", lambda _="": _dungeon_create(app))
     A("dungeon-open", lambda arg: _dungeon_open(app, arg))
     A("dungeon-close", lambda arg: _dungeon_close(app, arg))
@@ -146,17 +147,64 @@ def _grid_save(app, arg):
         loc_idx = int(dom.value("#grid_loc_idx", "0"))
     except ValueError:
         return
-        
+
     grid = app.store.settings.setdefault("world_grid", {})
-    # remove location from any previous coord
+    # если на целевой клетке уже кто-то — обмен местами
+    occupant_key = None
     for k, v in list(grid.items()):
-        if int(k) == loc_idx:
-            grid.pop(k, None)
-            
+        if v[0] == wx and v[1] == wy:
+            occupant_key = k
+            break
+    old_pos = grid.get(str(loc_idx))
+    if occupant_key is not None and int(occupant_key) != loc_idx:
+        # swap
+        if old_pos is not None:
+            grid[occupant_key] = old_pos
+        else:
+            grid.pop(occupant_key, None)
+    else:
+        # просто убрать старую позицию перемещаемой
+        for k, v in list(grid.items()):
+            if int(k) == loc_idx:
+                grid.pop(k, None)
+
     grid[str(loc_idx)] = [wx, wy]
+    # пересшить швы одной дверью
+    from engine import world as W
+    cells = app.store.world
+    for k, c in list(cells.items()):
+        if c.link:
+            c.link = ()
+    W._link_by_grid(cells, grid)
     app.store.save()
     app.close_modal()
-    dom.toast("Локация размещена на сетке")
+    dom.toast(f"Локация {loc_idx} на [{wx},{wy}] (обмен)" if occupant_key else f"Локация {loc_idx} на [{wx},{wy}]")
+    app.render()
+
+
+def _grid_shuffle(app):
+    """Перемешивает все локации по свободным клеткам — без удаления."""
+    import random
+    grid = app.store.settings.setdefault("world_grid", {})
+    if len(grid) <= 1:
+        dom.toast("Недостаточно локаций для перемешивания", "err")
+        return
+    # все координаты 10x10
+    all_coords = [(x, y) for x in range(10) for y in range(10)]
+    random.shuffle(all_coords)
+    keys = list(grid.keys())
+    random.shuffle(all_coords)
+    for k, (wx, wy) in zip(keys, all_coords[:len(keys)]):
+        grid[k] = [wx, wy]
+    # пересшить
+    from engine import world as W
+    cells = app.store.world
+    for k, c in list(cells.items()):
+        if c.link:
+            c.link = ()
+    W._link_by_grid(cells, grid)
+    app.store.save()
+    dom.toast(f"Перемешано {len(keys)} локаций, переходы пересшиты (1 дверь)")
     app.render()
 
 
@@ -178,17 +226,19 @@ def _loc_add(app):
     desc = dom.value("#loc_desc", "").strip() or "Новые земли ждут героев."
     ltype = dom.value("#loc_type", "dangerous")
     try:
-        lvl, wx, wy = (int(dom.value("#loc_level", "1")),
-                       int(dom.value("#loc_wx", "0")), int(dom.value("#loc_wy", "0")))
+        lvl = int(dom.value("#loc_level", "1"))
+        wx = int(dom.value("#loc_wx", "0"))
+        wy = int(dom.value("#loc_wy", "0"))
+        floors = int(dom.value("#loc_floors", "1"))
     except ValueError:
-        dom.toast("Уровень и координаты — числа", "err")
+        dom.toast("Уровень, координаты и этажи — числа", "err")
         return
     grid = app.store.settings.setdefault("world_grid", {})
     taken = {tuple(v) for v in grid.values()}
     if (wx, wy) in taken:
         dom.toast(f"Клетка [{wx},{wy}] уже занята — выберите другую", "err")
         return
-    li, report = app.store.add_location(name, desc, ltype, lvl, wx, wy)
+    li, report = app.store.add_location(name, desc, ltype, lvl, wx, wy, floors)
     app.bot.game.world = app.store.world
     app.state["loc"] = li
     app.close_modal()

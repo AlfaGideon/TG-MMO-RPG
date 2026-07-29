@@ -230,6 +230,20 @@ async def confirm_class(callback: CallbackQuery):
         await session.commit()
         char_id = character.id
 
+        # realtime — новый игрок
+        try:
+            from core.realtime import publish as rt_publish
+            await rt_publish("player_joined", {
+                "character_id": char_id,
+                "name": character.name,
+                "telegram_id": user.telegram_id,
+                "class": character.character_class,
+                "level": character.level,
+                "location_id": character.location_id,
+            })
+        except Exception:
+            pass
+
     await send_or_edit_photo(
         callback,
         reroll_text(character, cls_def, base, rolled, affinities),

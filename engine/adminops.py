@@ -236,6 +236,8 @@ def portal_open(store, actor, tpl_id, pick, source="panel"):
               f"(мин. уровень {tpl.get('min_level', 1)}).")
     c.tile = "cave"
     tpl["portal_cell"] = key
+    import time
+    tpl["opened_at"] = time.time()
     store.save()
     where = data.LOCATIONS[c.loc][0] if c.loc < len(data.LOCATIONS) else "?"
     queue_all(store, f"🌀 <b>Открылся портал!</b>\n\n{tpl['name']}\n"

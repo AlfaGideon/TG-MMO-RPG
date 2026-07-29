@@ -100,19 +100,79 @@
 
     function updateCount() {
         const n = form.querySelectorAll('.player-check:checked').length;
-        countLabel.textContent = 'Выбрано: ' + n;
+        if(countLabel) countLabel.textContent = 'Выбрано: ' + n;
     }
-
     function setAll(v) {
-        checks.forEach(c => c.checked = v);
+        form.querySelectorAll('.player-check').forEach(c => c.checked = v);
         if (allHeader) allHeader.checked = v;
         if (allBar) allBar.checked = v;
         updateCount();
     }
+    if(form){
+        form.querySelectorAll('.player-check').forEach(c => c.addEventListener('change', updateCount));
+        if (allHeader) allHeader.addEventListener('change', e => setAll(e.target.checked));
+        if (allBar) allBar.addEventListener('change', e => setAll(e.target.checked));
+    }
 
-    checks.forEach(c => c.addEventListener('change', updateCount));
-    if (allHeader) allHeader.addEventListener('change', e => setAll(e.target.checked));
-    if (allBar) allBar.addEventListener('change', e => setAll(e.target.checked));
+    // ── LIVE: новые регистрации без обновления ──
+    const tbody = document.querySelector('#playersTable tbody');
+    function addLiveRow(p){
+        if(!tbody) return;
+        // не дублировать
+        if(tbody.querySelector(`tr[data-char-id='${p.character_id||p.id}']`)) return;
+        const tr = document.createElement('tr');
+        tr.dataset.charId = p.character_id || p.id;
+        tr.style.animation='fadeIn .3s ease';
+        const id = p.character_id || p.id || '—';
+        const name = p.name || 'Новый игрок';
+        const loc = p.location_name || p.location_id || '—';
+        const isVip = p.is_vip ? '✅' : '—';
+        tr.innerHTML = `
+            <td data-label="Выбрать"><input type="checkbox" name="ids" value="${id}" class="row-check player-check"></td>
+            <td data-label="ID">${id}</td>
+            <td data-label="Telegram">${p.telegram_id||'—'}</td>
+            <td data-label="Имя">${name} <span style="font-size:0.7rem;color:var(--success)">• live</span></td>
+            <td data-label="Класс">${p.class||'—'}</td>
+            <td data-label="Ур.">${p.level||1}</td>
+            <td data-label="Опыт">0</td>
+            <td data-label="Золото">50</td>
+            <td data-label="HP">—</td>
+            <td data-label="Локация" class="live-loc">${loc}</td>
+            <td data-label="VIP">${isVip}</td>
+            <td data-label="Действия"><a href="/player/${id}" class="btn btn-primary btn-sm">✏️ Управление</a></td>
+        `;
+        tbody.prepend(tr);
+        showToast('🆕 Новый игрок: '+name);
+        tr.querySelectorAll('.player-check').forEach(c=>c.addEventListener('change', updateCount));
+    }
+    function updateLiveLoc(p){
+        if(!p.character_id) return;
+        const row = tbody.querySelector(`tr[data-char-id='${p.character_id}']`) || [...tbody.querySelectorAll('tr')].find(tr=>tr.textContent.includes(p.name));
+        if(row){
+            const locCell = row.querySelector('.live-loc') || row.querySelector('td:nth-child(10)');
+            if(locCell){
+                locCell.textContent = p.location_name || p.location_id || locCell.textContent;
+                locCell.style.background='var(--accent-soft)';
+                setTimeout(()=>locCell.style.background='',800);
+            }
+        }
+    }
+
+    try{
+        const wsProto = location.protocol==='https:'?'wss:':'ws:';
+        const ws = new WebSocket(wsProto+'//'+location.host+'/ws/live');
+        ws.onmessage = (ev)=>{
+            try{
+                const data = JSON.parse(ev.data);
+                if(data.type==='player_joined'){ addLiveRow(data.payload); }
+                if(data.type==='player_move'){ updateLiveLoc(data.payload); }
+            }catch(e){}
+        };
+    }catch(e){}
 })();
 </script>
+<style>
+@keyframes fadeIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+.live-loc{transition:background .3s}
+</style>
 {% endblock %}

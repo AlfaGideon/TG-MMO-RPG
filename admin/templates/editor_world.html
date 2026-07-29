@@ -1,73 +1,153 @@
 {% extends "base.html" %}
 
 {% block title %}Редактор мира — Shadow Lands{% endblock %}
-{% block page_title %}🌍 Редактор мировой карты{% endblock %}
-{% block topbar_actions %}<a href="/editor/location/new" class="btn btn-primary">➕ Новая локация</a>{% endblock %}
+{% block page_title %}🌍 Редактор мировой сетки{% endblock %}
+{% block topbar_actions %}
+<span id="liveDot" title="Live соединение" style="display:inline-flex;align-items:center;gap:4px;font-size:0.8rem;color:var(--text-muted)"><span class="live-indicator"></span> LIVE</span>
+<button class="btn btn-primary" onclick="openCreateModal()">➕ Новая локация</button>
+{% endblock %}
 
 {% block content %}
 <style>
-.world-100 {
-    display: grid;
-    grid-template-columns: repeat({{ world_grid_size }}, minmax(64px, 1fr));
-    gap: 4px;
-    max-width: 900px;
+.world-toolbar{display:flex;gap:0.6rem;flex-wrap:wrap;align-items:center;margin-bottom:1rem}
+.world-100{
+    display:grid;
+    grid-template-columns:repeat({{ world_grid_size }}, minmax(72px,1fr));
+    gap:8px;
+    max-width:960px;
+    padding:12px;
+    background:var(--bg-card);
+    border:1px solid var(--border);
+    border-radius:16px;
 }
-.world-cell {
-    aspect-ratio: 1;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: var(--bg-hover);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    text-align: center;
-    font-size: 0.62rem;
-    padding: 2px;
-    text-decoration: none;
-    color: var(--text);
-    transition: transform 0.1s, border-color 0.1s;
-    overflow: hidden;
+.world-cell{
+    aspect-ratio:1;
+    border:1px solid var(--border);
+    border-radius:12px;
+    background:var(--bg-hover);
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    text-align:center;
+    font-size:0.62rem;
+    padding:4px;
+    text-decoration:none;
+    color:var(--text);
+    transition:all .18s cubic-bezier(.2,.8,.2,1);
+    overflow:hidden;
+    position:relative;
+    user-select:none;
 }
-.world-cell:hover { transform: scale(1.08); z-index: 5; border-color: var(--accent); }
-.world-cell.empty { color: var(--text-muted); border-style: dashed; }
-.world-cell .wc-icon { font-size: 1rem; }
-.world-cell .wc-name { font-size: 0.6rem; line-height: 1.1; margin-top: 1px; }
-.world-cell .wc-pop { font-size: 0.55rem; color: var(--accent); margin-top: 1px; }
-.legend-row { display:flex; gap:1rem; flex-wrap:wrap; font-size:0.78rem; color: var(--text-muted); margin-bottom: 1rem; }
+.world-cell:hover{transform:translateY(-2px) scale(1.03);z-index:5;border-color:var(--accent);box-shadow:0 8px 24px rgba(0,0,0,.25)}
+.world-cell.empty{border-style:dashed;background:transparent;color:var(--text-muted)}
+.world-cell.empty:hover{background:var(--accent-soft)}
+.world-cell.dragging{opacity:.35;transform:scale(.9) rotate(-2deg)}
+.world-cell.drag-over{border-color:var(--accent)!important;background:var(--accent-soft)!important;transform:scale(1.08);box-shadow:0 0 0 3px var(--accent-soft)}
+.world-cell.swap-target{animation: pulseSwap .6s ease infinite alternate}
+@keyframes pulseSwap{from{box-shadow:0 0 0 0 var(--accent-soft)}to{box-shadow:0 0 0 8px var(--accent-soft)}}
+
+/* локация карточка */
+.wc-icon{font-size:1.25rem;line-height:1}
+.wc-name{font-size:0.64rem;line-height:1.1;margin-top:3px;font-weight:600;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wc-meta{display:flex;gap:3px;margin-top:3px;flex-wrap:wrap;justify-content:center}
+.badge-mini{font-size:0.55rem;padding:1px 4px;border-radius:999px;background:rgba(0,0,0,.25);border:1px solid var(--border)}
+.badge-mini.vip{color:#fbbf24;border-color:#fbbf24;background:rgba(251,191,36,.12)}
+.badge-mini.floors{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
+.wc-pop{position:absolute;top:4px;right:4px;background:var(--accent);color:#fff;border-radius:999px;font-size:0.58rem;font-weight:700;padding:0 4px;min-width:14px;text-align:center}
+.wc-coords{position:absolute;bottom:2px;left:4px;font-size:0.48rem;color:var(--text-muted);opacity:.7}
+
+/* стек этажей */
+.multi-floor{box-shadow: 0 2px 0 var(--bg-card), 0 4px 0 var(--border), 0 6px 0 var(--bg-card), 0 8px 0 var(--border)}
+.multi-floor::before{content:'';position:absolute;inset:-3px;border-radius:12px;border:1px dashed var(--accent);opacity:.25;pointer-events:none}
+.multi-floor::after{content:'🏢×'||attr(data-floors);position:absolute;bottom:-6px;right:-6px;background:var(--bg-card);border:1px solid var(--border);border-radius:999px;font-size:0.55rem;padding:1px 4px}
+
+/* двери индикаторы */
+.doors{position:absolute;inset:0;pointer-events:none}
+.door{position:absolute;width:6px;height:6px;background:var(--success);border-radius:50%;box-shadow:0 0 4px var(--success)}
+.door.n{top:1px;left:50%;transform:translateX(-50%)}
+.door.s{bottom:1px;left:50%;transform:translateX(-50%)}
+.door.w{left:1px;top:50%;transform:translateY(-50%)}
+.door.e{right:1px;top:50%;transform:translateY(-50%)}
+.door.none{background:var(--border);opacity:.3}
+
+/* live */
+.live-indicator{width:8px;height:8px;border-radius:50%;background:var(--success);display:inline-block;animation:livePulse 1.4s infinite}
+@keyframes livePulse{0%{box-shadow:0 0 0 0 rgba(34,197,94,.6)}70%{box-shadow:0 0 0 6px rgba(34,197,94,0)}100%{box-shadow:0 0 0 0 rgba(34,197,94,0)}}
+.legend-row{display:flex;gap:1rem;flex-wrap:wrap;font-size:0.78rem;color:var(--text-muted);margin-bottom:1rem}
+.toast-msg{font-size:0.85rem}
+
+/* modal */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);z-index:90;display:none;align-items:center;justify-content:center;padding:1rem}
+.modal-overlay.open{display:flex}
+.modal-box{width:min(520px,92vw);background:var(--bg-card);border:1px solid var(--border);border-radius:16px;padding:1.2rem;box-shadow:0 20px 60px rgba(0,0,0,.5);animation:modalIn .2s ease}
+@keyframes modalIn{from{opacity:0;transform:translateY(8px) scale(.98)}to{opacity:1;transform:none}}
+.modal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem}
+.modal-head h3{margin:0}
 </style>
 
 <div class="card">
-    <h2>🌍 Мировая карта — {{ world_grid_size }}×{{ world_grid_size }} локаций</h2>
+    <div class="world-toolbar">
+        <h2 style="margin:0">🌍 Мировая карта — {{ world_grid_size }}×{{ world_grid_size }}</h2>
+        <div style="margin-left:auto;display:flex;gap:.5rem;flex-wrap:wrap">
+            <button class="btn" onclick="shuffleWorld()">🔀 Перемешать</button>
+            <form action="/editor/world/relink" method="post" style="display:inline">
+                <button type="submit" class="btn">🔗 Пересобрать переходы</button>
+            </form>
+        </div>
+    </div>
     <p class="section-sub">
-        Каждая ячейка — отдельная локация с собственной сеткой клеток (по умолчанию 10×10, настраивается) и, опционально, несколькими этажами.
-        Полный мир — до {{ world_grid_size }}×10 = {{ world_grid_size * 10 }} клеток в каждую сторону.
+        Каждая ячейка — локация. Перетаскивание = обмен местами (автоматически пересобираются <b>одиночные</b> двери между соседями).
+        Пустая ячейка — клик для мгновенного создания. Локации с 🏢 имеют подуровни (этажи) — визуально видны как стопка.
     </p>
     <div class="legend-row">
-        <span>🟪 занято</span>
-        <span>➕ свободно — нажми, чтобы создать локацию</span>
-        <span>👥 число персонажей в локации</span>
+        <span>🟪 занято • перетащи</span>
+        <span>➕ свободно • клик = создать</span>
+        <span>👥 онлайн в локации</span>
+        <span>🏢×N = этажей</span>
+        <span>🟢 = есть проход</span>
     </div>
+
     <div class="world-100" id="worldGrid">
         {% for wx in grid_range %}
             {% for wy in grid_range %}
                 {% set loc = grid.get((wx, wy)) %}
                 {% if loc %}
-                <a href="/editor/location/{{ loc.id }}" class="world-cell loc-cell" draggable="true"
-                   data-loc-id="{{ loc.id }}" data-x="{{ wx }}" data-y="{{ wy }}"
-                   title="{{ loc.name }} [{{ wx }},{{ wy }}] — перетащи на свободную клетку">
+                <div class="world-cell loc-cell {% if (loc.floors_count or 1) > 1 %}multi-floor{% endif %}"
+                     draggable="true"
+                     data-loc-id="{{ loc.id }}" data-x="{{ wx }}" data-y="{{ wy }}"
+                     data-floors="{{ loc.floors_count or 1 }}"
+                     title="{{ loc.name }} [{{ wx }},{{ wy }}] • Этажей: {{ loc.floors_count or 1 }} • Перетащи на любую клетку для обмена">
                     <span class="wc-icon">
                         {% if loc.location_type.value == 'boss' %}👹
                         {% elif loc.location_type.value == 'dungeon' %}💀
                         {% elif loc.location_type.value == 'dangerous' %}⚠️
                         {% else %}🛡{% endif %}
                     </span>
-                    <span class="wc-name">{{ loc.name[:12] }}</span>
+                    <span class="wc-name">{{ loc.name[:14] }}</span>
+                    <div class="wc-meta">
+                        {% if (loc.floors_count or 1) > 1 %}
+                        <span class="badge-mini floors">🏢×{{ loc.floors_count }}</span>
+                        {% endif %}
+                        <span class="badge-mini">{{ loc.grid_size }}×{{ loc.grid_size }}</span>
+                    </div>
                     {% if pop_by_loc.get(loc.id) %}<span class="wc-pop">👥{{ pop_by_loc.get(loc.id) }}</span>{% endif %}
-                </a>
+                    <span class="wc-coords">{{ wx }},{{ wy }}</span>
+                    <!-- индикаторы дверей: в реальности 1 дверь, показываем наличие связи -->
+                    <div class="doors">
+                        <!-- эти 4 точки всегда есть если сосед существует, подсвечиваются JS -->
+                        <div class="door n" data-dir="n" title="Север"></div>
+                        <div class="door s" data-dir="s" title="Юг"></div>
+                        <div class="door w" data-dir="w" title="Запад"></div>
+                        <div class="door e" data-dir="e" title="Восток"></div>
+                    </div>
+                </div>
                 {% else %}
-                <a href="/editor/location/new?world_x={{ wx }}&world_y={{ wy }}" class="world-cell empty drop-zone"
-                   data-x="{{ wx }}" data-y="{{ wy }}" title="Создать локацию [{{ wx }},{{ wy }}]">➕</a>
+                <div class="world-cell empty drop-zone"
+                     data-x="{{ wx }}" data-y="{{ wy }}" title="Создать локацию [{{ wx }},{{ wy }}] — клик">
+                    <span style="font-size:1.1rem">➕</span>
+                    <span class="wc-coords">{{ wx }},{{ wy }}</span>
+                </div>
                 {% endif %}
             {% endfor %}
         {% endfor %}
@@ -75,115 +155,237 @@
 </div>
 
 <div class="card">
-    <h3>🔀 Переместить существующую локацию</h3>
-    <p class="section-sub">
-        Измени мировые координаты локации, чтобы переставить её блок на карте.
-        Если клетка занята — локации <b>поменяются местами</b>; бесшовные
-        переходы пересоберутся по новой карте соседства автоматически.
-    </p>
-    <form id="placeForm" style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:flex-end;">
+    <h3>🔀 Быстрое перемещение</h3>
+    <p class="section-sub">Можно менять местами без удаления. Швы перестраиваются сами как одна клетка-дверь.</p>
+    <form id="placeForm" style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:flex-end;">
         <div>
             <label class="form-label">Локация</label>
             <select name="location_id" class="search-box" style="max-width:220px">
                 {% for loc in locations %}
-                <option value="{{ loc.id }}">{{ loc.name }} (сейчас [{{ loc.world_x }},{{ loc.world_y }}])</option>
+                <option value="{{ loc.id }}">{{ loc.name }} (сейчас [{{ loc.world_x }},{{ loc.world_y }}]) {% if (loc.floors_count or 1)>1 %}🏢×{{loc.floors_count}}{% endif %}</option>
                 {% endfor %}
             </select>
         </div>
-        <div>
-            <label class="form-label">Новая X</label>
-            <input type="number" name="world_x" min="0" max="{{ world_grid_size - 1 }}" value="0" class="search-box" style="max-width:100px">
-        </div>
-        <div>
-            <label class="form-label">Новая Y</label>
-            <input type="number" name="world_y" min="0" max="{{ world_grid_size - 1 }}" value="0" class="search-box" style="max-width:100px">
-        </div>
+        <div><label class="form-label">Новая X</label><input type="number" name="world_x" min="0" max="{{ world_grid_size - 1 }}" value="0" class="search-box" style="max-width:100px"></div>
+        <div><label class="form-label">Новая Y</label><input type="number" name="world_y" min="0" max="{{ world_grid_size - 1 }}" value="0" class="search-box" style="max-width:100px"></div>
         <button type="submit" class="btn btn-primary">💾 Переставить</button>
     </form>
 </div>
 
-<div class="card">
-    <h3>🔗 Бесшовные переходы</h3>
-    <p class="section-sub">
-        Переходы между локациями строятся по соседству на этой сетке. После
-        перестановок они пересобираются сами, но если что-то правили вручную —
-        можно пересобрать всё разом.
-    </p>
-    <form action="/editor/world/relink" method="post">
-        <button type="submit" class="btn">🔗 Пересобрать все переходы</button>
-    </form>
+<!-- Модалка создания -->
+<div class="modal-overlay" id="createModal" onclick="if(event.target===this)closeCreateModal()">
+    <div class="modal-box">
+        <div class="modal-head">
+            <h3>➕ Новая локация на <span id="createCoords">0,0</span></h3>
+            <button class="btn btn-sm" onclick="closeCreateModal()">✕</button>
+        </div>
+        <p class="section-sub" style="margin-bottom:0.8rem">Создаётся сразу на сетке мира, без перехода в раздел локации. Сетка клеток генерируется с проверкой связности, лестницы — двусторонние, двери — одиночные.</p>
+        <form id="createForm" onsubmit="return submitCreate(event)">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:0.8rem">
+                <div><label class="form-label">Название</label><input name="name" required class="search-box" style="max-width:100%" placeholder="Мглистые топи"></div>
+                <div><label class="form-label">Тип</label>
+                    <select name="location_type" class="search-box" style="max-width:100%">
+                        <option value="safe">🛡 Безопасная</option>
+                        <option value="dangerous">⚠️ Опасная</option>
+                        <option value="dungeon">💀 Подземелье</option>
+                        <option value="boss">👹 Босс</option>
+                    </select>
+                </div>
+                <div><label class="form-label">Мин. уровень</label><input type="number" name="min_level" value="1" min="1" class="search-box" style="max-width:100%"></div>
+                <div><label class="form-label">Размер сетки</label><input type="number" name="grid_size" value="10" min="5" max="25" class="search-box" style="max-width:100%"></div>
+                <div><label class="form-label">Этажей (подуровни)</label><input type="number" name="floors_count" value="1" min="1" max="10" class="search-box" style="max-width:100%"></div>
+                <div><label class="form-label">Координаты X/Y</label>
+                    <div style="display:flex;gap:4px">
+                        <input type="number" name="world_x" id="cX" min="0" max="{{ world_grid_size-1 }}" value="0" class="search-box" style="max-width:80px">
+                        <input type="number" name="world_y" id="cY" min="0" max="{{ world_grid_size-1 }}" value="0" class="search-box" style="max-width:80px">
+                    </div>
+                </div>
+            </div>
+            <div style="margin-bottom:0.8rem"><label class="form-label">Описание</label><textarea name="description" class="search-box" style="max-width:100%;width:100%;min-height:60px" placeholder="Короткая атмосфера места"></textarea></div>
+            <div style="display:flex;gap:0.5rem;justify-content:flex-end">
+                <button type="button" class="btn" onclick="closeCreateModal()">Отмена</button>
+                <button type="submit" class="btn btn-primary" id="createBtn">💾 Создать на сетке</button>
+            </div>
+        </form>
+    </div>
 </div>
+
 {% endblock %}
 
 {% block scripts %}
 <script>
-(function() {
-    const params = new URLSearchParams(location.search);
-    if (params.get('relinked') !== null) {
-        showToast('Пересобрано швов: ' + params.get('relinked'));
-    }
-
-    async function placeLocation(body) {
-        try {
-            const r = await fetch('/editor/world/place', {method: 'POST', body});
-            const data = await r.json().catch(() => ({}));
-            if (r.ok && data.success) {
-                showToast(data.message || 'Локация перемещена');
-                setTimeout(() => location.assign('/editor/world'), 600);
-            } else {
-                showToast(data.detail || 'Не удалось переместить', 'err');
-            }
-        } catch (err) {
-            showToast('Ошибка сети', 'err');
-        }
-    }
-
-    const placeForm = document.getElementById('placeForm');
-    if (placeForm) {
-        placeForm.addEventListener('submit', e => {
-            e.preventDefault();
-            placeLocation(new URLSearchParams(new FormData(placeForm)));
-        });
-    }
-
+(function(){
     const grid = document.getElementById('worldGrid');
-    if (!grid) return;
-    let draggedId = null;
+    const dot = document.getElementById('liveDot');
+    let dragged = null;
 
-    grid.querySelectorAll('.loc-cell').forEach(el => {
-        el.addEventListener('dragstart', e => {
-            draggedId = el.dataset.locId;
-            e.dataTransfer.effectAllowed = 'move';
-            el.style.opacity = '0.5';
+    async function placeLocation(body){
+        try{
+            const r = await fetch('/editor/world/place',{method:'POST',body});
+            const data = await r.json().catch(()=>({}));
+            if(r.ok && data.success){
+                showToast(data.message||'Перемещено');
+                setTimeout(()=>location.reload(), 500);
+            }else{
+                showToast(data.error||data.detail||'Не удалось переместить','err');
+            }
+        }catch(e){showToast('Ошибка сети','err')}
+    }
+
+    // place form
+    document.getElementById('placeForm')?.addEventListener('submit', e=>{
+        e.preventDefault();
+        placeLocation(new URLSearchParams(new FormData(e.target)));
+    });
+
+    // drag & drop — любой cell в любой
+    function handleDragStart(e){
+        dragged = this;
+        this.classList.add('dragging');
+        e.dataTransfer.effectAllowed='move';
+        e.dataTransfer.setData('text/plain', this.dataset.locId||'');
+        // ghost
+        const ghost = this.cloneNode(true);
+        ghost.style.position='absolute'; ghost.style.top='-9999px';
+        document.body.appendChild(ghost);
+        e.dataTransfer.setDragImage(ghost, 30,30);
+        setTimeout(()=>ghost.remove(),0);
+    }
+    function handleDragEnd(){
+        this.classList.remove('dragging');
+        dragged=null;
+        grid.querySelectorAll('.drag-over').forEach(el=>el.classList.remove('drag-over','swap-target'));
+    }
+    function handleDragOver(e){
+        e.preventDefault();
+        if(!dragged) return;
+        if(this===dragged) return;
+        this.classList.add('drag-over');
+        if(this.classList.contains('loc-cell')) this.classList.add('swap-target');
+    }
+    function handleDragLeave(){ this.classList.remove('drag-over','swap-target'); }
+    async function handleDrop(e){
+        e.preventDefault();
+        this.classList.remove('drag-over','swap-target');
+        if(!dragged) return;
+        const fromId = dragged.dataset.locId;
+        const toX = this.dataset.x;
+        const toY = this.dataset.y;
+        if(!fromId) return;
+        // если дроп на занятую — обмен, если на пустую — перемещение
+        const body = new URLSearchParams();
+        body.append('location_id', fromId);
+        body.append('world_x', toX);
+        body.append('world_y', toY);
+        await placeLocation(body);
+    }
+
+    grid.querySelectorAll('.loc-cell, .drop-zone').forEach(el=>{
+        el.addEventListener('dragstart', handleDragStart);
+        el.addEventListener('dragend', handleDragEnd);
+        el.addEventListener('dragover', handleDragOver);
+        el.addEventListener('dragleave', handleDragLeave);
+        el.addEventListener('drop', handleDrop);
+    });
+
+    // quick create modal on empty click
+    grid.querySelectorAll('.drop-zone').forEach(el=>{
+        el.addEventListener('click', ()=>{
+            openCreateModal(parseInt(el.dataset.x), parseInt(el.dataset.y));
         });
-        el.addEventListener('dragend', () => {
-            el.style.opacity = '';
-            draggedId = null;
+    });
+    // клик по занятой — переход в редактор, но с зажатым Alt — тоже перемещение? оставим переход по двойному клику
+    grid.querySelectorAll('.loc-cell').forEach(el=>{
+        el.addEventListener('dblclick', ()=>{
+            const id = el.dataset.locId;
+            if(id) location.href='/editor/location/'+id;
+        });
+        el.addEventListener('click', (e)=>{
+            // одиночный клик — показать тултип, не переходить сразу
+            if(e.ctrlKey || e.metaKey){
+                const id = el.dataset.locId;
+                if(id) location.href='/editor/location/'+id;
+            }
         });
     });
 
-    grid.querySelectorAll('.drop-zone').forEach(el => {
-        el.addEventListener('dragover', e => {
-            e.preventDefault();
-            el.classList.add('drag-over');
-        });
-        el.addEventListener('dragleave', () => el.classList.remove('drag-over'));
-        el.addEventListener('drop', async e => {
-            e.preventDefault();
-            el.classList.remove('drag-over');
-            if (!draggedId) return;
-            const body = new URLSearchParams();
-            body.append('location_id', draggedId);
-            body.append('world_x', el.dataset.x);
-            body.append('world_y', el.dataset.y);
-            await placeLocation(body);
-        });
-    });
+    // shuffle
+    window.shuffleWorld = async function(){
+        if(!confirm('🔀 Перемешать все локации случайным образом? Игроки останутся внутри локаций, но швы пересоберутся.')) return;
+        try{
+            const r = await fetch('/editor/world/shuffle',{method:'POST'});
+            const data = await r.json();
+            if(data.success){
+                showToast(`Перемешано ${data.count} локаций, швов ${data.pairs}`);
+                setTimeout(()=>location.reload(),700);
+            }else showToast(data.error||'Ошибка','err');
+        }catch(e){showToast('Ошибка сети','err')}
+    };
+
+    // create modal
+    window.openCreateModal = function(x,y){
+        const m = document.getElementById('createModal');
+        if(typeof x==='number') document.getElementById('cX').value=x;
+        if(typeof y==='number') document.getElementById('cY').value=y;
+        document.getElementById('createCoords').textContent = (document.getElementById('cX').value||0)+','+(document.getElementById('cY').value||0);
+        m.classList.add('open');
+    };
+    window.closeCreateModal = function(){ document.getElementById('createModal').classList.remove('open'); };
+    window.submitCreate = async function(e){
+        e.preventDefault();
+        const btn = document.getElementById('createBtn');
+        btn.disabled=true; btn.textContent='⏳ Создаём...';
+        const fd = new FormData(e.target);
+        try{
+            const r = await fetch('/api/world/create',{method:'POST', body:fd});
+            const data = await r.json();
+            if(data.success){
+                showToast('Локация создана на сетке');
+                closeCreateModal();
+                setTimeout(()=>location.reload(),600);
+            }else{
+                showToast(data.error||'Ошибка создания','err');
+                btn.disabled=false; btn.textContent='💾 Создать на сетке';
+            }
+        }catch(err){
+            showToast('Ошибка сети','err');
+            btn.disabled=false; btn.textContent='💾 Создать на сетке';
+        }
+        return false;
+    };
+    document.getElementById('cX')?.addEventListener('input', ()=>document.getElementById('createCoords').textContent=document.getElementById('cX').value+','+document.getElementById('cY').value);
+    document.getElementById('cY')?.addEventListener('input', ()=>document.getElementById('createCoords').textContent=document.getElementById('cX').value+','+document.getElementById('cY').value);
+
+    // live websocket for player moves
+    try{
+        const wsProto = location.protocol==='https:'?'wss:':'ws:';
+        const ws = new WebSocket(wsProto+'//'+location.host+'/ws/live');
+        ws.onopen = ()=>{ if(dot) dot.style.color='var(--success)'; };
+        ws.onmessage = (ev)=>{
+            try{
+                const data = JSON.parse(ev.data);
+                if(data.type==='player_move'){
+                    const p = data.payload;
+                    const cell = grid.querySelector(`.loc-cell[data-loc-id='${p.location_id}']`) || grid.querySelector(`[data-x='${p.location_id}']`);
+                    // update pop badge live
+                    const el = grid.querySelector(`.loc-cell[data-loc-id='${p.location_id}'] .wc-pop`);
+                    // flash
+                    const target = grid.querySelector(`.loc-cell[data-loc-id='${p.location_id}']`);
+                    if(target){
+                        target.style.outline='2px solid var(--success)';
+                        setTimeout(()=>target.style.outline='',800);
+                    }
+                }
+                if(data.type==='world_moved' || data.type==='world_shuffled' || data.type==='world_created'){
+                    showToast('Мир обновлён: '+data.type);
+                }
+            }catch(e){}
+        };
+        ws.onclose = ()=>{ if(dot) dot.style.opacity='.5'; setTimeout(()=>{if(ws.readyState===3) location.reload();}, 30000); };
+    }catch(e){}
+
+    const params = new URLSearchParams(location.search);
+    if(params.get('relinked')!==null) showToast('Пересобрано швов: '+params.get('relinked'));
 })();
 </script>
-<style>
-.world-cell { cursor: grab; }
-.world-cell.empty { cursor: default; }
-.world-cell.drag-over { background: var(--accent-soft); border-color: var(--accent); }
-</style>
 {% endblock %}

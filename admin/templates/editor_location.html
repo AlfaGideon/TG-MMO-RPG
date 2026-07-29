@@ -1,13 +1,10 @@
 {% extends "base.html" %}
 
 {% block title %}{{ location.name }} — Редактор — Shadow Lands{% endblock %}
-{% block page_title %}✏️ {{ location.name }}{% endblock %}
+{% block page_title %}✏️ {{ location.name }} <span style="font-weight:400;color:var(--text-muted);font-size:0.85rem">— {{ location.grid_size }}×{{ location.grid_size }} • этажей {{ location.floors_count or 1 }}</span>{% endblock %}
 {% block topbar_actions %}
 <a href="/editor/locations" class="btn">◀️ Назад</a>
-<form action="/editor/location/{{ location.id }}/autolink" method="post" style="display:inline"
-      title="Прорезать бесшовные переходы ко всем соседям по мировой карте">
-    <button type="submit" class="btn">🔗 Связать с соседями</button>
-</form>
+<form action="/editor/location/{{ location.id }}/autolink" method="post" style="display:inline"><button type="submit" class="btn" title="Одна дверь к каждому соседу, а не стена">🔗 Связать (1 дверь)</button></form>
 <a href="/editor/location/{{ location.id }}/validate" class="btn">✅ Диагностика</a>
 <a href="/editor/location/{{ location.id }}/delete" class="btn btn-danger">🗑 Удалить</a>
 {% endblock %}
@@ -22,268 +19,472 @@
 {% endblock %}
 
 {% block content %}
-{% if linked %}
-<div class="banner info">
-    🔗 Готово: переходы к соседям по мировой карте прорезаны, дороги от центра до ворот прорублены.
-</div>
-{% endif %}
-{% if warn %}
-<div class="banner warn">⚠️ {{ warn }}</div>
-{% endif %}
-{% if note %}
-<div class="banner info">📝 {{ note }}</div>
-{% endif %}
+{% if linked %}<div class="banner info">🔗 Готово: одиночные переходы к соседям прорезаны (по 1 двери на сторону).</div>{% endif %}
+{% if warn %}<div class="banner warn">⚠️ {{ warn }}</div>{% endif %}
+{% if note %}<div class="banner info">📝 {{ note }}</div>{% endif %}
+
 <style>
-.cell-grid {
-    display: grid;
-    grid-template-columns: repeat({{ location.grid_size }}, 1fr);
-    gap: 2px;
-    max-width: 700px;
+/* layout */
+.loc-layout{display:grid;grid-template-columns:300px 1fr;gap:1rem;align-items:start}
+@media(max-width:980px){.loc-layout{grid-template-columns:1fr}}
+.floors-panel{background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:0.8rem;position:sticky;top:76px}
+.floor-item{display:flex;align-items:center;gap:0.6rem;padding:0.6rem;border-radius:10px;border:1px solid transparent;cursor:pointer;transition:.15s}
+.floor-item:hover{background:var(--bg-hover)}
+.floor-item.active{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+.floor-thumb{width:44px;height:44px;border-radius:8px;background:var(--bg-hover);border:1px solid var(--border);display:grid;grid-template-columns:repeat(4,1fr);gap:1px;padding:2px}
+.floor-thumb i{display:block;border-radius:1px;background:var(--border)}
+.floor-thumb i.pass{background:#1a3a1a}
+.floor-thumb i.wall{background:#2a2a35}
+.floor-actions{margin-top:0.8rem;display:flex;gap:0.4rem}
+
+/* cell grid modern */
+.cell-grid{
+    display:grid;
+    grid-template-columns:repeat({{ location.grid_size }}, minmax(0,1fr));
+    gap:3px;
+    max-width:760px;
+    background:var(--bg-card);
+    padding:10px;
+    border-radius:16px;
+    border:1px solid var(--border);
 }
-.cell {
-    aspect-ratio: 1;
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.65rem;
-    cursor: pointer;
-    text-decoration: none;
-    color: var(--text);
-    transition: transform 0.1s;
-    position: relative;
+.cell{
+    aspect-ratio:1;
+    border:1px solid var(--border);
+    border-radius:8px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:0.62rem;
+    cursor:crosshair;
+    color:var(--text);
+    position:relative;
+    transition:all .12s;
+    user-select:none;
+    overflow:hidden;
 }
-.cell:hover {
-    transform: scale(1.1);
-    z-index: 10;
-    border-color: var(--accent);
-}
-.cell-wall { background: #2a2a35; color: #666; }
-.cell-grass { background: #1a3a1a; }
-.cell-forest { background: #0d2b0d; }
-.cell-water { background: #0a1a3a; }
-.cell-road { background: #3a2a1a; }
-.cell-village { background: #3a2a0d; }
-.cell-cave { background: #1a1a2a; }
-.cell-portal { background: #3d1a5c; box-shadow: 0 0 6px rgba(139, 92, 246, 0.8) inset; }
-.cell-portal::before { content: '🌀'; position: absolute; font-size: 0.9rem; }
-.cell-mob::after { content: '👾'; position: absolute; top: 2px; right: 2px; font-size: 0.7rem; }
-.cell-npc::after { content: '💬'; position: absolute; top: 2px; right: 2px; font-size: 0.7rem; }
-.cell-chest::after { content: '📦'; position: absolute; bottom: 2px; left: 2px; font-size: 0.7rem; }
-.cell-player { box-shadow: 0 0 0 2px var(--success); }
+.cell:hover{transform:scale(1.12);z-index:10;border-color:var(--accent);box-shadow:0 6px 18px rgba(0,0,0,.35)}
+.cell.selected{outline:2px solid var(--accent);outline-offset:1px}
+.cell-wall{background:#23232f;color:#5a5a6a}
+.cell-grass{background:#162a16}
+.cell-forest{background:#0f2410}
+.cell-water{background:#0d1b3a}
+.cell-road{background:#302513}
+.cell-village{background:#3a2e12}
+.cell-cave{background:#1e1e2a}
+.cell-portal{background:#2e1a4a;box-shadow:0 0 8px rgba(139,92,246,.6) inset}
+.cell-portal::before{content:'🌀';position:absolute;font-size:0.95rem}
+.cell-door{border-color:var(--success)!important;box-shadow:0 0 0 2px rgba(34,197,94,.3)}
+.cell-door::before{content:'🚪';position:absolute;font-size:0.9rem}
+.cell-stairs{border-color:#f59e0b!important}
+.cell-stairs::before{position:absolute;font-size:0.9rem}
+.cell-stairs-up::before{content:'⬆️'}
+.cell-stairs-down::before{content:'⬇️'}
+.cell-npc::after{content:'💬';position:absolute;top:2px;right:2px;font-size:0.7rem}
+.cell-chest::after{content:'📦';position:absolute;bottom:1px;left:2px;font-size:0.7rem}
+.cell-mob::after{content:'👾';position:absolute;top:2px;left:2px;font-size:0.65rem}
+
+/* brush modern UI */
+.brush-panel{background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:0.9rem;margin-bottom:1rem}
+.brush-header{display:flex;align-items:center;justify-content:space-between;gap:0.6rem;margin-bottom:0.7rem;flex-wrap:wrap}
+.mode-switch{display:inline-flex;background:var(--bg-hover);border-radius:999px;padding:3px;border:1px solid var(--border)}
+.mode-btn{border:none;background:transparent;color:var(--text-muted);padding:5px 12px;border-radius:999px;cursor:pointer;font-size:0.82rem;transition:.15s}
+.mode-btn.active{background:var(--accent);color:#fff}
+.brush-group{margin-bottom:0.8rem}
+.brush-group-title{font-size:0.7rem;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:0.4rem;font-weight:600}
+.brush-grid{display:flex;gap:6px;flex-wrap:wrap}
+.brush-item{width:68px;height:68px;border:2px solid var(--border);border-radius:12px;background:var(--bg-hover);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;cursor:pointer;transition:.15s;position:relative}
+.brush-item:hover{border-color:var(--accent);transform:translateY(-1px)}
+.brush-item.active{border-color:var(--accent);background:var(--accent-soft);box-shadow:0 0 0 3px var(--accent-soft)}
+.brush-item .b-icon{font-size:1.3rem}
+.brush-item .b-label{font-size:0.62rem;font-weight:600;line-height:1}
+.brush-item .b-desc{font-size:0.48rem;color:var(--text-muted)}
+.brush-preview{width:14px;height:14px;border-radius:4px;border:1px solid var(--border);display:inline-block;margin-right:4px}
+.hint{font-size:0.75rem;color:var(--text-muted)}
+
+/* door modal */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);z-index:90;display:none;align-items:center;justify-content:center;padding:1rem}
+.modal-overlay.open{display:flex}
+.modal-box{width:min(460px,92vw);background:var(--bg-card);border:1px solid var(--border);border-radius:16px;padding:1.2rem;box-shadow:0 20px 60px rgba(0,0,0,.5)}
 </style>
 
-<div class="card">
-    <h2>✏️ Редактирование: {{ location.name }}</h2>
-
-    <form action="/editor/location/{{ location.id }}/save" method="post" enctype="multipart/form-data" style="margin-bottom: 1.5rem;" data-validate data-autosave>
-        {% if location.image_url %}
-        <div style="margin-bottom: 1rem;">
-            <img id="locPreview" src="{{ location.image_url }}" style="max-width: 200px; border-radius: 8px; border: 1px solid var(--border);">
+<div class="loc-layout">
+    <!-- FLOORS PANEL — визуализация подуровней -->
+    <div class="floors-panel">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.6rem">
+            <h3 style="margin:0;font-size:0.95rem">🏢 Подуровни — {{ location.floors_count or 1 }} этажей</h3>
+            <span class="badge" style="font-size:0.7rem">{{ location.grid_size }}×{{ location.grid_size }}</span>
         </div>
-        {% else %}
-        <img id="locPreview" style="display:none; max-width:200px; border-radius:8px; border:1px solid var(--border); margin-bottom:1rem;">
-        {% endif %}
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
-            <div>
-                <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Название</label>
-                <input type="text" name="name" value="{{ location.name }}" class="search-box" style="max-width: 100%;" required>
-            </div>
-            <div>
-                <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Тип</label>
-                <select name="location_type" class="search-box" style="max-width: 100%;">
-                    <option value="safe" {% if location.location_type.value == 'safe' %}selected{% endif %}>Безопасная</option>
-                    <option value="dangerous" {% if location.location_type.value == 'dangerous' %}selected{% endif %}>Опасная</option>
-                    <option value="dungeon" {% if location.location_type.value == 'dungeon' %}selected{% endif %}>Подземелье</option>
-                    <option value="boss" {% if location.location_type.value == 'boss' %}selected{% endif %}>Босс</option>
-                </select>
-            </div>
-            <div>
-                <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Мин. уровень</label>
-                <input type="number" name="min_level" value="{{ location.min_level }}" class="search-box" style="max-width: 100%;" min="1">
-            </div>
-            <div>
-                <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Размер сетки</label>
-                <input type="number" name="grid_size" value="{{ location.grid_size }}" class="search-box" style="max-width: 100%;" min="5" max="25">
-            </div>
-            <div>
-                <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Этажей</label>
-                <input type="number" name="floors_count" value="{{ location.floors_count or 1 }}" class="search-box" style="max-width: 100%;" min="1" max="10">
-            </div>
-            <div>
-                <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Мировая X</label>
-                <input type="number" name="world_x" value="{{ location.world_x }}" class="search-box" style="max-width: 100%;" min="0" max="9">
-            </div>
-            <div>
-                <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Мировая Y</label>
-                <input type="number" name="world_y" value="{{ location.world_y }}" class="search-box" style="max-width: 100%;" min="0" max="9">
-            </div>
-        </div>
-        <div style="margin-bottom: 1rem;">
-            <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Описание локации</label>
-            <textarea name="description" class="search-box" style="max-width: 100%; width: 100%; min-height: 80px; resize: vertical;">{{ location.description }}</textarea>
-        </div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
-            <div>
-                <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">🖼 Картинка локации (файл)</label>
-                <input type="file" name="image" accept="image/*" class="search-box" style="max-width: 100%;" data-preview="#locPreview">
-            </div>
-            <div>
-                <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Или URL картинки</label>
-                <input type="text" name="image_url" value="{{ location.image_url or '' }}" class="search-box" style="max-width: 100%;" placeholder="https://...">
-            </div>
-        </div>
-        <button type="submit" class="btn btn-primary">💾 Сохранить локацию</button>
-    </form>
-    <p class="section-sub" style="margin:0">
-        🌍 Позиция на мировой карте: <b>[{{ location.world_x }},{{ location.world_y }}]</b>.
-        Смена координат или размера сетки при сохранении пересоберёт бесшовные швы автоматически;
-        при коллизии координат локации меняются местами.
-    </p>
-</div>
-
-<div class="card">
-    <h3>🧭 Соседи по мировой карте</h3>
-    <div style="display:flex; gap:0.6rem; flex-wrap:wrap; font-size:0.85rem;">
-        {% for d, label in [("n", "⬆️ Север"), ("e", "➡️ Восток"), ("s", "⬇️ Юг"), ("w", "⬅️ Запад")] %}
-            {% set nb = neighbors.get(d) %}
-            {% if nb %}
-                <a href="/editor/location/{{ nb.id }}" class="badge" style="text-decoration:none">
-                    {{ label }}: {{ nb.name }}
-                    {% if d in linked_dirs %}<span title="бесшовные переходы прорезаны">🔗</span>
-                    {% else %}<span title="переходов нет — нажмите «Связать с соседями»" style="color:var(--danger)">⚠️</span>{% endif %}
-                </a>
-            {% else %}
-                <span class="badge" style="opacity:.6">{{ label }}: —</span>
-            {% endif %}
-        {% endfor %}
-    </div>
-    <p class="section-sub" style="margin:0.6rem 0 0">
-        Нет соседа или нет значка 🔗 — нажмите «Связать с соседями» вверху, чтобы прорезать переходы.
-    </p>
-</div>
-
-<div class="card">
-    <div class="toolbar">
-        <h2>🗺 Сетка клеток{% if location.floors_count and location.floors_count > 1 %} — этаж {{ current_floor }}{% endif %}</h2>
-        {% if location.floors_count and location.floors_count > 1 %}
-        <div style="display:flex; gap:0.4rem; flex-wrap:wrap;">
+        <p class="hint" style="margin-bottom:0.6rem">Каждый этаж — отдельный слой сетки. Переходы между этажами — лестницы ⬆️⬇️. На мировой карте этажи видны как стопка.</p>
+        <div id="floorsList">
             {% for f in floors_range %}
-            <a href="/editor/location/{{ location.id }}?floor={{ f }}" class="btn btn-sm {% if f == current_floor %}btn-primary{% endif %}">Этаж {{ f }}</a>
+            <div class="floor-item {% if f == current_floor %}active{% endif %}" data-floor="{{ f }}" onclick="location.href='/editor/location/{{ location.id }}?floor={{ f }}'">
+                <div class="floor-thumb" title="Этаж {{ f }}">
+                    <!-- мини превью: упрощённо 4x4 -->
+                    {% for i in range(16) %}<i class="{{ 'pass' if i%3!=0 else 'wall' }}"></i>{% endfor %}
+                </div>
+                <div style="flex:1">
+                    <div style="font-weight:600;font-size:0.85rem">Этаж {{ f }} {% if f==0 %}· цоколь{% endif %}</div>
+                    <div class="hint">{{ (cells_dict|length) if f==current_floor else '—' }} клеток • {% if f==current_floor %}активный{% else %}скрыт{% endif %}</div>
+                </div>
+                <div>{% if f == current_floor %}●{% else %}○{% endif %}</div>
+            </div>
             {% endfor %}
         </div>
-        {% endif %}
-    </div>
-    <div style="margin-bottom:1rem;">
-        <div class="toolbar" style="margin-bottom:0.75rem; flex-wrap:wrap;">
-            <h3 style="margin:0; font-size:0.95rem;">🖌 Кисть</h3>
-            <div style="display:flex; gap:0.35rem; flex-wrap:wrap;">
-                <button type="button" class="btn btn-sm brush active" data-brush="wall" title="Стена / непроходимо">🧱 Стена</button>
-                <button type="button" class="btn btn-sm brush" data-brush="grass" title="Трава">🌿 Трава</button>
-                <button type="button" class="btn btn-sm brush" data-brush="forest" title="Лес">🌲 Лес</button>
-                <button type="button" class="btn btn-sm brush" data-brush="water" title="Вода">💧 Вода</button>
-                <button type="button" class="btn btn-sm brush" data-brush="road" title="Дорога">🛤 Дорога</button>
-                <button type="button" class="btn btn-sm brush" data-brush="village" title="Деревня">🏘 Деревня</button>
-                <button type="button" class="btn btn-sm brush" data-brush="cave" title="Пещера">🕳 Пещера</button>
-                <button type="button" class="btn btn-sm brush" data-brush="portal" title="Портал">🌀 Портал</button>
-                <button type="button" class="btn btn-sm brush" data-brush="npc" title="Добавить NPC">💬 NPC</button>
-                <button type="button" class="btn btn-sm brush" data-brush="chest" title="Добавить сундук">📦 Сундук</button>
-                <button type="button" class="btn btn-sm brush" data-brush="clear" title="Убрать NPC/сундук">🧹 Очистить</button>
-            </div>
+        <div class="floor-actions">
+            <button class="btn btn-sm" onclick="addFloor()">➕ Добавить этаж</button>
+            <button class="btn btn-sm" onclick="removeFloor()" {% if (location.floors_count or 1)<=1 %}disabled{% endif %}>🗑 Удалить верхний</button>
         </div>
-        <p style="color: var(--text-muted); font-size: 0.8rem; margin-bottom: 1rem;">
-            Кликни или веди по клеткам, чтобы закрасить. Удерживай мышь для быстрой заливки. Клик по клетке с зажатым Ctrl открывает детальное редактирование.
-        </p>
-    </div>
-    <div class="cell-grid" id="cellGrid">
-        {% for y in range(location.grid_size) %}
-            {% for x in range(location.grid_size) %}
-                {% set cell = cells_dict.get((x, y)) %}
-                {% if cell %}
-                    <a href="/editor/cell/{{ cell.id }}" class="cell cell-{{ cell.tile_type }} {% if not cell.is_passable %}cell-wall{% endif %} {% if cell.mob_id %}cell-mob{% endif %} {% if cell.has_npc %}cell-npc{% endif %} {% if cell.has_chest %}cell-chest{% endif %}"
-                       data-id="{{ cell.id }}" data-x="{{ x }}" data-y="{{ y }}" data-tile="{{ cell.tile_type }}" data-passable="{{ '1' if cell.is_passable else '' }}"
-                       onclick="return cellClick(event, this)">
-                        {{ x }},{{ y }}
-                    </a>
+        <hr style="border-color:var(--border);margin:0.9rem 0">
+        <h4 style="font-size:0.85rem;margin-bottom:0.4rem">🧭 Соседи по миру — одиночные двери</h4>
+        <div style="display:flex;flex-direction:column;gap:0.4rem">
+            {% for d, label in [("n", "⬆️ Север"), ("e", "➡️ Восток"), ("s", "⬇️ Юг"), ("w", "⬅️ Запад")] %}
+                {% set nb = neighbors.get(d) %}
+                {% if nb %}
+                    <div style="display:flex;justify-content:space-between;align-items:center;font-size:0.8rem;padding:4px 6px;background:var(--bg-hover);border-radius:8px">
+                        <span>{{ label }}: {{ nb.name }}</span>
+                        {% if d in linked_dirs %}<span title="есть дверь" style="color:var(--success)">🚪🔗</span>{% else %}<span style="color:var(--danger)">⚠️ нет</span>{% endif %}
+                    </div>
                 {% else %}
-                    <div class="cell cell-wall">—</div>
+                    <div style="font-size:0.78rem;color:var(--text-muted);padding:2px 4px">{{ label }}: — пусто</div>
                 {% endif %}
             {% endfor %}
-        {% endfor %}
+        </div>
+        <p class="hint" style="margin-top:0.6rem">Переход — одна клетка в центре границы, а не стена из дверей. Дорога от центра к двери прорубается автоматически.</p>
+    </div>
+
+    <div>
+        <!-- форма локации -->
+        <div class="card" style="margin-bottom:1rem">
+            <h3 style="margin-bottom:0.6rem">✏️ {{ location.name }}</h3>
+            <form action="/editor/location/{{ location.id }}/save" method="post" enctype="multipart/form-data" data-validate data-autosave style="display:grid;grid-template-columns:1fr 1fr;gap:0.8rem">
+                <div><label class="form-label">Название</label><input type="text" name="name" value="{{ location.name }}" class="search-box" style="max-width:100%" required></div>
+                <div><label class="form-label">Тип</label>
+                    <select name="location_type" class="search-box" style="max-width:100%">
+                        <option value="safe" {% if location.location_type.value == 'safe' %}selected{% endif %}>Безопасная</option>
+                        <option value="dangerous" {% if location.location_type.value == 'dangerous' %}selected{% endif %}>Опасная</option>
+                        <option value="dungeon" {% if location.location_type.value == 'dungeon' %}selected{% endif %}>Подземелье</option>
+                        <option value="boss" {% if location.location_type.value == 'boss' %}selected{% endif %}>Босс</option>
+                    </select>
+                </div>
+                <div><label class="form-label">Мин. ур.</label><input type="number" name="min_level" value="{{ location.min_level }}" class="search-box" style="max-width:100%" min="1"></div>
+                <div><label class="form-label">Размер сетки</label><input type="number" name="grid_size" value="{{ location.grid_size }}" class="search-box" style="max-width:100%" min="5" max="25"></div>
+                <div><label class="form-label">Этажей (подуровни)</label><input type="number" name="floors_count" value="{{ location.floors_count or 1 }}" class="search-box" style="max-width:100%" min="1" max="10"></div>
+                <div style="display:flex;gap:0.4rem"><div style="flex:1"><label class="form-label">World X</label><input type="number" name="world_x" value="{{ location.world_x }}" class="search-box" style="max-width:100%" min="0" max="9"></div><div style="flex:1"><label class="form-label">World Y</label><input type="number" name="world_y" value="{{ location.world_y }}" class="search-box" style="max-width:100%" min="0" max="9"></div></div>
+                <div style="grid-column:1/-1"><label class="form-label">Описание</label><textarea name="description" class="search-box" style="max-width:100%;width:100%;min-height:60px">{{ location.description }}</textarea></div>
+                <div style="grid-column:1/-1;display:flex;gap:0.6rem"><button type="submit" class="btn btn-primary">💾 Сохранить локацию</button><span class="hint" style="align-self:center">Смена размера/этажей мигрирует клетки, дороги и лестницы</span></div>
+            </form>
+        </div>
+
+        <!-- BRUSH MODERN -->
+        <div class="brush-panel">
+            <div class="brush-header">
+                <div style="display:flex;align-items:center;gap:0.6rem">
+                    <h3 style="margin:0;font-size:0.95rem">🖌 Кисть — современный UX</h3>
+                    <span class="hint" id="brushHint">Режим: рисование • клик/тяни для покраски</span>
+                </div>
+                <div class="mode-switch" id="modeSwitch">
+                    <button class="mode-btn active" data-mode="paint">🎨 Рисование</button>
+                    <button class="mode-btn" data-mode="inspect">👁️ Осмотр/правка</button>
+                </div>
+            </div>
+
+            <div class="brush-group">
+                <div class="brush-group-title">Рельеф</div>
+                <div class="brush-grid" id="terrainBrushes">
+                    <!-- будут заполнены JS для сохранения активного состояния -->
+                    <div class="brush-item active" data-brush="wall"><div class="b-icon">🧱</div><div class="b-label">Стена</div><div class="b-desc">не проход.</div></div>
+                    <div class="brush-item" data-brush="grass"><div class="b-icon">🌿</div><div class="b-label">Трава</div><div class="b-desc">база</div></div>
+                    <div class="brush-item" data-brush="forest"><div class="b-icon">🌲</div><div class="b-label">Лес</div><div class="b-desc">укрытие</div></div>
+                    <div class="brush-item" data-brush="water"><div class="b-icon">💧</div><div class="b-label">Вода</div><div class="b-desc">блок</div></div>
+                    <div class="brush-item" data-brush="road"><div class="b-icon">🛤</div><div class="b-label">Дорога</div><div class="b-desc">путь</div></div>
+                    <div class="brush-item" data-brush="village"><div class="b-icon">🏘</div><div class="b-label">Деревня</div><div class="b-desc">город</div></div>
+                    <div class="brush-item" data-brush="cave"><div class="b-icon">🕳</div><div class="b-label">Пещера</div><div class="b-desc">тёмн.</div></div>
+                    <div class="brush-item" data-brush="portal"><div class="b-icon">🌀</div><div class="b-label">Портал</div><div class="b-desc">данж</div></div>
+                </div>
+            </div>
+            <div class="brush-group">
+                <div class="brush-group-title">Объекты и переходы (двери)</div>
+                <div class="brush-grid">
+                    <div class="brush-item" data-brush="npc"><div class="b-icon">💬</div><div class="b-label">NPC</div><div class="b-desc">житель</div></div>
+                    <div class="brush-item" data-brush="chest"><div class="b-icon">📦</div><div class="b-label">Сундук</div><div class="b-desc">лут</div></div>
+                    <div class="brush-item" data-brush="door"><div class="b-icon">🚪</div><div class="b-label">Дверь</div><div class="b-desc">переход</div></div>
+                    <div class="brush-item" data-brush="stairs_up"><div class="b-icon">⬆️</div><div class="b-label">Вверх</div><div class="b-desc">этаж+1</div></div>
+                    <div class="brush-item" data-brush="stairs_down"><div class="b-icon">⬇️</div><div class="b-label">Вниз</div><div class="b-desc">этаж-1</div></div>
+                    <div class="brush-item" data-brush="clear_door"><div class="b-icon">🚫</div><div class="b-label">Убр. дверь</div><div class="b-desc">очист.</div></div>
+                    <div class="brush-item" data-brush="clear"><div class="b-icon">🧹</div><div class="b-label">Очист.</div><div class="b-desc">NPC/сун</div></div>
+                    <div class="brush-item" data-brush="erase"><div class="b-icon">🧽</div><div class="b-label">Стереть</div><div class="b-desc">в траву</div></div>
+                </div>
+            </div>
+            <div style="display:flex;gap:0.6rem;align-items:center;flex-wrap:wrap">
+                <div class="hint">💡 Левый клик/тяни — рисует. Правый клик — открывает детальный редактор клетки. Средняя кнопка — пипетка. Ctrl+клик — быстрый переход в редактор.</div>
+                <div style="margin-left:auto;display:flex;gap:0.4rem">
+                    <button class="btn btn-sm" onclick="fillAll('grass')">🟩 Залить травой</button>
+                    <button class="btn btn-sm" onclick="fillAll('wall')">🧱 Стены по краю</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- GRID -->
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.6rem;flex-wrap:wrap;gap:0.5rem">
+            <h3 style="margin:0">🗺 Сетка клеток — этаж {{ current_floor }} {% if (location.floors_count or 1)>1 %}<span class="badge">🏢 {{ location.floors_count }} этажей (подуровни визуально как слои)</span>{% endif %}</h3>
+            <div class="hint">Двери: одна клетка на сторону • Лестницы: двусторонние • Подуровни на карте мира — стопка</div>
+        </div>
+        <div class="cell-grid" id="cellGrid">
+            {% for y in range(location.grid_size) %}
+                {% for x in range(location.grid_size) %}
+                    {% set cell = cells_dict.get((x, y)) %}
+                    {% if cell %}
+                        {% set is_door = cell.target_location_id is not none and cell.target_location_id != location.id %}
+                        {% set is_stairs = cell.target_location_id == location.id and cell.target_floor != cell.floor %}
+                        {% set stairs_up = is_stairs and (cell.target_floor or 0) > (cell.floor or 0) %}
+                        {% set stairs_down = is_stairs and (cell.target_floor or 0) < (cell.floor or 0) %}
+                        <div class="cell cell-{{ cell.tile_type }}
+                            {% if not cell.is_passable %}cell-wall{% endif %}
+                            {% if is_door %}cell-door{% endif %}
+                            {% if is_stairs %}cell-stairs {% if stairs_up %}cell-stairs-up{% else %}cell-stairs-down{% endif %}{% endif %}
+                            {% if cell.has_npc %}cell-npc{% endif %}
+                            {% if cell.has_chest %}cell-chest{% endif %}
+                            {% if cell.mob_id %}cell-mob{% endif %}"
+                             data-id="{{ cell.id }}" data-x="{{ x }}" data-y="{{ y }}"
+                             data-tile="{{ cell.tile_type }}" data-passable="{{ '1' if cell.is_passable else '' }}"
+                             data-target="{{ cell.target_location_id or '' }}"
+                             title="[{{ x }},{{ y }}] {{ cell.tile_type }}{% if is_door %} → 🚪 в {{ cell.target_location_id }}{% endif %}{% if is_stairs %} → {% if stairs_up %}⬆️{% else %}⬇️{% endif %} этаж {{ cell.target_floor }}{% endif %}">
+                            <span style="font-size:0.55rem;opacity:.6">{{ x }},{{ y }}</span>
+                        </div>
+                    {% else %}
+                        <div class="cell cell-wall">—</div>
+                    {% endif %}
+                {% endfor %}
+            {% endfor %}
+        </div>
     </div>
 </div>
+
+<!-- модалка двери -->
+<div class="modal-overlay" id="doorModal" onclick="if(event.target===this)closeDoorModal()">
+    <div class="modal-box">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.8rem">
+            <h3 style="margin:0">🚪 Настройка двери/перехода</h3>
+            <button class="btn btn-sm" onclick="closeDoorModal()">✕</button>
+        </div>
+        <p class="hint" style="margin-bottom:0.6rem">Дверь — одна клетка, которая телепортирует в другую локацию или на этаж. Укажи цель.</p>
+        <form id="doorForm" onsubmit="return submitDoor(event)">
+            <input type="hidden" name="cell_id" id="doorCellId">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.6rem;margin-bottom:0.8rem">
+                <div><label class="form-label">Целевая локация</label>
+                    <select name="target_location_id" id="doorTargetLoc" class="search-box" style="max-width:100%">
+                        <option value="">— нет —</option>
+                        {% for loc in all_locations %}
+                        <option value="{{ loc.id }}">{{ loc.name }} [{{ loc.world_x }},{{ loc.world_y }}] {% if loc.id==location.id %}· этажи{% endif %}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div><label class="form-label">Этаж цели</label><input type="number" name="target_floor" id="doorFloor" class="search-box" style="max-width:100%" placeholder="0"></div>
+                <div><label class="form-label">X цели</label><input type="number" name="target_x" id="doorX" class="search-box" style="max-width:100%" placeholder="центр"></div>
+                <div><label class="form-label">Y цели</label><input type="number" name="target_y" id="doorY" class="search-box" style="max-width:100%" placeholder="центр"></div>
+            </div>
+            <div style="display:flex;gap:0.5rem;justify-content:flex-end">
+                <button type="button" class="btn" onclick="closeDoorModal()">Отмена</button>
+                <button type="submit" class="btn btn-primary">💾 Сохранить дверь</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
 <script>
-(function() {
+(function(){
     let currentBrush = 'wall';
+    let currentMode = 'paint'; // paint | inspect
     let isPainting = false;
+    let lastCell = null;
     const grid = document.getElementById('cellGrid');
 
-    document.querySelectorAll('.brush').forEach(btn => {
-        btn.addEventListener('click', () => {
-            document.querySelectorAll('.brush').forEach(b => b.classList.remove('active', 'btn-primary'));
-            btn.classList.add('active', 'btn-primary');
-            currentBrush = btn.dataset.brush;
+    // mode switch
+    document.querySelectorAll('.mode-btn').forEach(btn=>{
+        btn.addEventListener('click', ()=>{
+            document.querySelectorAll('.mode-btn').forEach(b=>b.classList.remove('active'));
+            btn.classList.add('active');
+            currentMode = btn.dataset.mode;
+            document.getElementById('brushHint').textContent = currentMode==='paint' ? 'Режим: рисование • клик/тяни для покраски' : 'Режим: осмотр • клик открывает редактор клетки';
+            grid.style.cursor = currentMode==='paint' ? 'crosshair' : 'pointer';
         });
     });
 
-    window.cellClick = function(e, el) {
-        if (e.ctrlKey || e.metaKey) return true;
+    // brush select
+    document.querySelectorAll('.brush-item').forEach(btn=>{
+        btn.addEventListener('click', ()=>{
+            document.querySelectorAll('.brush-item').forEach(b=>b.classList.remove('active'));
+            btn.classList.add('active');
+            currentBrush = btn.dataset.brush;
+            document.getElementById('brushHint').textContent = 'Кисть: '+btn.querySelector('.b-label').textContent+' — '+currentMode;
+            if(currentBrush==='door'){
+                // подсказка открыть модалку при клике
+                showToast('Кликни по клетке — откроется настройка двери');
+            }
+        });
+    });
+
+    function paintCell(el, forceBrush){
+        if(!el || !el.dataset.id) return;
+        const brush = forceBrush || currentBrush;
+        if(brush==='door'){
+            openDoorModal(el.dataset.id, el.dataset.target);
+            return;
+        }
+        applyVisual(el, brush);
+        const body = new URLSearchParams();
+        body.append('brush', brush);
+        // для дверей с координатами берём из модалки, но тут обычная кисть
+        fetch('/api/cell/'+el.dataset.id+'/paint',{method:'POST', body})
+            .then(r=>r.json()).then(data=>{
+                if(!data.success) showToast(data.error||'Ошибка','err');
+                else if(data.cell){
+                    // обновить data-атрибуты
+                    el.dataset.tile = data.cell.tile_type;
+                    el.dataset.passable = data.cell.is_passable ? '1' : '';
+                    el.dataset.target = data.cell.target_location_id || '';
+                }
+            }).catch(()=>showToast('Ошибка сети','err'));
+    }
+
+    function applyVisual(el, brush){
+        el.classList.remove('cell-wall','cell-grass','cell-forest','cell-water','cell-road','cell-village','cell-cave','cell-portal','cell-door','cell-stairs','cell-stairs-up','cell-stairs-down','cell-npc','cell-chest');
+        const prevTile = el.dataset.tile || 'grass';
+        const passable = el.dataset.passable === '1';
+        // default to tile if brush is terrain
+        if(['wall','grass','forest','water','road','village','cave','portal'].includes(brush)){
+            el.dataset.tile = brush;
+            el.dataset.passable = brush==='wall' || brush==='water' ? '' : '1';
+            el.classList.add('cell-'+brush);
+            if(brush==='wall' || brush==='water') el.classList.add('cell-wall');
+            return;
+        }
+        // keep previous tile base
+        el.classList.add('cell-'+prevTile);
+        if(!passable) el.classList.add('cell-wall');
+        if(brush==='npc') el.classList.add('cell-npc');
+        if(brush==='chest') el.classList.add('cell-chest');
+        if(brush==='door') el.classList.add('cell-door');
+        if(brush==='stairs_up'){ el.classList.add('cell-stairs','cell-stairs-up'); }
+        if(brush==='stairs_down'){ el.classList.add('cell-stairs','cell-stairs-down'); }
+        if(brush==='clear'){ el.classList.remove('cell-npc','cell-chest'); }
+        if(brush==='clear_door'){ el.dataset.target=''; }
+        if(brush==='erase'){ el.dataset.tile='grass'; el.dataset.passable='1'; el.classList.remove('cell-wall'); el.classList.add('cell-grass'); }
+    }
+
+    // grid events — рисование современным способом
+    grid?.addEventListener('mousedown', e=>{
+        if(e.button!==0) return; // только левая
+        if(currentMode!=='paint') return;
+        isPainting=true;
+        const el = e.target.closest('.cell[data-id]');
+        if(el){ paintCell(el); lastCell=el; }
         e.preventDefault();
-        paintCell(el);
+    });
+    document.addEventListener('mouseup', ()=>{ isPainting=false; lastCell=null; });
+    grid?.addEventListener('mousemove', e=>{
+        if(!isPainting || currentMode!=='paint') return;
+        const el = e.target.closest('.cell[data-id]');
+        if(el && el!==lastCell){ paintCell(el); lastCell=el; }
+    });
+    // правый клик — редактор
+    grid?.addEventListener('contextmenu', e=>{
+        const el = e.target.closest('.cell[data-id]');
+        if(!el) return;
+        e.preventDefault();
+        const id = el.dataset.id;
+        location.href='/editor/cell/'+id;
+    });
+    // левый клик в inspect режиме
+    grid?.addEventListener('click', e=>{
+        const el = e.target.closest('.cell[data-id]');
+        if(!el) return;
+        if(e.ctrlKey || e.metaKey){
+            location.href='/editor/cell/'+el.dataset.id;
+            return;
+        }
+        if(currentMode==='inspect'){
+            location.href='/editor/cell/'+el.dataset.id;
+        }
+        // в paint режиме уже обработано mousedown, но если клик без drag — тоже покрасить
+        if(currentMode==='paint' && !isPainting){
+            // если это дверная кисть — модалка
+            if(currentBrush==='door'){
+                openDoorModal(el.dataset.id, el.dataset.target);
+            }else{
+                // уже покрашено в mousedown, но для надёжности
+                paintCell(el);
+            }
+        }
+    });
+    // средняя кнопка — пипетка
+    grid?.addEventListener('auxclick', e=>{
+        if(e.button===1){
+            const el = e.target.closest('.cell[data-id]');
+            if(!el) return;
+            e.preventDefault();
+            const tile = el.dataset.tile || 'grass';
+            // найти кисть с таким тайлом
+            const found = document.querySelector(`.brush-item[data-brush='${tile}']`);
+            if(found){ found.click(); showToast('Пипетка: '+tile); }
+        }
+    });
+
+    // заливка всех
+    window.fillAll = function(type){
+        if(!confirm('Залить всю карту '+type+'?')) return;
+        const cells = grid.querySelectorAll('.cell[data-id]');
+        cells.forEach((el,i)=>{
+            setTimeout(()=>paintCell(el, type), i*5);
+        });
+    };
+
+    // двери модалка
+    window.openDoorModal = function(cellId, targetId){
+        document.getElementById('doorCellId').value = cellId;
+        document.getElementById('doorTargetLoc').value = targetId || '';
+        document.getElementById('doorModal').classList.add('open');
+    };
+    window.closeDoorModal = function(){ document.getElementById('doorModal').classList.remove('open'); };
+    window.submitDoor = function(e){
+        e.preventDefault();
+        const cellId = document.getElementById('doorCellId').value;
+        const fd = new FormData(e.target);
+        fd.append('brush','door');
+        fetch('/api/cell/'+cellId+'/paint',{method:'POST', body:fd})
+            .then(r=>r.json()).then(data=>{
+                if(data.success){
+                    showToast('Дверь сохранена');
+                    closeDoorModal();
+                    const el = grid.querySelector(`.cell[data-id='${cellId}']`);
+                    if(el){ el.classList.add('cell-door'); el.dataset.target = fd.get('target_location_id')||''; }
+                }else showToast(data.error||'Ошибка','err');
+            }).catch(()=>showToast('Ошибка сети','err'));
         return false;
     };
 
-    function paintCell(el) {
-        if (!el || !el.dataset.id) return;
-        applyVisual(el, currentBrush);
-        fetch('/api/cell/' + el.dataset.id + '/paint', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-            body: 'brush=' + encodeURIComponent(currentBrush)
-        }).then(r => r.json()).then(data => {
-            if (!data.success) showToast(data.error || 'Ошибка', 'err');
-        }).catch(() => showToast('Ошибка сети', 'err'));
-    }
+    // этажи
+    window.addFloor = async function(){
+        if(!confirm('Добавить новый этаж? Сетка нового этажа скопирует нижний или будет сгенерирована.')) return;
+        const r = await fetch('/editor/location/{{ location.id }}/floors/add',{method:'POST'});
+        const data = await r.json();
+        if(data.success){ showToast('Этаж добавлен: '+data.floors_count); setTimeout(()=>location.href='/editor/location/{{ location.id }}?floor='+(data.floors_count-1),600); }
+        else showToast(data.error||'Ошибка','err');
+    };
+    window.removeFloor = async function(){
+        if(!confirm('Удалить верхний этаж? Игроки на нём должны отсутствовать.')) return;
+        const r = await fetch('/editor/location/{{ location.id }}/floors/remove',{method:'POST'});
+        const data = await r.json();
+        if(data.success){ showToast('Этаж удалён, осталось '+data.floors_count); setTimeout(()=>location.reload(),600); }
+        else showToast(data.error||'Ошибка','err');
+    };
 
-    function applyVisual(el, brush) {
-        el.classList.remove('cell-wall','cell-grass','cell-forest','cell-water','cell-road','cell-village','cell-cave','cell-portal','cell-npc','cell-chest');
-        if (brush === 'clear') {
-            const tile = el.dataset.tile || 'grass';
-            el.classList.add('cell-' + tile);
-            if (el.dataset.passable !== '1') el.classList.add('cell-wall');
-            return;
-        }
-        if (['wall','grass','forest','water','road','village','cave','portal'].includes(brush)) {
-            el.dataset.tile = brush;
-            el.dataset.passable = brush === 'wall' ? '' : '1';
-            el.classList.add('cell-' + brush);
-            if (brush === 'wall') el.classList.add('cell-wall');
-            return;
-        }
-        const tile = el.dataset.tile || 'grass';
-        el.classList.add('cell-' + tile);
-        if (el.dataset.passable !== '1') el.classList.add('cell-wall');
-        if (brush === 'npc') el.classList.add('cell-npc');
-        if (brush === 'chest') el.classList.add('cell-chest');
-    }
-
-    if (grid) {
-        grid.addEventListener('mousedown', () => isPainting = true);
-        document.addEventListener('mouseup', () => isPainting = false);
-        grid.addEventListener('mouseover', e => {
-            if (!isPainting) return;
-            const el = e.target.closest('.cell[data-id]');
-            if (el) paintCell(el);
-        });
-    }
+    // подсказка по подуровням на мировой карте
+    console.log('🏢 Подуровни: этаж {{ current_floor }} из {{ location.floors_count }} — отображаются как слои в панели слева, на мировой карте как стопка');
 })();
 </script>
-<style>
-.brush.active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
-.cell { user-select: none; -webkit-user-select: none; }
-</style>
 {% endblock %}

@@ -14,9 +14,11 @@ def render(ctx):
     rows = ""
     for dg in dungeons:
         portal = dg.get("portal_cell")
+        opened_at = dg.get("opened_at", 0)
         if portal:
             li, x, y = map(int, portal.split(":"))
-            status = f"<b style='color:var(--success)'>Активен: {esc(data.LOCATIONS[li][0])} [{x},{y}]</b>"
+            # live timer 2 часа = 7200 сек
+            status = f"<b style='color:var(--success)'>Активен: {esc(data.LOCATIONS[li][0])} [{x},{y}]</b><br><span class='badge live-timer' data-opened='{opened_at}'>⏳ загрузка...</span>"
             action_btn = f"<button class='btn danger' data-act='dungeon-close' data-arg='{dg['id']}'>❌ Закрыть портал</button>"
         else:
             status = "<span class='muted'>Закрыт</span>"
@@ -43,13 +45,30 @@ def render(ctx):
 
     return f"""
 <div class="card">
-  <h2>🗝 Шаблоны подземелий & Порталы</h2>
-  <p class="muted" style="margin-bottom:1rem">Открывайте порталы в случайных точках мира. Игроки увидят порталы на карте и смогут войти.</p>
+  <h2>🗝 Шаблоны подземелий & Порталы — LIVE таймеры</h2>
+  <p class="muted" style="margin-bottom:1rem">Портал живёт 2 часа — таймер обновляется без перезагрузки. Открывайте порталы — игроки получат уведомление.</p>
   <div class="scroll"><table>
-    <tr><th>Название</th><th>Описание</th><th>Мин. ур</th><th>Размер</th><th>Статус</th><th>Действия</th></tr>
+    <tr><th>Название</th><th>Описание</th><th>Мин. ур</th><th>Размер</th><th>Статус (live)</th><th>Действия</th></tr>
     {rows}
   </table></div>
 </div>
+<script>
+(function(){{
+  function fmt(s){{ if(s<=0) return '⏰ Закрыт'; const h=Math.floor(s/3600), m=Math.floor((s%3600)/60), sec=s%60; return `${{h}}ч ${{m}}м ${{sec}}с`; }}
+  function tick(){{
+    document.querySelectorAll('.live-timer[data-opened]').forEach(el=>{{
+      const opened = parseFloat(el.dataset.opened||0);
+      if(!opened){{ el.textContent='—'; return; }}
+      const left = 7200 - Math.floor(Date.now()/1000 - opened);
+      el.textContent = '⏳ '+fmt(left);
+      if(left<=0){{ el.textContent='🚫 Авто-закрыт'; }}
+    }});
+    setTimeout(tick,1000);
+  }}
+  tick();
+}})();
+</script>
+"""
 
 {_portal_map(ctx, dungeons)}
 

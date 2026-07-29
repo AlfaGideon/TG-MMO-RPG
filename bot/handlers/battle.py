@@ -114,17 +114,37 @@ async def start_cell_battle(callback, character, spawn: MobSpawn, session):
 
 
 async def _finish_victory(callback, session, character, mob, spawn, state):
-    """Награда за победу: золото, опыт, уровень и уникальный лут."""
+    """Награда за победу: золото, опыт, уровень и уникальный лут (с VIP бонусами)."""
+    from core.vip import apply_vip_gold, apply_vip_exp, is_vip_active
+    from core.realtime import publish as rt_publish
+
     gold_min = mob.gold_min or 0
     gold_max = mob.gold_max or 0
     if gold_max > 0 and gold_max >= gold_min:
-        gold = random.randint(gold_min, gold_max)
+        base_gold = random.randint(gold_min, gold_max)
     else:
-        gold = int(mob.gold_reward * random.uniform(0.8, 1.2))
-    exp = mob.exp_reward
+        base_gold = int(mob.gold_reward * random.uniform(0.8, 1.2))
+    base_exp = mob.exp_reward
+
+    gold = apply_vip_gold(base_gold, character)
+    exp = apply_vip_exp(base_exp, character)
 
     character.gold += gold
     character.experience += exp
+
+    # Realtime: победа в бою
+    try:
+        await rt_publish("battle_victory", {
+            "character_id": character.id,
+            "character_name": character.name,
+            "mob_name": mob.name,
+            "gold": gold,
+            "exp": exp,
+            "location_id": character.location_id,
+            "is_vip": is_vip_active(character),
+        })
+    except Exception:
+        pass
     character.current_hp = max(1, state["character_hp"])
 
     cls_def = await get_class(session, character.character_class)

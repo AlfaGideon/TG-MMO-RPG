@@ -71,19 +71,17 @@ def grid_edit_form(ctx, wx, wy, loc_idx):
 
 
 def loc_form(ctx):
-    """Мастер добавления новой локации."""
+    """Мастер добавления новой локации — сразу на сетке мира."""
     types = [("safe", "🛡 Безопасная"), ("dangerous", "⚠️ Опасная"),
              ("dungeon", "💀 Подземелье"), ("boss", "👹 Босс")]
     type_opts = "".join(f"<option value='{v}'>{label}</option>" for v, label in types)
-    # Подсказка свободных координат на сетке мира
     grid = ctx.store.settings.get("world_grid", {})
     taken = {tuple(v) for v in grid.values()}
     free = next(([x, y] for x in range(10) for y in range(10)
                  if (x, y) not in taken), [0, 0])
     return f"""
-<h2>➕ Новая локация</h2>
-<p class="muted">Клетки сгенерируются проходимыми от центра и автоматически
-сошьются переходами с соседями по сетке мира (если границы свободны).</p>
+<h2>➕ Новая локация — сразу на сетке мира</h2>
+<p class="muted">Клетки сгенерируются с проверкой связности, лестницы — двусторонние, двери — <b>одна клетка</b> в центре границы (а не стена). Подуровни визуально — стопка 🏢×N.</p>
 <div style="margin-top:.7rem"><label>Название</label>
   <input id="loc_name" placeholder="Например: Мглистые топи" required></div>
 <div style="margin-top:.5rem"><label>Описание</label>
@@ -91,13 +89,15 @@ def loc_form(ctx):
 <div class="row" style="margin-top:.5rem">
   <div><label>Тип</label><select id="loc_type">{type_opts}</select></div>
   <div><label>Мин. уровень</label><input id="loc_level" type="number" value="1" min="1"></div>
+  <div><label>Этажей (подуровни)</label><input id="loc_floors" type="number" value="1" min="1" max="10"></div>
 </div>
 <div class="row" style="margin-top:.5rem">
   <div><label>Мировая X (0-9)</label><input id="loc_wx" type="number" value="{free[0]}" min="0" max="9"></div>
   <div><label>Мировая Y (0-9)</label><input id="loc_wy" type="number" value="{free[1]}" min="0" max="9"></div>
 </div>
+<p class="muted" style="margin-top:.5rem">🏢 Подуровни: на мировой сетке видны как стопка, в локации — как слои. Добавить/удалить этаж можно в списке локаций через действие.</p>
 <div style="margin-top:1rem;display:flex;gap:.5rem">
-  <button class="btn primary" data-act="world-loc-add">💾 Создать локацию</button>
+  <button class="btn primary" data-act="world-loc-add">💾 Создать на сетке</button>
   <button class="btn" data-act="modal-close">Отмена</button>
 </div>
 """

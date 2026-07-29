@@ -102,7 +102,25 @@ def _render_map(ctx):
         for p in ctx.store.players.values() if p.created_char
     )
 
-    brush_opts = "".join(f"<option value='{t}' {'selected' if t == 'grass' else ''}>{t}</option>" for t in data.TILE_COLORS)
+    brush_opts = "".join(f"<option value='{t}' >{t}</option>" for t in data.TILE_COLORS)
+    brush_palette_html = """
+    <div style='display:flex;gap:6px;flex-wrap:wrap'>
+      <button class='btn sm' data-brush='wall'>🧱 Стена</button>
+      <button class='btn sm' data-brush='grass'>🌿 Трава</button>
+      <button class='btn sm' data-brush='forest'>🌲 Лес</button>
+      <button class='btn sm' data-brush='water'>💧 Вода</button>
+      <button class='btn sm' data-brush='road'>🛤 Дорога</button>
+      <button class='btn sm' data-brush='village'>🏘 Деревня</button>
+      <button class='btn sm' data-brush='cave'>🕳 Пещера</button>
+      <button class='btn sm' data-brush='portal'>🌀 Портал</button>
+    </div>
+    <div style='display:flex;gap:6px;flex-wrap:wrap;margin-top:4px'>
+      <button class='btn sm' data-brush='door'>🚪 Дверь (1 клетка-переход)</button>
+      <button class='btn sm' data-brush='npc'>💬 NPC</button>
+      <button class='btn sm' data-brush='chest'>📦 Сундук</button>
+      <button class='btn sm' data-brush='clear'>🧹 Очист.</button>
+    </div>
+    """
     return f"""
 <div class="card">
   <h2>🗺 Выберите локацию</h2>
@@ -111,10 +129,15 @@ def _render_map(ctx):
     <span class="muted">Режим тумана войны (выберите игрока):</span>
     <select id="fogPlayerSelect" data-act="world-fog-select" style="max-width:200px;width:auto;">{player_options}</select>
   </div>
-  <div style="display:flex;align-items:center;gap:.5rem;margin-top:.5rem;flex-wrap:wrap">
-    <span class="muted">Кисть для рисования:</span>
-    <select id="paintBrush" style="max-width:150px;width:auto;">{brush_opts}</select>
-    <span class="muted">Кликай по клеткам, чтобы закрасить. Для редактирования — клик правой кнопкой.</span>
+  <div style="margin-top:.7rem">
+    <div class="muted" style="margin-bottom:.4rem">🖌 Современная кисть — ЛКМ/тяни рисует, ПКМ редактирует, дверь = 1 клетка-переход (а не стена), подуровни — стопка:</div>
+    {brush_palette_html}
+    <div style="margin-top:.4rem;display:flex;gap:4px;align-items:center;flex-wrap:wrap">
+      <span class="muted">Выбрано: <b id="brushLabel">grass</b></span>
+      <button class="btn sm primary" id="modePaint">🎨 Рисование</button>
+      <button class="btn sm" id="modeInspect">👁️ Осмотр</button>
+      <select id="paintBrush" style="display:none"><option value='grass'>grass</option>{brush_opts}</select>
+    </div>
   </div>
 </div>
 
@@ -133,27 +156,84 @@ def _render_map(ctx):
   const grid = document.getElementById('locMapGrid');
   if (!grid) return;
   let painting = false;
+  let currentMode = 'paint';
+  // brush buttons
+  document.querySelectorAll('[data-brush]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const b = btn.dataset.brush;
+      const sel = document.getElementById('paintBrush');
+      if(sel) sel.value = b;
+      document.getElementById('brushLabel').textContent = b;
+      document.querySelectorAll('[data-brush]').forEach(x=>x.classList.remove('primary'));
+      btn.classList.add('primary');
+    });
+  });
+  document.getElementById('modePaint')?.addEventListener('click', ()=>{
+    currentMode='paint';
+    document.getElementById('modePaint').classList.add('primary');
+    document.getElementById('modeInspect')?.classList.remove('primary');
+    grid.style.cursor='crosshair';
+  });
+  document.getElementById('modeInspect')?.addEventListener('click', ()=>{
+    currentMode='inspect';
+    document.getElementById('modeInspect').classList.add('primary');
+    document.getElementById('modePaint')?.classList.remove('primary');
+    grid.style.cursor='pointer';
+  });
   grid.addEventListener('mousedown', function(e){{
     const cell = e.target.closest('.c');
     if (!cell) return;
-    if (e.button === 2) return; // right click -> edit via data-act
+    if (e.button === 2) return;
+    if (currentMode!=='paint') {{
+      // inspect mode -> edit
+      if (window.__app && window.__app.edit_cell) window.__app.edit_cell(cell.dataset.arg);
+      return;
+    }}
     painting = true;
     e.preventDefault();
     const brush = document.getElementById('paintBrush')?.value || 'grass';
+    if(brush==='door'){{
+      // door brush: open cell edit with door hint
+      if (window.__app && window.__app.edit_cell) window.__app.edit_cell(cell.dataset.arg);
+      return;
+    }}
     window.__app && window.__app.paint_cell && window.__app.paint_cell(cell.dataset.arg, brush);
   }});
   grid.addEventListener('mouseover', function(e){{
     if (!painting) return;
+    if (currentMode!=='paint') return;
     const cell = e.target.closest('.c');
     if (!cell) return;
     const brush = document.getElementById('paintBrush')?.value || 'grass';
+    if(brush==='door') return;
     window.__app && window.__app.paint_cell && window.__app.paint_cell(cell.dataset.arg, brush);
   }});
   document.addEventListener('mouseup', function(){{ painting = false; }});
+  grid.addEventListener('click', function(e){{
+    if(currentMode!=='paint') return;
+    // single click already handled in mousedown, but for safety
+  }});
   grid.addEventListener('contextmenu', function(e){{
     e.preventDefault();
     const cell = e.target.closest('.c');
     if (cell && window.__app && window.__app.edit_cell) window.__app.edit_cell(cell.dataset.arg);
+  }});
+  // middle click pipette
+  grid.addEventListener('auxclick', function(e){{
+    if(e.button===1){{
+      const cell = e.target.closest('.c');
+      if(!cell) return;
+      e.preventDefault();
+      // read tile from background? use app state
+      const arg = cell.dataset.arg;
+      const storeCell = window.__app?.store?.world?.[arg];
+      if(storeCell){{
+        const tile = storeCell.tile;
+        const sel = document.getElementById('paintBrush');
+        if(sel) sel.value = tile;
+        document.getElementById('brushLabel').textContent = tile;
+      }}
+    }}
   }});
 }})();
 </script>
@@ -173,16 +253,19 @@ def _render_map(ctx):
 
 
 def _render_loc_manager(ctx):
-    """Список локаций мира: добавление и удаление."""
+    """Список локаций мира: добавление и удаление + подуровни."""
     grid = ctx.store.settings.get("world_grid", {})
+    floors_map = ctx.store.settings.get("location_floors", {})
     rows = ""
     for i, l in enumerate(data.LOCATIONS):
         wx, wy = grid.get(str(i), ["—", "—"])
+        floors = floors_map.get(str(i), 1)
         linked = {c.link[0] for c in ctx.store.world.values()
                   if c.loc == i and c.link and c.link[0] != i}
         players = sum(1 for p in ctx.store.players.values()
                       if p.created_char and p.loc == i)
-        rows += (f"<tr><td>{esc(l[0])}</td><td><span class='tag'>{l[2]}</span></td>"
+        floor_badge = f"🏢×{floors}" if floors>1 else "1 этаж"
+        rows += (f"<tr><td>{esc(l[0])} <span style='font-size:0.7rem;color:var(--accent)'>{floor_badge}</span></td><td><span class='tag'>{l[2]}</span></td>"
                  f"<td>{l[3]}+</td><td>[{wx},{wy}]</td>"
                  f"<td>{'🔗 ' + str(len(linked)) if linked else '⚠️ нет'}</td>"
                  f"<td>{players or ''}</td>"
@@ -206,6 +289,7 @@ def _render_loc_manager(ctx):
 
 def _render_grid(ctx):
     grid_settings = ctx.store.settings.setdefault("world_grid", dict(W.DEFAULT_GRID))
+    floors_map = ctx.store.settings.get("location_floors", {})
 
     cells = ""
     for wy in range(10):
@@ -218,10 +302,15 @@ def _render_grid(ctx):
 
             if loc_idx is not None and loc_idx < len(data.LOCATIONS):
                 loc_name = data.LOCATIONS[loc_idx][0]
+                floors = floors_map.get(str(loc_idx), 1)
+                floor_badge = f"🏢×{floors}" if floors>1 else ""
+                # визуализация подуровней как стопка: тень
+                stack_style = "box-shadow:0 2px 0 #1a1a24,0 4px 0 var(--border),0 6px 0 #1a1a24;" if floors>1 else ""
                 cells += (
-                    f"<div class='c loc-cell' style='background:var(--accent); color:#fff; font-size:0.7rem; border-radius:4px; display:flex; flex-direction: column; align-items:center; justify-content:center; text-align:center; padding:2px; height:40px; cursor:pointer;' "
-                    f"title='{esc(loc_name)} [{wx},{wy}]' data-act='world-grid-edit' data-arg='{wx}:{wy}:{loc_idx}'>"
+                    f"<div class='c loc-cell' style='background:var(--accent); color:#fff; font-size:0.7rem; border-radius:4px; display:flex; flex-direction: column; align-items:center; justify-content:center; text-align:center; padding:2px; height:42px; cursor:pointer; {stack_style}' "
+                    f"title='{esc(loc_name)} [{wx},{wy}] • этажей {floors} — подуровни видны как стопка' data-act='world-grid-edit' data-arg='{wx}:{wy}:{loc_idx}'>"
                     f"<b>L{loc_idx}</b><span style='font-size:0.5rem; overflow:hidden; text-overflow:ellipsis; width:100%; white-space:nowrap;'>{esc(loc_name[:8])}</span>"
+                    f"<span style='font-size:0.45rem'>{floor_badge}</span>"
                     f"</div>"
                 )
             else:
@@ -234,39 +323,53 @@ def _render_grid(ctx):
 
     return f"""
 <div class="card">
-  <h2>🌐 Глобальная координатная сетка мира (10x10)</h2>
-  <p class="muted" style="margin-bottom:1rem">Сетка боевая: соседние по ней локации
-     сшиваются бесшовными переходами (по горизонтали — восток↔запад, по вертикали —
-     север↔юг). Перетаскивайте размещённые локации на пустые клетки.</p>
-  <div class="mapgrid" id="worldGrid" style="grid-template-columns: repeat(10, 1fr); max-width:480px; gap:4px;">{cells}</div>
-  <div style="margin-top:.8rem">
-    <button class="btn" data-act="world-relink">🔗 Пересшить переходы по сетке</button>
+  <h2>🌐 Глобальная координатная сетка мира (10x10) — LIVE без F5</h2>
+  <p class="muted" style="margin-bottom:0.6rem">
+  Сетка боевая: соседние по ней локации сшиваются <b>одной дверью</b> в центре границы (а не стеной).
+  Перетаскивай любую локацию на любую клетку — занятая = <b>обмен местами</b> без удаления.
+  Пустая = клик для мгновенного создания на сетке. Подуровни (этажи) видны как стопка 🏢×N.
+  </p>
+  <div class="mapgrid" id="worldGrid" style="grid-template-columns: repeat(10, 1fr); max-width:520px; gap:6px;">{cells}</div>
+  <div style="margin-top:.8rem;display:flex;gap:.5rem;flex-wrap:wrap">
+    <button class="btn" data-act="world-relink">🔗 Пересшить (1 дверь)</button>
+    <button class="btn" data-act="world-shuffle">🔀 Перемешать без удаления</button>
   </div>
+  <p class="muted" style="margin-top:.6rem">💡 Нажми на пустую клетку — создаётся сразу на сетке. Двойной клик по локации — редактор. Drag&drop — обмен.</p>
 </div>
 <script>
 (function(){{
   const grid = document.getElementById('worldGrid');
   if (!grid) return;
   let dragged = null;
+  let draggedIdx = null;
   grid.querySelectorAll('.loc-cell').forEach(el => {{
     el.setAttribute('draggable', 'true');
     el.addEventListener('dragstart', function(e){{
       dragged = el.dataset.arg;
+      draggedIdx = dragged.split(':')[2];
+      el.style.opacity='0.4';
       e.dataTransfer.effectAllowed = 'move';
     }});
+    el.addEventListener('dragend', function(){{ el.style.opacity=''; dragged=null; }})
   }});
-  grid.addEventListener('dragover', function(e){{
-    const cell = e.target.closest('.c');
-    if (cell && !cell.classList.contains('loc-cell')) e.preventDefault();
-  }});
+  grid.addEventListener('dragover', function(e){{ e.preventDefault(); const cell=e.target.closest('.c'); if(cell) cell.style.outline='2px dashed var(--accent)'; }});
+  grid.addEventListener('dragleave', function(e){{ const cell=e.target.closest('.c'); if(cell) cell.style.outline=''; }});
   grid.addEventListener('drop', function(e){{
     const cell = e.target.closest('.c');
-    if (!cell || cell.classList.contains('loc-cell') || !dragged) return;
+    if (!cell || !dragged) return;
     e.preventDefault();
+    cell.style.outline='';
     const parts = cell.dataset.arg.split(':');
-    if (parts.length !== 2) return;
-    const locIdx = dragged.split(':')[2];
-    window.__app && window.__app.move_world_loc && window.__app.move_world_loc(locIdx, parts[0], parts[1]);
+    // drop на пустую: 2 части wx:wy, на занятую: 3 части wx:wy:locIdx
+    let targetWx, targetWy;
+    if(parts.length===2){{ targetWx=parts[0]; targetWy=parts[1]; }}
+    else if(parts.length===3){{ targetWx=parts[0]; targetWy=parts[1]; }}
+    else return;
+    if(draggedIdx===null) return;
+    // использовать world-grid-save который теперь умеет swap
+    window.__app && window.__app.save_grid_loc && window.__app.save_grid_loc(draggedIdx, targetWx, targetWy);
+    // fallback to old move
+    if(window.__app && window.__app.move_world_loc) window.__app.move_world_loc(draggedIdx, targetWx, targetWy);
   }});
 }})();
 </script>

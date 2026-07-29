@@ -73,9 +73,10 @@ class Store:
         self.world = world.generate(self.settings["seed"], grid=grid)
         self.save()
 
-    def add_location(self, name, desc, ltype, min_level, wx, wy):
-        """Добавить локацию: достроить её клетки и вшить в швы сетки мира.
+    def add_location(self, name, desc, ltype, min_level, wx, wy, floors=1):
+        """Добавить локацию: достроить её клетки и вшить в швы сетки мира (одна дверь).
 
+        Подуровни хранятся в settings['location_floors'] — визуально как стопка 🏢×N.
         Существующие локации и ручные правки их клеток не трогаются.
         Возвращает (индекс, отчёт о связывании с соседями).
         """
@@ -84,11 +85,20 @@ class Store:
         self._persist_locations()
         grid = self.settings.setdefault("world_grid", dict(world.DEFAULT_GRID))
         grid[str(li)] = [int(wx), int(wy)]
+        # подуровни
+        try:
+            f = int(floors)
+        except Exception:
+            f = 1
+        f = max(1, min(10, f))
+        self.settings.setdefault("location_floors", {})[str(li)] = f
         rnd = random.Random(self.settings.get("seed", 1337) * 31 + li * 7919)
         batch, _ = world.gen_cells(li, rnd)
         for c in batch:
             self.world[c.key] = c
         report = world.link_new_location(self.world, li, grid)
+        if f>1:
+            report.append(f"🏢 Подуровней: {f} (визуально стопка на сетке)")
         self.save()
         return li, report
 
@@ -134,6 +144,11 @@ class Store:
         grid.pop(str(li), None)
         self.settings["world_grid"] = {
             str(int(k) - 1 if int(k) > li else k): v for k, v in grid.items()}
+        # подуровни
+        floors_map = self.settings.get("location_floors", {})
+        floors_map.pop(str(li), None)
+        self.settings["location_floors"] = {
+            str(int(k) - 1 if int(k) > li else k): v for k, v in floors_map.items()}
 
         # порталы подземелий, открытые в удалённой локации, закрываем
         for t in self.settings.get("dungeon_templates", []):

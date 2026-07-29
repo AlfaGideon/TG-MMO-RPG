@@ -167,55 +167,61 @@ async def neighbor(session, loc, direction):
 async def link_pair(session, a, b, direction):
     """Бесшовный переход между a и b; b находится со стороны `direction` от a.
 
-    Ворота — ряд внутренних клеток общей границы (по меньшей из сеток).
-    После линковки прорубаем дороги от центра каждой локации до её ворот,
-    чтобы переход никогда не упирался в стену. Возвращает число пар ворот.
+    Ворота — ОДНА клетка в центре границы, а не стена из дверей.
+    После линковки прорубаем дорогу от центра каждой локации к этим
+    воротам, чтобы переход никогда не упирался в стену.
+    Возвращает 1 (одна пара ворот).
     """
-    gates = max(1, min(a.grid_size, b.grid_size) - 2)
-    horizontal = direction in ("e", "w")   # граница вертикальная, ряды по x
-    for row in range(1, gates + 1):
-        if direction == "e":
-            ca = await cell_at(session, a.id, row, a.grid_size - 1)
-            cb = await cell_at(session, b.id, row, 0)
-            ta, tb = (row, 1), (row, a.grid_size - 2)
-        elif direction == "w":
-            ca = await cell_at(session, a.id, row, 0)
-            cb = await cell_at(session, b.id, row, b.grid_size - 1)
-            ta, tb = (row, b.grid_size - 2), (row, 1)
-        elif direction == "s":
-            ca = await cell_at(session, a.id, a.grid_size - 1, row)
-            cb = await cell_at(session, b.id, 0, row)
-            ta, tb = (1, row), (a.grid_size - 2, row)
-        else:  # "n"
-            ca = await cell_at(session, a.id, 0, row)
-            cb = await cell_at(session, b.id, b.grid_size - 1, row)
-            ta, tb = (b.grid_size - 2, row), (1, row)
-        if not ca or not cb:
-            continue
+    mid_a = a.grid_size // 2
+    mid_b = b.grid_size // 2
+
+    if direction == "e":
+        ca_pos = (mid_a, a.grid_size - 1)
+        cb_pos = (mid_b, 0)
+        ta = (mid_b, 1)
+        tb = (mid_a, a.grid_size - 2)
+    elif direction == "w":
+        ca_pos = (mid_a, 0)
+        cb_pos = (mid_b, b.grid_size - 1)
+        ta = (mid_b, b.grid_size - 2)
+        tb = (mid_a, 1)
+    elif direction == "s":
+        ca_pos = (a.grid_size - 1, mid_a)
+        cb_pos = (0, mid_b)
+        ta = (1, mid_b)
+        tb = (a.grid_size - 2, mid_a)
+    else:  # "n"
+        ca_pos = (0, mid_a)
+        cb_pos = (b.grid_size - 1, mid_b)
+        ta = (b.grid_size - 2, mid_b)
+        tb = (1, mid_a)
+
+    ca = await cell_at(session, a.id, *ca_pos)
+    cb = await cell_at(session, b.id, *cb_pos)
+    if ca:
         ca.is_passable = True
         ca.tile_type = "road"
         ca.target_location_id, ca.target_x, ca.target_y, ca.target_floor = b.id, *ta, 0
+    if cb:
         cb.is_passable = True
         cb.tile_type = "road"
         cb.target_location_id, cb.target_x, cb.target_y, cb.target_floor = a.id, *tb, 0
-    await _carve_to_border(session, a, direction, gates)
-    await _carve_to_border(session, b, OPPOSITE[direction], gates)
+
+    await _carve_single(session, a, direction, mid_a)
+    await _carve_single(session, b, OPPOSITE[direction], mid_b)
     await session.flush()
-    return gates
+    return 1
 
 
-async def _carve_to_border(session, loc, direction, gates):
-    """Дорога от центра локации к каждому её переходу в сторону `direction`.
+async def _carve_single(session, loc, direction, mid):
+    """Дорога от центра локации к единственному переходу в сторону direction.
 
-    Сначала вертикальный/горизонтальный «хребет» через центр, от него —
-    ветка к каждыми воротам. Стены становятся дорогой; проходимые клетки и
-    их содержимое (NPC, сундуки) не трогаем.
+    mid — индекс ряда/колонны ворот (центр границы).
+    Делаем хребет через центр и одну ветку к границе, чтобы гарантировать
+    проходимость. Стены становятся дорогой; содержимое клеток не трогаем.
     """
     cells = await _cells_by_pos(session, loc)
     cx, cy = center_of(loc.grid_size)
-    horizontal = direction in ("e", "w")
-    border_y = loc.grid_size - 1 if direction == "e" else 0
-    border_x = loc.grid_size - 1 if direction == "s" else 0
 
     def open_(x, y):
         c = cells.get((x, y))
@@ -223,20 +229,26 @@ async def _carve_to_border(session, loc, direction, gates):
             c.is_passable = True
             c.tile_type = "road"
 
-    if horizontal:
-        for x in range(1, loc.grid_size - 1):       # хребет по колонне центра
+    if direction in ("e", "w"):
+        for x in range(1, loc.grid_size - 1):
             open_(x, cy)
-        for row in range(1, gates + 1):             # ветки к воротам
-            lo, hi = sorted((cy, border_y))
-            for y in range(lo, hi + 1):
-                open_(row, y)
+        border_y = loc.grid_size - 1 if direction == "e" else 0
+        lo, hi = sorted((cy, border_y))
+        for y in range(lo, hi + 1):
+            open_(mid, y)
     else:
-        for y in range(1, loc.grid_size - 1):       # хребет по строке центра
+        for y in range(1, loc.grid_size - 1):
             open_(cx, y)
-        for row in range(1, gates + 1):
-            lo, hi = sorted((cx, border_x))
-            for x in range(lo, hi + 1):
-                open_(x, row)
+        border_x = loc.grid_size - 1 if direction == "s" else 0
+        lo, hi = sorted((cx, border_x))
+        for x in range(lo, hi + 1):
+            open_(x, mid)
+
+
+# Обратная совместимость
+async def _carve_to_border(session, loc, direction, gates):
+    mid = loc.grid_size // 2
+    await _carve_single(session, loc, direction, mid)
 
 
 async def autolink(session, loc):
@@ -247,7 +259,7 @@ async def autolink(session, loc):
         if not nb:
             continue
         gates = await link_pair(session, loc, nb, d)
-        report.append(f"🔗 {DIR_NAMES[d]} ↔ {nb.name} ({gates} ворот)")
+        report.append(f"🔗 {DIR_NAMES[d]} ↔ {nb.name} ({gates} переход)")
     if not report:
         report.append("Соседей на мировой карте нет — связывать не с кем.")
     return report
