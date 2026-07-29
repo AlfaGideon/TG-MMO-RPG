@@ -4,7 +4,7 @@
 роутер `engine/game.py` оставался списком команд, а не свалкой логики.
 Здесь только то, что нужно всем трём: сохранить игрока после действия.
 """
-from engine import death, party, quests, stash
+from engine import death, landmarks, party, quests, stash, worldboss
 from engine.models import Reply
 
 
@@ -48,20 +48,40 @@ def claim(store, p):
     return death.claim(store, p)
 
 
+# ── мировой босс ────────────────────────────────────────────
+
+def boss_alive(store):
+    return worldboss.active(store) is not None
+
+
+def boss(store, p):
+    return worldboss.card(store, p)
+
+
+def boss_hit(store, p):
+    return worldboss.strike(store, p)
+
+
+# ── достопримечательности ───────────────────────────────────
+
+def study(store, p, cell):
+    return landmarks.claim(store, p, cell)
+
+
 # ── защищённый карман ───────────────────────────────────────
 
 def stash_view(store, p):
-    return stash.view(p)
+    return stash.view(p, store=store)
 
 
 def stash_put(store, p, pos):
-    r = stash.put(p, pos)
+    r = stash.put(p, pos, store=store)
     store.save_player(p)
     return r
 
 
 def stash_take(store, p, pos):
-    r = stash.take(p, pos)
+    r = stash.take(p, pos, store=store)
     store.save_player(p)
     return r
 

@@ -127,7 +127,11 @@ def edit_form(ctx, tg_id):
     days = stash.vip_left_days(p)
     vip_state = ("активен" + (f", {days} дн." if days else ", бессрочно")
                  if stash.is_vip(p) else "нет")
-    vip_btn = "👑 Снять VIP" if stash.is_vip(p) else "👑 Выдать VIP (30 дн.)"
+    base_slots = stash.tune(ctx.store, "stash_slots")
+    vip_slots = base_slots + stash.tune(ctx.store, "stash_vip_bonus")
+    vip_term = stash.vip_days(ctx.store)
+    vip_btn = ("👑 Снять VIP" if stash.is_vip(p)
+               else f"👑 Выдать VIP ({vip_term} дн.)")
     stash_chips = "".join(
         f"<span class='chip'>{rules.item(i)['icon']} {esc(rules.item(i)['name'])}</span>"
         for i in kept) or "<span class='muted'>пусто</span>"
@@ -153,14 +157,14 @@ def edit_form(ctx, tg_id):
   {f('x','X',p.x)}{f('y','Y',p.y)}
 </div>
 <h3>🎒 Сумка — теряется при гибели</h3><div>{inv}</div>
-<h3>🔒 Защищённый карман — {len(kept)}/{stash.capacity(p)} · цел при гибели</h3>
+<h3>🔒 Защищённый карман — {len(kept)}/{stash.capacity(p, ctx.store)} · цел при гибели</h3>
 <div>{stash_chips}</div>
 <div class="row" style="margin-top:.5rem">
   <div><label>Выдать предмет</label><select id='pf_give'>{give}</select></div>
   <div style="flex:0 0 auto"><button class="btn" data-act="player-give" data-arg="{p.tg_id}">🎁 Выдать</button></div>
 </div>
 <div class="hint" style="margin-top:.6rem">👑 VIP: <b>{vip_state}</b> — карман
-   {stash.SLOTS} → {stash.SLOTS + stash.VIP_BONUS} ячеек.</div>
+   {base_slots} → {vip_slots} ячеек · срок выдачи {vip_term} дн.</div>
 <div style="margin-top:1rem;display:flex;gap:.5rem;flex-wrap:wrap">
   <button class="btn primary" data-act="player-save" data-arg="{p.tg_id}">💾 Сохранить</button>
   <button class="btn" data-act="player-vip" data-arg="{p.tg_id}">{vip_btn}</button>

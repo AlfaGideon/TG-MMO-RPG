@@ -3,7 +3,8 @@ import random
 
 from engine import world as W
 from webapp import dom
-from webapp.actions import cataclysm_actions, settings_actions
+from webapp.actions import (cataclysm_actions, living_actions,
+                            settings_actions)
 from webapp.pages import world as page
 
 def register(app, A):
@@ -21,9 +22,6 @@ def register(app, A):
     A("world-grid-edit", lambda arg: _grid_edit(app, arg))
     A("world-grid-remove", lambda arg: _grid_remove(app, arg))
     A("world-relink", lambda _="": _relink(app))
-    A("respawn-save", lambda _="": _respawn_save(app))
-    A("respawn-now", lambda _="": _respawn_now(app))
-    A("behavior-save", lambda _="": _behavior_save(app))
     A("world-shuffle", lambda _="": _grid_shuffle(app))
 
     A("world-loc-new", lambda _="": app.modal(page.loc_form(app)))
@@ -33,6 +31,7 @@ def register(app, A):
     A("world-loc-del", lambda arg: _loc_del(app, int(arg)))
 
     cataclysm_actions.register(app, A)
+    living_actions.register(app, A)
     settings_actions.register(app, A)
 
 
@@ -206,49 +205,6 @@ def _grid_remove(app, loc_idx):
 def _relink(app):
     _reseam(app, app.store.settings.get("world_grid", {}))
     dom.toast("Переходы пересшиты по сетке мира")
-    app.render()
-
-
-# ── жизнь мира ──────────────────────────────────────────────
-
-def _respawn_save(app):
-    """Задержки возвращения тварей и сундуков по типам локаций."""
-    from engine import respawn
-    from webapp.pages.world_living import LOC_TYPES
-
-    app.store.settings[respawn.SETTING_ON] = dom.value("#rspOn", "1") == "1"
-    for kind, prefix in (("mob", "rsp_mob_"), ("chest", "rsp_chest_")):
-        values = {key: dom.value(f"#{prefix}{key}", "") for key, _ in LOC_TYPES}
-        respawn.set_delays(app.store, kind, values)
-    dom.toast("Настройки респавна сохранены")
-    app.render()
-
-
-def _behavior_save(app):
-    """Выключатели брожения и самостоятельных нападений."""
-    from engine import behavior
-
-    app.store.settings[behavior.WANDER_SETTING] = dom.value("#behWander", "1") == "1"
-    app.store.settings[behavior.HUNT_SETTING] = dom.value("#behHunt", "1") == "1"
-    app.store.save()
-    dom.toast("Поведение тварей сохранено")
-    app.render()
-
-
-def _respawn_now(app):
-    """Вернуть всё, что ждёт очереди, немедленно."""
-    import time
-
-    from engine import respawn
-    for c in app.store.world.values():
-        if c.mob_at:
-            c.mob_at = time.time() - 1
-        if c.chest_at:
-            c.chest_at = time.time() - 1
-    mobs, chests = respawn.tick(app.store)
-    app.bot.game.world = app.store.world
-    dom.toast(f"Вернулось: 👾 {mobs} · 📦 {chests}"
-              if mobs or chests else "Возвращать было нечего")
     app.render()
 
 

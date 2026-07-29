@@ -36,6 +36,8 @@ class Game:
             [("🔨 Мастерская", "craft"), ("🏛 Аукцион", "auc:0")],
             [("🏆 Топ", "top"), ("❓ Помощь", "help")],
         ]
+        if social.boss_alive(self.store):
+            rows.insert(0, [("🏰 Мировой босс!", "boss")])
         if p.is_web_admin:
             rows.insert(0, [("🛠 Админка", "admin")])
         return Reply(text=texts.WELCOME + f"\n\n👤 {p.name}, ур. {p.level}", keyboard=rows)
@@ -248,29 +250,19 @@ class Game:
         return explore.rest(p, self.store)
 
     # ── инвентарь (реализация в engine/inventory.py) ────────
-    def do_bag(self, p, arg=""):
-        return inventory.bag(p, 0)
+    # Сумка и экипировка: обёртки над engine/inventory.py.
+    do_bag = lambda self, p, arg="": inventory.bag(p, 0, self.store)
+    do_bagp = lambda self, p, arg="0": inventory.bag(p, arg or 0, self.store)
+    do_it = lambda self, p, arg: inventory.card(p, arg, self.store)
+    do_on = lambda self, p, arg: inventory.equip(p, arg)
+    do_off = lambda self, p, arg: inventory.unequip(p, arg)
+    do_use = lambda self, p, arg: inventory.use(p, arg)
+    do_sell = lambda self, p, arg: inventory.sell(p, arg)
+    do_toss = lambda self, p, arg: inventory.toss(p, arg)
 
-    def do_bagp(self, p, arg="0"):
-        return inventory.bag(p, arg or 0)
-
-    def do_it(self, p, arg):
-        return inventory.card(p, arg)
-
-    def do_on(self, p, arg):
-        return inventory.equip(p, arg)
-
-    def do_off(self, p, arg):
-        return inventory.unequip(p, arg)
-
-    def do_use(self, p, arg):
-        return inventory.use(p, arg)
-
-    def do_sell(self, p, arg):
-        return inventory.sell(p, arg)
-
-    def do_toss(self, p, arg):
-        return inventory.toss(p, arg)
+    do_boss = lambda self, p, arg="": social.boss(self.store, p)
+    do_bosshit = lambda self, p, arg="": social.boss_hit(self.store, p)
+    do_study = lambda self, p, arg="": social.study(self.store, p, self._cell(p))
 
     # ── защищённый карман ───────────────────────────────────
     def do_stash(self, p, arg=""):

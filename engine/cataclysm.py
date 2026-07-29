@@ -189,21 +189,19 @@ def end(store, event_id, revert=True, actor=None, source="panel"):
 
 
 def _restore(store, ev):
-    """Вернуть клетки по слепку.
+    """Вернуть клетки по слепку: рельеф и сундуки, но не тварей.
 
-    Клетки орды пропускаем по мобу: их мирное значение — «пусто», и его
-    выставит rebalance, когда сведёт популяцию к норме. Иначе снятие
-    бедствия воскрешало бы тварей, которых игрок уже убил.
+    Мобов из отката исключаем полностью. Слепок хранит, кто стоял на клетке
+    в начале бедствия, — и если игрок за это время его убил, возврат
+    воскрешал бы труп. За численность отвечают rebalance (орда) и
+    respawn (обычное возвращение по таймеру), им и место.
     """
-    horde = set(store.settings.get(HORDE) or [])
     for key, snap in (ev.get("snapshot") or {}).items():
         c = store.world.get(key)
         if not c:
             continue
         c.tile, c.passable = snap[0], bool(snap[1])
         c.chest = bool(snap[3])
-        if key not in horde:
-            c.mob = int(snap[2])
 
 
 _ticking = set()            # защита от рекурсии tick → rebalance → active → tick

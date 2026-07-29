@@ -5,7 +5,7 @@
 """
 import random
 
-from engine import cataclysm, data, death, items, respawn, rules
+from engine import cataclysm, data, death, items, landmarks, respawn, rules
 from engine.models import Reply
 
 BACK_WORLD = [[("◀️ В мир", "world")]]
@@ -16,6 +16,11 @@ def look(p, cell, store=None):
     from engine import mapview
 
     found, rows = [], []
+    mark = landmarks.of(cell, store)
+    if mark is not None:
+        found.append(landmarks.note(p, cell, store))
+        if not landmarks.visited(p, cell):
+            rows.append([(f"{mark['icon']} Изучить", "study")])
     grave = death.at(store, cell.loc, cell.x, cell.y) if store is not None else None
     if grave is not None:
         whose = "твоя" if int(grave.get("owner", 0)) == int(p.tg_id) else f"{grave.get('name', '?')}"
@@ -51,6 +56,8 @@ def talk(npc_index, p=None):
         rows.append([("🛒 Торговать", "shop")])
     if n[2] == "healer":
         rows.append([("💊 Исцелиться", "heal")])
+    if n[2] == "smith":
+        rows.append([("🔨 Мастерская", "craft")])
     if p is not None:
         rows.extend(quests.offer_rows(p, npc_index))
     rows.append([("◀️ Назад", "world")])

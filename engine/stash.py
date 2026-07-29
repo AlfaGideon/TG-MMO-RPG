@@ -18,10 +18,63 @@ import time
 from engine import data, itemui, rules
 from engine.models import Reply
 
+# Значения по умолчанию. Живые настройки лежат в settings и правятся из
+# панели — см. tune(); константы остаются запасным вариантом, когда store
+# недоступен (например, в чистых расчётах и тестах движка).
 SLOTS = 5                    # базовый размер защищённого кармана
 VIP_BONUS = 3                # сколько ячеек добавляет VIP
 LOSS_SHARE = 0.5             # какая доля сумки выпадает при гибели
+VIP_DAYS = 30                # срок VIP по умолчанию при выдаче из панели
 SAFE_TYPES = ("safe",)       # где можно перекладывать
+
+# ключ настройки -> (значение по умолчанию, подпись, пояснение)
+TUNABLES = {
+    "stash_slots": (SLOTS, "🔒 Ячеек в кармане",
+                    "сколько вещей переживает гибель у обычного героя"),
+    "stash_vip_bonus": (VIP_BONUS, "👑 Прибавка VIP",
+                        "на сколько ячеек VIP расширяет карман"),
+    "stash_loss_share": (LOSS_SHARE, "💀 Доля потерь сумки",
+                         "какая часть сумки выпадает при смерти (0–1)"),
+    "vip_days": (VIP_DAYS, "📅 Срок VIP, дней",
+                 "на сколько дней выдаётся VIP кнопкой в панели"),
+}
+
+
+def tune(store, key):
+    """Настройка из панели или значение по умолчанию."""
+    default = TUNABLES[key][0]
+    if store is None:
+        return default
+    raw = store.settings.get(key)
+    if raw is None or raw == "":
+        return default
+    try:
+        val = float(raw)
+    except (TypeError, ValueError):
+        return default
+    if key == "stash_loss_share":
+        return max(0.0, min(1.0, val))
+    return max(0, int(val))
+
+
+def set_tunables(store, values):
+    """Сохранить настройки кармана и VIP. Пустое — вернуть умолчание."""
+    for key in TUNABLES:
+        if key not in values:
+            continue
+        raw = values[key]
+        if raw is None or str(raw).strip() == "":
+            store.settings.pop(key, None)
+            continue
+        try:
+            val = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if key == "stash_loss_share":
+            store.settings[key] = max(0.0, min(1.0, val))
+        else:
+            store.settings[key] = max(0, int(val))
+    store.save()
 
 
 # ── VIP ─────────────────────────────────────────────────────
@@ -47,6 +100,11 @@ def grant_vip(p, days=0):
     p.vip_until = (time.time() + days * 86400) if days else 0.0
 
 
+def vip_days(store):
+    """Срок VIP при выдаче из панели."""
+    return tune(store, "vip_days")
+
+
 def revoke_vip(p):
     p.is_vip = False
     p.vip_until = 0.0
@@ -54,13 +112,18 @@ def revoke_vip(p):
 
 # ── размер кармана ──────────────────────────────────────────
 
-def capacity(p):
-    """Сколько ячеек в защищённом кармане у этого героя."""
-    return SLOTS + (VIP_BONUS if is_vip(p) else 0)
+def capacity(p, store=None):
+    """Сколько ячеек в защищённом кармане у этого героя.
+
+    `store` необязателен: без него берутся значения по умолчанию, поэтому
+    старые вызовы продолжают работать.
+    """
+    base = tune(store, "stash_slots")
+    return base + (tune(store, "stash_vip_bonus") if is_vip(p) else 0)
 
 
-def free_slots(p):
-    return max(0, capacity(p) - len(getattr(p, "stash", None) or []))
+def free_slots(p, store=None):
+    return max(0, capacity(p, store) - len(getattr(p, "stash", None) or []))
 
 
 def _stash(p):
@@ -87,27 +150,27 @@ def _need_safe():
 
 # ── перекладывание ──────────────────────────────────────────
 
-def put(p, arg):
+def put(p, arg, store=None):
     """Убрать предмет из сумки в защищённый карман."""
     if not safe_here(p):
         return _need_safe()
     pos = int(arg)
     if pos >= len(p.inventory):
         return Reply(alert="Предмет не найден.")
-    if free_slots(p) <= 0:
-        return Reply(alert=f"Карман полон: {capacity(p)} ячеек. "
+    if free_slots(p, store) <= 0:
+        return Reply(alert=f"Карман полон: {capacity(p, store)} ячеек. "
                            f"Освободи место или расширь VIP-статусом.")
     idx = p.inventory.pop(pos)
     it = rules.item(idx)
     if p.equipped.get(it["type"]) == idx:     # спрятанное нельзя носить
         p.equipped.pop(it["type"], None)
     _stash(p).append(idx)
-    r = view(p)
+    r = view(p, store=store)
     r.alert = f"🔒 В карман: {it['name']}"
     return r
 
 
-def take(p, arg):
+def take(p, arg, store=None):
     """Достать предмет из кармана обратно в сумку."""
     if not safe_here(p):
         return _need_safe()
@@ -117,14 +180,14 @@ def take(p, arg):
         return Reply(alert="Предмет не найден.")
     idx = lst.pop(pos)
     p.inventory.append(idx)
-    r = view(p)
+    r = view(p, store=store)
     r.alert = f"🎒 В сумку: {rules.item(idx)['name']}"
     return r
 
 
 # ── потери при гибели ───────────────────────────────────────
 
-def drop_on_death(p, rng=None):
+def drop_on_death(p, rng=None, store=None):
     """Что выпадает из сумки при смерти. Возвращает список индексов.
 
     Карман не трогаем — в этом весь смысл. Надетое тоже остаётся: снимать
@@ -138,7 +201,7 @@ def drop_on_death(p, rng=None):
     losable = [i for i, idx in enumerate(p.inventory) if idx not in worn]
     if not losable:
         return []
-    count = max(1, int(len(losable) * LOSS_SHARE))
+    count = max(1, int(len(losable) * tune(store, "stash_loss_share")))
     lost_pos = sorted(rng.sample(losable, min(count, len(losable))), reverse=True)
     lost = []
     for pos in lost_pos:
@@ -148,14 +211,14 @@ def drop_on_death(p, rng=None):
 
 # ── экраны ──────────────────────────────────────────────────
 
-def view(p, page=0):
+def view(p, page=0, store=None):
     """Экран кармана: что защищено, что можно убрать, сколько места."""
     lst = _stash(p)
-    cap = capacity(p)
+    cap = capacity(p, store)
     vip_note = ""
     if is_vip(p):
         days = vip_left_days(p)
-        vip_note = (f" · 👑 VIP +{VIP_BONUS}"
+        vip_note = (f" · 👑 VIP +{tune(store, 'stash_vip_bonus')}"
                     + (f" ({days} дн.)" if days else " (бессрочно)"))
 
     lines = [f"🔒 <b>Защищённый карман</b> — {len(lst)}/{cap}{vip_note}", ""]
@@ -171,7 +234,8 @@ def view(p, page=0):
     else:
         lines.append("⚠️ <i>Перекладывать можно только в безопасных землях.</i>")
     if not is_vip(p):
-        lines.append(f"<i>👑 VIP расширяет карман до {SLOTS + VIP_BONUS} ячеек.</i>")
+        big = tune(store, "stash_slots") + tune(store, "stash_vip_bonus")
+        lines.append(f"<i>👑 VIP расширяет карман до {big} ячеек.</i>")
 
     rows = []
     if safe_here(p) and lst:

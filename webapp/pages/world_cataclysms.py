@@ -3,12 +3,14 @@ import time
 
 from engine import cataclysm as C
 from engine import data
+from engine import worldboss as WB
 from webapp.html import esc
 
 
 def render(ctx):
     return f"""
 {_live(ctx)}
+{_boss(ctx)}
 {_arsenal(ctx)}
 {_settings(ctx)}
 {_history(ctx)}
@@ -59,6 +61,77 @@ def _live(ctx):
   {body}
 </div>
 {_timer_script()}
+"""
+
+
+def _boss(ctx):
+    """Мировой босс: кто сейчас, кого призвать, чем кончилось прошлое."""
+    ev = WB.active(ctx.store)
+    if ev is None:
+        body = "<p class='muted'>Мировой босс не призван.</p>"
+    else:
+        b = WB.BOSSES[ev["key"]]
+        where = (data.LOCATIONS[ev["loc"]][0]
+                 if ev["loc"] < len(data.LOCATIONS) else "?")
+        left = max(0, int(ev["until"] - time.time()))
+        fighters = ""
+        dmg = ev.get("damage") or {}
+        total = sum(int(v) for v in dmg.values()) or 1
+        for tg_id, dealt in sorted(dmg.items(), key=lambda kv: -int(kv[1]))[:8]:
+            q = ctx.store.players.get(int(tg_id))
+            name = esc(q.name) if q else f"#{tg_id}"
+            fighters += (f"<tr><td>{name}</td><td>{dealt}</td>"
+                         f"<td>{int(dealt) / total * 100:.0f}%</td></tr>")
+        table = (f"<table><thead><tr><th>Герой</th><th>Урон</th><th>Вклад</th>"
+                 f"</tr></thead><tbody>{fighters}</tbody></table>"
+                 if fighters else "<p class='muted'>Пока никто не бился.</p>")
+        body = f"""
+<div class="cata-live">
+  <b>{esc(WB.title(ev['key']))}</b> · 📍 {esc(where)}<br>
+  ❤️ {ev['hp']}/{ev['max_hp']} · ⏳ <span class="cata-timer"
+     data-until="{int(ev['until'])}">{left // 60} мин</span>
+  {' · 🔥 вторая фаза' if ev.get('phase') else ''}
+</div>
+{table}
+<div style="margin-top:.8rem">
+  <button class="btn danger" data-act="boss-dismiss">🌫 Развеять босса</button>
+</div>"""
+
+    cards = ""
+    for key in WB.ORDER:
+        b = WB.BOSSES[key]
+        cards += f"""
+<div class="cata-card">
+  <div class="ct">{b['icon']} {esc(b['name'])}</div>
+  <div class="cd">{esc(b['story'])}<br>❤️ {b['hp']} · ⚔️ ур. {b['level']}+
+     · ⏳ ~{b['hours']} ч</div>
+  <button class="btn sm primary" data-act="boss-summon" data-arg="{key}"
+     {'disabled' if ev is not None else ''}>🏰 Призвать</button>
+</div>"""
+
+    log = WB.history(ctx.store, 8)
+    rows = ""
+    for e in log:
+        when = time.strftime("%d.%m %H:%M", time.localtime(e.get("ts", 0)))
+        outcome = "🏆 повержен" if e.get("won") else "🌫 ушёл"
+        rows += (f"<tr><td class='muted'>{when}</td>"
+                 f"<td>{esc(WB.title(e.get('key', '')))}</td>"
+                 f"<td>{outcome}</td><td>{e.get('heroes', 0)} героев</td></tr>")
+    story = (f"<h3>Летопись сражений</h3><div class='scroll'><table><tbody>"
+             f"{rows}</tbody></table></div>") if rows else ""
+
+    return f"""
+<div class="card">
+  <h2>🏰 Мировой босс</h2>
+  <div class="hint">Босс — событие, а не клетка: живёт по таймеру, держит
+     общий счётчик урона и раздаёт награду по вкладу. Бить может каждый,
+     кто дошёл и дорос уровнем. На половине здоровья призывает свиту.
+     Один босс на мир.</div>
+  {body}
+  <h3 style="margin-top:1rem">Кого призвать</h3>
+  <div class="cata-grid">{cards}</div>
+  {story}
+</div>
 """
 
 

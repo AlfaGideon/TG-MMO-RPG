@@ -26,6 +26,7 @@ CHEST = "📦"
 MOB = "👾"
 NPC = "💬"
 GRAVE = "🪦"      # чьё-то надгробие с золотом
+MARK = "❇️"       # неизученная достопримечательность
 
 
 def ckey(loc, x, y):
@@ -68,6 +69,15 @@ def other_keys(store, p):
     return out
 
 
+def _mark_keys(store, p):
+    """Неизученные достопримечательности: изученные больше не мигают."""
+    if store is None:
+        return set()
+    from engine import landmarks
+    seen = set(getattr(p, "landmarks", None) or [])
+    return landmarks.keys(store) - seen
+
+
 def _grave_keys(store):
     if store is None:
         return set()
@@ -85,12 +95,14 @@ def portal_keys(store):
     return out
 
 
-def glyph(cell, portals=(), graves=()):
+def glyph(cell, portals=(), graves=(), marks=()):
     """Символ клетки на карте (без учёта тумана и позиции игрока)."""
     if cell is None or not cell.passable:
         return TILE["wall"]
     if cell.key in graves:
         return GRAVE
+    if cell.key in marks:
+        return MARK
     if cell.key in portals:
         return PORTAL
     if cell.link:
@@ -104,7 +116,7 @@ def glyph(cell, portals=(), graves=()):
     return TILE.get(cell.tile, TILE["grass"])
 
 
-def grid(p, cells, portals=(), others=None, graves=()):
+def grid(p, cells, portals=(), others=None, graves=(), marks=()):
     """Список строк карты текущей локации игрока.
 
     `others` — {ключ: [герои]}: соседи видны синей точкой, но только в уже
@@ -124,7 +136,7 @@ def grid(p, cells, portals=(), others=None, graves=()):
             if others.get(ckey(p.loc, x, y)):
                 row += OTHER
                 continue
-            row += glyph(cells.get(ckey(p.loc, x, y)), portals, graves)
+            row += glyph(cells.get(ckey(p.loc, x, y)), portals, graves, marks)
         rows.append(row)
     return rows
 
@@ -134,7 +146,8 @@ def render(p, cells, store=None):
     portals = portal_keys(store) if store is not None else {}
     others = other_keys(store, p) if store is not None else {}
     graves = _grave_keys(store)
-    rows = grid(p, cells, portals, others, graves)
+    marks = _mark_keys(store, p)
+    rows = grid(p, cells, portals, others, graves, marks)
 
     total = sum(1 for c in cells.values() if c.loc == p.loc)
     seen = sum(1 for k in (getattr(p, "visited", []) or []) if k.startswith(f"{p.loc}:"))
@@ -144,12 +157,19 @@ def render(p, cells, store=None):
     legend = (f"{PLAYER} ты · {OTHER} герой · {FOG} не изучено · "
               f"{TILE['wall']} стена · {DOOR} переход\n"
               f"{PORTAL} портал · {MOB} враг · {NPC} житель · {CHEST} сундук · "
-              f"{GRAVE} могила")
+              f"{GRAVE} могила · {MARK} диковина")
 
     nearby = len(others)
     company = f" · {OTHER} рядом героев: {nearby}" if nearby else ""
+    found_marks = ""
+    if store is not None:
+        from engine import landmarks
+        fnd, allm = landmarks.total(store, p)
+        if allm:
+            found_marks = f" · {MARK} {fnd}/{allm}"
     text = (f"🗺 <b>{loc[0]}</b>\n"
-            f"📍 Ты на [{p.x},{p.y}] · изучено {seen}/{total} ({pct}%){company}\n\n"
+            f"📍 Ты на [{p.x},{p.y}] · изучено {seen}/{total} ({pct}%)"
+            f"{company}{found_marks}\n\n"
             + "\n".join(rows) + "\n\n" + legend)
 
     return Reply(text=text, keyboard=[

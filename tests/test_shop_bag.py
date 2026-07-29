@@ -68,16 +68,18 @@ def main():
     print("\n— Лавка: список —")
     r = game.handle(p, "shop")
     labels = grid_labels(r)
-    check(len(labels) == len(data.ITEMS), f"{len(labels)} товаров на кнопках")
+    # Товаров больше, чем влезает на страницу, — на первой ровно PER_PAGE.
+    on_page = min(itemui.PER_PAGE, len(data.ITEMS))
+    check(len(labels) == on_page, f"{len(labels)} товаров на странице")
     check(all(only_emoji(t) for t in labels),
           "в кнопках только эмодзи — ни букв, ни обычных цифр")
     check(all(t.startswith(itemui.digit(i + 1)) for i, t in enumerate(labels)),
           "кнопки пронумерованы 1️⃣…🔟")
     check(all(rules.item(i)["icon"] in labels[i] for i in range(len(labels))),
           "на кнопке есть иконка товара")
-    check(all(rules.item(i)["name"] in r.text for i in range(len(data.ITEMS))),
+    check(all(rules.item(i)["name"] in r.text for i in range(on_page)),
           "названия товаров — в тексте сообщения")
-    check(all(str(rules.item(i)["price"]) in r.text for i in range(len(data.ITEMS))),
+    check(all(str(rules.item(i)["price"]) in r.text for i in range(on_page)),
           "цены видны в тексте")
     check(max(len(row) for row in r.keyboard) <= itemui.PER_ROW,
           f"не больше {itemui.PER_ROW} кнопок в ряду")
@@ -90,28 +92,32 @@ def main():
     check(sell_tab.startswith("sellbag"), "вкладка ведёт в скупку")
 
     print("\n— Карточка товара —")
-    card = game.handle(p, "buyc:2")
-    it = rules.item(2)
+    rare_idx = next(i for i, x in enumerate(data.ITEMS)
+                    if x[2] == "rare" and "damage" in x[5])
+    card = game.handle(p, f"buyc:{rare_idx}")
+    it = rules.item(rare_idx)
     check(it["name"] in card.text, "имя предмета в карточке")
-    check("Урон" in card.text and "+10" in card.text, "бонусы расписаны словами")
+    check("Урон" in card.text and f"+{it['bonus']['damage']}" in card.text,
+          "бонусы расписаны словами")
     check("Редкий" in card.text, "редкость показана")
     check(str(it["price"]) in card.text, "цена показана")
     acts = [a for _, a in buttons(card)]
-    check("buy:2" in acts, "кнопка «Купить» ведёт к покупке")
+    check(f"buy:{rare_idx}" in acts, "кнопка «Купить» ведёт к покупке")
     check(any(a.startswith("shop") for a in acts), "есть возврат в лавку")
 
     print("\n— Покупка —")
     before = p.gold
-    r = game.handle(p, "buy:2")
+    r = game.handle(p, f"buy:{rare_idx}")
     check(len(p.inventory) == 1 and p.gold == before - it["price"],
           f"куплено, золото {p.gold}")
     check(it["name"] in r.alert, "всплывашка подтверждает покупку")
     p.gold = 0
-    poor = game.handle(p, "buyc:2")
+    poor = game.handle(p, f"buyc:{rare_idx}")
     check(not any(a.startswith("buy:") for _, a in buttons(poor)),
           "без золота кнопки «Купить» нет")
     check("Не хватает" in poor.text, "в карточке видно, сколько не хватает")
-    check("Не хватает" in game.handle(p, "buy:2").alert, "покупка без денег отклонена")
+    check("Не хватает" in game.handle(p, f"buy:{rare_idx}").alert,
+          "покупка без денег отклонена")
 
     print("\n— Инвентарь: список —")
     store, game, p = hero()
@@ -119,9 +125,10 @@ def main():
         game.handle(p, f"buy:{i}")
     r = game.handle(p, "bag")
     labels = grid_labels(r)
-    check(len(labels) == len(data.ITEMS), "все предметы на кнопках")
+    page = min(itemui.PER_PAGE, len(data.ITEMS))
+    check(len(labels) == page, "предметы страницы на кнопках")
     check(all(only_emoji(t) for t in labels), "в сумке кнопки тоже без текста")
-    check(all(rules.item(i)["name"] in r.text for i in range(len(data.ITEMS))),
+    check(all(rules.item(i)["name"] in r.text for i in range(page)),
           "названия — в тексте сообщения")
 
     print("\n— Карточка предмета: надеть / снять —")
@@ -140,7 +147,9 @@ def main():
           "предмет можно надеть заново")
 
     print("\n— Расходник —")
-    pos = p.inventory.index(8)
+    heal_idx = next(i for i, x in enumerate(data.ITEMS)
+                    if x[1] == "consumable" and "heal" in x[5])
+    pos = p.inventory.index(heal_idx)
     potion = game.handle(p, f"it:{pos}")
     check(any(a == f"use:{pos}" for _, a in buttons(potion)),
           "у зелья кнопка «Использовать»")

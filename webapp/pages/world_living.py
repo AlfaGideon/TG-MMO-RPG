@@ -1,7 +1,7 @@
 """Вкладка «Жизнь мира»: респавн, характеры тварей, могилы, отряды, задания."""
 import time
 
-from engine import behavior, data, death, party, quests, respawn
+from engine import behavior, data, death, party, quests, respawn, stash
 from webapp.html import esc
 
 LOC_TYPES = [("safe", "🛡 Безопасные"), ("dangerous", "⚠️ Опасные"),
@@ -11,11 +11,64 @@ LOC_TYPES = [("safe", "🛡 Безопасные"), ("dangerous", "⚠️ Опа
 def render(ctx):
     return f"""
 {_respawn_settings(ctx)}
+{_stash_settings(ctx)}
 {_behavior(ctx)}
 {_queue(ctx)}
 {_graves(ctx)}
 {_parties(ctx)}
 {_quests(ctx)}
+"""
+
+
+def _stash_settings(ctx):
+    """Карман, потери при смерти и VIP — всё крутится отсюда."""
+    store = ctx.store
+    fields = ""
+    for key, (_default, label, hint) in stash.TUNABLES.items():
+        val = stash.tune(store, key)
+        step = "0.05" if key == "stash_loss_share" else "1"
+        fields += (f"<div><label>{label}</label>"
+                   f"<input id='st_{key}' type='number' min='0' step='{step}'"
+                   f" value='{val:g}'>"
+                   f"<div class='muted' style='font-size:.7rem;margin-top:.15rem'>"
+                   f"{esc(hint)}</div></div>")
+
+    vips = [p for p in store.players.values() if stash.is_vip(p)]
+    heroes = [p for p in store.players.values() if p.created_char]
+    base = stash.tune(store, "stash_slots")
+    big = base + stash.tune(store, "stash_vip_bonus")
+    share = int(stash.tune(store, "stash_loss_share") * 100)
+    rows = ""
+    for p in sorted(vips, key=lambda q: q.name)[:15]:
+        days = stash.vip_left_days(p)
+        term = f"{days} дн." if days else "бессрочно"
+        kept = len(getattr(p, "stash", None) or [])
+        rows += (f"<tr><td>👑 {esc(p.name)}</td><td>ур. {p.level}</td>"
+                 f"<td>{term}</td><td>{kept}/{stash.capacity(p, store)}</td>"
+                 f"<td><button class='btn danger sm' data-act='player-vip' "
+                 f"data-arg='{p.tg_id}'>Снять</button></td></tr>")
+    table = (f"<div class='scroll'><table><thead><tr><th>Герой</th><th>Ур.</th>"
+             f"<th>Срок</th><th>Карман</th><th></th></tr></thead>"
+             f"<tbody>{rows}</tbody></table></div>") if rows else (
+        "<p class='muted'>VIP пока ни у кого. Выдать можно в карточке игрока "
+        "или массовым действием в списке.</p>")
+
+    return f"""
+<div class="card">
+  <h2>🔒 Инвентарь, потери и VIP</h2>
+  <div class="hint">Сумка теряется при гибели, защищённый карман — нет.
+     Карман должен оставаться <b>меньше</b> сумки, иначе выбор «что взять
+     риском» исчезает и игрок просто прячет всё.<br>
+     Сейчас: обычный герой <b>{base}</b> ячеек, VIP — <b>{big}</b>,
+     при смерти выпадает <b>{share}%</b> сумки.</div>
+  <div class="row">{fields}</div>
+  <div style="margin-top:.9rem;display:flex;gap:.5rem;flex-wrap:wrap">
+    <button class="btn primary" data-act="stash-save">💾 Сохранить</button>
+    <button class="btn" data-act="stash-reset">↩️ Вернуть по умолчанию</button>
+  </div>
+  <h3 style="margin-top:1rem">👑 VIP-игроки ({len(vips)} из {len(heroes)})</h3>
+  {table}
+</div>
 """
 
 

@@ -165,7 +165,7 @@ def defeat(store, p, mob_name):
 
     lost = p.gold // 5
     p.gold -= lost
-    dropped = stash.drop_on_death(p)          # часть сумки выпадает
+    dropped = stash.drop_on_death(p, store=store)   # часть сумки выпадает
     kept = len(getattr(p, "stash", None) or [])
     grave = bury(store, p, lost, dropped) if store is not None else None
     where = (data.LOCATIONS[p.loc][0] if p.loc < len(data.LOCATIONS) else "?")

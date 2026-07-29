@@ -24,6 +24,11 @@ def check(cond, label):
         FAILED.append(label)
 
 
+def _boss_mob():
+    """Индекс самой опасной твари — она гарантированно убьёт слабака."""
+    return max(range(len(data.MOBS)), key=lambda i: data.MOBS[i][4])
+
+
 def fresh():
     store = Store(MemoryStorage())
     store.settings["cataclysm_notify"] = False
@@ -41,12 +46,19 @@ def hero(store, game, tg_id=1, name="Герой", cls="warrior"):
 
 # ── 3. Характеры тварей ─────────────────────────────────────
 
+def _mob_of(kind):
+    """Индекс любой твари с нужным нравом: тест не зависит от порядка MOBS."""
+    return next(i for i in range(len(data.MOBS)) if behavior.of(i) == kind)
+
+
 def test_behaviors_declared():
     print("\n— Характеры объявлены —")
-    check(behavior.of(0) == "passive", "зомби пассивен")
-    check(behavior.of(1) == "hunter", "ворг охотник")
-    check(behavior.of(2) == "territorial", "скелет территориален")
-    check("Охотник" in behavior.label(1), f"подпись читаема: {behavior.label(1)}")
+    for kind in ("passive", "territorial", "hunter"):
+        idx = next((i for i in range(len(data.MOBS)) if behavior.of(i) == kind), None)
+        check(idx is not None, f"в мире есть твари с нравом «{kind}»")
+    hunter = _mob_of("hunter")
+    check("Охотник" in behavior.label(hunter),
+          f"подпись читаема: {behavior.label(hunter)}")
 
     # У старых записей поля нет — не должно падать.
     saved = list(data.MOBS)
@@ -79,14 +91,19 @@ def test_aggression_by_character():
     game = Game(store)
     p = hero(store, game)
 
-    check(_ambush_rate(store, p, 1, 0) == 0, "пассивный не нападает никогда")
-    check(_ambush_rate(store, p, 2, 2) == 0, "территориальный издалека не достаёт")
+    passive = _mob_of("passive")
+    terr = _mob_of("territorial")
+    hunter = _mob_of("hunter")
 
-    close = _ambush_rate(store, p, 1, 2)
+    check(_ambush_rate(store, p, 1, passive) == 0, "пассивный не нападает никогда")
+    check(_ambush_rate(store, p, 2, terr) == 0,
+          "территориальный издалека не достаёт")
+
+    close = _ambush_rate(store, p, 1, terr)
     check(50 < close < 160, f"территориальный вплотную бросается: {close}/300")
 
-    near = _ambush_rate(store, p, 1, 1)
-    far = _ambush_rate(store, p, 2, 1)
+    near = _ambush_rate(store, p, 1, hunter)
+    far = _ambush_rate(store, p, 2, hunter)
     check(near > 80, f"охотник вплотную нападает часто: {near}/300")
     check(0 < far < near, f"издалека решается реже: {far}/300 против {near}/300")
 
@@ -101,7 +118,7 @@ def test_wandering():
             c.mob = -1
     spot = next(c for c in store.world.values()
                 if c.loc == 1 and c.passable and (c.x, c.y) != W.SPAWN)
-    spot.mob = 1                                     # ворг
+    spot.mob = _mob_of("hunter")
     moved = sum(behavior.wander(store, 1) for _ in range(40))
     alive = [c for c in store.world.values() if c.loc == 1 and c.mob >= 0]
     check(moved > 0, f"охотник сдвинулся {moved} раз")
@@ -112,12 +129,12 @@ def test_wandering():
             c.mob = -1
     spot = next(c for c in store.world.values()
                 if c.loc == 1 and c.passable and (c.x, c.y) != W.SPAWN)
-    spot.mob = 0                                     # зомби
+    spot.mob = _mob_of("passive")
     check(sum(behavior.wander(store, 1) for _ in range(40)) == 0,
           "пассивный остаётся на месте")
 
     store.settings[behavior.WANDER_SETTING] = False
-    spot.mob = 1
+    spot.mob = _mob_of("hunter")
     check(sum(behavior.wander(store, 1) for _ in range(20)) == 0,
           "выключатель брожения работает")
 
@@ -133,7 +150,7 @@ def test_death_grave():
     p.gold, p.hp, p.max_hp, p.strength = 500, 1, 100, 1
     p.loc, p.x, p.y = 1, 3, 3
 
-    r = combat.start(p, 6, store=store)              # Пожиратель добьёт
+    r = combat.start(p, _boss_mob(), store=store)    # сильнейший добьёт
     for _ in range(10):
         if not p.combat:
             break

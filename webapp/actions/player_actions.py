@@ -169,10 +169,13 @@ def _toggle_vip(app, tg_id):
         return
     if stash.is_vip(p):
         stash.revoke_vip(p)
-        msg = f"VIP снят у {p.name} — карман снова {stash.SLOTS}"
+        msg = (f"VIP снят у {p.name} — карман снова "
+               f"{stash.capacity(p, app.store)}")
     else:
-        stash.grant_vip(p, 30)
-        msg = f"👑 VIP на 30 дней: {p.name} — карман {stash.capacity(p)}"
+        days = stash.vip_days(app.store)
+        stash.grant_vip(p, days)
+        msg = (f"👑 VIP на {days} дн.: {p.name} — "
+               f"карман {stash.capacity(p, app.store)}")
     app.store.save()
     app.close_modal()
     dom.toast(msg)
@@ -180,20 +183,22 @@ def _toggle_vip(app, tg_id):
 
 
 def _mass_vip(app):
-    """Выдать VIP на неделю. Раньше писалось поле vip_days, которого нет
-    в модели, — статус не переживал перезагрузку."""
+    """Выдать VIP на срок из настроек панели. Раньше писалось поле vip_days,
+    которого нет в модели, — статус не переживал перезагрузку."""
     from engine import stash
 
     ids = _selected_tg_ids(app)
     if not ids:
         dom.toast("Никто не выбран", "err")
         return
+    days = stash.vip_days(app.store)
     for tg_id in ids:
         p = app.store.players.get(tg_id)
         if p is not None:
-            stash.grant_vip(p, 7)
+            stash.grant_vip(p, days)
     app.store.save()
-    dom.toast(f"👑 VIP на 7 дней выдан: {len(ids)} — карман +{stash.VIP_BONUS}")
+    dom.toast(f"👑 VIP на {days} дн. выдан: {len(ids)} — "
+              f"карман +{stash.tune(app.store, 'stash_vip_bonus')}")
     app.render()
 
 

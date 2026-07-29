@@ -273,34 +273,30 @@ def templates(store):
     return store.settings.get("dungeon_templates", []) or []
 
 
-# ── катаклизмы ──────────────────────────────────────────────
+# ── операции над миром ──────────────────────────────────────
+# Реализация переехала в engine/adminworld.py, но вызывать привычно
+# через adminops — поэтому здесь тонкие делегаты.
 
 def cataclysm_strike(store, actor, kind_key, loc=-1, hours=None, source="panel"):
-    """Обрушить бедствие на локацию (loc=-1 — на весь мир)."""
-    require(actor, "cataclysms")
-    from engine import cataclysm
-    try:
-        ev = cataclysm.strike(store, kind_key, loc, actor=actor,
-                              source=source, hours=hours)
-    except ValueError as e:
-        raise Denied(str(e))
-    return ev, f"{cataclysm.title(kind_key)} → {cataclysm.place(loc)}"
+    from engine import adminworld
+    return adminworld.cataclysm_strike(store, actor, kind_key, loc, hours, source)
 
 
 def cataclysm_end(store, actor, event_id, source="panel"):
-    require(actor, "cataclysms")
-    from engine import cataclysm
-    ev = cataclysm.end(store, event_id, revert=True, actor=actor, source=source)
-    if ev is None:
-        raise Denied("Бедствие уже утихло")
-    return ev, cataclysm.title(ev["kind"])
+    from engine import adminworld
+    return adminworld.cataclysm_end(store, actor, event_id, source)
 
 
 def cataclysm_calm(store, actor, source="panel"):
-    """Погасить все бедствия разом и вернуть клетки как было."""
-    require(actor, "cataclysms")
-    from engine import cataclysm
-    live = cataclysm.active(store, None)
-    for ev in list(live):
-        cataclysm.end(store, ev["id"], revert=True, actor=actor, source=source)
-    return len(live)
+    from engine import adminworld
+    return adminworld.cataclysm_calm(store, actor, source)
+
+
+def boss_summon(store, actor, key, loc=None, hours=None, source="panel"):
+    from engine import adminworld
+    return adminworld.boss_summon(store, actor, key, loc, hours, source)
+
+
+def boss_dismiss(store, actor, source="panel"):
+    from engine import adminworld
+    return adminworld.boss_dismiss(store, actor, source)

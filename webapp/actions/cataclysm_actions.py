@@ -11,6 +11,8 @@ def register(app, A):
     A("cata-end", lambda arg: _end(app, arg))
     A("cata-calm", lambda _="": _calm(app))
     A("cata-settings", lambda _="": _settings(app))
+    A("boss-summon", lambda arg: _boss_summon(app, arg))
+    A("boss-dismiss", lambda _="": _boss_dismiss(app))
 
     A("dungeon-create", lambda _="": _dungeon_create(app))
     A("dungeon-open", lambda arg: _dungeon_open(app, arg))
@@ -90,6 +92,34 @@ def _settings(app):
     app.store.save()
     dom.toast("Настройки катаклизмов сохранены")
     app.render()
+
+
+# ── мировой босс ────────────────────────────────────────────
+
+def _boss_summon(app, key):
+    try:
+        _, info = adminops.boss_summon(app.store, app.actor, key)
+    except adminops.Denied as e:
+        dom.toast(str(e), "err")
+        return
+    app.log("sys", f"🏰 Призван мировой босс: {info}")
+    dom.toast(f"Призван: {info}")
+    app.render()
+    _flush(app)
+
+
+def _boss_dismiss(app):
+    from js import window
+    if not window.confirm("Развеять босса? Награды никто не получит."):
+        return
+    try:
+        _, info = adminops.boss_dismiss(app.store, app.actor)
+    except adminops.Denied as e:
+        dom.toast(str(e), "err")
+        return
+    dom.toast(f"{info} развеян")
+    app.render()
+    _flush(app)
 
 
 # ── подземелья ──────────────────────────────────────────────

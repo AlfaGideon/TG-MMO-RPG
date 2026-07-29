@@ -118,7 +118,7 @@ def profile(p, store=None):
     return (
         f"{icon} <b>{p.name}</b>{crown} · ур. {p.level}\n"
         f"Класс: <code>{p.cls}</code> · Золото: <code>{p.gold}</code> 🪙\n"
-        f"🎒 Сумка: {len(p.inventory)} · 🔒 Карман: {kept}/{stash.capacity(p)}"
+        f"🎒 Сумка: {len(p.inventory)} · 🔒 Карман: {kept}/{stash.capacity(p, store)}"
         f"{hurt}\n\n"
         f"❤️ HP {p.hp}/{s['max_hp']}\n{rules.bar(p.hp, s['max_hp'])}\n"
         f"💙 MP {p.mp}/{s['max_mp']}\n{rules.bar(p.mp, s['max_mp'], '🟦')}\n"

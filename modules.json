@@ -7,6 +7,7 @@
     "webapp/actions"
   ],
   "modules": [
+    "engine/content.py",
     "engine/data.py",
     "engine/models.py",
     "engine/world.py",
@@ -28,11 +29,14 @@
     "engine/mapview.py",
     "engine/audit.py",
     "engine/adminops.py",
+    "engine/adminworld.py",
     "engine/adminmenu.py",
     "engine/adminbot.py",
     "engine/adminroute.py",
     "engine/itemui.py",
     "engine/stash.py",
+    "engine/landmarks.py",
+    "engine/worldboss.py",
     "engine/craft.py",
     "engine/auction.py",
     "engine/trade.py",
@@ -70,6 +74,7 @@
     "webapp/actions/economy_actions.py",
     "webapp/actions/player_actions.py",
     "webapp/actions/settings_actions.py",
+    "webapp/actions/living_actions.py",
     "webapp/actions/world_actions.py",
     "webapp/app.py",
     "webapp/boot.py"
