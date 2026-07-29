@@ -23,6 +23,7 @@ def register(app, A):
     A("world-relink", lambda _="": _relink(app))
     A("respawn-save", lambda _="": _respawn_save(app))
     A("respawn-now", lambda _="": _respawn_now(app))
+    A("behavior-save", lambda _="": _behavior_save(app))
     A("world-shuffle", lambda _="": _grid_shuffle(app))
 
     A("world-loc-new", lambda _="": app.modal(page.loc_form(app)))
@@ -220,6 +221,17 @@ def _respawn_save(app):
         values = {key: dom.value(f"#{prefix}{key}", "") for key, _ in LOC_TYPES}
         respawn.set_delays(app.store, kind, values)
     dom.toast("Настройки респавна сохранены")
+    app.render()
+
+
+def _behavior_save(app):
+    """Выключатели брожения и самостоятельных нападений."""
+    from engine import behavior
+
+    app.store.settings[behavior.WANDER_SETTING] = dom.value("#behWander", "1") == "1"
+    app.store.settings[behavior.HUNT_SETTING] = dom.value("#behHunt", "1") == "1"
+    app.store.save()
+    dom.toast("Поведение тварей сохранено")
     app.render()
 
 

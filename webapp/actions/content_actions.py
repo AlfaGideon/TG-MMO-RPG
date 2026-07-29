@@ -85,7 +85,8 @@ def _mob_save(app, arg):
         return
     row = (name, dom.value("#mf_desc", "").strip(), _int("#mf_level", 1),
            _int("#mf_hp", 30), _int("#mf_dmg", 5), _int("#mf_def", 2),
-           _int("#mf_gold", 10), _int("#mf_exp", 15), _int("#mf_loc", 0))
+           _int("#mf_gold", 10), _int("#mf_exp", 15), _int("#mf_loc", 0),
+           dom.value("#mf_behavior", data.DEFAULT_BEHAVIOR))
     if arg == "new":
         data.MOBS.append(row)
         dom.toast(f"Моб «{name}» создан")

@@ -2,7 +2,8 @@
 могут подтянуться другие твари — они ждут очереди в `queue`."""
 import random
 
-from engine import cataclysm, craft, data, items, quests, respawn, rules, texts
+from engine import (cataclysm, craft, data, death, items, party, quests,
+                    respawn, rules, texts)
 from engine.models import Reply
 
 
@@ -23,7 +24,7 @@ def start(p, mob_index, ambush=False, store=None):
             p.hp -= dmg
             p.combat["log"].append(f"👾 Внезапный удар на {dmg}.")
         if p.hp <= 0:
-            return _finish_lose(p)
+            return _finish_lose(p, store)
     return view(p)
 
 
@@ -112,6 +113,10 @@ def _reward(p, m, world, store=None):
     eff = cataclysm.effects(store, p.loc) if store is not None else {}
     gold = max(1, int(m[6] * eff.get("gold", 1.0)))
     exp = max(1, int(m[7] * eff.get("loot", 1.0)))
+    # В отряде доля каждого меньше номинала, но суммарно группа получает больше.
+    if store is not None:
+        k = party.bonus(store, p)
+        gold, exp = max(1, int(gold * k)), max(1, int(exp * k))
     p.gold += gold
     p.kills += 1
     levels = rules.add_exp(p, exp)
@@ -148,6 +153,8 @@ def _reward(p, m, world, store=None):
         if mat >= 0:
             name, icon, _r, _pr = craft.material(mat)
             lines.append(f"🔩 Ресурс: {icon} {name}")
+    if store is not None:                      # соратникам рядом — их доля
+        lines.extend(party.share(store, p, m[6], m[7]))
     for q in quests.on_kill(p, st["mob"]):     # охотничьи задания
         lines.append(f"📜 Задание «{quests.fields(q)['name']}» — можно сдавать!")
     if levels:
@@ -155,18 +162,10 @@ def _reward(p, m, world, store=None):
     return gold, exp, lines
 
 
-def _finish_lose(p):
+def _finish_lose(p, store=None):
+    """Поражение: золото остаётся надгробием на месте гибели, герой ранен."""
     m = data.MOBS[p.combat["mob"]]
-    lost = p.gold // 5
-    p.gold -= lost
-    p.hp = max(1, rules.stats(p)["max_hp"] // 4)
-    p.loc, p.x, p.y = 0, 5, 5
-    p.combat = {}
-    return Reply(text=(
-        f"💀 <b>Поражение...</b>\n\n{m[0]} оказался сильнее. "
-        f"Ты очнулся в Погосте Костров.\n\n"
-        f"Потеряно: {lost} 🪙"
-    ), keyboard=[[("🧭 В мир", "world")], [("◀️ Меню", "menu")]])
+    return death.defeat(store, p, m[0])
 
 
 def action(p, what, world, store=None):
@@ -221,5 +220,5 @@ def action(p, what, world, store=None):
     st["log"].append("💨 Ты уклонился!" if dodged else f"👾 {m[0]} бьёт на {mdmg}.")
 
     if p.hp <= 0:
-        return _finish_lose(p)
+        return _finish_lose(p, store)
     return view(p)

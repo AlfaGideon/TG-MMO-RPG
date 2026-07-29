@@ -52,6 +52,8 @@ class Player:
     kills: int = 0
     quests: dict = field(default_factory=dict)      # {id: {n, done}} — задания
     quest_day: str = ""                             # дата сброса ежедневных
+    wounded_until: float = 0.0                      # до какого времени ранен
+    party_invite: int = 0                           # id отряда, куда позвали
     combat: dict = field(default_factory=dict)      # активный бой
     msg_id: int = 0                                 # id сообщения для edit
     created: str = ""

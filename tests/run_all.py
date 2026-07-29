@@ -8,7 +8,7 @@ SUITES = ["test_engine.py", "test_pages.py", "test_transport.py", "test_access.p
           "test_admin_sync.py", "test_shop_bag.py", "test_wiring.py",
           "test_economy.py", "test_gameplay.py", "test_items_magic.py",
           "test_worldgen.py", "test_cataclysm.py",
-          "test_living_world.py"]
+          "test_living_world.py", "test_social_world.py"]
 
 
 def main():

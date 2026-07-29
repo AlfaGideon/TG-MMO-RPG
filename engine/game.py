@@ -1,9 +1,9 @@
 """Роутер бота: команда/callback -> Reply. Не знает ничего про Telegram."""
 import random
 
-from engine import (adminbot, adminroute, cataclysm, combat, data, explore,
-                    hero, inventory, items, mapview, quests, respawn, rules,
-                    shop, texts, trade, world)
+from engine import (adminbot, adminroute, behavior, cataclysm, combat, data,
+                    explore, hero, inventory, items, mapview, respawn, rules,
+                    shop, social, texts, trade, world)
 from engine.models import Reply
 
 
@@ -32,7 +32,7 @@ class Game:
         rows = [
             [("🧭 В мир", "world"), ("🧙 Профиль", "profile")],
             [("🎒 Инвентарь", "bag"), ("🏪 Лавка", "shop")],
-            [("📜 Задания", "quests")],
+            [("📜 Задания", "quests"), ("🤝 Отряд", "party")],
             [("🔨 Мастерская", "craft"), ("🏛 Аукцион", "auc:0")],
             [("🏆 Топ", "top"), ("❓ Помощь", "help")],
         ]
@@ -173,7 +173,7 @@ class Game:
                 warn = (f"⚠️ {dest[0]} — опасно! Рекомендуется {dest[3]}+ уровень, "
                         f"у тебя {p.level}. Ты входишь на свой страх и риск…")
             p.loc, p.x, p.y = target.link
-            quests.on_enter(p, p.loc)        # разведка засчитана
+            social.on_enter(p, p.loc)        # разведка засчитана
         else:
             p.x, p.y = target.x, target.y
         mapview.mark_visited(p)
@@ -181,7 +181,11 @@ class Game:
         respawn.tick(self.store)             # твари и сундуки возвращаются
         cell = self._cell(p)
         rate = min(0.98, 0.75 * cataclysm.effects(self.store, p.loc)["mob_rate"])
-        ambusher = cataclysm.prowl(self.store, p)
+        # Твари живут своей жизнью: бродят и сами решают напасть. В беду
+        # к этому добавляется засада орды.
+        ambusher = behavior.tick(self.store, p)
+        if ambusher is None:
+            ambusher = cataclysm.prowl(self.store, p)
         if ambusher is not None:             # тварь бросилась сама
             r = combat.start(p, ambusher, ambush=True, store=self.store)
         elif cell.mob >= 0 and random.random() < rate:
@@ -192,24 +196,23 @@ class Game:
             r.alert = warn
         return r
 
-    def do_quests(self, p, arg=""):
-        return quests.journal(p)
-
-    def do_qtake(self, p, arg):
-        r = quests.take(p, arg)
-        self.store.save_player(p)
-        return r
-
-    def do_qdrop(self, p, arg):
-        r = quests.abandon(p, arg)
-        self.store.save_player(p)
-        return r
-
-    def do_qdone(self, p, arg):
-        return quests.hand_in(self.store, p, arg)
-
-    def do_qcard(self, p, arg):
-        return quests.card(p, arg)
+    # ── отряд, могилы, задания ──────────────────────────────
+    # Экраны живут в engine/social.py; здесь только имена команд, чтобы
+    # роутер оставался оглавлением, а не свалкой логики.
+    do_party = lambda self, p, arg="": social.party_card(self.store, p)
+    do_pnew = lambda self, p, arg="": social.party_new(self.store, p)
+    do_pjoin = lambda self, p, arg="": social.party_join(self.store, p)
+    do_pno = lambda self, p, arg="": social.party_no(self.store, p)
+    do_pleave = lambda self, p, arg="": social.party_leave(self.store, p)
+    do_pnoop = lambda self, p, arg="": social.party_hint()
+    do_invite = lambda self, p, arg="": social.party_invite(self.store, p, arg)
+    do_grave = lambda self, p, arg="": social.grave(self.store, p)
+    do_claim = lambda self, p, arg="": social.claim(self.store, p)
+    do_quests = lambda self, p, arg="": social.journal(p)
+    do_qtake = lambda self, p, arg: social.quest_take(self.store, p, arg)
+    do_qdrop = lambda self, p, arg: social.quest_drop(self.store, p, arg)
+    do_qdone = lambda self, p, arg: social.quest_done(self.store, p, arg)
+    do_qcard = lambda self, p, arg: social.quest_card(p, arg)
 
     def do_disaster(self, p, arg=""):
         """Карточка бедствий, накрывших землю под ногами игрока."""

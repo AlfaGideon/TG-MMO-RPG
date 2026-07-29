@@ -25,6 +25,7 @@ PORTAL = "🌀"     # открытый портал в подземелье
 CHEST = "📦"
 MOB = "👾"
 NPC = "💬"
+GRAVE = "🪦"      # чьё-то надгробие с золотом
 
 
 def ckey(loc, x, y):
@@ -67,6 +68,13 @@ def other_keys(store, p):
     return out
 
 
+def _grave_keys(store):
+    if store is None:
+        return set()
+    from engine import death
+    return death.keys(store)
+
+
 def portal_keys(store):
     """Ключи клеток, где сейчас открыты порталы подземелий."""
     out = {}
@@ -77,10 +85,12 @@ def portal_keys(store):
     return out
 
 
-def glyph(cell, portals=()):
+def glyph(cell, portals=(), graves=()):
     """Символ клетки на карте (без учёта тумана и позиции игрока)."""
     if cell is None or not cell.passable:
         return TILE["wall"]
+    if cell.key in graves:
+        return GRAVE
     if cell.key in portals:
         return PORTAL
     if cell.link:
@@ -94,7 +104,7 @@ def glyph(cell, portals=()):
     return TILE.get(cell.tile, TILE["grass"])
 
 
-def grid(p, cells, portals=(), others=None):
+def grid(p, cells, portals=(), others=None, graves=()):
     """Список строк карты текущей локации игрока.
 
     `others` — {ключ: [герои]}: соседи видны синей точкой, но только в уже
@@ -114,7 +124,7 @@ def grid(p, cells, portals=(), others=None):
             if others.get(ckey(p.loc, x, y)):
                 row += OTHER
                 continue
-            row += glyph(cells.get(ckey(p.loc, x, y)), portals)
+            row += glyph(cells.get(ckey(p.loc, x, y)), portals, graves)
         rows.append(row)
     return rows
 
@@ -123,7 +133,8 @@ def render(p, cells, store=None):
     """Reply с картой локации: туман войны, легенда, прогресс исследования."""
     portals = portal_keys(store) if store is not None else {}
     others = other_keys(store, p) if store is not None else {}
-    rows = grid(p, cells, portals, others)
+    graves = _grave_keys(store)
+    rows = grid(p, cells, portals, others, graves)
 
     total = sum(1 for c in cells.values() if c.loc == p.loc)
     seen = sum(1 for k in (getattr(p, "visited", []) or []) if k.startswith(f"{p.loc}:"))
@@ -132,7 +143,8 @@ def render(p, cells, store=None):
     loc = data.LOCATIONS[p.loc] if p.loc < len(data.LOCATIONS) else ("Неизвестность",)
     legend = (f"{PLAYER} ты · {OTHER} герой · {FOG} не изучено · "
               f"{TILE['wall']} стена · {DOOR} переход\n"
-              f"{PORTAL} портал · {MOB} враг · {NPC} житель · {CHEST} сундук")
+              f"{PORTAL} портал · {MOB} враг · {NPC} житель · {CHEST} сундук · "
+              f"{GRAVE} могила")
 
     nearby = len(others)
     company = f" · {OTHER} рядом героев: {nearby}" if nearby else ""

@@ -5,7 +5,7 @@
 """
 import random
 
-from engine import cataclysm, data, items, respawn, rules
+from engine import cataclysm, data, death, items, respawn, rules
 from engine.models import Reply
 
 BACK_WORLD = [[("◀️ В мир", "world")]]
@@ -16,10 +16,17 @@ def look(p, cell, store=None):
     from engine import mapview
 
     found, rows = [], []
+    grave = death.at(store, cell.loc, cell.x, cell.y) if store is not None else None
+    if grave is not None:
+        whose = "твоя" if int(grave.get("owner", 0)) == int(p.tg_id) else f"{grave.get('name', '?')}"
+        found.append(f"🪦 Надгробие ({whose}) — {grave.get('gold', 0)} 🪙")
+        rows.append([("💰 Забрать", "claim")])
     for q in mapview.others_here(store, p, cell.loc, cell.x, cell.y):
         found.append(f"🔵 Герой: {q.name} (ур. {q.level})")
     if cell.mob >= 0:
-        found.append(f"👾 Враг: {data.MOBS[cell.mob][0]} (ур. {data.MOBS[cell.mob][2]})")
+        from engine import behavior
+        found.append(f"👾 Враг: {data.MOBS[cell.mob][0]} (ур. {data.MOBS[cell.mob][2]})"
+                     f" · {behavior.label(cell.mob)}")
         rows.append([("⚔️ Атаковать", f"hunt:{cell.mob}")])
     if cell.npc >= 0:
         n = data.NPCS[cell.npc]
@@ -51,10 +58,14 @@ def talk(npc_index, p=None):
 
 
 def heal(p):
+    """Лекарь: восстанавливает силы и заодно залечивает раны после смерти."""
+    was_wounded = death.wounded(p)
+    death.heal_wounds(p)
     s = rules.stats(p)
     p.hp, p.mp = s["max_hp"], s["max_mp"]
+    extra = ("\n🩸 Раны затянулись — штраф к статам снят." if was_wounded else "")
     return Reply(text="💊 Лекарь Мира кладёт ладонь тебе на лоб.\n\n"
-                      "❤️ Здоровье и мана полностью восстановлены.",
+                      f"❤️ Здоровье и мана полностью восстановлены.{extra}",
                  keyboard=BACK_WORLD)
 
 

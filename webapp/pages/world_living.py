@@ -1,5 +1,7 @@
-"""Вкладка «Жизнь мира»: респавн тварей и сундуков, обзор заданий."""
-from engine import data, quests, respawn
+"""Вкладка «Жизнь мира»: респавн, характеры тварей, могилы, отряды, задания."""
+import time
+
+from engine import behavior, data, death, party, quests, respawn
 from webapp.html import esc
 
 LOC_TYPES = [("safe", "🛡 Безопасные"), ("dangerous", "⚠️ Опасные"),
@@ -9,8 +11,109 @@ LOC_TYPES = [("safe", "🛡 Безопасные"), ("dangerous", "⚠️ Опа
 def render(ctx):
     return f"""
 {_respawn_settings(ctx)}
+{_behavior(ctx)}
 {_queue(ctx)}
+{_graves(ctx)}
+{_parties(ctx)}
 {_quests(ctx)}
+"""
+
+
+def _behavior(ctx):
+    """Кто как себя ведёт и выключатели брожения/охоты."""
+    census = behavior.census(ctx.store)
+    cards = ""
+    for key, (icon, name, hint) in data.BEHAVIORS.items():
+        cards += (f"<div class='cata-card'><div class='ct'>{icon} {esc(name)}</div>"
+                  f"<div class='cd'>{esc(hint)}<br>сейчас в мире: "
+                  f"<b>{census.get(key, 0)}</b></div></div>")
+    wander_on = behavior.enabled(ctx.store, behavior.WANDER_SETTING)
+    hunt_on = behavior.enabled(ctx.store, behavior.HUNT_SETTING)
+    return f"""
+<div class="card">
+  <h2>👣 Характеры тварей</h2>
+  <div class="hint">Раньше все мобы стояли на местах и ждали, пока на них
+     наступят. Теперь нрав задаётся у каждого вида в разделе «Контент → Мобы»:
+     охотники бродят и сами идут на игрока, территориальные бросаются
+     вплотную, пассивные ждут. Катаклизм добавляет злости всем сверху.</div>
+  <div class="cata-grid">{cards}</div>
+  <div class="row" style="margin-top:.8rem">
+    <div><label>Брожение (охотники ходят)</label><select id="behWander">
+      <option value="1" {'selected' if wander_on else ''}>включено</option>
+      <option value="0" {'selected' if not wander_on else ''}>выключено</option></select></div>
+    <div><label>Твари нападают сами</label><select id="behHunt">
+      <option value="1" {'selected' if hunt_on else ''}>включено</option>
+      <option value="0" {'selected' if not hunt_on else ''}>выключено</option></select></div>
+    <div style="flex:0 0 auto"><label>&nbsp;</label>
+      <button class="btn primary" data-act="behavior-save">💾 Сохранить</button></div>
+  </div>
+</div>
+"""
+
+
+def _graves(ctx):
+    """Надгробия павших героев."""
+    graves = ctx.store.settings.get(death.GRAVES) or []
+    if not graves:
+        body = "<p class='muted'>Могил нет — либо все живы, либо всё уже забрали.</p>"
+    else:
+        rows = ""
+        for g in sorted(graves, key=lambda x: -x.get("at", 0))[:15]:
+            where = (data.LOCATIONS[g["loc"]][0]
+                     if g["loc"] < len(data.LOCATIONS) else "?")
+            age = int((time.time() - float(g.get("at", 0))) // 60)
+            rows += (f"<tr><td>{esc(g.get('name', '?'))}</td>"
+                     f"<td>{esc(where)} [{g['x']},{g['y']}]</td>"
+                     f"<td>{g.get('gold', 0)} 🪙</td><td>{age} мин назад</td></tr>")
+        body = (f"<div class='scroll'><table><thead><tr><th>Герой</th><th>Где</th>"
+                f"<th>Золото</th><th>Когда</th></tr></thead>"
+                f"<tbody>{rows}</tbody></table></div>")
+    return f"""
+<div class="card">
+  <h2>🪦 Надгробия ({len(graves)})</h2>
+  <div class="hint">Потерянное при гибели золото не исчезает, а ждёт хозяина
+     на месте смерти: дошёл — вернул всё, погиб по дороге — потерял. Чужую
+     могилу тоже можно обчистить, но половина рассыпается прахом.
+     Бесхозные истлевают за {death.GRAVE_HOURS} ч.</div>
+  {body}
+</div>
+"""
+
+
+def _parties(ctx):
+    """Кто с кем ходит."""
+    parties = ctx.store.settings.get(party.PARTIES) or []
+    if not parties:
+        body = "<p class='muted'>Отрядов нет — все странствуют поодиночке.</p>"
+    else:
+        rows = ""
+        for pt in parties:
+            names = []
+            for tg_id in pt.get("members", []):
+                q = ctx.store.players.get(int(tg_id))
+                if q is None:
+                    continue
+                crown = "👑 " if int(pt.get("leader", 0)) == int(tg_id) else ""
+                names.append(f"{crown}{esc(q.name)} (ур. {q.level})")
+            locs = {ctx.store.players[int(m)].loc
+                    for m in pt.get("members", [])
+                    if int(m) in ctx.store.players}
+            together = "вместе" if len(locs) == 1 else "врозь"
+            rows += (f"<tr><td>{', '.join(names)}</td>"
+                     f"<td>{len(pt.get('members', []))}/{party.MAX_SIZE}</td>"
+                     f"<td>{together}</td></tr>")
+        body = (f"<div class='scroll'><table><thead><tr><th>Состав</th>"
+                f"<th>Размер</th><th>Где</th></tr></thead>"
+                f"<tbody>{rows}</tbody></table></div>")
+    return f"""
+<div class="card">
+  <h2>🤝 Отряды ({len(parties)})</h2>
+  <div class="hint">До {party.MAX_SIZE} героев. Опыт и золото получают все,
+     кто в одной локации: фонд отряда растёт до ×{party.MAX_TOTAL:g}, но доля
+     каждого меньше сольной — вместе выгоднее, чем врозь, и при этом не станок
+     по печати денег. Зовут командой <code>/invite Имя</code>.</div>
+  {body}
+</div>
 """
 
 
