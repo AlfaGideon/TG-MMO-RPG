@@ -809,8 +809,12 @@ async def show_cell(callback, character, location, session):
         if n is None:
             dir_labels[direction] = "⬛"
         elif not n.is_passable:
-            # Камень прямо на кнопке: сразу понятно, куда упирается путь.
-            dir_labels[direction] = "🪨"
+            # Камни нужны только как рамка карты. Внутри сетки они забивают
+            # навигацию, поэтому закрытая внутренняя клетка остаётся обычной
+            # тёмной кнопкой (⬛ из клавиатуры).
+            edge = n.x in (0, location.grid_size - 1) or n.y in (0, location.grid_size - 1)
+            if edge:
+                dir_labels[direction] = "🪨"
         elif n.target_location_id is not None and n.target_x is not None and n.target_y is not None:
             # Дверь/переход на соседнюю локацию или этаж: игрок видит это
             # до нажатия стрелки, а направление всё равно остаётся на кнопке.

@@ -46,12 +46,14 @@ def _pick_tab(app, tab):
 def _pick_loc(app, idx):
     app.state["loc"] = int(idx)
     app.state["cell_pick"] = ""        # выделение чужой локации ни к чему
+    app.state["floor_filter"] = "0"     # у новой локации всегда открываем первый этаж
     app.render()
 
 
 def _pick_floor(app, floor):
-    """Фильтр карты по этажу: 'all' или номер этажа."""
+    """Показывает отдельную сетку выбранного этажа."""
     app.state["floor_filter"] = str(floor)
+    app.state["cell_pick"] = ""
     app.render()
 
 
