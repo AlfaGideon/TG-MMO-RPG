@@ -221,18 +221,27 @@ def inventory_keyboard(items: list, page: int = 0, per_page: int = 6):
 
 def item_action_keyboard(inv_item_id: int, is_equipped: bool,
                          can_equip: bool = True, can_use: bool = False,
-                         can_sell: bool = False):
+                         can_sell: bool = False, in_stash: bool = False,
+                         can_stash: bool = False):
     builder = InlineKeyboardBuilder()
-    if can_equip:
+    if can_equip and not in_stash:
         if is_equipped:
             builder.button(text="🚫 Снять", callback_data=f"unequip:{inv_item_id}")
         else:
             builder.button(text="✅ Экипировать", callback_data=f"equip:{inv_item_id}")
-    if can_use:
+    if can_use and not in_stash:
         builder.button(text="🧪 Использовать", callback_data=f"use:{inv_item_id}")
-    if can_sell and not is_equipped:
+    if can_sell and not is_equipped and not in_stash:
         builder.button(text="⚖️ На аукцион", callback_data=f"auction_sell:{inv_item_id}")
-    builder.button(text="🗑 Выбросить", callback_data=f"drop:{inv_item_id}")
+    # Защищённый карман: вещь оттуда не теряется при гибели.
+    if in_stash:
+        builder.button(text="🎒 Достать из кармана",
+                       callback_data=f"stash_take:{inv_item_id}")
+    elif can_stash:
+        builder.button(text="🔒 Убрать в карман",
+                       callback_data=f"stash_put:{inv_item_id}")
+    if not in_stash:
+        builder.button(text="🗑 Выбросить", callback_data=f"drop:{inv_item_id}")
     builder.button(text="◀️ Назад", callback_data="inventory")
     builder.adjust(2)
     return builder.as_markup()

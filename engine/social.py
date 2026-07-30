@@ -4,7 +4,8 @@
 роутер `engine/game.py` оставался списком команд, а не свалкой логики.
 Здесь только то, что нужно всем трём: сохранить игрока после действия.
 """
-from engine import death, factions, landmarks, party, quests, stash, worldboss
+from engine import (death, dungeon, factions, landmarks, party, quests,
+                    stash, worldboss)
 from engine.models import Reply
 
 
@@ -46,6 +47,44 @@ def grave(store, p):
 
 def claim(store, p):
     return death.claim(store, p)
+
+
+# ── подземелья ──────────────────────────────────────────────
+
+def dungeon_enter(store, p):
+    return dungeon.enter(store, p)
+
+
+def dungeon_view(store, p):
+    return dungeon.view(store, p)
+
+
+def dungeon_move(store, p, direction):
+    return dungeon.move(store, p, direction)
+
+
+def dungeon_fight(store, p):
+    return dungeon.fight(store, p)
+
+
+def dungeon_chest(store, p):
+    return dungeon.open_chest(store, p)
+
+
+def dungeon_down(store, p):
+    return dungeon.descend(store, p)
+
+
+def dungeon_exit(store, p):
+    return dungeon.leave(store, p)
+
+
+def dungeon_map(store, p):
+    return dungeon.minimap(store, p)
+
+
+def in_dungeon(p):
+    return dungeon.inside(p)
 
 
 # ── репутация ───────────────────────────────────────────────

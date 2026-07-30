@@ -25,6 +25,14 @@ async def run_migrations():
             if "image_url" not in cols:
                 await conn.execute(text("ALTER TABLE characters ADD COLUMN image_url VARCHAR(512)"))
 
+        # Защищённый карман: вещи, которые переживают гибель героя.
+        if "inventory_items" in tables:
+            cols_result = await conn.execute(text("PRAGMA table_info(inventory_items)"))
+            cols = {row[1] for row in cols_result.fetchall()}
+            if "in_stash" not in cols:
+                await conn.execute(text(
+                    "ALTER TABLE inventory_items ADD COLUMN in_stash BOOLEAN DEFAULT 0"))
+
         # Add missing columns to users
         if "users" in tables:
             cols_result = await conn.execute(text("PRAGMA table_info(users)"))

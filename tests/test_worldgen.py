@@ -97,15 +97,20 @@ async def main():
         report = await W.autolink(s, a)
         await s.commit()
         check(any("восток" in r for r in report), f"отчёт автосвязки: {report}")
-        seam_a = await W.cell_at(s, a.id, 1, 9)
-        seam_b = await W.cell_at(s, b.id, 1, 0)
-        check(seam_a.target_location_id == b.id and seam_a.target_x == 1 and seam_a.target_y == 1,
+        # Шов — ОДНА дверь в центре границы (mid), а не стена из дверей
+        # по всему краю: ожидания ниже привязаны к середине.
+        mid = 10 // 2
+        seam_a = await W.cell_at(s, a.id, mid, 9)
+        seam_b = await W.cell_at(s, b.id, mid, 0)
+        check(seam_a.target_location_id == b.id and seam_a.target_x == mid
+              and seam_a.target_y == 1,
               "шов A→B: граница ведёт в зеркальную клетку")
-        check(seam_b.target_location_id == a.id and seam_b.target_x == 1 and seam_b.target_y == 8,
+        check(seam_b.target_location_id == a.id and seam_b.target_x == mid
+              and seam_b.target_y == 8,
               "шов B→A: обратный переход симметричен")
-        check(await passable_path(s, a, *W.center_of(10), 1, 9),
+        check(await passable_path(s, a, *W.center_of(10), mid, 9),
               "от центра A прорублена дорога до ворот")
-        check(await passable_path(s, b, *W.center_of(10), 1, 0),
+        check(await passable_path(s, b, *W.center_of(10), mid, 0),
               "от центра B прорублена дорога до ворот")
 
     print("\n— Лестницы двусторонние —")
@@ -136,7 +141,7 @@ async def main():
         await s.commit()
         # после обмена: Лес(0,0)↔Деревня(1,0) и Деревня(1,0)↔Шахта(2,0)
         check(pairs == 2, f"после обмена пересобрано 2 шва ({pairs})")
-        seam = await W.cell_at(s, b.id, 1, 9)
+        seam = await W.cell_at(s, b.id, 10 // 2, 9)
         check(seam.target_location_id == a.id, "шов теперь от B (запад) к A (восток)")
 
     print("\n— Resize: расширение и обрезка —")

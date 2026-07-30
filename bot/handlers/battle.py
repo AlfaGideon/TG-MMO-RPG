@@ -39,6 +39,27 @@ async def _load_character(session, telegram_id: int, with_cell: bool = False):
     return result.scalar_one_or_none()
 
 
+async def _lose_bag(session, character):
+    """Гибель: часть сумки пропадает, защищённый карман цел.
+
+    Пока это простая потеря — надгробий в серверном стеке ещё нет, но
+    механика кармана уже осмысленна: игрок сам решает, что беречь.
+    Возвращает строку для экрана поражения.
+    """
+    from core import stash as stash_core
+
+    lost = await stash_core.drop_on_death(session, character)
+    kept = len(await stash_core.stashed(session, character))
+    for inv in lost:
+        await session.delete(inv)
+    parts = []
+    if lost:
+        parts.append(f"🎒 Потеряно из сумки: <b>{len(lost)}</b>")
+    if kept:
+        parts.append(f"🔒 В кармане уцелело: <b>{kept}</b>")
+    return ("\n\n" + "\n".join(parts)) if parts else ""
+
+
 @router.callback_query(F.data == "battle_menu")
 async def battle_menu(callback: CallbackQuery):
     async with async_session() as session:
@@ -259,11 +280,12 @@ async def combat_attack(callback: CallbackQuery):
                 spawn.engaged_by_id = None
                 # Моб зализывает раны, а не остаётся с 1 HP навсегда
                 spawn.current_hp = mob.hp
+            note = await _lose_bag(session, character)
             await session.commit()
             combat_state.pop(callback.from_user.id, None)
 
             await callback.message.edit_text(
-                defeat_text(),
+                defeat_text() + note,
                 reply_markup=main_menu_keyboard(has_character=True),
                 parse_mode="HTML",
             )
@@ -311,10 +333,11 @@ async def combat_defend(callback: CallbackQuery):
 
         if state["character_hp"] <= 0:
             character.current_hp = 1
+            note = await _lose_bag(session, character)
             await session.commit()
             combat_state.pop(callback.from_user.id, None)
             await callback.message.edit_text(
-                defeat_text(),
+                defeat_text() + note,
                 reply_markup=main_menu_keyboard(has_character=True),
                 parse_mode="HTML",
             )

@@ -1375,6 +1375,17 @@ async def settings_page(request: Request):
     # Подсказываем адрес, с которого админ сейчас смотрит панель
     detected = str(request.base_url).rstrip("/")
 
+    # Карман и VIP: те же числа, что в Pyodide-панели — паритет механики.
+    from core import stash as stash_core
+
+    async with async_session() as session:
+        stash_values = {key: await stash_core.tune(session, key)
+                        for key in stash_core.TUNABLES}
+        result = await session.execute(
+            select(Character).where(Character.is_vip == True)
+        )
+        vip_players = result.scalars().all()
+
     return templates.TemplateResponse(
         request,
         "settings.html",
@@ -1384,8 +1395,25 @@ async def settings_page(request: Request):
             "panel_url": panel_url,
             "detected_url": detected,
             "example_login_url": build_login_url(panel_url or detected, 123456789),
+            "stash_tunables": stash_core.TUNABLES,
+            "stash_values": stash_values,
+            "vip_players": vip_players,
         },
     )
+
+
+@app.post("/settings/save-stash")
+async def save_stash_settings(request: Request):
+    """Размер защищённого кармана, прибавка VIP, доля потерь, срок VIP."""
+    guard(request, "settings")
+    from core import stash as stash_core
+
+    form = await request.form()
+    values = {key: form.get(key, "") for key in stash_core.TUNABLES}
+    async with async_session() as session:
+        await stash_core.set_tunables(session, values)
+        await session.commit()
+    return RedirectResponse(url="/settings", status_code=303)
 
 
 @app.post("/settings/save-panel-url")
@@ -2744,6 +2772,20 @@ async def editor_dungeons(request: Request):
         )
         portal_by_template = {c.dungeon_template_id: c for c in result.scalars().all()}
         portal_open_by_template = {tpl.id: is_portal_open(tpl) for tpl in templates_list}
+
+        # Кто сейчас внутри: без этого админ видит только шаблоны и не знает,
+        # можно ли закрывать портал — там могут быть живые игроки.
+        result = await session.execute(
+            select(DungeonRun)
+            .options(selectinload(DungeonRun.character))
+            .where(DungeonRun.is_active == True)
+            .order_by(DungeonRun.id.desc())
+        )
+        active_runs = result.scalars().all()
+        runs_by_template = {}
+        for run in active_runs:
+            runs_by_template.setdefault(run.template_id, 0)
+            runs_by_template[run.template_id] += 1
     return templates.TemplateResponse(
         request,
         "editor_dungeons.html",
@@ -2751,6 +2793,8 @@ async def editor_dungeons(request: Request):
             "dungeon_templates": templates_list,
             "portal_by_template": portal_by_template,
             "portal_open_by_template": portal_open_by_template,
+            "active_runs": active_runs,
+            "runs_by_template": runs_by_template,
         },
     )
 

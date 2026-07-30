@@ -176,6 +176,9 @@ def defeat(store, p, mob_name):
     where = (data.LOCATIONS[p.loc][0] if p.loc < len(data.LOCATIONS) else "?")
     spot = f"{where} [{p.x},{p.y}]"
 
+    from engine import dungeon
+    was_deep = dungeon.inside(p)
+    dungeon.bail_out(store, p)            # из подземелья выносит наружу
     wound(p)
     p.hp = max(1, rules.stats(p)["max_hp"] // 4)
     p.loc, p.x, p.y = 0, W.SPAWN[0], W.SPAWN[1]
@@ -192,6 +195,8 @@ def defeat(store, p, mob_name):
         lines.append("<i>Вернись и забери — если успеешь за сутки.</i>")
     elif kept:
         lines.append(f"\n🔒 В защищённом кармане уцелело: <b>{kept}</b>")
+    if was_deep:
+        lines.append("\n🕳 <i>Подземелье выплюнуло тебя наружу.</i>")
     lines.append(f"\n{note(p)}")
 
     rows = [[("🧭 В мир", "world")]]

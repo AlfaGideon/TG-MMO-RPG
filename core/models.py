@@ -580,6 +580,9 @@ class InventoryItem(Base):
     instance_id = Column(Integer, ForeignKey("item_instances.id"), nullable=True)
     quantity = Column(Integer, default=1)
     is_equipped = Column(Boolean, default=False)
+    # Защищённый карман: такие вещи не выпадают при гибели. Ячеек мало
+    # (см. core/stash.py), поэтому игрок выбирает, что беречь.
+    in_stash = Column(Boolean, default=False, index=True)
 
     character = relationship("Character", back_populates="inventory")
     item = relationship("Item")

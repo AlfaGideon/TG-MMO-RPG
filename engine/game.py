@@ -133,6 +133,8 @@ class Game:
             return Reply(alert="Сначала создай героя!")
         if p.combat:
             return combat.view(p)
+        if social.in_dungeon(p):          # внутри подземелья свой мир
+            return social.dungeon_view(self.store, p)
         cell = self._cell(p)
         if not cell:
             p.loc, p.x, p.y = 0, 5, 5
@@ -158,8 +160,7 @@ class Game:
         here = mapview.others_here(self.store, p, p.loc, p.x, p.y)
         return Reply(text=texts.cell_view(p, cell, alarm, here), keyboard=rows)
 
-    def do_wall(self, p, arg=""):
-        return Reply(alert="Туда нельзя пройти.")
+    do_wall = lambda self, p, arg="": Reply(alert="Туда нельзя пройти.")
 
     def do_go(self, p, d):
         if p.combat:
@@ -261,6 +262,17 @@ class Game:
     do_sell = lambda self, p, arg: inventory.sell(p, arg)
     do_toss = lambda self, p, arg: inventory.toss(p, arg)
 
+    # ── подземелья ──────────────────────────────────────────
+    do_denter = lambda self, p, arg="": social.dungeon_enter(self.store, p)
+    do_dview = lambda self, p, arg="": social.dungeon_view(self.store, p)
+    do_dgo = lambda self, p, arg: social.dungeon_move(self.store, p, arg)
+    do_dfight = lambda self, p, arg="": social.dungeon_fight(self.store, p)
+    do_dchest = lambda self, p, arg="": social.dungeon_chest(self.store, p)
+    do_ddown = lambda self, p, arg="": social.dungeon_down(self.store, p)
+    do_dexit = lambda self, p, arg="": social.dungeon_exit(self.store, p)
+    do_dmap = lambda self, p, arg="": social.dungeon_map(self.store, p)
+    do_dwall = lambda self, p, arg="": Reply(alert="Там глухая стена.")
+
     do_rep = lambda self, p, arg="": social.reputation(self.store, p)
     do_boss = lambda self, p, arg="": social.boss(self.store, p)
     do_bosshit = lambda self, p, arg="": social.boss_hit(self.store, p)
@@ -277,26 +289,14 @@ class Game:
         return social.stash_take(self.store, p, arg)
 
     # ── лавка (реализация в engine/shop.py) ─────────────────
-    def do_shop(self, p, arg="0"):
-        return shop.shop(p, arg or 0)
-
-    def do_buyc(self, p, arg):
-        return shop.buy_card(p, arg)
-
-    def do_buy(self, p, arg):
-        return shop.buy(p, arg)
-
-    def do_sellbag(self, p, arg="0"):
-        return shop.sell_list(p, arg or 0)
-
-    def do_sellc(self, p, arg):
-        return shop.sell_card(p, arg)
-
-    def do_sells(self, p, arg):
-        return shop.sell_here(p, arg)
-
-    def do_noop(self, p, arg=""):
-        return Reply(alert="")
+    # Лавка и скупка: обёртки над engine/shop.py.
+    do_shop = lambda self, p, arg="0": shop.shop(p, arg or 0)
+    do_buyc = lambda self, p, arg: shop.buy_card(p, arg)
+    do_buy = lambda self, p, arg: shop.buy(p, arg)
+    do_sellbag = lambda self, p, arg="0": shop.sell_list(p, arg or 0)
+    do_sellc = lambda self, p, arg: shop.sell_card(p, arg)
+    do_sells = lambda self, p, arg: shop.sell_here(p, arg)
+    do_noop = lambda self, p, arg="": Reply(alert="")
 
     # ── топ ─────────────────────────────────────────────────
     def do_top(self, p, arg=""):

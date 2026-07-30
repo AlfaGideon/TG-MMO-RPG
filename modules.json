@@ -37,6 +37,8 @@
     "engine/itemui.py",
     "engine/stash.py",
     "engine/landmarks.py",
+    "engine/dungeon.py",
+    "engine/dungeonui.py",
     "engine/worldboss.py",
     "engine/craft.py",
     "engine/auction.py",

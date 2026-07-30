@@ -57,6 +57,7 @@ class Player:
     party_invite: int = 0                           # id отряда, куда позвали
     landmarks: list = field(default_factory=list)   # осмотренные достопримечательности
     reputation: dict = field(default_factory=dict)  # {фракция: очки}
+    dungeon: dict = field(default_factory=dict)     # активный забег в подземелье
     is_vip: bool = False                            # VIP-статус
     vip_until: float = 0.0                          # до какого времени (0 — бессрочно)
     combat: dict = field(default_factory=dict)      # активный бой

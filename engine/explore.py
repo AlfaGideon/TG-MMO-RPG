@@ -22,6 +22,13 @@ def look(p, cell, store=None):
         found.append(landmarks.note(p, cell, store))
         if not landmarks.visited(p, cell):
             rows.append([(f"{mark['icon']} Изучить", "study")])
+    if store is not None:
+        from engine import dungeon
+        tpl = dungeon.portal_at(store, cell.key)
+        if tpl is not None:
+            found.append(f"🌀 Портал: <b>{tpl['name']}</b> "
+                         f"(ур. {tpl.get('min_level', 1)}+)")
+            rows.append([("🕳 Войти в портал", "denter")])
     grave = death.at(store, cell.loc, cell.x, cell.y) if store is not None else None
     if grave is not None:
         whose = "твоя" if int(grave.get("owner", 0)) == int(p.tg_id) else f"{grave.get('name', '?')}"

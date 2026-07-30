@@ -4,8 +4,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from core import history
+from core import stash as stash_core
 from core.database import async_session
-from core.models import User, Character, InventoryItem, Item, ItemInstance
+from core.models import (User, Character, InventoryItem, Item, ItemInstance,
+                         Location)
 from core.enums import ItemType
 from core.stats import combat_stats
 from bot.keyboards.inline import (
@@ -38,6 +40,13 @@ async def load_inventory(session, character_id: int):
         )
     )
     return result.scalars().all()
+
+
+async def stash_summary(session, character) -> str:
+    """Строка «сколько в кармане» для экрана инвентаря."""
+    kept = len(await stash_core.stashed(session, character))
+    cap = await stash_core.capacity(session, character)
+    return f"🔒 Карман: {kept}/{cap}"
 
 
 async def _character_of(session, telegram_id: int):
@@ -94,9 +103,11 @@ async def inventory(callback: CallbackQuery, page: int = 0):
             return
 
         stats = await combat_stats(session, character)
+        pocket = await stash_summary(session, character)
 
     await callback.message.edit_text(
-        inventory_text(items, stats),
+        inventory_text(items, stats)
+        + f"\n\n{pocket}\n<i>🎒 Сумка теряется при гибели, 🔒 карман — нет.</i>",
         reply_markup=inventory_keyboard(items, page=page),
         parse_mode="HTML",
     )
@@ -134,15 +145,70 @@ async def item_detail(callback: CallbackQuery):
         can_use = item.item_type == ItemType.CONSUMABLE
         can_sell = bool(inv_item.instance_id) and item.is_sellable
 
+        # Защищённый карман: убирать можно только в безопасных землях.
+        character = await _character_of(session, callback.from_user.id)
+        can_stash = False
+        if character is not None:
+            location = await session.get(Location, character.location_id)
+            can_stash = (stash_core.safe_here(location)
+                         and await stash_core.free_slots(session, character) > 0)
+        if inv_item.in_stash:
+            text += "\n\n🔒 <i>В защищённом кармане — не теряется при гибели.</i>"
+
     await send_or_edit_photo(
         callback,
         text,
         reply_markup=item_action_keyboard(
             inv_item.id, inv_item.is_equipped,
             can_equip=can_equip, can_use=can_use, can_sell=can_sell,
+            in_stash=bool(inv_item.in_stash), can_stash=can_stash,
         ),
         image_url=item.image_url,
     )
+
+
+@router.callback_query(F.data.startswith("stash_put:"))
+async def stash_put(callback: CallbackQuery):
+    """Убрать вещь в защищённый карман."""
+    inv_id = int(callback.data.split(":")[1])
+    async with async_session() as session:
+        character = await _character_of(session, callback.from_user.id)
+        inv_item = await session.get(InventoryItem, inv_id)
+        if character is None or inv_item is None:
+            await callback.answer("Предмет не найден.", show_alert=True)
+            return
+        location = await session.get(Location, character.location_id)
+        if not stash_core.safe_here(location):
+            await callback.answer(
+                "Карман открывается только в безопасных землях.", show_alert=True)
+            return
+        ok, msg = await stash_core.put(session, character, inv_item)
+        await session.commit()
+    await callback.answer(msg, show_alert=not ok)
+    if ok:
+        await item_detail(callback)
+
+
+@router.callback_query(F.data.startswith("stash_take:"))
+async def stash_take(callback: CallbackQuery):
+    """Достать вещь из кармана обратно в сумку."""
+    inv_id = int(callback.data.split(":")[1])
+    async with async_session() as session:
+        character = await _character_of(session, callback.from_user.id)
+        inv_item = await session.get(InventoryItem, inv_id)
+        if character is None or inv_item is None:
+            await callback.answer("Предмет не найден.", show_alert=True)
+            return
+        location = await session.get(Location, character.location_id)
+        if not stash_core.safe_here(location):
+            await callback.answer(
+                "Карман открывается только в безопасных землях.", show_alert=True)
+            return
+        ok, msg = await stash_core.take(session, character, inv_item)
+        await session.commit()
+    await callback.answer(msg, show_alert=not ok)
+    if ok:
+        await item_detail(callback)
 
 
 @router.callback_query(F.data.startswith("equip:"))
