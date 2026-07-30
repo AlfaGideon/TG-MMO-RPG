@@ -22,6 +22,8 @@ async def run_migrations():
                 await conn.execute(text("ALTER TABLE characters ADD COLUMN is_vip BOOLEAN DEFAULT 0"))
             if "vip_until" not in cols:
                 await conn.execute(text("ALTER TABLE characters ADD COLUMN vip_until DATETIME"))
+            if "offline_protected" not in cols:
+                await conn.execute(text("ALTER TABLE characters ADD COLUMN offline_protected BOOLEAN DEFAULT 0"))
             if "image_url" not in cols:
                 await conn.execute(text("ALTER TABLE characters ADD COLUMN image_url VARCHAR(512)"))
 

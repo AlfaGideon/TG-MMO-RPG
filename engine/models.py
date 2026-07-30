@@ -60,6 +60,7 @@ class Player:
     dungeon: dict = field(default_factory=dict)     # активный забег в подземелье
     is_vip: bool = False                            # VIP-статус
     vip_until: float = 0.0                          # до какого времени (0 — бессрочно)
+    offline_protected: bool = False                 # VIP вышел из мира под защитой
     combat: dict = field(default_factory=dict)      # активный бой
     msg_id: int = 0                                 # id сообщения для edit
     created: str = ""

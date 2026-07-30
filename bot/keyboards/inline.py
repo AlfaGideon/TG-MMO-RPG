@@ -4,7 +4,8 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from core.enums import CharacterClass
 
 
-def main_menu_keyboard(has_character: bool = False, is_admin: bool = False):
+def main_menu_keyboard(has_character: bool = False, is_admin: bool = False,
+                       is_vip: bool = False, offline: bool = False):
     builder = InlineKeyboardBuilder()
     if not has_character:
         builder.button(text="⚔️ Создать героя", callback_data="create_character")
@@ -18,6 +19,11 @@ def main_menu_keyboard(has_character: bool = False, is_admin: bool = False):
         builder.button(text="🏆 Топ", callback_data="leaderboard")
         builder.button(text="🗿 Подземелье", callback_data="dungeon_menu")
         builder.button(text="⚖️ Аукцион", callback_data="auction_menu")
+        if is_vip:
+            builder.button(
+                text="🌙 Вернуться в мир" if offline else "🌙 Я офлайн",
+                callback_data="offline_resume" if offline else "offline_toggle",
+            )
     builder.button(text="❓ Помощь", callback_data="help")
     builder.adjust(2)
     if is_admin:

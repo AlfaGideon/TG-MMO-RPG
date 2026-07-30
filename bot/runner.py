@@ -8,6 +8,7 @@ from aiogram.enums import ParseMode
 
 from bot.handlers import routers
 from bot.middlewares.db import DBSessionMiddleware
+from bot.middlewares.offline import OfflineProtectionMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,8 @@ class BotRunner:
             self.dp = Dispatcher()
             self.dp.message.middleware(DBSessionMiddleware())
             self.dp.callback_query.middleware(DBSessionMiddleware())
+            self.dp.message.middleware(OfflineProtectionMiddleware())
+            self.dp.callback_query.middleware(OfflineProtectionMiddleware())
             for router in routers:
                 self.dp.include_router(router)
 

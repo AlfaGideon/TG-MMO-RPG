@@ -9,6 +9,9 @@ from engine.models import Reply
 
 def start(p, mob_index, ambush=False, store=None):
     """Начать бой. `ambush` — тварь напала сама и бьёт первой."""
+    from engine import stash
+    if stash.offline_protected(p):
+        return Reply(alert="Ты офлайн: нападения отключены.")
     m = data.MOBS[mob_index]
     p.combat = {"mob": mob_index, "mob_hp": m[3], "round": 0, "log": [],
                 "defend": False, "queue": [], "ambush": bool(ambush)}
