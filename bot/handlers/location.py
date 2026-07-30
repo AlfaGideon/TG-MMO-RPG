@@ -231,6 +231,26 @@ async def inspect_cell(callback: CallbackQuery):
         if chest_ready:
             found.append("📦 Ты нашёл сундук!")
 
+        # Достопримечательность: разовая награда за разведку.
+        from core import death as core_death
+        from core import landmarks as core_landmarks
+
+        mark = core_landmarks.of(cell)
+        has_landmark = False
+        if mark and await core_landmarks.is_landmark(session, cell):
+            if core_landmarks.visited(character, cell):
+                found.append(f"{mark['icon']} {cell.name} — уже осмотрено")
+            else:
+                found.append(f"{mark['icon']} <b>{cell.name}</b> — здесь что-то есть!")
+                has_landmark = True
+
+        # Надгробие: чьё-то золото ждёт хозяина.
+        grave = await core_death.at(session, cell.location_id, cell.x, cell.y)
+        if grave is not None:
+            whose = ("твоя" if grave.character_id == character.id
+                     else grave.owner_name or "чужая")
+            found.append(f"🪦 Надгробие ({whose}) — {grave.gold} 🪙")
+
         if found:
             lines.append("\n" + "\n".join(found))
         else:
@@ -244,6 +264,8 @@ async def inspect_cell(callback: CallbackQuery):
                 has_chest=chest_ready,
                 is_crafter=cell.npc_type == "crafter",
                 is_auctioneer=cell.npc_type == "auctioneer",
+                has_landmark=has_landmark,
+                has_grave=grave is not None,
             ),
             parse_mode="HTML",
         )

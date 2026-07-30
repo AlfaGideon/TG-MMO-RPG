@@ -25,6 +25,28 @@ async def run_migrations():
             if "image_url" not in cols:
                 await conn.execute(text("ALTER TABLE characters ADD COLUMN image_url VARCHAR(512)"))
 
+        # Фракции, раны и найденные диковины у героя.
+        if "characters" in tables:
+            cols_result = await conn.execute(text("PRAGMA table_info(characters)"))
+            cols = {row[1] for row in cols_result.fetchall()}
+            if "reputation" not in cols:
+                await conn.execute(text(
+                    "ALTER TABLE characters ADD COLUMN reputation TEXT DEFAULT ''"))
+            if "wounded_until" not in cols:
+                await conn.execute(text(
+                    "ALTER TABLE characters ADD COLUMN wounded_until DATETIME"))
+            if "landmarks_seen" not in cols:
+                await conn.execute(text(
+                    "ALTER TABLE characters ADD COLUMN landmarks_seen TEXT DEFAULT ''"))
+
+        # Характер твари: как ведёт себя вне боя.
+        if "mobs" in tables:
+            cols_result = await conn.execute(text("PRAGMA table_info(mobs)"))
+            cols = {row[1] for row in cols_result.fetchall()}
+            if "behavior" not in cols:
+                await conn.execute(text(
+                    "ALTER TABLE mobs ADD COLUMN behavior VARCHAR(16) DEFAULT 'passive'"))
+
         # Защищённый карман: вещи, которые переживают гибель героя.
         if "inventory_items" in tables:
             cols_result = await conn.execute(text("PRAGMA table_info(inventory_items)"))

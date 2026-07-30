@@ -1,0 +1,213 @@
+{% extends "base.html" %}
+
+{% block title %}Жизнь мира — Shadow Lands{% endblock %}
+{% block page_title %}♻️ Жизнь мира{% endblock %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+    <a href="/">Dashboard</a><span class="sep">/</span>
+    <a href="/content">Контент</a><span class="sep">/</span>
+    <span class="current">Жизнь мира</span>
+</div>
+{% endblock %}
+
+{% block content %}
+
+<div class="card">
+    <h2>🌋 Катаклизмы ({{ cataclysms|length }})</h2>
+    <p class="section-sub">
+        Бедствие правит рельеф локации и держится по таймеру. Клетки меняются
+        со слепком: когда беда стихает, тайлы и сундуки возвращаются как были,
+        а убитые твари — нет, их вернёт обычный спавн.
+    </p>
+
+    {% if cataclysms %}
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Бедствие</th><th>Где</th><th>До</th>
+                <th>Клеток</th><th></th></tr></thead>
+            <tbody>
+            {% for ev in cataclysms %}
+                <tr>
+                    <td><b>{{ title_of('cataclysm', ev.key) }}</b></td>
+                    <td>{% if ev.is_global %}🌍 весь мир
+                        {% else %}{{ ev.location.name if ev.location else '—' }}{% endif %}</td>
+                    <td>{{ ev.until.strftime('%d.%m %H:%M') if ev.until else '—' }}</td>
+                    <td>{{ ev.cells_touched }}</td>
+                    <td>
+                        <form action="/editor/living/cataclysm/{{ ev.id }}/end"
+                              method="post" style="display:inline">
+                            <button type="submit" class="btn btn-danger btn-sm">🕊 Прекратить</button>
+                        </form>
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="muted">Сейчас тихо. Мир цел — можно это исправить.</p>
+    {% endif %}
+
+    <form action="/editor/living/cataclysm" method="post"
+          style="display:flex;gap:0.6rem;flex-wrap:wrap;align-items:flex-end;margin-top:1rem">
+        <div>
+            <label class="form-label">Бедствие</label>
+            <select name="key" class="search-box" style="max-width:220px">
+                {% for key in cataclysm_order %}
+                {% set k = cataclysm_kinds[key] %}
+                <option value="{{ key }}">{{ k.icon }} {{ k.name }} (~{{ k.hours }} ч)</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label class="form-label">Где</label>
+            <select name="location_id" class="search-box" style="max-width:200px">
+                <option value="">🌍 Весь мир</option>
+                {% for loc in locations %}
+                <option value="{{ loc.id }}">{{ loc.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label class="form-label">Часов</label>
+            <input type="number" name="hours" min="1" max="48" step="1"
+                   class="search-box" style="max-width:110px" placeholder="по умолч.">
+        </div>
+        <button type="submit" class="btn btn-primary">🌋 Обрушить</button>
+    </form>
+</div>
+
+<div class="card">
+    <h2>🏰 Мировой босс</h2>
+    <p class="section-sub">
+        Босс — событие, а не клетка: держит общий счётчик урона и раздаёт
+        награду по вкладу. На половине здоровья призывает свиту. Один на мир.
+    </p>
+
+    {% if boss %}
+    <div class="banner info">
+        <b>{{ title_of('boss', boss.key) }}</b> ·
+        📍 {{ boss.location.name if boss.location else '—' }} ·
+        ❤️ {{ boss.hp }}/{{ boss.max_hp }}
+        {% if boss.phase %} · 🔥 вторая фаза{% endif %}
+        · до {{ boss.until.strftime('%d.%m %H:%M') if boss.until else '—' }}
+    </div>
+    <form action="/editor/living/boss/dismiss" method="post" style="margin-top:0.6rem">
+        <button type="submit" class="btn btn-danger">🌫 Развеять босса</button>
+    </form>
+    {% else %}
+    <p class="muted">Босс не призван.</p>
+    <form action="/editor/living/boss" method="post"
+          style="display:flex;gap:0.6rem;flex-wrap:wrap;align-items:flex-end;margin-top:0.8rem">
+        <div>
+            <label class="form-label">Кого призвать</label>
+            <select name="key" class="search-box" style="max-width:240px">
+                {% for key in boss_order %}
+                {% set b = boss_kinds[key] %}
+                <option value="{{ key }}">{{ b.icon }} {{ b.name }} — ❤️ {{ b.hp }}, ур. {{ b.level }}+</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label class="form-label">Где</label>
+            <select name="location_id" class="search-box" style="max-width:200px">
+                <option value="">— случайно, в опасных землях —</option>
+                {% for loc in locations %}
+                <option value="{{ loc.id }}">{{ loc.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label class="form-label">Часов</label>
+            <input type="number" name="hours" min="1" max="48" step="1"
+                   class="search-box" style="max-width:110px" placeholder="по умолч.">
+        </div>
+        <button type="submit" class="btn btn-primary">🏰 Призвать</button>
+    </form>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h2>🧭 Фракции и репутация</h2>
+    <p class="section-sub">
+        Три силы с противоположными интересами: помощь одной злит соперника.
+        Репутация даёт скидку у торговцев, меняет реплики жителей и влияет
+        на частоту бедствий.
+    </p>
+    <div class="banner {{ 'warn' if mood > 1 else 'info' }}">
+        {% if mood > 1 %}🌑 Культ перевешивает — бедствия <b>в {{ mood }}× чаще</b>.
+        {% elif mood < 1 %}🛡 Стража держит порядок — бедствия <b>реже</b>.
+        {% else %}⚖️ Силы уравновешены, беды приходят своим чередом.{% endif %}
+    </div>
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Сила</th><th>Девиз</th><th>Сторонников</th>
+                <th>Соперник</th></tr></thead>
+            <tbody>
+            {% for key in faction_order %}
+            {% set f = factions[key] %}
+                <tr>
+                    <td><b>{{ f[0] }} {{ f[1] }}</b></td>
+                    <td class="muted">{{ f[2] }}</td>
+                    <td>{{ sides[key] }}</td>
+                    <td>{{ factions[f[3]][0] }} {{ factions[f[3]][1] }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card">
+    <h2>👣 Характеры тварей</h2>
+    <p class="section-sub">
+        Нрав задаётся у каждого вида в разделе «Мобы»: охотники бродят и сами
+        идут на игрока, территориальные бросаются вплотную, пассивные ждут.
+    </p>
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Нрав</th><th>Поведение</th><th>Видов</th></tr></thead>
+            <tbody>
+            {% for key, meta in behaviors.items() %}
+                <tr>
+                    <td>{{ meta[0] }} <b>{{ meta[1] }}</b></td>
+                    <td class="muted">{{ meta[2] }}</td>
+                    <td>{{ census.get(key, 0) }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card">
+    <h2>🪦 Надгробия ({{ graves|length }})</h2>
+    <p class="section-sub">
+        Потерянное при гибели золото и вещи ждут хозяина на месте смерти.
+        Чужую могилу можно обчистить, но половина рассыпается прахом.
+        Бесхозные истлевают за сутки.
+    </p>
+    {% if graves %}
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Герой</th><th>Где</th><th>Золото</th>
+                <th>Когда</th></tr></thead>
+            <tbody>
+            {% for g in graves %}
+                <tr>
+                    <td>{{ g.owner_name or '—' }}</td>
+                    <td>{{ g.location.name if g.location else '—' }} [{{ g.x }},{{ g.y }}]</td>
+                    <td>{{ g.gold }} 🪙</td>
+                    <td>{{ g.created_at.strftime('%d.%m %H:%M') if g.created_at else '—' }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="muted">Могил нет — либо все живы, либо всё уже забрали.</p>
+    {% endif %}
+</div>
+
+{% endblock %}

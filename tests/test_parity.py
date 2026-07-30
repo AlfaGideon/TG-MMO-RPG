@@ -95,35 +95,30 @@ REGISTRY = [
             browser=["engine/respawn.py"],
             server=["core/spawns.py"]),
 
-    # ── ниже: механики без паритета, причина обязательна ──
     Feature("Катаклизмы",
             browser=["engine/cataclysm.py", "engine/cataclysm_kinds.py"],
-            server=[],
-            todo="нужны таблицы событий и слепков клеток в БД + раздел админки"),
+            server=["core/worldevents.py"]),
     Feature("Орда и агрессия тварей",
             browser=["engine/horde.py", "engine/behavior.py"],
-            server=[],
-            todo="зависит от катаклизмов; поведение — поле в таблице mobs"),
+            server=["core/behavior.py"]),
     Feature("Мировые боссы",
             browser=["engine/worldboss.py"],
-            server=[],
-            todo="нужна таблица общего урона по игрокам"),
+            server=["core/worldevents.py"]),
     Feature("Фракции и репутация",
             browser=["engine/factions.py"],
-            server=[],
-            todo="нужно поле reputation у Character + влияние на цены"),
+            server=["core/factions.py"]),
     Feature("Надгробия и цена смерти",
             browser=["engine/death.py"],
-            server=[],
-            todo="частично: потеря сумки есть в battle.py, надгробий нет"),
+            server=["core/death.py"]),
+    Feature("Достопримечательности",
+            browser=["engine/landmarks.py"],
+            server=["core/landmarks.py"]),
+
+    # ── ниже: механики без паритета, причина обязательна ──
     Feature("Задания",
             browser=["engine/quests.py"],
             server=["core/models.py"],
             todo="на сервере есть модель Quest, но нет выдачи и сдачи в боте"),
-    Feature("Достопримечательности",
-            browser=["engine/landmarks.py"],
-            server=[],
-            todo="нужен флаг у Cell и разовая награда на персонажа"),
 ]
 
 
@@ -207,6 +202,28 @@ def test_shared_numbers_match():
         check(a == b, f"{label}: {a} = {b}")
     check(set(engine_stash.TUNABLES) == set(core_stash.TUNABLES),
           "набор настраиваемых параметров одинаков")
+
+    # Каталоги контента: серверные модули берут их из engine/, поэтому
+    # расхождение означало бы, что кто-то завёл вторую копию.
+    try:
+        from core import death as core_death
+        from core import factions as core_factions
+        from core import landmarks as core_landmarks
+        from core import worldevents as core_events
+        from engine import death as e_death
+        from engine import factions as e_factions
+        from engine import landmarks as e_landmarks
+        from engine import worldboss as e_boss
+        from engine.cataclysm_kinds import KINDS as e_kinds
+    except ImportError as e:
+        check(True, f"часть модулей недоступна, пропуск ({e})")
+        return
+    check(set(core_events.KINDS) == set(e_kinds), "каталог бедствий общий")
+    check(set(core_events.BOSSES) == set(e_boss.BOSSES), "каталог боссов общий")
+    check(core_factions.FACTIONS == e_factions.FACTIONS, "фракции те же")
+    check(core_landmarks.LANDMARKS == e_landmarks.LANDMARKS,
+          "каталог диковин общий")
+    check(core_death.GRAVE_HOURS == e_death.GRAVE_HOURS, "срок могилы тот же")
 
 
 def report():

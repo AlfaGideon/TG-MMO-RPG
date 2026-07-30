@@ -23,6 +23,7 @@ from core.models import (
     Quest, AdminMessage, InventoryItem, VisitedCell, DungeonTemplate, DungeonRun,
     CharacterClassDef, ItemInstance, DropEntry, CraftRecipe, CraftIngredient,
     UpgradeRule, MobSpawn, ItemHistory, AuctionLot, CharacterAffinity,
+    WorldEvent, WorldEventDamage, Grave,
 )
 from core.enums import (
     LocationType, ItemType, ItemRarity, QuestStatus, ItemSource, CraftStation,
@@ -3483,6 +3484,131 @@ async def upgrade_rule_delete(request: Request, rule_id: int):
 
 
 # ── Mob population control ──────────────────────────────────
+
+@app.get("/editor/living")
+async def editor_living(request: Request):
+    """Жизнь мира: катаклизмы, мировой босс, фракции, надгробия.
+
+    Паритет с вкладкой «♻️ Жизнь мира» браузерной панели.
+    """
+    guard(request, "manage_content")
+    from core import behavior as core_behavior
+    from core import death as core_death
+    from core import factions as core_factions
+    from core import worldevents as core_events
+
+    async with async_session() as session:
+        await core_events.sweep(session)
+        await core_death.decay(session)
+
+        cataclysms = await core_events.active_cataclysms(session)
+        boss = await core_events.active_boss(session)
+
+        result = await session.execute(select(Grave))
+        graves = result.scalars().all()
+
+        result = await session.execute(select(Character))
+        chars = result.scalars().all()
+        sides = {key: 0 for key in core_factions.FACTIONS}
+        for ch in chars:
+            side = core_factions.allegiance(ch)
+            if side:
+                sides[side] += 1
+        mood = await core_factions.cataclysm_mult(session)
+
+        result = await session.execute(select(Mob))
+        mobs = result.scalars().all()
+        census = core_behavior.census(mobs)
+
+        result = await session.execute(select(Location).order_by(Location.id))
+        locations = result.scalars().all()
+        await session.commit()
+
+    return templates.TemplateResponse(
+        request,
+        "editor_living.html",
+        {
+            "cataclysms": cataclysms,
+            "cataclysm_kinds": core_events.KINDS,
+            "cataclysm_order": core_events.ORDER,
+            "boss": boss,
+            "boss_kinds": core_events.BOSSES,
+            "boss_order": core_events.BOSS_ORDER,
+            "graves": graves,
+            "factions": core_factions.FACTIONS,
+            "faction_order": core_factions.ORDER,
+            "sides": sides,
+            "mood": mood,
+            "census": census,
+            "behaviors": core_behavior.BEHAVIORS,
+            "locations": locations,
+            "characters": chars,
+            "title_of": core_events.title,
+        },
+    )
+
+
+@app.post("/editor/living/cataclysm")
+async def living_cataclysm(request: Request, key: str = Form(...),
+                           location_id: str = Form(""), hours: str = Form("")):
+    """Обрушить бедствие или прекратить его."""
+    guard(request, "manage_content")
+    from core import worldevents as core_events
+
+    async with async_session() as session:
+        loc = int(location_id) if location_id.strip() else None
+        try:
+            await core_events.strike(
+                session, key, loc,
+                float(hours) if hours.strip() else None)
+        except ValueError:
+            pass
+        await session.commit()
+    return RedirectResponse(url="/editor/living", status_code=303)
+
+
+@app.post("/editor/living/cataclysm/{event_id}/end")
+async def living_cataclysm_end(request: Request, event_id: int):
+    guard(request, "manage_content")
+    from core import worldevents as core_events
+
+    async with async_session() as session:
+        await core_events.end_cataclysm(session, event_id)
+        await session.commit()
+    return RedirectResponse(url="/editor/living", status_code=303)
+
+
+@app.post("/editor/living/boss")
+async def living_boss(request: Request, key: str = Form(...),
+                      location_id: str = Form(""), hours: str = Form("")):
+    """Призвать мирового босса."""
+    guard(request, "manage_content")
+    from core import worldevents as core_events
+
+    async with async_session() as session:
+        loc = int(location_id) if location_id.strip() else None
+        try:
+            await core_events.summon_boss(
+                session, key, loc,
+                float(hours) if hours.strip() else None)
+        except ValueError:
+            pass
+        await session.commit()
+    return RedirectResponse(url="/editor/living", status_code=303)
+
+
+@app.post("/editor/living/boss/dismiss")
+async def living_boss_dismiss(request: Request):
+    guard(request, "manage_content")
+    from core import worldevents as core_events
+
+    async with async_session() as session:
+        boss = await core_events.active_boss(session)
+        if boss is not None:
+            boss.is_active = False
+        await session.commit()
+    return RedirectResponse(url="/editor/living", status_code=303)
+
 
 @app.get("/editor/spawns")
 async def editor_spawns(request: Request):

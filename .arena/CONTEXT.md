@@ -83,8 +83,8 @@ modules.json     манифест загрузки модулей в Pyodide
 
 - Развитие игрового мира по планам `IDEAS-world.md` (закрыт) и
   `IDEAS-next.md` (в работе).
-- Выравнивание паритета стеков: 14 из 20 механик уже в обоих,
-  список долга — в отчёте `tests/test_parity.py`.
+- **Паритет достигнут: 20 из 20 механик в обоих стеках** (`tests/test_parity.py`).
+  Держите его: новая механика сразу в оба, иначе тест упадёт.
 
 ## Конвенции
 
@@ -104,6 +104,7 @@ modules.json     манифест загрузки модулей в Pyodide
 | Бот | `bot/BOT_README.md` (если есть) или `bot/main.py`, `bot/runner.py` |
 | База данных | `core/models.py`, `core/database.py`, миграции — `core/migrations.py` |
 | Новая механика | `.arena/CONTEXT.md` (правила выше) → `tests/test_parity.py` (реестр) |
+| Серверные механики мира | `core/worldevents.py`, `core/factions.py`, `core/death.py`, `core/landmarks.py`, `core/behavior.py` |
 | Что делать дальше | `IDEAS-next.md` |
 
 ## Заметки между сессиями

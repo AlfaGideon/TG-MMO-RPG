@@ -14,6 +14,7 @@ def main_menu_keyboard(has_character: bool = False, is_admin: bool = False):
         builder.button(text="🌍 Карта мира", callback_data="world_map")
         builder.button(text="🏪 Лавка", callback_data="shop")
         builder.button(text="👥 Пати", callback_data="party_menu")
+        builder.button(text="🧭 Репутация", callback_data="reputation")
         builder.button(text="🏆 Топ", callback_data="leaderboard")
         builder.button(text="🗿 Подземелье", callback_data="dungeon_menu")
         builder.button(text="⚖️ Аукцион", callback_data="auction_menu")
@@ -159,10 +160,15 @@ def travel_keyboard(safe_locations: list):
 
 
 def inspect_keyboard(has_mob: bool, has_npc: bool, has_chest: bool,
-                     is_crafter: bool = False, is_auctioneer: bool = False):
+                     is_crafter: bool = False, is_auctioneer: bool = False,
+                     has_landmark: bool = False, has_grave: bool = False):
     builder = InlineKeyboardBuilder()
     if has_mob:
         builder.button(text="⚔️ Атаковать", callback_data="cell_attack")
+    if has_landmark:
+        builder.button(text="❇️ Изучить", callback_data="study_landmark")
+    if has_grave:
+        builder.button(text="💰 Забрать из могилы", callback_data="claim_grave")
     if has_npc:
         builder.button(text="💬 Поговорить", callback_data="talk_npc")
     if is_crafter:
