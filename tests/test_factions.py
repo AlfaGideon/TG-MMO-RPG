@@ -49,15 +49,15 @@ def test_opposing_interests():
 
     F.award(store, p, "undead_slain")
     check(F.value(p, "guard") > 0, "стража ценит упокоенную нежить")
-    check(F.value(p, "cult") < 0, "культ этим недоволен")
+    check(F.value(p, "scavengers") < 0, "падальщики этим недовольны (из-за соперничества)")
 
     guard_before = F.value(p, "guard")
     F.award(store, p, "grave_looted")
     check(F.value(p, "scavengers") > 0, "падальщики ценят мародёрство")
-    check(F.value(p, "guard") < guard_before, "а стража за это злится")
+    check(F.value(p, "cult") < 0, "культ за это злится (из-за соперничества)")
 
-    check(F.RIVALS["guard"] == "cult" and F.RIVALS["cult"] == "guard",
-          "стража и культ — соперники")
+    check(F.RIVALS["guard"] == "scavengers" and F.RIVALS["scavengers"] == "cult" and F.RIVALS["cult"] == "guard",
+          "фракции связаны по кругу (камень-ножницы-бумага)")
 
 
 def test_ranks_and_side():

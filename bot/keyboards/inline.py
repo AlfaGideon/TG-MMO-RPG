@@ -70,8 +70,8 @@ def class_select_keyboard(classes: list, page: int = 0):
 
 def confirm_class_keyboard(char_class: str):
     builder = InlineKeyboardBuilder()
-    builder.button(text="✅ Подтвердить", callback_data=f"confirm_class:{char_class}")
-    builder.button(text="◀️ Выбрать другой", callback_data="create_character")
+    builder.button(text="🟢 ✅ Подтвердить", callback_data=f"confirm_class:{char_class}")
+    builder.button(text="🔴 ◀️ Другой класс", callback_data="create_character")
     return builder.as_markup()
 
 
@@ -80,10 +80,10 @@ def reroll_keyboard(char_id: int, rerolls_left: int):
     builder = InlineKeyboardBuilder()
     if rerolls_left > 0:
         builder.button(
-            text=f"🎲 Перекатить ({rerolls_left})",
+            text=f"🟡 🎲 Перекатить ({rerolls_left})",
             callback_data=f"reroll_stats:{char_id}",
         )
-    builder.button(text="✅ Принять статы", callback_data=f"accept_stats:{char_id}")
+    builder.button(text="🟢 ✅ Принять статы", callback_data=f"accept_stats:{char_id}")
     builder.adjust(1)
     return builder.as_markup()
 
@@ -91,6 +91,23 @@ def reroll_keyboard(char_id: int, rerolls_left: int):
 def back_to_main_keyboard():
     builder = InlineKeyboardBuilder()
     builder.button(text="◀️ В главное меню", callback_data="main_menu")
+    return builder.as_markup()
+
+
+def help_menu_keyboard():
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🔵 📢 Обновления", callback_data="bot_updates")
+    builder.button(text="🟡 💡 Предложить идею", callback_data="bot_suggest")
+    builder.button(text="◀️ В главное меню", callback_data="main_menu")
+    builder.adjust(2, 1)
+    return builder.as_markup()
+
+
+def back_to_help_keyboard():
+    builder = InlineKeyboardBuilder()
+    builder.button(text="◀️ Назад", callback_data="help")
+    builder.button(text="🏠 В меню", callback_data="main_menu")
+    builder.adjust(2)
     return builder.as_markup()
 
 
@@ -184,10 +201,10 @@ def inspect_keyboard(has_mob: bool, has_npc: bool, has_chest: bool,
 
 def combat_keyboard():
     builder = InlineKeyboardBuilder()
-    builder.button(text="⚔️ Атаковать", callback_data="combat_attack")
-    builder.button(text="🛡 Защита", callback_data="combat_defend")
-    builder.button(text="✨ Умение", callback_data="combat_skill")
-    builder.button(text="🏃 Побег", callback_data="combat_flee")
+    builder.button(text="🔴 ⚔️ Атаковать", callback_data="combat_attack")
+    builder.button(text="🔵 🛡️ Защита", callback_data="combat_defend")
+    builder.button(text="🟡 ✨ Умение", callback_data="combat_skill")
+    builder.button(text="⚪ 🏃 Побег", callback_data="combat_flee")
     builder.adjust(2)
     return builder.as_markup()
 
@@ -232,22 +249,22 @@ def item_action_keyboard(inv_item_id: int, is_equipped: bool,
     builder = InlineKeyboardBuilder()
     if can_equip and not in_stash:
         if is_equipped:
-            builder.button(text="🚫 Снять", callback_data=f"unequip:{inv_item_id}")
+            builder.button(text="🟡 🚫 Снять", callback_data=f"unequip:{inv_item_id}")
         else:
-            builder.button(text="✅ Экипировать", callback_data=f"equip:{inv_item_id}")
+            builder.button(text="🟢 ✅ Экипировать", callback_data=f"equip:{inv_item_id}")
     if can_use and not in_stash:
-        builder.button(text="🧪 Использовать", callback_data=f"use:{inv_item_id}")
+        builder.button(text="🔵 🧪 Использовать", callback_data=f"use:{inv_item_id}")
     if can_sell and not is_equipped and not in_stash:
-        builder.button(text="⚖️ На аукцион", callback_data=f"auction_sell:{inv_item_id}")
+        builder.button(text="🟣 ⚖️ На аукцион", callback_data=f"auction_sell:{inv_item_id}")
     # Защищённый карман: вещь оттуда не теряется при гибели.
     if in_stash:
-        builder.button(text="🎒 Достать из кармана",
+        builder.button(text="🟢 🎒 Достать из кармана",
                        callback_data=f"stash_take:{inv_item_id}")
     elif can_stash:
-        builder.button(text="🔒 Убрать в карман",
+        builder.button(text="🟢 🔒 Убрать в карман",
                        callback_data=f"stash_put:{inv_item_id}")
     if not in_stash:
-        builder.button(text="🗑 Выбросить", callback_data=f"drop:{inv_item_id}")
+        builder.button(text="🔴 🗑 Выбросить", callback_data=f"drop:{inv_item_id}")
     builder.button(text="◀️ Назад", callback_data="inventory")
     builder.adjust(2)
     return builder.as_markup()
@@ -300,9 +317,9 @@ def auction_browse_keyboard(lots: list, page: int = 0, per_page: int = 6):
 def auction_lot_keyboard(lot_id: int, can_buy: bool, is_mine: bool = False):
     builder = InlineKeyboardBuilder()
     if is_mine:
-        builder.button(text="↩️ Снять с продажи", callback_data=f"auction_cancel:{lot_id}")
+        builder.button(text="🔴 ↩️ Снять с продажи", callback_data=f"auction_cancel:{lot_id}")
     elif can_buy:
-        builder.button(text="💰 Купить", callback_data=f"auction_buy:{lot_id}")
+        builder.button(text="🟢 💰 Купить", callback_data=f"auction_buy:{lot_id}")
     builder.button(text="◀️ К витрине", callback_data="auction_browse:0")
     builder.button(text="🏠 К аукциону", callback_data="auction_menu")
     builder.adjust(1)
@@ -416,7 +433,7 @@ def craft_recipes_keyboard(recipes: list, ready: dict, station: str, page: int =
 def craft_recipe_keyboard(recipe_id: int, can_craft: bool, station: str):
     builder = InlineKeyboardBuilder()
     if can_craft:
-        builder.button(text="🔨 Изготовить", callback_data=f"craft_do:{recipe_id}")
+        builder.button(text="🟢 🔨 Изготовить", callback_data=f"craft_do:{recipe_id}")
     builder.button(text="◀️ К рецептам", callback_data=f"craft_list:{station}:0")
     builder.button(text="🏠 К мастеру", callback_data="craft_menu")
     builder.adjust(1)
@@ -456,7 +473,7 @@ def upgrade_list_keyboard(items: list, station: str, page: int = 0, per_page: in
 def upgrade_item_keyboard(inv_item_id: int, can_upgrade: bool, station: str):
     builder = InlineKeyboardBuilder()
     if can_upgrade:
-        builder.button(text="⚡ Заточить", callback_data=f"upgrade_do:{inv_item_id}")
+        builder.button(text="🟢 ⚡ Заточить", callback_data=f"upgrade_do:{inv_item_id}")
     builder.button(text="◀️ К списку", callback_data="upgrade_list:0")
     builder.button(text="🏠 К мастеру", callback_data="craft_menu")
     builder.adjust(1)
@@ -524,7 +541,7 @@ def dungeon_map_keyboard():
 
 def dungeon_combat_keyboard():
     builder = InlineKeyboardBuilder()
-    builder.button(text="⚔️ Атаковать", callback_data="dungeon_combat_attack")
-    builder.button(text="🏃 Сбежать", callback_data="dungeon_flee")
+    builder.button(text="🔴 ⚔️ Атаковать", callback_data="dungeon_combat_attack")
+    builder.button(text="⚪ 🏃 Сбежать", callback_data="dungeon_flee")
     builder.adjust(2)
     return builder.as_markup()
