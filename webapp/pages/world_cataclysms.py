@@ -60,7 +60,7 @@ def _live(ctx):
      Клетки под игроками, спавн и швы-переходы не трогаются.</div>
   {body}
 </div>
-{_timer_script()}
+{_live_script(ctx)}
 """
 
 
@@ -207,20 +207,13 @@ def _history(ctx):
 """
 
 
-def _timer_script():
-    return """
-<script>
-(function(){
-  function tick(){
-    document.querySelectorAll('.cata-timer[data-until]').forEach(function(el){
-      var left = parseInt(el.dataset.until, 10) - Math.floor(Date.now() / 1000);
-      if (left <= 0) { el.textContent = '🕊 стихает'; return; }
-      var h = Math.floor(left / 3600), m = Math.floor((left % 3600) / 60), s = left % 60;
-      el.textContent = '⏳ ' + (h ? h + 'ч ' : '') + m + 'м ' + s + 'с';
-    });
-    setTimeout(tick, 1000);
-  }
-  tick();
-})();
-</script>
-"""
+def _live_script(ctx):
+    """Живой таймер через live_timer (работает с innerHTML).
+
+    Раньше тут был встроенный <script>, который браузер игнорировал
+    при установке через node.innerHTML. Теперь используется
+    webapp/live_timer.start_timer с чистым Python.
+    """
+    # Таймер запускается один раз в boot() панели, чтобы не плодить
+    # множество интервалов при каждом рендере страницы.
+    return ""

@@ -31,6 +31,12 @@
       <div id="botPill"><span class="dot" id="botDot"></span><span id="botText">Загрузка…</span></div>
       <div class="build">вход: <span id="whoami">…</span></div>
       <div class="build">сборка <span id="buildStamp">…</span></div>
+      <!-- Тематические часы — не мешают интерфейсу, живут в подвале -->
+      <div id="shadowClock" style="margin-top:0.7rem;padding:0.65rem 0.8rem;background:linear-gradient(135deg, rgba(139,92,246,0.15), rgba(15,15,19,0.6));border:1px solid rgba(139,92,246,0.25);border-radius:10px;text-align:center;font-family:'Segoe UI',system-ui,sans-serif;box-shadow:inset 0 1px 0 rgba(255,255,255,0.05);">
+        <div style="font-size:0.65rem;color:var(--text-muted);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:0.25rem;">Мировое время · Теневые Земли</div>
+        <div id="worldTime" style="font-size:1.05rem;font-weight:700;color:var(--accent);letter-spacing:0.04em;line-height:1.2;">00:00:00</div>
+        <div id="worldDate" style="font-size:0.72rem;color:var(--text-muted);margin-top:0.15rem;">—</div>
+      </div>
     </div>
   </aside>
 
@@ -89,12 +95,12 @@ const FALLBACK = {
     "webapp/pages/world_map.py","webapp/pages/world_grid.py","webapp/pages/world_cataclysms.py",
     "webapp/pages/world_factions.py","webapp/pages/world_living.py","webapp/pages/world.py",
     "webapp/pages/content.py","webapp/pages/economy.py","webapp/pages/audit.py",
-    "webapp/pages/settings.py","webapp/actions/audit_actions.py","webapp/actions/bot_actions.py",
+    "webapp/pages/settings.py","webapp/pages/updates.py","webapp/actions/audit_actions.py","webapp/actions/bot_actions.py",
     "webapp/actions/content_actions.py","webapp/actions/cataclysm_actions.py",
     "webapp/actions/devops_actions.py","webapp/actions/economy_actions.py",
     "webapp/actions/player_actions.py","webapp/actions/settings_actions.py",
-    "webapp/actions/living_actions.py","webapp/actions/world_actions.py",
-    "webapp/app.py","webapp/boot.py",
+    "webapp/actions/living_actions.py","webapp/actions/world_actions.py","webapp/actions/updates_actions.py",
+    "webapp/app.py","webapp/live_timer.py","webapp/boot.py",
   ],
 };
 
@@ -134,6 +140,21 @@ function updatePlayersMassCount() {
 }
 
 function openSearch() { document.getElementById("searchOverlay").classList.add("open"); document.getElementById("searchInput").focus(); }
+function toggleNavSection(el) {
+  const group = el.closest(".nav-section-label").nextElementSibling;
+  if (!group) return;
+  const isCollapsed = group.classList.contains("nav-section-collapsed");
+  group.classList.toggle("nav-section-collapsed", !isCollapsed);
+  const arrow = el.querySelector("span[aria-hidden='true']");
+  if (arrow) {
+    arrow.style.transform = isCollapsed ? "rotate(0deg)" : "rotate(90deg)";
+    arrow.style.opacity = isCollapsed ? "0.2" : "0.5";
+  }
+  if (el) {
+    el.setAttribute("aria-expanded", String(isCollapsed));
+  }
+}
+
 function closeSearch(e) { if (!e || e.target === document.getElementById("searchOverlay")) document.getElementById("searchOverlay").classList.remove("open"); }
 
 (function searchWire(){

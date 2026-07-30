@@ -4,7 +4,7 @@ from engine.storage import Store
 from webapp import dom, session
 from webapp.actions import (audit_actions, bot_actions, content_actions,
                             devops_actions, economy_actions, player_actions,
-                            world_actions)
+                            updates_actions, world_actions)
 from webapp.backend import LocalStorage
 from webapp.pages import audit as page_audit
 from webapp.pages import bot as page_bot
@@ -13,6 +13,7 @@ from webapp.pages import dashboard as page_dash
 from webapp.pages import economy as page_economy
 from webapp.pages import players as page_players
 from webapp.pages import settings as page_settings
+from webapp.pages import updates as page_updates
 from webapp.pages import world as page_world
 from webapp.telegram import TelegramBot
 
@@ -21,6 +22,7 @@ PAGES = [
     ("world", page_world), ("content", page_content),
     ("economy", page_economy), ("audit", page_audit),
     ("settings", page_settings),
+    ("updates", page_updates),
 ]
 
 # Разделы бокового меню: (подпись секции, [ключи страниц])
@@ -28,7 +30,7 @@ NAV_SECTIONS = [
     ("", ["dash"]),
     ("Игроки", ["players"]),
     ("Контент мира", ["world", "content", "economy"]),
-    ("Система", ["audit", "bot", "settings"]),
+    ("Система", ["audit", "bot", "settings", "updates"]),
 ]
 
 # Какое право нужно, чтобы видеть страницу (владелец видит всё).
@@ -37,12 +39,13 @@ PAGE_CAPS = {
     "content": "view_content", "economy": "view_content",
     "bot": "bot_control", "settings": "settings",
     "audit": "",                     # журнал доступен любому админу
+    "updates": "manage_content",
 }
 
 # cataclysm_actions регистрируется из world_actions — вкладка живёт там же.
 ACTION_MODULES = [audit_actions, bot_actions, content_actions,
                   devops_actions, economy_actions, player_actions,
-                  world_actions]
+                  updates_actions, world_actions]
 
 
 class App:
@@ -94,13 +97,20 @@ class App:
             keys = [k for k in keys if self.visible(k)]
             if not keys:
                 continue
+            is_collapsible = bool(label)
             if label:
-                out += f"<div class='nav-section-label'>{label}</div>"
+                out += (f"<div class='nav-section-label' onclick='toggleNavSection(this)' style='cursor:pointer;display:flex;align-items:center;gap:.35rem;user-select:none;transition:opacity .15s;letter-spacing:0.04em;' aria-expanded='true'>"
+                        f"<span style='font-size:.65rem;opacity:.5;transform:rotate(90deg);transition:transform .2s;display:inline-block;flex-shrink:0;' aria-hidden='true'>▶</span>"
+                        f"<span style='font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;font-weight:600;color:var(--text-muted);'>{label}</span></div>")
+            wrapper_class = f"nav-section-group{' nav-section-collapsed' if is_collapsible else ''}"
+            out += f"<div class='{wrapper_class}' data-label='{label or ''}'>" if is_collapsible else ""
             for key in keys:
                 icon, _, text = pages[key].TITLE.partition(" ")
                 active = " active" if key == self.page else ""
                 out += (f"<button class='nav-link{active}' data-act='nav' data-arg='{key}'>"
                         f"<span class='nav-icon'>{icon}</span> {text or icon}</button>")
+            if is_collapsible:
+                out += "</div>"
         out += self._player_ctx_markup()
         if self.actor is not None:
             out += ("<div class='nav-section-label'>Сессия</div>"
@@ -256,6 +266,20 @@ class App:
         self.render()
         who = session.label(self.actor)
         self.log("sys", f"Панель загружена · {who} · клеток мира: {len(self.store.world)}")
+        # Живой таймер для катаклизмов — работает через js.setInterval,
+        # а не через встроенные <script>, которые не запускаются в innerHTML.
+        try:
+            from webapp.live_timer import start_timer, default_cataclysm_formatter, start_clock
+            start_timer(interval_ms=1000, selector=".cata-timer[data-until]",
+                        formatter=default_cataclysm_formatter)
+            # Тематические часы — не мешают интерфейсу, обновляются каждую секунду
+            try:
+                start_clock(interval_ms=1000, time_id="worldTime", date_id="worldDate")
+            except Exception as exc:
+                self.log("sys", f"Часы не запущены: {exc}")
+        except Exception as exc:
+            self.log("sys", f"Таймер не запущен: {exc}")
+
         token = self.store.settings.get("token", "")
         if token and self.can("bot_control"):
             self.log("sys", "Найден сохранённый токен — пробую автозапуск")
