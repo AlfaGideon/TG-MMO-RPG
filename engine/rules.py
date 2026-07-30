@@ -38,7 +38,13 @@ def bonuses(player, store=None):
 
 
 def stats(player, store=None):
+    """Итоговые статы. Раненый герой слабее — штраф из engine.death."""
+    from engine import death
+
     b = bonuses(player, store)
+    k = death.penalty(player)
+    if k < 1.0:
+        return _wounded_stats(player, b, k)
     return dict(
         strength=player.strength + b.get("strength", 0),
         agility=player.agility + b.get("agility", 0),
@@ -49,6 +55,23 @@ def stats(player, store=None):
         max_mp=player.max_mp + b.get("mp", 0),
         damage=b.get("damage", 0),
         defense=b.get("defense", 0),
+    )
+
+
+def _wounded_stats(player, b, k):
+    """Те же статы, но с множителем ранения. Максимумы HP/MP не режем:
+    иначе текущее здоровье оказалось бы выше предела и полоска сломалась."""
+    scale = lambda v: max(1, int(v * k))
+    return dict(
+        strength=scale(player.strength + b.get("strength", 0)),
+        agility=scale(player.agility + b.get("agility", 0)),
+        intelligence=scale(player.intelligence + b.get("intelligence", 0)),
+        endurance=scale(player.endurance + b.get("endurance", 0)),
+        luck=scale(player.luck + b.get("luck", 0)),
+        max_hp=player.max_hp + b.get("hp", 0),
+        max_mp=player.max_mp + b.get("mp", 0),
+        damage=scale(b.get("damage", 0)) if b.get("damage") else 0,
+        defense=scale(b.get("defense", 0)) if b.get("defense") else 0,
     )
 
 

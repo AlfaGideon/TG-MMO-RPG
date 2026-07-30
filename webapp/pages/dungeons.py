@@ -2,7 +2,7 @@
 
 Отдельный модуль, чтобы страница мира оставалась компактной.
 """
-from engine import data, storage, world as W
+from engine import data, dungeon as D, storage, world as W
 from webapp.html import esc
 
 
@@ -70,6 +70,8 @@ def render(ctx):
 </script>
 </div>
 
+{_runs(ctx, dungeons)}
+
 {_portal_map(ctx, dungeons)}
 
 <div class="card">
@@ -86,6 +88,39 @@ def render(ctx):
   <div style="margin-top:1rem">
     <button class="btn primary" data-act="dungeon-create">➕ Создать шаблон</button>
   </div>
+</div>
+"""
+
+
+def _runs(ctx, dungeons):
+    """Кто сейчас внутри: раньше портал был декорацией, теперь в нём живут."""
+    names = {int(d["id"]): d["name"] for d in dungeons}
+    rows = ""
+    inside = 0
+    for p in ctx.store.players.values():
+        run = D.run_of(p)
+        if not run:
+            continue
+        inside += 1
+        tpl = names.get(int(run.get("tpl", -1)), "?")
+        seen = len(run.get("seen") or [])
+        rows += (f"<tr><td>{esc(p.name)} <span class='muted'>ур. {p.level}</span></td>"
+                 f"<td>{esc(tpl)}</td><td>этаж {run.get('floor', 1)}</td>"
+                 f"<td>[{run.get('x', 0)},{run.get('y', 0)}]</td>"
+                 f"<td>{seen} кл. · ☠️ {len(run.get('cleared') or [])}"
+                 f" · 📦 {len(run.get('looted') or [])}</td></tr>")
+    body = (f"<div class='scroll'><table><thead><tr><th>Герой</th>"
+            f"<th>Подземелье</th><th>Этаж</th><th>Где</th><th>Прогресс</th>"
+            f"</tr></thead><tbody>{rows}</tbody></table></div>") if rows else (
+        "<p class='muted'>Внутри никого. Откройте портал — и герои полезут.</p>")
+    return f"""
+<div class="card">
+  <h2>🕳 Сейчас в подземельях ({inside})</h2>
+  <div class="hint">Портал теперь действительно ведёт внутрь: игрок входит
+     с клетки, бродит по этажам, дерётся и вскрывает сундуки. Сетка не
+     хранится, а восстанавливается из сида забега — сохранение не пухнет.
+     Гибель внутри выбрасывает наружу.</div>
+  {body}
 </div>
 """
 

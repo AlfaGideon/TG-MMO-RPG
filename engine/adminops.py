@@ -271,3 +271,32 @@ def _tpl(store, tpl_id):
 
 def templates(store):
     return store.settings.get("dungeon_templates", []) or []
+
+
+# ── операции над миром ──────────────────────────────────────
+# Реализация переехала в engine/adminworld.py, но вызывать привычно
+# через adminops — поэтому здесь тонкие делегаты.
+
+def cataclysm_strike(store, actor, kind_key, loc=-1, hours=None, source="panel"):
+    from engine import adminworld
+    return adminworld.cataclysm_strike(store, actor, kind_key, loc, hours, source)
+
+
+def cataclysm_end(store, actor, event_id, source="panel"):
+    from engine import adminworld
+    return adminworld.cataclysm_end(store, actor, event_id, source)
+
+
+def cataclysm_calm(store, actor, source="panel"):
+    from engine import adminworld
+    return adminworld.cataclysm_calm(store, actor, source)
+
+
+def boss_summon(store, actor, key, loc=None, hours=None, source="panel"):
+    from engine import adminworld
+    return adminworld.boss_summon(store, actor, key, loc, hours, source)
+
+
+def boss_dismiss(store, actor, source="panel"):
+    from engine import adminworld
+    return adminworld.boss_dismiss(store, actor, source)

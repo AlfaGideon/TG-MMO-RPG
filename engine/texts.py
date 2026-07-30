@@ -15,7 +15,10 @@ HELP = (
     "• 🧙 Профиль — статы и экипировка\n"
     "• 🎒 Инвентарь — надеть, снять, выпить, выбросить\n"
     "• 🏪 Лавка — торговец в Погосте\n"
-    "• 🏕 Отдых — восстановить HP и MP\n\n"
+    "• 🏕 Отдых — восстановить HP и MP\n"
+    "• 📜 Задания — цели от жителей, ежедневные обновляются\n"
+    "• 🤝 Отряд — <code>/invite Имя</code>, добыча делится на всех рядом\n"
+    "• 🪦 Погиб — золото остаётся на месте гибели, вернись за ним\n\n"
     "Мир бесшовный: дойди до края локации, чтобы попасть в соседнюю.\n"
     "<i>Удачи в Теневых Землях...</i>"
 )
@@ -99,6 +102,8 @@ def hero_created(p, cls):
 
 
 def profile(p, store=None):
+    from engine import death, stash
+
     s = rules.stats(p, store)
     icon = data.CLASSES[p.cls][0].split()[0] if p.cls in data.CLASSES else "👤"
     eq = []
@@ -107,9 +112,14 @@ def profile(p, store=None):
         eq.append(f"{it['icon']} {it['name']}")
     magic = hero.magic_lines(getattr(p, "magic", []))
     magic_body = "\n".join(magic) if magic else "<i>дара нет</i>"
+    crown = " 👑" if stash.is_vip(p) else ""
+    kept = len(getattr(p, "stash", None) or [])
+    hurt = f"\n{death.note(p)}" if death.wounded(p) else ""
     return (
-        f"{icon} <b>{p.name}</b> · ур. {p.level}\n"
-        f"Класс: <code>{p.cls}</code> · Золото: <code>{p.gold}</code> 🪙\n\n"
+        f"{icon} <b>{p.name}</b>{crown} · ур. {p.level}\n"
+        f"Класс: <code>{p.cls}</code> · Золото: <code>{p.gold}</code> 🪙\n"
+        f"🎒 Сумка: {len(p.inventory)} · 🔒 Карман: {kept}/{stash.capacity(p, store)}"
+        f"{hurt}\n\n"
         f"❤️ HP {p.hp}/{s['max_hp']}\n{rules.bar(p.hp, s['max_hp'])}\n"
         f"💙 MP {p.mp}/{s['max_mp']}\n{rules.bar(p.mp, s['max_mp'], '🟦')}\n"
         f"⭐ Опыт {p.exp}/{rules.exp_needed(p.level)}\n\n"
@@ -123,12 +133,19 @@ def profile(p, store=None):
     )
 
 
-def cell_view(p, cell):
+def cell_view(p, cell, alarm="", others=()):
+    """Описание клетки. `others` — другие герои, стоящие здесь же."""
     loc = data.LOCATIONS[p.loc]
+    head = f"{alarm}\n\n" if alarm else ""
+    company = ""
+    if others:
+        who = ", ".join(f"{q.name} (ур. {q.level})" for q in others[:4])
+        more = f" и ещё {len(others) - 4}" if len(others) > 4 else ""
+        company = f"\n\n🔵 <b>Здесь же:</b> {who}{more}"
     return (
-        f"🗺 <b>{loc[0]}</b>\n"
+        f"{head}🗺 <b>{loc[0]}</b>\n"
         f"📍 [{cell.x},{cell.y}] · <i>{cell.name}</i>\n\n"
-        f"{cell.desc}\n\n"
+        f"{cell.desc}{company}\n\n"
         f"❤️ {p.hp}/{rules.stats(p)['max_hp']}  💙 {p.mp}  🪙 {p.gold}"
     )
 
@@ -142,12 +159,18 @@ def item_line(idx, equipped=False):
 
 def battle_view(p, st):
     m = data.MOBS[st["mob"]]
+    queue = st.get("queue") or []
+    waiting = ""
+    if queue:
+        names = ", ".join(data.MOBS[i][0] for i in queue)
+        waiting = f"\n⏳ Ждут своей очереди ({len(queue)}): <i>{names}</i>\n"
     return (
         f"⚔️ <b>Бой: {m[0]}</b> (ур. {m[2]})\n"
         f"<i>{m[1]}</i>\n\n"
         f"👾 {m[0]}: {max(0, st['mob_hp'])}/{m[3]}\n"
-        f"{rules.bar(st['mob_hp'], m[3], '🟪')}\n\n"
+        f"{rules.bar(st['mob_hp'], m[3], '🟪')}\n"
+        f"{waiting}\n"
         f"❤️ Ты: {p.hp}/{rules.stats(p)['max_hp']}\n"
         f"{rules.bar(p.hp, rules.stats(p)['max_hp'])}\n\n"
-        + ("\n".join(st.get("log", [])[-3:]) if st.get("log") else "<i>Твой ход.</i>")
+        + ("\n".join(st.get("log", [])[-4:]) if st.get("log") else "<i>Твой ход.</i>")
     )

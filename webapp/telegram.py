@@ -102,10 +102,15 @@ class TelegramBot:
                 await self.flush_outbox()
                 return
 
-            action = "start" if text.startswith("/start") else \
-                     "help" if text.startswith("/help") else \
-                     "profile" if text.startswith("/profile") else \
-                     "admin" if text.startswith("/admin") else "menu"
+            if text.startswith("/invite"):       # /invite Имя героя
+                action = "invite:" + text[len("/invite"):].strip()
+            elif text.startswith("/party"):
+                action = "party"
+            else:
+                action = "start" if text.startswith("/start") else \
+                         "help" if text.startswith("/help") else \
+                         "profile" if text.startswith("/profile") else \
+                         "admin" if text.startswith("/admin") else "menu"
             reply = self.game.handle(p, action)
             self.store.save_player(p)
             await self.send(chat, p, reply, force_new=True)

@@ -4,10 +4,20 @@
 почём, написано в тексте; карточка с кнопкой «Купить» / «Продать»
 открывается нажатием номера.
 """
-from engine import itemui, rules
+from engine import factions, itemui, rules
 from engine.models import Reply
 
 TITLE = "🏪 <b>Лавка Варна</b>"
+
+
+def price_for(p, idx):
+    """Цена товара для этого героя: репутация даёт скидку.
+
+    Единая точка: список, карточка и покупка обязаны считать одинаково,
+    иначе игрок увидит одну цену, а заплатит другую.
+    """
+    base = itemui.price_of(idx)
+    return max(1, int(base * factions.price_mult(p)))
 
 
 def _tabs(active):
@@ -26,12 +36,15 @@ def shop(p, page=0):
     goods = itemui.stock()
     entries, page = itemui.slice_page(goods, page)
 
+    disc = factions.discount(p)
     lines = [TITLE, counter(p), ""]
     for num, _pos, idx in entries:
-        price = itemui.price_of(idx)
+        price = price_for(p, idx)
         mark = "🪙" if p.gold >= price else "🚫"
         lines.append(itemui.line(num, idx, f"{mark} <b>{price}</b>"))
     lines.append("")
+    if disc:
+        lines.append(f"🧭 <i>Скидка за репутацию: −{int(disc * 100)}%</i>")
     lines.append("<i>Нажми номер товара — покажу, что это, и предложу купить.</i>")
 
     rows = itemui.grid(entries, "buyc")
@@ -47,11 +60,13 @@ def buy_card(p, arg):
     goods = itemui.stock()
     if idx not in goods:
         return Reply(alert="Такого товара нет.")
-    price = itemui.price_of(idx)
+    price = price_for(p, idx)
     enough = p.gold >= price
     page = goods.index(idx) // itemui.PER_PAGE
 
-    extra = (f"💵 Цена: <b>{price}</b> 🪙\n"
+    base = itemui.price_of(idx)
+    saved = f" <s>{base}</s>" if price < base else ""
+    extra = (f"💵 Цена: <b>{price}</b> 🪙{saved}\n"
              f"👛 У тебя: <b>{p.gold}</b> 🪙")
     if not enough:
         extra += f"\n\n🚫 <i>Не хватает {price - p.gold} 🪙</i>"
@@ -69,7 +84,7 @@ def buy(p, arg):
     goods = itemui.stock()
     if idx not in goods:
         return Reply(alert="Такого товара нет.")
-    price = itemui.price_of(idx)
+    price = price_for(p, idx)
     if p.gold < price:
         return Reply(alert=f"Не хватает {price - p.gold} 🪙!")
     p.gold -= price

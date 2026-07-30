@@ -18,6 +18,13 @@ class Store:
         # а не при рендере страницы, иначе бот их не увидит.
         self.settings.setdefault("dungeon_templates", default_dungeons())
         self.settings.setdefault("world_grid", dict(world.DEFAULT_GRID))
+        # Катаклизмы: живут в настройках, поэтому их видят и бот, и панель.
+        self.settings.setdefault("seeds", {})
+        self.settings.setdefault("cataclysms", [])
+        self.settings.setdefault("cataclysm_auto", True)
+        self.settings.setdefault("cataclysm_chance", 0.02)
+        self.settings.setdefault("cataclysm_limit", 2)
+        self.settings.setdefault("cataclysm_notify", True)
 
     # ── загрузка/сохранение ─────────────────────────────────
     def load(self):
@@ -66,11 +73,34 @@ class Store:
         self.save()
 
     # ── операции ────────────────────────────────────────────
+    def seeds(self):
+        """Все сиды мира: рельеф, тексты, мобы, сундуки, NPC, катаклизмы."""
+        return world.seeds_of(self.settings)
+
+    def set_seeds(self, values):
+        """Сохранить частные сиды. Пустое/0 — вернуть к выводу из базового."""
+        saved = self.settings.setdefault("seeds", {})
+        for key in world.SEED_KEYS:
+            if key not in values:
+                continue
+            try:
+                val = int(values[key])
+            except (TypeError, ValueError):
+                val = 0
+            if val:
+                saved[key] = val
+            else:
+                saved.pop(key, None)
+        self.save()
+        return self.seeds()
+
     def regen_world(self, seed=None):
         if seed is not None:
             self.settings["seed"] = int(seed)
         grid = self.settings.get("world_grid")
-        self.world = world.generate(self.settings["seed"], grid=grid)
+        self.settings["cataclysms"] = []      # бедствия старого мира не переносим
+        self.world = world.generate(self.settings["seed"], grid=grid,
+                                    seeds=self.seeds())
         self.save()
 
     def add_location(self, name, desc, ltype, min_level, wx, wy, floors=1):
@@ -92,8 +122,9 @@ class Store:
             f = 1
         f = max(1, min(10, f))
         self.settings.setdefault("location_floors", {})[str(li)] = f
-        rnd = random.Random(self.settings.get("seed", 1337) * 31 + li * 7919)
-        batch, _ = world.gen_cells(li, rnd)
+        sd = self.seeds()
+        rnd = random.Random(sd["terrain"] + li * 7919)
+        batch, _ = world.gen_cells(li, rnd, story_rnd=random.Random(sd["stories"] + li))
         for c in batch:
             self.world[c.key] = c
         report = world.link_new_location(self.world, li, grid)
@@ -101,6 +132,40 @@ class Store:
             report.append(f"🏢 Подуровней: {f} (визуально стопка на сетке)")
         self.save()
         return li, report
+
+    def update_location(self, li, name, desc, ltype, min_level, floors=None):
+        """Правка свойств существующей локации.
+
+        Клетки и швы не трогаем: меняются только имя, описание, тип, порог
+        уровня и число этажей. Индекс локации сохраняется, поэтому ссылки
+        из клеток, порталов и позиций игроков остаются валидными.
+        """
+        li = int(li)
+        if not (0 <= li < len(data.LOCATIONS)):
+            return "Локация не найдена."
+        old = data.LOCATIONS[li]
+        name = (name or "").strip() or old[0]
+        desc = (desc or "").strip() or old[1]
+        ltype = ltype if ltype in ("safe", "dangerous", "dungeon", "boss") else old[2]
+        try:
+            lvl = max(1, int(min_level))
+        except (TypeError, ValueError):
+            lvl = old[3]
+        data.LOCATIONS[li] = (name, desc, ltype, lvl)
+        self._persist_locations()
+        if floors is not None:
+            try:
+                f = max(1, min(10, int(floors)))
+            except (TypeError, ValueError):
+                f = 1
+            self.settings.setdefault("location_floors", {})[str(li)] = f
+        self.save()
+        changed = [w for w, a, b in (("название", old[0], name),
+                                     ("описание", old[1], desc),
+                                     ("тип", old[2], ltype),
+                                     ("уровень", old[3], lvl)) if a != b]
+        return (f"Локация «{name}» обновлена"
+                + (f": {', '.join(changed)}." if changed else " (без изменений)."))
 
     def remove_location(self, li):
         """Удалить локацию: реиндексация клеток/игроков/швов/порталов.
@@ -113,6 +178,11 @@ class Store:
         if len(data.LOCATIONS) <= 1:
             return "Нельзя удалить последнюю локацию мира."
         name = data.LOCATIONS[li][0]
+
+        # Бедствия держат слепки клеток по старым индексам — гасим до сдвига.
+        from engine import cataclysm
+        for ev in list(cataclysm.active(self, None)):
+            cataclysm.end(self, ev["id"], revert=True, actor="Система")
 
         # игроки: из удаляемой — на спавн, из следующих — сдвиг индекса
         moved = 0
@@ -206,4 +276,4 @@ def default_dungeons():
 def _cell_dict(c):
     return dict(loc=c.loc, x=c.x, y=c.y, name=c.name, desc=c.desc, tile=c.tile,
                 passable=c.passable, mob=c.mob, npc=c.npc, chest=c.chest,
-                link=list(c.link))
+                link=list(c.link), mob_at=c.mob_at, chest_at=c.chest_at)

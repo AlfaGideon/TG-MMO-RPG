@@ -207,6 +207,14 @@ class Character(Base):
     vip_until = Column(DateTime(timezone=True), nullable=True)
     image_url = Column(String(512), nullable=True)
 
+    # Фракции: очки репутации в JSON {"guard": 12, ...} — три силы, счёт
+    # ведётся так же, как в engine/factions.py.
+    reputation = Column(Text, default="")
+    # Раны после гибели: до этого времени статы порезаны.
+    wounded_until = Column(DateTime(timezone=True), nullable=True)
+    # Осмотренные достопримечательности: список ключей "loc:x:y".
+    landmarks_seen = Column(Text, default="")
+
     # Перекат стартовых статов: сколько попыток осталось из выданных при
     # создании героя. Ноль — статы зафиксированы окончательно.
     rerolls_left = Column(Integer, default=0)
@@ -333,6 +341,8 @@ class Mob(Base):
     drop_items = Column(Text, default="")
     spawn_chance = Column(Float, default=0.3)
     image_url = Column(String(512), nullable=True)
+    # Характер: passive / territorial / hunter — см. engine/behavior.py.
+    behavior = Column(String(16), default="passive")
 
     # ── Популяция и передвижение ───────────────────────────
     # Сколько живых экземпляров этого моба одновременно держим в локации.
@@ -580,6 +590,9 @@ class InventoryItem(Base):
     instance_id = Column(Integer, ForeignKey("item_instances.id"), nullable=True)
     quantity = Column(Integer, default=1)
     is_equipped = Column(Boolean, default=False)
+    # Защищённый карман: такие вещи не выпадают при гибели. Ячеек мало
+    # (см. core/stash.py), поэтому игрок выбирает, что беречь.
+    in_stash = Column(Boolean, default=False, index=True)
 
     character = relationship("Character", back_populates="inventory")
     item = relationship("Item")
@@ -899,3 +912,69 @@ class AppSetting(Base):
     key = Column(String(128), unique=True, nullable=False)
     value = Column(Text, nullable=False, default="")
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class WorldEvent(Base):
+    """Катаклизм или мировой босс — событие с таймером.
+
+    Одна таблица на оба вида: у них общая природа (живёт по сроку, шлёт
+    вести, попадает в летопись), различает поле `kind`.
+    """
+    __tablename__ = "world_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    kind = Column(String(16), default="cataclysm")   # cataclysm | boss
+    key = Column(String(32), nullable=False)         # quake / warden / ...
+    location_id = Column(Integer, ForeignKey("locations.id"), nullable=True)
+    is_global = Column(Boolean, default=False)
+
+    started_at = Column(DateTime(timezone=True), server_default=func.now())
+    until = Column(DateTime(timezone=True), nullable=False)
+    is_active = Column(Boolean, default=True, index=True)
+
+    # Босс: общее здоровье и фаза. Катаклизм: сколько клеток задето.
+    hp = Column(Integer, default=0)
+    max_hp = Column(Integer, default=0)
+    phase = Column(Integer, default=0)
+    cells_touched = Column(Integer, default=0)
+
+    # Слепок изменённых клеток, чтобы вернуть мир как было: JSON
+    # {"cell_id": [tile, passable, mob_id, has_chest], ...}
+    snapshot = Column(Text, default="")
+
+    location = relationship("Location")
+    damage = relationship("WorldEventDamage", back_populates="event",
+                          cascade="all, delete-orphan")
+
+
+class WorldEventDamage(Base):
+    """Вклад игрока в мирового босса — награда идёт по нему."""
+    __tablename__ = "world_event_damage"
+
+    id = Column(Integer, primary_key=True, index=True)
+    event_id = Column(Integer, ForeignKey("world_events.id"), nullable=False)
+    character_id = Column(Integer, ForeignKey("characters.id"), nullable=False)
+    damage = Column(Integer, default=0)
+
+    event = relationship("WorldEvent", back_populates="damage")
+    character = relationship("Character")
+
+
+class Grave(Base):
+    """Надгробие: золото и вещи ждут хозяина на месте гибели."""
+    __tablename__ = "graves"
+
+    id = Column(Integer, primary_key=True, index=True)
+    character_id = Column(Integer, ForeignKey("characters.id"), nullable=False)
+    owner_name = Column(String(64), default="")
+    location_id = Column(Integer, ForeignKey("locations.id"), nullable=False)
+    x = Column(Integer, default=0)
+    y = Column(Integer, default=0)
+    floor = Column(Integer, default=0)
+    gold = Column(Integer, default=0)
+    # Индексы предметов, выпавших из сумки: JSON-список item_id.
+    items = Column(Text, default="")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    character = relationship("Character")
+    location = relationship("Location")

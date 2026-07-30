@@ -41,11 +41,14 @@ def _row(attrs, cols, labels=None, actions="<button class='btn'>✏️</button>"
 
 
 def _mobs(ctx):
-    labels = ["Имя", "Описание", "Ур.", "HP", "Урон", "Защита", "Золото", "Опыт", "Локация"]
+    labels = ["Имя", "Описание", "Ур.", "HP", "Урон", "Защита", "Золото",
+              "Опыт", "Локация", "Нрав"]
     rows = "".join(_row(f"data-act='mob-edit' data-arg='{i}'", [
         f"<b>{esc(m[0])}</b>", f"<span class='muted'>{esc(m[1])}</span>", m[2],
         m[3], m[4], m[5], f"{m[6]} 🪙", f"{m[7]} ⭐",
-        esc(data.LOCATIONS[m[8]][0])], labels,
+        esc(data.LOCATIONS[m[8]][0]),
+        data.BEHAVIORS.get(m[9] if len(m) > 9 else data.DEFAULT_BEHAVIOR,
+                           ("", "", ""))[0]], labels,
         actions=(f"<button class='btn'>✏️</button> "
                  f"<button class='btn' data-act='mob-drops' data-arg='{i}' title='Что выпадает'>🎁</button> "
                  f"<button class='btn' data-act='mob-clone' data-arg='{i}' title='Клонировать'>📋</button>"))
@@ -132,7 +135,13 @@ def _num(fid, label, val):
 
 def mob_form(ctx, idx):
     new = idx is None
-    m = data.MOBS[idx] if not new else ("", "", 1, 30, 5, 2, 10, 15, 0)
+    m = data.MOBS[idx] if not new else ("", "", 1, 30, 5, 2, 10, 15, 0,
+                                        data.DEFAULT_BEHAVIOR)
+    cur_behavior = m[9] if len(m) > 9 else data.DEFAULT_BEHAVIOR
+    behaviors = "".join(
+        f"<option value='{k}' {'selected' if k == cur_behavior else ''}>"
+        f"{icon} {name} — {hint}</option>"
+        for k, (icon, name, hint) in data.BEHAVIORS.items())
     locs = "".join(
         f"<option value='{i}' {'selected' if i == m[8] else ''}>{esc(l[0])}</option>"
         for i, l in enumerate(data.LOCATIONS))
@@ -151,6 +160,8 @@ def mob_form(ctx, idx):
   {_num('mf_gold', 'Золото', m[6])}{_num('mf_exp', 'Опыт', m[7])}
   <div><label>Локация</label><select id="mf_loc">{locs}</select></div>
 </div>
+<div style="margin-top:.5rem"><label>Характер (как ведёт себя вне боя)</label>
+  <select id="mf_behavior">{behaviors}</select></div>
 <div style="margin-top:1rem;display:flex;gap:.5rem;flex-wrap:wrap">
   <button class="btn primary" data-act="mob-save" data-arg="{arg}">💾 Сохранить</button>
   {"" if new else f'<button class="btn danger" data-act="mob-del" data-arg="{idx}">🗑 Удалить</button>'}

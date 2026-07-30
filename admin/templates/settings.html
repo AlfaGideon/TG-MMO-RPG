@@ -224,4 +224,51 @@ setInterval(async () => {
     } catch (e) {}
 }, 5000);
 </script>
+
+<div class="card">
+    <h2>🔒 Инвентарь, потери и VIP</h2>
+    <p class="section-sub">
+        Сумка теряется при гибели, защищённый карман — нет. Карман должен
+        оставаться <b>меньше</b> сумки, иначе выбор «что взять риском»
+        исчезает и игрок просто прячет всё. Те же числа действуют
+        в Pyodide-панели.
+    </p>
+    <form action="/settings/save-stash" method="post"
+          style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:0.8rem">
+        {% for key, meta in stash_tunables.items() %}
+        <div>
+            <label class="form-label">{{ meta[1] }}</label>
+            <input type="number" name="{{ key }}" class="search-box"
+                   style="max-width:100%"
+                   step="{{ '0.05' if key == 'stash_loss_share' else '1' }}"
+                   min="0" value="{{ stash_values[key] }}">
+            <div class="hint">{{ meta[2] }}</div>
+        </div>
+        {% endfor %}
+        <div style="align-self:end">
+            <button type="submit" class="btn btn-primary">💾 Сохранить</button>
+        </div>
+    </form>
+
+    <h3 style="margin-top:1rem">👑 VIP-игроки ({{ vip_players|length }})</h3>
+    {% if vip_players %}
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Герой</th><th>Уровень</th><th>VIP до</th></tr></thead>
+            <tbody>
+            {% for ch in vip_players %}
+                <tr>
+                    <td>👑 {{ ch.name }}</td>
+                    <td>{{ ch.level }}</td>
+                    <td>{{ ch.vip_until.strftime('%d.%m.%Y') if ch.vip_until else 'бессрочно' }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="muted">VIP пока ни у кого. Выдать можно в карточке игрока.</p>
+    {% endif %}
+</div>
+
 {% endblock %}

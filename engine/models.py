@@ -15,6 +15,8 @@ class Cell:
     npc: int = -1            # индекс в data.NPCS
     chest: bool = False
     link: tuple = ()         # (loc, x, y) — бесшовный переход
+    mob_at: float = 0.0      # когда тварь вернётся сюда (0 — не ждём)
+    chest_at: float = 0.0    # когда здесь снова появится сундук
 
     @property
     def key(self):
@@ -41,13 +43,23 @@ class Player:
     loc: int = 0
     x: int = 5
     y: int = 5
-    inventory: list = field(default_factory=list)   # [item_index, ...]
+    inventory: list = field(default_factory=list)   # сумка: теряется при смерти
+    stash: list = field(default_factory=list)       # защищённый карман: цел всегда
     equipped: dict = field(default_factory=dict)    # {slot: item_index}
     magic: list = field(default_factory=list)       # [(школа, ступень), ...]
     worn: dict = field(default_factory=dict)        # {slot: uid экземпляра}
     rolls: int = 0                                  # осталось перекатов статов
     roll_state: dict = field(default_factory=dict)  # текущий бросок при создании
     kills: int = 0
+    quests: dict = field(default_factory=dict)      # {id: {n, done}} — задания
+    quest_day: str = ""                             # дата сброса ежедневных
+    wounded_until: float = 0.0                      # до какого времени ранен
+    party_invite: int = 0                           # id отряда, куда позвали
+    landmarks: list = field(default_factory=list)   # осмотренные достопримечательности
+    reputation: dict = field(default_factory=dict)  # {фракция: очки}
+    dungeon: dict = field(default_factory=dict)     # активный забег в подземелье
+    is_vip: bool = False                            # VIP-статус
+    vip_until: float = 0.0                          # до какого времени (0 — бессрочно)
     combat: dict = field(default_factory=dict)      # активный бой
     msg_id: int = 0                                 # id сообщения для edit
     created: str = ""

@@ -23,6 +23,7 @@ from core.models import (
     Quest, AdminMessage, InventoryItem, VisitedCell, DungeonTemplate, DungeonRun,
     CharacterClassDef, ItemInstance, DropEntry, CraftRecipe, CraftIngredient,
     UpgradeRule, MobSpawn, ItemHistory, AuctionLot, CharacterAffinity,
+    WorldEvent, WorldEventDamage, Grave,
 )
 from core.enums import (
     LocationType, ItemType, ItemRarity, QuestStatus, ItemSource, CraftStation,
@@ -1375,6 +1376,17 @@ async def settings_page(request: Request):
     # Подсказываем адрес, с которого админ сейчас смотрит панель
     detected = str(request.base_url).rstrip("/")
 
+    # Карман и VIP: те же числа, что в Pyodide-панели — паритет механики.
+    from core import stash as stash_core
+
+    async with async_session() as session:
+        stash_values = {key: await stash_core.tune(session, key)
+                        for key in stash_core.TUNABLES}
+        result = await session.execute(
+            select(Character).where(Character.is_vip == True)
+        )
+        vip_players = result.scalars().all()
+
     return templates.TemplateResponse(
         request,
         "settings.html",
@@ -1384,8 +1396,25 @@ async def settings_page(request: Request):
             "panel_url": panel_url,
             "detected_url": detected,
             "example_login_url": build_login_url(panel_url or detected, 123456789),
+            "stash_tunables": stash_core.TUNABLES,
+            "stash_values": stash_values,
+            "vip_players": vip_players,
         },
     )
+
+
+@app.post("/settings/save-stash")
+async def save_stash_settings(request: Request):
+    """Размер защищённого кармана, прибавка VIP, доля потерь, срок VIP."""
+    guard(request, "settings")
+    from core import stash as stash_core
+
+    form = await request.form()
+    values = {key: form.get(key, "") for key in stash_core.TUNABLES}
+    async with async_session() as session:
+        await stash_core.set_tunables(session, values)
+        await session.commit()
+    return RedirectResponse(url="/settings", status_code=303)
 
 
 @app.post("/settings/save-panel-url")
@@ -2744,6 +2773,20 @@ async def editor_dungeons(request: Request):
         )
         portal_by_template = {c.dungeon_template_id: c for c in result.scalars().all()}
         portal_open_by_template = {tpl.id: is_portal_open(tpl) for tpl in templates_list}
+
+        # Кто сейчас внутри: без этого админ видит только шаблоны и не знает,
+        # можно ли закрывать портал — там могут быть живые игроки.
+        result = await session.execute(
+            select(DungeonRun)
+            .options(selectinload(DungeonRun.character))
+            .where(DungeonRun.is_active == True)
+            .order_by(DungeonRun.id.desc())
+        )
+        active_runs = result.scalars().all()
+        runs_by_template = {}
+        for run in active_runs:
+            runs_by_template.setdefault(run.template_id, 0)
+            runs_by_template[run.template_id] += 1
     return templates.TemplateResponse(
         request,
         "editor_dungeons.html",
@@ -2751,6 +2794,8 @@ async def editor_dungeons(request: Request):
             "dungeon_templates": templates_list,
             "portal_by_template": portal_by_template,
             "portal_open_by_template": portal_open_by_template,
+            "active_runs": active_runs,
+            "runs_by_template": runs_by_template,
         },
     )
 
@@ -3439,6 +3484,131 @@ async def upgrade_rule_delete(request: Request, rule_id: int):
 
 
 # ── Mob population control ──────────────────────────────────
+
+@app.get("/editor/living")
+async def editor_living(request: Request):
+    """Жизнь мира: катаклизмы, мировой босс, фракции, надгробия.
+
+    Паритет с вкладкой «♻️ Жизнь мира» браузерной панели.
+    """
+    guard(request, "manage_content")
+    from core import behavior as core_behavior
+    from core import death as core_death
+    from core import factions as core_factions
+    from core import worldevents as core_events
+
+    async with async_session() as session:
+        await core_events.sweep(session)
+        await core_death.decay(session)
+
+        cataclysms = await core_events.active_cataclysms(session)
+        boss = await core_events.active_boss(session)
+
+        result = await session.execute(select(Grave))
+        graves = result.scalars().all()
+
+        result = await session.execute(select(Character))
+        chars = result.scalars().all()
+        sides = {key: 0 for key in core_factions.FACTIONS}
+        for ch in chars:
+            side = core_factions.allegiance(ch)
+            if side:
+                sides[side] += 1
+        mood = await core_factions.cataclysm_mult(session)
+
+        result = await session.execute(select(Mob))
+        mobs = result.scalars().all()
+        census = core_behavior.census(mobs)
+
+        result = await session.execute(select(Location).order_by(Location.id))
+        locations = result.scalars().all()
+        await session.commit()
+
+    return templates.TemplateResponse(
+        request,
+        "editor_living.html",
+        {
+            "cataclysms": cataclysms,
+            "cataclysm_kinds": core_events.KINDS,
+            "cataclysm_order": core_events.ORDER,
+            "boss": boss,
+            "boss_kinds": core_events.BOSSES,
+            "boss_order": core_events.BOSS_ORDER,
+            "graves": graves,
+            "factions": core_factions.FACTIONS,
+            "faction_order": core_factions.ORDER,
+            "sides": sides,
+            "mood": mood,
+            "census": census,
+            "behaviors": core_behavior.BEHAVIORS,
+            "locations": locations,
+            "characters": chars,
+            "title_of": core_events.title,
+        },
+    )
+
+
+@app.post("/editor/living/cataclysm")
+async def living_cataclysm(request: Request, key: str = Form(...),
+                           location_id: str = Form(""), hours: str = Form("")):
+    """Обрушить бедствие или прекратить его."""
+    guard(request, "manage_content")
+    from core import worldevents as core_events
+
+    async with async_session() as session:
+        loc = int(location_id) if location_id.strip() else None
+        try:
+            await core_events.strike(
+                session, key, loc,
+                float(hours) if hours.strip() else None)
+        except ValueError:
+            pass
+        await session.commit()
+    return RedirectResponse(url="/editor/living", status_code=303)
+
+
+@app.post("/editor/living/cataclysm/{event_id}/end")
+async def living_cataclysm_end(request: Request, event_id: int):
+    guard(request, "manage_content")
+    from core import worldevents as core_events
+
+    async with async_session() as session:
+        await core_events.end_cataclysm(session, event_id)
+        await session.commit()
+    return RedirectResponse(url="/editor/living", status_code=303)
+
+
+@app.post("/editor/living/boss")
+async def living_boss(request: Request, key: str = Form(...),
+                      location_id: str = Form(""), hours: str = Form("")):
+    """Призвать мирового босса."""
+    guard(request, "manage_content")
+    from core import worldevents as core_events
+
+    async with async_session() as session:
+        loc = int(location_id) if location_id.strip() else None
+        try:
+            await core_events.summon_boss(
+                session, key, loc,
+                float(hours) if hours.strip() else None)
+        except ValueError:
+            pass
+        await session.commit()
+    return RedirectResponse(url="/editor/living", status_code=303)
+
+
+@app.post("/editor/living/boss/dismiss")
+async def living_boss_dismiss(request: Request):
+    guard(request, "manage_content")
+    from core import worldevents as core_events
+
+    async with async_session() as session:
+        boss = await core_events.active_boss(session)
+        if boss is not None:
+            boss.is_active = False
+        await session.commit()
+    return RedirectResponse(url="/editor/living", status_code=303)
+
 
 @app.get("/editor/spawns")
 async def editor_spawns(request: Request):

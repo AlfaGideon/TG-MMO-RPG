@@ -6,6 +6,33 @@
 
 {% block content %}
 <div class="card">
+    <h2 style="margin:0 0 .6rem">🕳 Сейчас в подземельях ({{ active_runs|length }})</h2>
+    <p class="section-sub">Прежде чем закрывать портал, посмотрите, есть ли
+       кто внутри: закрытие не выкидывает тех, кто уже спустился, но новых
+       не пускает.</p>
+    {% if active_runs %}
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Герой</th><th>Подземелье</th><th>Этаж</th>
+                <th>Начал</th></tr></thead>
+            <tbody>
+            {% for run in active_runs %}
+                <tr>
+                    <td>{{ run.character.name if run.character else '—' }}</td>
+                    <td>{{ run.template.name if run.template else 'без шаблона' }}</td>
+                    <td>{{ run.floor }}</td>
+                    <td>{{ run.created_at.strftime('%d.%m %H:%M') if run.created_at else '—' }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="muted">Внутри никого.</p>
+    {% endif %}
+</div>
+
+<div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.6rem">
         <h2 style="margin:0">🕳 Процедурные подземелья — LIVE таймеры без перезагрузки</h2>
         <span class="hint" id="portalLiveStatus">● LIVE</span>

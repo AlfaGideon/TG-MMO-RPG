@@ -39,6 +39,42 @@ async def _load_character(session, telegram_id: int, with_cell: bool = False):
     return result.scalar_one_or_none()
 
 
+async def _lose_bag(session, character):
+    """Гибель: золото и часть сумки остаются надгробием, карман цел.
+
+    Паритет с браузерным стеком: вещи не исчезают, а ждут хозяина на месте
+    смерти. Дошёл обратно — вернул всё, погиб по дороге — потерял.
+    Возвращает строку для экрана поражения.
+    """
+    from core import death as core_death
+    from core import stash as stash_core
+
+    lost = await stash_core.drop_on_death(session, character)
+    kept = len(await stash_core.stashed(session, character))
+    item_ids = [inv.item_id for inv in lost]
+    for inv in lost:
+        await session.delete(inv)
+
+    gold_lost = character.gold // 5
+    character.gold -= gold_lost
+    grave = await core_death.bury(session, character, gold_lost, item_ids)
+    core_death.wound(character)
+
+    parts = []
+    if grave:
+        parts.append(f"🪦 Осталось на месте гибели: <b>{gold_lost}</b> 🪙")
+    if lost:
+        parts.append(f"🎒 Выпало из сумки: <b>{len(lost)}</b>")
+    if kept:
+        parts.append(f"🔒 В кармане уцелело: <b>{kept}</b>")
+    if grave:
+        parts.append("<i>Вернись и забери — если успеешь за сутки.</i>")
+    hurt = core_death.note(character)
+    if hurt:
+        parts.append(hurt)
+    return ("\n\n" + "\n".join(parts)) if parts else ""
+
+
 @router.callback_query(F.data == "battle_menu")
 async def battle_menu(callback: CallbackQuery):
     async with async_session() as session:
@@ -132,6 +168,10 @@ async def _finish_victory(callback, session, character, mob, spawn, state):
     character.gold += gold
     character.experience += exp
 
+    # Фракции: за нежить хвалит стража, за зверьё — тоже, но меньше.
+    from core import factions as core_factions
+    rep_lines = core_factions.award_for_mob(character, mob)
+
     # Realtime: победа в бою
     try:
         await rt_publish("battle_victory", {
@@ -183,6 +223,8 @@ async def _finish_victory(callback, session, character, mob, spawn, state):
     combat_state.pop(callback.from_user.id, None)
 
     text = victory_text(mob, gold, exp)
+    if rep_lines:                      # чем поступок отозвался у фракций
+        text += "\n\n" + "\n".join(rep_lines)
     if levels_gained:
         text += f"\n\n🎖 <b>Новый уровень: {character.level}!</b>\nЗдоровье восстановлено."
     if loot:
@@ -259,11 +301,12 @@ async def combat_attack(callback: CallbackQuery):
                 spawn.engaged_by_id = None
                 # Моб зализывает раны, а не остаётся с 1 HP навсегда
                 spawn.current_hp = mob.hp
+            note = await _lose_bag(session, character)
             await session.commit()
             combat_state.pop(callback.from_user.id, None)
 
             await callback.message.edit_text(
-                defeat_text(),
+                defeat_text() + note,
                 reply_markup=main_menu_keyboard(has_character=True),
                 parse_mode="HTML",
             )
@@ -311,10 +354,11 @@ async def combat_defend(callback: CallbackQuery):
 
         if state["character_hp"] <= 0:
             character.current_hp = 1
+            note = await _lose_bag(session, character)
             await session.commit()
             combat_state.pop(callback.from_user.id, None)
             await callback.message.edit_text(
-                defeat_text(),
+                defeat_text() + note,
                 reply_markup=main_menu_keyboard(has_character=True),
                 parse_mode="HTML",
             )

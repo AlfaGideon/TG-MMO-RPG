@@ -24,6 +24,7 @@ def register(app, A):
     A("players-select-all", lambda _="": _select_all_players(app))
     A("players-select-all-header", lambda _="": _select_all_players(app))
     A("players-mass-vip", lambda _="": _mass_vip(app))
+    A("player-vip", lambda arg: _toggle_vip(app, arg))
     A("players-mass-del", lambda _="": _mass_delete(app))
     A("access-preset", lambda arg: _preset(app, arg))
     A("access-newpass", lambda arg: _newpass(app, arg))
@@ -158,18 +159,46 @@ def _select_all_players(app):
     updatePlayersMassCount()
 
 
+def _toggle_vip(app, tg_id):
+    """Включить/снять VIP у одного игрока. VIP расширяет защищённый карман."""
+    from engine import stash
+
+    p = app.store.players.get(int(tg_id))
+    if p is None:
+        dom.toast("Игрок не найден", "err")
+        return
+    if stash.is_vip(p):
+        stash.revoke_vip(p)
+        msg = (f"VIP снят у {p.name} — карман снова "
+               f"{stash.capacity(p, app.store)}")
+    else:
+        days = stash.vip_days(app.store)
+        stash.grant_vip(p, days)
+        msg = (f"👑 VIP на {days} дн.: {p.name} — "
+               f"карман {stash.capacity(p, app.store)}")
+    app.store.save()
+    app.close_modal()
+    dom.toast(msg)
+    app.render()
+
+
 def _mass_vip(app):
+    """Выдать VIP на срок из настроек панели. Раньше писалось поле vip_days,
+    которого нет в модели, — статус не переживал перезагрузку."""
+    from engine import stash
+
     ids = _selected_tg_ids(app)
     if not ids:
         dom.toast("Никто не выбран", "err")
         return
+    days = stash.vip_days(app.store)
     for tg_id in ids:
         p = app.store.players.get(tg_id)
         if p is not None:
-            p.is_vip = True
-            p.vip_days = 7
+            stash.grant_vip(p, days)
     app.store.save()
-    dom.toast(f"VIP выдан {len(ids)} игрокам")
+    dom.toast(f"👑 VIP на {days} дн. выдан: {len(ids)} — "
+              f"карман +{stash.tune(app.store, 'stash_vip_bonus')}")
     app.render()
 
 

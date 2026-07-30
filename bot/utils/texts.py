@@ -281,7 +281,9 @@ def item_line(inv_item, show_uid: bool = False) -> str:
     dot = RARITY_ICONS.get(getattr(rarity, "value", str(rarity)), "⚪")
     qty = f" ×{inv_item.quantity}" if (inv_item.quantity or 1) > 1 else ""
     uid = f" <code>{inst.tagged_uid()}</code>" if (show_uid and inst) else ""
-    return f"{dot} {icon} {name}{qty}{uid}"
+    # Спрятанное в карман видно сразу: оно переживёт гибель героя.
+    lock = " 🔒" if getattr(inv_item, "in_stash", False) else ""
+    return f"{dot} {icon} {name}{qty}{lock}{uid}"
 
 
 def loot_text(inv_items) -> str:
