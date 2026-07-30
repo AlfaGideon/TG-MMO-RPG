@@ -32,6 +32,21 @@ def vip_tier(char) -> int:
     return 1 if is_vip_active(char) else 0
 
 
+def offline_protected(char) -> bool:
+    """Игрок вышел в VIP-режим полной неуязвимости."""
+    return is_vip_active(char) and bool(getattr(char, "offline_protected", False))
+
+
+def set_offline(char, enabled: bool) -> bool:
+    """Включить/выключить VIP-выход. Возвращает новое состояние."""
+    if enabled and not is_vip_active(char):
+        raise ValueError("Режим «Я офлайн» доступен только VIP")
+    if enabled and getattr(char, "battle", None):
+        raise ValueError("Сначала закончи бой")
+    char.offline_protected = bool(enabled)
+    return char.offline_protected
+
+
 # ── Модификаторы ──────────────────────────────────────
 
 # Боевые награды

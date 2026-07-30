@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from core.database import async_session
-from core.models import User, Character, Cell, AdminMessage, VisitedCell, PlayerSuggestion, GameUpdate
+from core.models import User, Character, Cell, Battle, AdminMessage, VisitedCell, PlayerSuggestion, GameUpdate
 from bot.keyboards.inline import (
     main_menu_keyboard, class_select_keyboard, confirm_class_keyboard,
     back_to_main_keyboard, reroll_keyboard, help_menu_keyboard, back_to_help_keyboard,
@@ -14,6 +14,7 @@ from bot.utils.texts import WELCOME_TEXT, class_description_text, reroll_text
 from bot.utils.photos import send_or_edit_photo
 from core import magic, statroll
 from core.classes import all_classes, get_class
+from core.vip import is_vip_active, offline_protected, set_offline
 
 router = Router()
 
@@ -57,6 +58,8 @@ async def cmd_start(message: Message):
             reply_markup=main_menu_keyboard(
                 has_character=bool(character),
                 is_admin=bool(user.is_web_admin),
+                is_vip=bool(character and is_vip_active(character)),
+                offline=bool(character and offline_protected(character)),
             ),
             parse_mode="HTML",
         )
@@ -169,6 +172,61 @@ async def bot_suggest_handler(callback: CallbackQuery):
     await callback.message.edit_text(text, reply_markup=back_to_help_keyboard(), parse_mode="HTML")
 
 
+@router.callback_query(F.data == "offline_toggle")
+async def offline_toggle(callback: CallbackQuery):
+    """VIP leaves the world: no combat, mobs, PvP or world effects can touch them."""
+    async with async_session() as session:
+        result = await session.execute(select(User).where(User.telegram_id == callback.from_user.id))
+        user = result.scalar_one_or_none()
+        character = None
+        if user:
+            result = await session.execute(select(Character).where(Character.user_id == user.id))
+            character = result.scalar_one_or_none()
+        if not character or not is_vip_active(character):
+            await callback.answer("Режим «Я офлайн» доступен только VIP.", show_alert=True)
+            return
+        active_battle = (await session.execute(
+            select(Battle).where(Battle.character_id == character.id)
+            .where(Battle.result.is_(None))
+        )).scalar_one_or_none()
+        if active_battle:
+            await callback.answer("Сначала закончи бой.", show_alert=True)
+            return
+        set_offline(character, True)
+        await session.commit()
+    await callback.message.edit_text(
+        "🌙 <b>Ты офлайн</b>\n\n"
+        "👑 VIP-защита включена: мобы, игроки, бои и катаклизмы тебя не затрагивают.\n\n"
+        "Все действия скрыты до возвращения в мир.",
+        reply_markup=main_menu_keyboard(has_character=True, is_vip=True, offline=True),
+        parse_mode="HTML",
+    )
+
+
+@router.callback_query(F.data == "offline_resume")
+async def offline_resume(callback: CallbackQuery):
+    async with async_session() as session:
+        result = await session.execute(select(User).where(User.telegram_id == callback.from_user.id))
+        user = result.scalar_one_or_none()
+        character = None
+        if user:
+            result = await session.execute(
+                select(Character).where(Character.user_id == user.id)
+                .options(selectinload(Character.location), selectinload(Character.cell))
+            )
+            character = result.scalar_one_or_none()
+        if not character or not character.cell:
+            await callback.answer("Персонаж не найден.", show_alert=True)
+            return
+        character.offline_protected = False
+        await session.commit()
+        await callback.answer("Ты снова в мире.")
+        # Единственная доступная кнопка действительно возвращает в текущую
+        # клетку мира, а не просто открывает ещё одно меню.
+        from bot.handlers.location import show_cell
+        await show_cell(callback, character, character.location, session)
+
+
 @router.callback_query(F.data == "main_menu")
 async def main_menu(callback: CallbackQuery):
     async with async_session() as session:
@@ -176,17 +234,23 @@ async def main_menu(callback: CallbackQuery):
             select(User).where(User.telegram_id == callback.from_user.id)
         )
         user = result.scalar_one_or_none()
+        character = None
         has_char = False
         is_admin = bool(user and user.is_web_admin)
         if user:
             result = await session.execute(
                 select(Character).where(Character.user_id == user.id)
             )
-            has_char = result.scalar_one_or_none() is not None
+            character = result.scalar_one_or_none()
+            has_char = character is not None
 
     await callback.message.edit_text(
         WELCOME_TEXT,
-        reply_markup=main_menu_keyboard(has_character=has_char, is_admin=is_admin),
+        reply_markup=main_menu_keyboard(
+            has_character=has_char, is_admin=is_admin,
+            is_vip=bool(character and is_vip_active(character)),
+            offline=bool(character and offline_protected(character)),
+        ),
         parse_mode="HTML",
     )
 

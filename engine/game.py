@@ -3,7 +3,7 @@ import random
 
 from engine import (adminbot, adminroute, behavior, cataclysm, combat, data,
                     explore, hero, inventory, items, mapview, respawn, rules,
-                    shop, social, texts, trade, world)
+                    shop, social, stash, texts, trade, world)
 from engine.models import Reply
 
 
@@ -16,6 +16,14 @@ class Game:
     def handle(self, p, action):
         if action in ("start", "menu"):
             return self.menu(p)
+        if stash.offline_protected(p):
+            if action == "offline_resume":
+                stash.set_offline(p, False)
+                return self.menu(p)
+            return Reply(text="🌙 <b>Ты офлайн</b>\n\n"
+                         "👑 VIP-защита от мобов, игроков и катаклизмов активна.\n"
+                         "Все действия скрыты до возвращения в мир.",
+                         keyboard=[[("🧭 Вернуться в мир", "offline_resume")]])
         head, _, arg = action.partition(":")
         if trade.handles(head):            # мастерская, заточка, аукцион
             return trade.route(self.store, p, head, arg)
@@ -37,6 +45,8 @@ class Game:
             [("🔨 Мастерская", "craft"), ("🏛 Аукцион", "auc:0")],
             [("🏆 Топ", "top"), ("❓ Помощь", "help")],
         ]
+        if stash.is_vip(p):
+            rows.insert(-1, [("🌙 Я офлайн", "offline")])
         if social.boss_alive(self.store):
             rows.insert(0, [("🏰 Мировой босс!", "boss")])
         if p.is_web_admin:
@@ -62,11 +72,39 @@ class Game:
         return Reply(text=texts.HELP, keyboard=[[("◀️ Меню", "menu")]])
 
     def do_new(self, p, arg=""):
+        """Показывает классы постранично, как серверный бот.
+
+        Раньше браузерный стек выводил весь список одним длинным меню, тогда
+        как сервер уже показывал карточку класса с листанием. Из-за этого
+        выбор класса фактически отличался между стеками.
+        """
         if p.created_char:
             return Reply(alert="У тебя уже есть герой!")
-        rows = [[(data.CLASSES[c][0], f"pick:{c}")] for c in data.CLASSES]
+        classes = list(data.CLASSES)
+        if not classes:
+            return Reply(text="Классы ещё не настроены.", keyboard=[[('◀️ Назад', 'menu')]])
+        try:
+            page = max(0, min(int(arg or 0), len(classes) - 1))
+        except (TypeError, ValueError):
+            page = 0
+        cls = classes[page]
+        title, description, stats = data.CLASSES[cls]
+        stat_line = " · ".join(f"{k}: {v}" for k, v in stats.items())
+        rows = [[(f"✅ Выбрать: {title}", f"pick:{cls}")]]
+        nav = []
+        if page:
+            nav.append(("⬅️ Пред. страница", f"class_page:{page - 1}"))
+        if page + 1 < len(classes):
+            nav.append(("След. страница ➡️", f"class_page:{page + 1}"))
+        if nav:
+            rows.append(nav)
         rows.append([("◀️ Назад", "menu")])
-        return Reply(text="Выбери класс своего героя:", keyboard=rows)
+        return Reply(text=(f"{title} · класс {page + 1}/{len(classes)}\n\n"
+                           f"{description}\n\n<b>База:</b> {stat_line}"),
+                     keyboard=rows)
+
+    def do_class_page(self, p, page="0"):
+        return self.do_new(p, page)
 
     def do_pick(self, p, cls):
         """Выбран класс — сразу катаем стартовые статы и дар к магии."""
@@ -124,6 +162,16 @@ class Game:
         return Reply(text=texts.profile(p, self.store), keyboard=[
             [("🎒 Инвентарь", "bag"), ("🧭 В мир", "world")], [("◀️ Меню", "menu")]])
 
+    # ── VIP-выход ───────────────────────────────────────────
+    def do_offline(self, p, arg=""):
+        ok, msg = stash.set_offline(p, True)
+        if not ok:
+            return Reply(alert=msg)
+        return Reply(text="🌙 <b>Ты офлайн</b>\n\n"
+                     "👑 VIP-защита от мобов, игроков и катаклизмов активна.\n"
+                     "Все действия скрыты до возвращения в мир.",
+                     keyboard=[[("🧭 Вернуться в мир", "offline_resume")]])
+
     # ── мир ─────────────────────────────────────────────────
     def _cell(self, p):
         return world.cell_at(self.world, p.loc, p.x, p.y)
@@ -152,6 +200,10 @@ class Game:
                 else:
                     row.append(("⬛", "wall"))
             rows.append(row)
+        # Если игрок оказался непосредственно на клетке-переходе, стрелки
+        # больше не помогают: явная кнопка делает переход доступным сразу.
+        if cell.link:
+            rows.append([("🚪 Перейти через дверь", "transition")])
         rows.append([("🏕 Отдых", "rest"), ("🎒 Инвентарь", "bag")])
         rows.append([("🗺 Карта", "map"), ("◀️ Меню", "menu")])
         alarm = cataclysm.banner(self.store, p.loc)
@@ -162,9 +214,23 @@ class Game:
 
     do_wall = lambda self, p, arg="": Reply(alert="Туда нельзя пройти.")
 
+    def do_transition(self, p, arg=""):
+        """Использовать переход на текущей клетке (дверь/шов локаций)."""
+        if p.combat:
+            return Reply(alert="Сначала закончи бой!")
+        cell = self._cell(p)
+        if not cell or not cell.link:
+            return Reply(alert="Здесь нет перехода.")
+        p.loc, p.x, p.y = cell.link
+        social.on_enter(p, p.loc)
+        mapview.mark_visited(p)
+        return self.do_world(p)
+
     def do_go(self, p, d):
         if p.combat:
             return Reply(alert="Сначала закончи бой!")
+        # Старые кнопки/сохранённые callback-и используют полные названия.
+        d = {"north": "n", "south": "s", "west": "w", "east": "e"}.get(d, d)
         dx, dy = world.DIRS.get(d, (0, 0))
         target = world.cell_at(self.world, p.loc, p.x + dx, p.y + dy)
         if not target or not target.passable:

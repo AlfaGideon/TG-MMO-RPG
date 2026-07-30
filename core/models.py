@@ -205,6 +205,8 @@ class Character(Base):
 
     is_vip = Column(Boolean, default=False)
     vip_until = Column(DateTime(timezone=True), nullable=True)
+    # VIP may temporarily leave the world while remaining completely immune.
+    offline_protected = Column(Boolean, default=False)
     image_url = Column(String(512), nullable=True)
 
     # Фракции: очки репутации в JSON {"guard": 12, ...} — три силы, счёт

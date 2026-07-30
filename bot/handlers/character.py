@@ -7,6 +7,7 @@ from core import magic
 from core.classes import get_class
 from core.database import async_session
 from core.stats import combat_stats
+from core.vip import is_vip_active, offline_protected
 from core.models import User, Character, Battle
 from bot.keyboards.inline import main_menu_keyboard, leaderboard_keyboard
 from bot.utils.texts import profile_text
@@ -47,7 +48,10 @@ async def profile(callback: CallbackQuery):
         await send_or_edit_photo(
             callback,
             profile_text(character, cls_def, stats, affinities),
-            reply_markup=main_menu_keyboard(has_character=True),
+            reply_markup=main_menu_keyboard(
+                has_character=True, is_vip=is_vip_active(character),
+                offline=offline_protected(character),
+            ),
             image_url=character.image_url,
         )
 

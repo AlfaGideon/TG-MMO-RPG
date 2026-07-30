@@ -108,6 +108,22 @@ def vip_days(store):
 def revoke_vip(p):
     p.is_vip = False
     p.vip_until = 0.0
+    p.offline_protected = False
+
+
+def offline_protected(p):
+    """Полная защита VIP от игровых воздействий на время выхода."""
+    return is_vip(p) and bool(getattr(p, "offline_protected", False))
+
+
+def set_offline(p, enabled):
+    if enabled and not is_vip(p):
+        return False, "Режим «Я офлайн» доступен только VIP."
+    if enabled and p.combat:
+        return False, "Сначала закончи бой."
+    p.offline_protected = bool(enabled)
+    return True, ("Ты офлайн. VIP-защита включена." if enabled
+                  else "Ты снова в мире.")
 
 
 # ── размер кармана ──────────────────────────────────────────
