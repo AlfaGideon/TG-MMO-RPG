@@ -465,7 +465,7 @@
             <form action="/player/{{ char.id }}/grant-vip" method="post" style="display:flex; gap:0.5rem; align-items:flex-end; flex-wrap:wrap;">
                 <div>
                     <label class="form-label">Дней VIP</label>
-                    <input type="number" name="vip_days" value="30" min="1" class="search-box" style="max-width:110px">
+                    <input type="number" name="vip_days" value="{{ vip_days }}" min="1" class="search-box" style="max-width:110px">
                 </div>
                 <button type="submit" class="btn btn-primary">🎁 Выдать VIP</button>
             </form>

@@ -5,10 +5,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from core.database import async_session
-from core.models import User, Character, Cell, AdminMessage, VisitedCell
+from core.models import User, Character, Cell, AdminMessage, VisitedCell, PlayerSuggestion, GameUpdate
 from bot.keyboards.inline import (
     main_menu_keyboard, class_select_keyboard, confirm_class_keyboard,
-    back_to_main_keyboard, reroll_keyboard,
+    back_to_main_keyboard, reroll_keyboard, help_menu_keyboard, back_to_help_keyboard,
 )
 from bot.utils.texts import WELCOME_TEXT, class_description_text, reroll_text
 from bot.utils.photos import send_or_edit_photo
@@ -63,6 +63,40 @@ async def handle_text(message: Message):
         if not user:
             return
 
+        text_lower = message.text.lower().strip()
+        if text_lower.startswith("идея") or text_lower.startswith("idea"):
+            # Extract the actual idea text
+            idea_content = message.text
+            for prefix in ["идея:", "идея", "idea:", "idea"]:
+                if text_lower.startswith(prefix):
+                    idea_content = message.text[len(prefix):].strip()
+                    break
+            
+            if idea_content:
+                result = await session.execute(
+                    select(Character).where(Character.user_id == user.id)
+                )
+                character = result.scalar_one_or_none()
+                if not character:
+                    await message.answer("Сначала создай персонажа, чтобы предлагать идеи!")
+                    return
+                
+                suggestion = PlayerSuggestion(
+                    character_id=character.id,
+                    text=idea_content,
+                    status="pending"
+                )
+                session.add(suggestion)
+                await session.commit()
+                
+                await message.answer(
+                    "💡 <b>Твоё предложение успешно отправлено разработчикам!</b>\n\n"
+                    "Мы взяли его на рассмотрение. Как только администратор изменит статус твоей идеи в панели управления, тебе придёт уведомление здесь в боте.\n"
+                    "Спасибо за помощь в улучшении игры! 🤝",
+                    parse_mode="HTML"
+                )
+                return
+
         # Save player message
         msg = AdminMessage(user_id=user.id, from_admin=False, text=message.text)
         session.add(msg)
@@ -84,6 +118,45 @@ async def handle_text(message: Message):
                 "📨 <b>Сообщение отправлено администратору.</b>",
                 parse_mode="HTML",
             )
+
+
+@router.callback_query(F.data == "bot_updates")
+async def bot_updates_handler(callback: CallbackQuery):
+    async with async_session() as session:
+        result = await session.execute(
+            select(GameUpdate).order_by(GameUpdate.created_at.desc()).limit(15)
+        )
+        updates = result.scalars().all()
+
+    if not updates:
+        text = (
+            "📢 <b>Обновления игры</b>\n\n"
+            "Пока нет записанных обновлений. Следите за новостями в ближайшее время!"
+        )
+    else:
+        text = "📢 <b>Последние обновления игры:</b>\n\n"
+        for i, up in enumerate(updates, 1):
+            date_str = up.created_at.strftime('%d.%m.%Y') if up.created_at else ''
+            text += f"{i}. <b>{up.title}</b> ({date_str})\n"
+            if up.change_type == "change":
+                text += f"   ❌ <i>Было:</i> {up.was_text}\n"
+                text += f"   ✅ <i>Стало:</i> {up.became_text}\n\n"
+            else:
+                text += f"   ⭐ {up.became_text}\n\n"
+
+    await callback.message.edit_text(text, reply_markup=back_to_help_keyboard(), parse_mode="HTML")
+
+
+@router.callback_query(F.data == "bot_suggest")
+async def bot_suggest_handler(callback: CallbackQuery):
+    text = (
+        "💡 <b>Предложить идею по улучшению игры</b>\n\n"
+        "Мы очень ценим твои отзывы и предложения!\n\n"
+        "Чтобы твоя идея попала напрямую в раздел пожеланий в админ-панели, отправь её следующим сообщением, начав со слова <b>Идея</b>.\n\n"
+        "<b>Пример:</b>\n"
+        "<code>Идея Добавить больше редкого оружия во 2-ю локацию</code>"
+    )
+    await callback.message.edit_text(text, reply_markup=back_to_help_keyboard(), parse_mode="HTML")
 
 
 @router.callback_query(F.data == "main_menu")
@@ -342,7 +415,7 @@ async def accept_stats(callback: CallbackQuery):
 @router.callback_query(F.data == "help")
 async def help_handler(callback: CallbackQuery):
     text = (
-        "📜 <b>Помощь</b>\n\n"
+        "📜 <b>Помощь и Информация по игре</b>\n\n"
         "<b>Основные команды:</b>\n"
         "• Профиль — статы, экипировка по слотам и золото\n"
         "• Бой — охота на монстров (осмотрись на клетке и ищи 👾)\n"
@@ -372,6 +445,17 @@ async def help_handler(callback: CallbackQuery):
         "<b>👾 Монстры:</b>\n"
         "Мобы ходят по карте и восстанавливаются со временем. Слабые могут "
         "забредать в опасные земли, а вот сильные к новичкам не заходят.\n\n"
+        "<b>⚖️ Фракционный баланс:</b>\n"
+        "Три фракции связаны по принципу «Камень-ножницы-бумага»:\n"
+        "• 🛡️ <b>Стража Погоста</b> враждует с 💰 <b>Гильдией падальщиков</b>\n"
+        "• 💰 <b>Гильдия падальщиков</b> враждует с 🌑 <b>Культом Пожирателя</b>\n"
+        "• 🌑 <b>Культ Пожирателя</b> враждует с 🛡️ <b>Стражей Погоста</b>\n"
+        "Помогая одной фракции, ты портишь репутацию у соперника, так что быть другом для всех не получится!\n\n"
+        "<b>🛠️ Проделанная работа (Последние крупные обновления):</b>\n"
+        "1. 🎒 <b>Защищенный карман (Stash):</b> Ценные вещи теперь можно прятать в карман. При гибели героя вещи из сумки остаются на месте смерти в виде надгробия (их можно вернуть в течение суток), а скрытые в кармане вещи всегда уцелевают с героем.\n"
+        "2. 🕳️ <b>Процедурные подземелья (Dungeons):</b> Запущены глубокие опасные лабиринты. Порталы в них открываются случайно по всему миру. Внутри ждут сундуки, тайники и элитные враги.\n"
+        "3. 🌋 <b>Мировые катаклизмы:</b> Реализованы случайные и управляемые администраторами события (землетрясения, туманы, метеоритный дождь) и призывы грозных Мировых Боссов, победа над которыми приносит ценнейшую добычу всем участникам.\n"
+        "4. 👑 <b>VIP-статус:</b> Реализована полноценная VIP-система. Владельцы VIP получают +50% золота, +30% опыта, бонус к качеству лута, бесплатный аукцион, расширенный карман и моментальные путешествия во все открытые земли.\n\n"
         "<b>Советы:</b>\n"
         "— Мир бесшовный: иди к краю локации, чтобы попасть в соседнюю\n"
         "— Отдыхай, чтобы восстановить здоровье\n"
@@ -380,4 +464,4 @@ async def help_handler(callback: CallbackQuery):
         "— Пиши админу простым сообщением в бот\n\n"
         "<i>Удачи в Теневых Землях...</i>"
     )
-    await callback.message.edit_text(text, reply_markup=back_to_main_keyboard(), parse_mode="HTML")
+    await callback.message.edit_text(text, reply_markup=help_menu_keyboard(), parse_mode="HTML")

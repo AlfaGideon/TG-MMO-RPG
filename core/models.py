@@ -978,3 +978,29 @@ class Grave(Base):
 
     character = relationship("Character")
     location = relationship("Location")
+
+
+class GameUpdate(Base):
+    """Информация об обновлении."""
+    __tablename__ = "game_updates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(128), nullable=False)
+    change_type = Column(String(32), default="new")  # "new" (новинка) or "change" (было->стало)
+    was_text = Column(Text, nullable=True)            # было
+    became_text = Column(Text, nullable=False)        # стало / новинка
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class PlayerSuggestion(Base):
+    """Пожелания игроков."""
+    __tablename__ = "player_suggestions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    character_id = Column(Integer, ForeignKey("characters.id"), nullable=False)
+    text = Column(Text, nullable=False)
+    status = Column(String(32), default="pending")  # "pending", "taken_in_work", "rejected", "accepted_implemented"
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    character = relationship("Character")

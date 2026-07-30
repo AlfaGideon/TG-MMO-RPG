@@ -121,7 +121,16 @@ def add_level(store, actor, tg_id, delta, source="panel"):
     require(actor, "edit_players")
     p = _target(store, tg_id)
     delta = int(delta)
-    p.level = max(1, p.level + delta)
+    old_level = p.level
+    new_level = max(1, old_level + delta)
+    actual_delta = new_level - old_level
+    p.level = new_level
+    if actual_delta != 0:
+        from engine import hero
+        gains = hero.growth(p.cls)
+        for key, step in gains.items():
+            setattr(p, key, max(0, getattr(p, key, 0) + int(step) * actual_delta))
+        p.hp = p.max_hp
     store.save_player(p)
     sign = "+" if delta >= 0 else ""
     queue(store, p.tg_id, f"⭐ Твой уровень изменён администратором: {sign}{delta}")
@@ -133,6 +142,29 @@ def set_fields(store, actor, tg_id, fields, source="panel"):
     """Пакетная правка статов из формы панели."""
     require(actor, "edit_players")
     p = _target(store, tg_id)
+    
+    # Check if level changed
+    level_val = fields.get("level")
+    if level_val is not None:
+        try:
+            new_level = max(1, int(level_val))
+            delta = new_level - p.level
+            if delta != 0:
+                from engine import hero
+                gains = hero.growth(p.cls)
+                for stat, step in gains.items():
+                    form_val = fields.get(stat)
+                    if form_val is not None:
+                        try:
+                            if int(form_val) == getattr(p, stat, 0):
+                                fields[stat] = max(0, int(form_val) + int(step) * delta)
+                        except (ValueError, TypeError):
+                            pass
+                    else:
+                        setattr(p, stat, max(0, getattr(p, stat, 0) + int(step) * delta))
+        except (ValueError, TypeError):
+            pass
+
     changed = []
     for k, v in fields.items():
         if not hasattr(p, k):

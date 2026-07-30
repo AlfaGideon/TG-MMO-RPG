@@ -23,7 +23,7 @@ from core.models import (
     Quest, AdminMessage, InventoryItem, VisitedCell, DungeonTemplate, DungeonRun,
     CharacterClassDef, ItemInstance, DropEntry, CraftRecipe, CraftIngredient,
     UpgradeRule, MobSpawn, ItemHistory, AuctionLot, CharacterAffinity,
-    WorldEvent, WorldEventDamage, Grave,
+    WorldEvent, WorldEventDamage, Grave, GameUpdate, PlayerSuggestion,
 )
 from core.enums import (
     LocationType, ItemType, ItemRarity, QuestStatus, ItemSource, CraftStation,
@@ -369,10 +369,13 @@ async def players(
         )
         chars = result.scalars().all()
 
+        from core import stash as stash_core
+        vip_days_val = await stash_core.tune(session, "vip_days")
+
     return templates.TemplateResponse(
         request,
         "players.html",
-        {"players": chars, "pagination": meta, "q": q, "sort": sort, "order": order},
+        {"players": chars, "pagination": meta, "q": q, "sort": sort, "order": order, "vip_days": vip_days_val},
     )
 
 
@@ -390,15 +393,38 @@ async def players_mass_action(
 
     async with async_session() as session:
         result = await session.execute(
-            select(Character).where(Character.id.in_(ids))
+            select(Character).where(Character.id.in_(ids)).options(selectinload(Character.user))
         )
         chars = result.scalars().all()
 
         if action == "grant-vip":
-            until = datetime.utcnow() + timedelta(days=7)
+            from core import stash as stash_core
+            vip_days_val = await stash_core.tune(session, "vip_days")
+            until = datetime.utcnow() + timedelta(days=vip_days_val)
             for char in chars:
                 char.is_vip = True
                 char.vip_until = until
+                try:
+                    from bot.runner import bot_runner
+                    if bot_runner.is_running() and bot_runner.bot:
+                        await bot_runner.bot.send_message(
+                            chat_id=char.user.telegram_id,
+                            text=(
+                                f"👑 <b>Тебе выдан VIP-статус на {vip_days_val} дн.!</b>\n\n"
+                                "Спасибо, что играешь в Shadow Lands! Наслаждайся бонусами:\n"
+                                "• 💰 Золото +50%\n"
+                                "• ⭐ Опыт +30%\n"
+                                "• 🎁 Лут +10% качества\n"
+                                "• 📦 Сундуки +50% золота\n"
+                                "• 🗺️ Быстрый полёт везде\n"
+                                "• ⚖️ Без комиссии на аукционе\n"
+                                "• 🔥 Ежедневный бонус!\n\n"
+                                "<i>Статус уже активен. Все подробности — в меню «👑 VIP».</i>"
+                            ),
+                            parse_mode="HTML"
+                        )
+                except Exception:
+                    pass
         await session.commit()
 
     return RedirectResponse(url="/players", status_code=303)
@@ -448,6 +474,8 @@ async def player_detail(request: Request, char_id: int):
         class_def = await get_class(session, char.character_class)
         totals = await combat_stats(session, char)
         affinities = await magic.get_affinities(session, char.id)
+        from core import stash as stash_core
+        vip_days_val = await stash_core.tune(session, "vip_days")
 
     equipped_by_slot = {
         inv.item.item_type.value: inv
@@ -475,6 +503,7 @@ async def player_detail(request: Request, char_id: int):
             "affinities": affinities,
             "schools": [(k, v[0], v[1]) for k, v in MAGIC_SCHOOLS.items()],
             "grades": [(k, v[0]) for k, v in AFFINITY_GRADES.items()],
+            "vip_days": vip_days_val,
         },
     )
 
@@ -525,10 +554,33 @@ async def player_edit(
     async with async_session() as session:
         char = await session.get(Character, char_id)
         if char:
+            new_level = max(1, level)
+            delta = new_level - char.level
+            if delta != 0:
+                from core.classes import get_class, level_up_gains
+                cls_def = await get_class(session, char.character_class)
+                gains = level_up_gains(cls_def)
+                if strength == char.strength:
+                    strength = max(1, strength + delta * gains.get("strength", 1))
+                if agility == char.agility:
+                    agility = max(1, agility + delta * gains.get("agility", 1))
+                if intelligence == char.intelligence:
+                    intelligence = max(1, intelligence + delta * gains.get("intelligence", 0))
+                if endurance == char.endurance:
+                    endurance = max(1, endurance + delta * gains.get("endurance", 1))
+                if luck == char.luck:
+                    luck = max(0, luck + delta * gains.get("luck", 0))
+                if max_hp == char.max_hp:
+                    max_hp = max(1, max_hp + delta * gains.get("max_hp", 10))
+                    current_hp = min(max_hp, max(1, current_hp + delta * gains.get("max_hp", 10)))
+                if max_mp == char.max_mp:
+                    max_mp = max(0, max_mp + delta * gains.get("max_mp", 5))
+                    current_mp = min(max_mp, max(0, current_mp + delta * gains.get("max_mp", 5)))
+
             char.name = name
             if character_class.strip():
                 char.character_class = character_class.strip()
-            char.level = max(1, level)
+            char.level = new_level
             char.gold = max(0, gold)
             char.experience = max(0, experience)
             char.strength = strength
@@ -599,7 +651,23 @@ async def player_inline_edit(
         if not char:
             return JSONResponse({"success": False, "error": "Персонаж не найден"})
         if field == "level":
-            char.level = max(1, num)
+            old_level = char.level
+            new_level = max(1, num)
+            char.level = new_level
+            delta = new_level - old_level
+            if delta != 0:
+                from core.classes import get_class, level_up_gains
+                cls_def = await get_class(session, char.character_class)
+                gains = level_up_gains(cls_def)
+                char.max_hp = max(1, char.max_hp + delta * gains.get("max_hp", 10))
+                char.max_mp = max(0, char.max_mp + delta * gains.get("max_mp", 5))
+                char.strength = max(1, char.strength + delta * gains.get("strength", 1))
+                char.agility = max(1, char.agility + delta * gains.get("agility", 1))
+                char.intelligence = max(1, char.intelligence + delta * gains.get("intelligence", 0))
+                char.endurance = max(1, char.endurance + delta * gains.get("endurance", 1))
+                char.luck = max(0, char.luck + delta * gains.get("luck", 0))
+                char.current_hp = min(char.max_hp, max(1, char.current_hp + delta * gains.get("max_hp", 10)))
+                char.current_mp = min(char.max_mp, max(0, char.current_mp + delta * gains.get("max_mp", 5)))
         elif field == "gold":
             char.gold = max(0, num)
         else:
@@ -896,10 +964,35 @@ async def player_send_message(request: Request, char_id: int, text: str = Form(.
 async def player_grant_vip(request: Request, char_id: int, vip_days: int = Form(30)):
     guard(request, "manage_players")
     async with async_session() as session:
-        char = await session.get(Character, char_id)
+        result = await session.execute(
+            select(Character).where(Character.id == char_id).options(selectinload(Character.user))
+        )
+        char = result.scalar_one_or_none()
         if char:
             char.is_vip = True
-            char.vip_until = datetime.utcnow() + timedelta(days=max(1, vip_days))
+            vip_days_granted = max(1, vip_days)
+            char.vip_until = datetime.utcnow() + timedelta(days=vip_days_granted)
+            try:
+                from bot.runner import bot_runner
+                if bot_runner.is_running() and bot_runner.bot:
+                    await bot_runner.bot.send_message(
+                        chat_id=char.user.telegram_id,
+                        text=(
+                            f"👑 <b>Тебе выдан VIP-статус на {vip_days_granted} дн.!</b>\n\n"
+                            "Спасибо, что играешь в Shadow Lands! Наслаждайся бонусами:\n"
+                            "• 💰 Золото +50%\n"
+                            "• ⭐ Опыт +30%\n"
+                            "• 🎁 Лут +10% качества\n"
+                            "• 📦 Сундуки +50% золота\n"
+                            "• 🗺️ Быстрый полёт везде\n"
+                            "• ⚖️ Без комиссии на аукционе\n"
+                            "• 🔥 Ежедневный бонус!\n\n"
+                            "<i>Статус уже активен. Все подробности — в меню «👑 VIP».</i>"
+                        ),
+                        parse_mode="HTML"
+                    )
+            except Exception:
+                pass
             await session.commit()
     return RedirectResponse(url=f"/player/{char_id}", status_code=303)
 
@@ -4450,6 +4543,130 @@ async def api_update(request: Request, notify: str = Form("1")):
 
     return {"success": True, "output": output, "restarting": fresh,
             "notified": notified, "bot_off": bot_off, "fresh": fresh}
+
+
+# ── Updates & Suggestions Editor ─────────────────────────────
+
+@app.get("/editor/updates")
+async def editor_updates(request: Request):
+    guard(request, "manage_content")
+    async with async_session() as session:
+        result = await session.execute(
+            select(GameUpdate).order_by(GameUpdate.created_at.desc())
+        )
+        updates = result.scalars().all()
+
+        result = await session.execute(
+            select(PlayerSuggestion)
+            .options(selectinload(PlayerSuggestion.character))
+            .order_by(PlayerSuggestion.created_at.desc())
+        )
+        suggestions = result.scalars().all()
+
+    return templates.TemplateResponse(
+        request,
+        "editor_updates.html",
+        {
+            "updates": updates,
+            "suggestions": suggestions,
+        }
+    )
+
+
+@app.post("/editor/updates/new")
+async def editor_updates_new(
+    request: Request,
+    title: str = Form(...),
+    change_type: str = Form("new"),
+    was_text: str = Form(""),
+    became_text: str = Form(...),
+):
+    guard(request, "manage_content")
+    async with async_session() as session:
+        update = GameUpdate(
+            title=title.strip(),
+            change_type=change_type,
+            was_text=was_text.strip() if change_type == "change" else None,
+            became_text=became_text.strip(),
+        )
+        session.add(update)
+        await session.commit()
+    return RedirectResponse(url="/editor/updates", status_code=303)
+
+
+@app.post("/editor/updates/{update_id}/delete")
+async def editor_updates_delete(request: Request, update_id: int):
+    guard(request, "manage_content")
+    async with async_session() as session:
+        update = await session.get(GameUpdate, update_id)
+        if update:
+            await session.delete(update)
+            await session.commit()
+    return RedirectResponse(url="/editor/updates", status_code=303)
+
+
+@app.post("/editor/suggestions/{s_id}/action")
+async def editor_suggestions_action(
+    request: Request,
+    s_id: int,
+    action: str = Form(...),
+    comment: str = Form(""),
+):
+    guard(request, "manage_content")
+    async with async_session() as session:
+        result = await session.execute(
+            select(PlayerSuggestion)
+            .where(PlayerSuggestion.id == s_id)
+            .options(selectinload(PlayerSuggestion.character).selectinload(Character.user))
+        )
+        s = result.scalar_one_or_none()
+        if s:
+            char = s.character
+            telegram_id = char.user.telegram_id if char and char.user else None
+            
+            notification_text = ""
+            if action == "take_in_work":
+                s.status = "taken_in_work"
+                notification_text = (
+                    "💡 <b>Твоё предложение взято в работу!</b>\n\n"
+                    f"Идея: <i>«{s.text}»</i>\n\n"
+                    "👨‍💻 <b>Ответ разработчиков:</b>\n"
+                    "Спасибо за отличную идею! Мы взяли её в работу и уже трудимся над реализацией. Ожидай её в грядущих обновлениях!"
+                )
+            elif action == "reject":
+                s.status = "rejected"
+                refusal_reason = comment.strip() or "К сожалению, сейчас мы не можем реализовать эту идею из-за баланса или технических ограничений."
+                notification_text = (
+                    "💡 <b>Статус твоего предложения обновлён.</b>\n\n"
+                    f"Идея: <i>«{s.text}»</i>\n\n"
+                    "🚫 <b>Отказ:</b>\n"
+                    f"{refusal_reason}\n\n"
+                    "<i>Спасибо за активность! Мы всё равно ценим любой вклад.</i>"
+                )
+            elif action == "complete":
+                s.status = "accepted_implemented"
+                notification_text = (
+                    "💡 <b>Ура! Твоя идея принята и успешно реализована!</b>\n\n"
+                    f"Идея: <i>«{s.text}»</i>\n\n"
+                    "🎉 <b>Статус:</b> Реализовано.\n"
+                    "Жди следующих обновлений игры — твоё предложение уже в коде! Спасибо за помощь в развитии Shadow Lands! 👑"
+                )
+                
+            await session.commit()
+            
+            if telegram_id and notification_text:
+                try:
+                    from bot.runner import bot_runner
+                    if bot_runner.is_running() and bot_runner.bot:
+                        await bot_runner.bot.send_message(
+                            chat_id=telegram_id,
+                            text=notification_text,
+                            parse_mode="HTML"
+                        )
+                except Exception:
+                    pass
+                    
+    return RedirectResponse(url="/editor/updates", status_code=303)
 
 
 def main():

@@ -1,0 +1,215 @@
+{% extends "base.html" %}
+
+{% block title %}Обновления и Идеи — Shadow Lands{% endblock %}
+{% block page_title %}📢 Обновления и Идеи игроков{% endblock %}
+
+{% block content %}
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; align-items: start;">
+
+    <!-- ================== КОЛОНКА ОБНОВЛЕНИЙ ================== -->
+    <div>
+        <div class="card">
+            <h2>📢 Выпустить обновление</h2>
+            <p class="section-sub">Добавьте информацию о нововведениях или изменениях функций.</p>
+            
+            <form action="/editor/updates/new" method="post" data-validate>
+                <div style="margin-bottom: 1rem;">
+                    <label class="form-label">Заголовок / Название функции</label>
+                    <input type="text" name="title" required class="search-box" style="max-width: 100%" placeholder="Например: VIP-система или Изменение урона">
+                </div>
+                
+                <div style="margin-bottom: 1rem;">
+                    <label class="form-label">Тип изменения</label>
+                    <select name="change_type" id="changeTypeSelect" class="search-box" style="max-width: 100%" onchange="toggleWasText(this.value)">
+                        <option value="new">⭐ Новинка (Просто описание)</option>
+                        <option value="change">🔄 Изменение (Было -> Стало)</option>
+                    </select>
+                </div>
+                
+                <div id="wasTextGroup" style="margin-bottom: 1rem; display: none;">
+                    <label class="form-label">Как было (was)</label>
+                    <textarea name="was_text" class="search-box" style="max-width: 100%; height: 80px;" placeholder="Например: VIP-статус давал +20% золота и не имел быстрого полёта."></textarea>
+                </div>
+                
+                <div style="margin-bottom: 1rem;">
+                    <label class="form-label" id="becameTextLabel">Описание новинки</label>
+                    <textarea name="became_text" required class="search-box" style="max-width: 100%; height: 100px;" placeholder="Введите описание новой функции или как стало после изменения..."></textarea>
+                </div>
+                
+                <button type="submit" class="btn btn-primary">🚀 Опубликовать</button>
+            </form>
+        </div>
+
+        <div class="card" style="margin-top: 1.5rem;">
+            <h2>📜 История обновлений</h2>
+            {% if not updates %}
+                <p style="color: var(--text-muted); font-size: 0.9rem;">Нет опубликованных обновлений.</p>
+            {% else %}
+                <div style="display: flex; flex-direction: column; gap: 1rem;">
+                    {% for up in updates %}
+                        <div style="padding: 1rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-hover); position: relative;">
+                            <form action="/editor/updates/{{ up.id }}/delete" method="post" style="position: absolute; top: 0.75rem; right: 0.75rem;">
+                                <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Удалить эту запись?')">🗑</button>
+                            </form>
+                            
+                            <h3 style="font-size: 1.05rem; margin-bottom: 0.35rem; padding-right: 2rem;">
+                                {% if up.change_type == 'change' %}🔄{% else %}⭐{% endif %} {{ up.title }}
+                            </h3>
+                            <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.5rem;">
+                                {{ up.created_at.strftime('%d.%m.%Y %H:%M') if up.created_at else '' }}
+                            </div>
+                            
+                            {% if up.change_type == 'change' %}
+                                <div style="font-size: 0.9rem; line-height: 1.4;">
+                                    <div style="color: #ff5555; text-decoration: line-through; margin-bottom: 0.25rem;">
+                                        <b>Было:</b> {{ up.was_text }}
+                                    </div>
+                                    <div style="color: #55ff55;">
+                                        <b>Стало:</b> {{ up.became_text }}
+                                    </div>
+                                </div>
+                            {% else %}
+                                <p style="font-size: 0.9rem; line-height: 1.4; margin: 0;">{{ up.became_text }}</p>
+                            {% endif %}
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- ================== КОЛОНКА ПОЖЕЛАНИЙ ================== -->
+    <div>
+        <div class="card">
+            <h2>💡 Пожелания и идеи игроков</h2>
+            <p class="section-sub">Сюда приходят предложения, отправленные игроками через бот.</p>
+            
+            {% if not suggestions %}
+                <p style="color: var(--text-muted); font-size: 0.9rem;">Пожеланий от игроков пока не поступало.</p>
+            {% else %}
+                <div style="display: flex; flex-direction: column; gap: 1rem;">
+                    {% for s in suggestions %}
+                        <div style="padding: 1rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card);">
+                            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 0.5rem;">
+                                <div>
+                                    <span style="font-size: 0.85rem; font-weight: bold; color: var(--text);">
+                                        👤 <a href="/player/{{ s.character.id }}" style="color: var(--accent);">{{ s.character.name }}</a>
+                                    </span>
+                                    <span style="font-size: 0.75rem; color: var(--text-muted); margin-left: 0.5rem;">
+                                        (ур. {{ s.character.level }})
+                                    </span>
+                                </div>
+                                <div>
+                                    {% if s.status == 'pending' %}
+                                        <span class="badge" style="background: #e67e22; color: #fff;">Ожидает</span>
+                                    {% elif s.status == 'taken_in_work' %}
+                                        <span class="badge" style="background: #3498db; color: #fff;">В работе</span>
+                                    {% elif s.status == 'rejected' %}
+                                        <span class="badge" style="background: #95a5a6; color: #fff;">Отклонено</span>
+                                    {% elif s.status == 'accepted_implemented' %}
+                                        <span class="badge" style="background: #2ecc71; color: #fff;">Реализовано</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            
+                            <p style="font-size: 0.95rem; line-height: 1.4; margin-bottom: 0.75rem; background: var(--bg); padding: 0.5rem; border-radius: 6px; border-left: 3px solid var(--accent);">
+                                {{ s.text }}
+                            </p>
+                            
+                            <div style="font-size: 0.72rem; color: var(--text-muted); margin-bottom: 0.75rem;">
+                                Получено: {{ s.created_at.strftime('%d.%m.%Y %H:%M') if s.created_at else '' }}
+                            </div>
+
+                            <!-- Кнопки управления статусом -->
+                            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
+                                {% if s.status == 'pending' %}
+                                    <form action="/editor/suggestions/{{ s.id }}/action" method="post" style="display: inline-block;">
+                                        <input type="hidden" name="action" value="take_in_work">
+                                        <button type="submit" class="btn btn-primary btn-sm">🛠️ Взять в работу</button>
+                                    </form>
+                                    
+                                    <button class="btn btn-danger btn-sm" onclick="showRejectModal({{ s.id }})">❌ Отклонить</button>
+                                    
+                                    <form action="/editor/suggestions/{{ s.id }}/action" method="post" style="display: inline-block;">
+                                        <input type="hidden" name="action" value="complete">
+                                        <button type="submit" class="btn btn-sm" style="background: #2ecc71; color: #fff;">🎉 Реализовать</button>
+                                    </form>
+                                    
+                                {% elif s.status == 'taken_in_work' %}
+                                    <form action="/editor/suggestions/{{ s.id }}/action" method="post" style="display: inline-block;">
+                                        <input type="hidden" name="action" value="complete">
+                                        <button type="submit" class="btn btn-sm" style="background: #2ecc71; color: #fff;">🎉 Принять и Реализовать</button>
+                                    </form>
+                                    
+                                    <button class="btn btn-danger btn-sm" onclick="showRejectModal({{ s.id }})">❌ Отменить / Отклонить</button>
+                                    
+                                {% elif s.status == 'rejected' %}
+                                    <form action="/editor/suggestions/{{ s.id }}/action" method="post" style="display: inline-block;">
+                                        <input type="hidden" name="action" value="take_in_work">
+                                        <button type="submit" class="btn btn-primary btn-sm">🔄 Вернуть в работу</button>
+                                    </form>
+                                {% endif %}
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно для указания причины отказа -->
+<div id="rejectModal" class="modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); justify-content: center; align-items: center; z-index: 1000;">
+    <div class="card" style="max-width: 450px; width: 90%; background: var(--bg-card); padding: 1.5rem; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.3);">
+        <h3 style="margin-top: 0; margin-bottom: 0.5rem;">❌ Отклонить идею</h3>
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
+            Укажите причину отказа. Игрок получит это сообщение в качестве обоснования.
+        </p>
+        <form id="rejectForm" action="" method="post">
+            <input type="hidden" name="action" value="reject">
+            <div style="margin-bottom: 1rem;">
+                <label class="form-label">Причина / Комментарий</label>
+                <textarea name="comment" class="search-box" style="max-width: 100%; height: 80px;" placeholder="Например: К сожалению, это нарушит баланс классов..."></textarea>
+            </div>
+            <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                <button type="button" class="btn" onclick="closeRejectModal()">Отмена</button>
+                <button type="submit" class="btn btn-danger">Отклонить идею</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function toggleWasText(val) {
+    const wasGroup = document.getElementById('wasTextGroup');
+    const label = document.getElementById('becameTextLabel');
+    if (val === 'change') {
+        wasGroup.style.display = 'block';
+        label.textContent = 'Как стало (became)';
+    } else {
+        wasGroup.style.display = 'none';
+        label.textContent = 'Описание новинки';
+    }
+}
+
+function showRejectModal(id) {
+    const modal = document.getElementById('rejectModal');
+    const form = document.getElementById('rejectForm');
+    form.action = '/editor/suggestions/' + id + '/action';
+    modal.style.display = 'flex';
+}
+
+function closeRejectModal() {
+    const modal = document.getElementById('rejectModal');
+    modal.style.display = 'none';
+}
+
+// Закрытие модального окна при клике вне него
+window.onclick = function(event) {
+    const modal = document.getElementById('rejectModal');
+    if (event.target == modal) {
+        modal.style.display = 'none';
+    }
+}
+</script>
+{% endblock %}
