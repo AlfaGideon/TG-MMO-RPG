@@ -98,7 +98,7 @@ def gen_cells(li, rnd, story=0, story_rnd=None):
     return batch, story
 
 
-def generate(seed=1337, locations=None, grid=None, seeds=None):
+def generate(seed=1337, locations=None, grid=None, seeds=None, floors=None):
     """Возвращает {key: Cell}. `grid` — {str(loc): [wx, wy]} на мировой сетке;
     если не задан, локации связываются цепочкой, как раньше.
 
@@ -110,10 +110,32 @@ def generate(seed=1337, locations=None, grid=None, seeds=None):
     rnd = random.Random(seeds.get("terrain", seed))
     story_rnd = random.Random(seeds.get("stories", seed))
     cells, story = {}, 0
+    floors = floors or {}
     for li in range(len(locs)):
-        batch, story = gen_cells(li, rnd, story, story_rnd)
-        for c in batch:
-            cells[c.key] = c
+        count = max(1, int(floors.get(str(li), floors.get(li, 1)) or 1))
+        for floor in range(count):
+            batch, story = gen_cells(li, rnd, story, story_rnd)
+            for c in batch:
+                c.floor = floor
+                cells[c.key] = c
+        # Лестницы ставятся на двух соседних проходимых клетках и ведут
+        # в соседний этаж. Они симметричны и всегда доступны с обеих сторон.
+        for floor in range(count - 1):
+            # На промежуточном этаже лестница вверх и вниз стоят на
+            # соседних клетках: обе стороны перехода остаются доступны.
+            stair_y = 5 + floor
+            a = (cells.get(f"{li}:{5}:{stair_y}") if floor == 0 else
+                 cells.get(f"{li}:{floor}:{5}:{stair_y}"))
+            b = cells.get(f"{li}:{floor + 1}:{5}:{stair_y}")
+            if a is None or b is None:
+                continue
+            a.link = (li, 5, stair_y, floor + 1)
+            b.link = (li, 5, stair_y, floor)
+            a.name = "Лестница вниз"
+            b.name = "Лестница вверх"
+            a.desc = "Каменная лестница ведёт ниже."
+            b.desc = "Лестница ведёт наверх."
+            a.tile = b.tile = "road"
     if grid:
         _link_by_grid(cells, grid)
     else:
@@ -272,15 +294,16 @@ def _populate(cells, rnd, locs=None, seeds=None):
                 c.chest = True
 
 
-def cell_at(cells, loc, x, y):
-    return cells.get(f"{loc}:{x}:{y}")
+def cell_at(cells, loc, x, y, floor=0):
+    key = f"{loc}:{x}:{y}" if not floor else f"{loc}:{floor}:{x}:{y}"
+    return cells.get(key)
 
 
-def neighbours(cells, loc, x, y):
+def neighbours(cells, loc, x, y, floor=0):
     """{направление: проходимо?} для 8 сторон."""
     out = {}
     for d, (dx, dy) in DIRS.items():
-        c = cell_at(cells, loc, x + dx, y + dy)
+        c = cell_at(cells, loc, x + dx, y + dy, floor)
         out[d] = bool(c and c.passable)
     return out
 

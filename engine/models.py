@@ -14,13 +14,17 @@ class Cell:
     mob: int = -1            # индекс в data.MOBS, -1 = нет
     npc: int = -1            # индекс в data.NPCS
     chest: bool = False
-    link: tuple = ()         # (loc, x, y) — бесшовный переход
+    floor: int = 0
+    link: tuple = ()         # (loc, x, y[, floor]) — переход/лестница
     mob_at: float = 0.0      # когда тварь вернётся сюда (0 — не ждём)
     chest_at: float = 0.0    # когда здесь снова появится сундук
 
     @property
     def key(self):
-        return f"{self.loc}:{self.x}:{self.y}"
+        # Старый формат сохраняется для первого этажа, чтобы не ломать
+        # существующие сохранения и порталы.
+        return (f"{self.loc}:{self.x}:{self.y}" if self.floor == 0 else
+                f"{self.loc}:{self.floor}:{self.x}:{self.y}")
 
 
 @dataclass
@@ -41,6 +45,7 @@ class Player:
     max_mp: int = 50
     mp: int = 50
     loc: int = 0
+    floor: int = 0
     x: int = 5
     y: int = 5
     inventory: list = field(default_factory=list)   # сумка: теряется при смерти

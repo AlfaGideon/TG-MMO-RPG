@@ -47,7 +47,14 @@ class Store:
         # Сетка мира должна существовать до первой генерации, иначе мир
         # соберётся цепочкой, а панель покажет другую раскладку.
         self.settings.setdefault("world_grid", dict(world.DEFAULT_GRID))
-        if not self.world:
+        expected_floors = self.settings.get("location_floors", {}) or {}
+        missing_floor = any(
+            int(n or 1) > 1 and not any(
+                c.loc == int(li) and c.floor == 1 for c in self.world.values()
+            )
+            for li, n in expected_floors.items()
+        )
+        if not self.world or missing_floor:
             self.regen_world()
 
     def sync_locations(self):
@@ -103,7 +110,8 @@ class Store:
         grid = self.settings.get("world_grid")
         self.settings["cataclysms"] = []      # бедствия старого мира не переносим
         self.world = world.generate(self.settings["seed"], grid=grid,
-                                    seeds=self.seeds())
+                                    seeds=self.seeds(),
+                                    floors=self.settings.get("location_floors", {}))
         self.save()
 
     def add_location(self, name, desc, ltype, min_level, wx, wy, floors=1):
@@ -131,9 +139,14 @@ class Store:
         for c in batch:
             self.world[c.key] = c
         report = world.link_new_location(self.world, li, grid)
-        if f>1:
-            report.append(f"🏢 Подуровней: {f} (визуально стопка на сетке)")
-        self.save()
+        if f > 1:
+            # Пересобираем только при создании многоэтажной локации: так
+            # лестницы появляются сразу, а обычное добавление сохраняет
+            # прежний щадящий путь.
+            self.regen_world()
+            report.append(f"🪜 Лестницы между этажами созданы: {f}")
+        else:
+            self.save()
         return li, report
 
     def update_location(self, li, name, desc, ltype, min_level, floors=None):
@@ -156,12 +169,18 @@ class Store:
             lvl = old[3]
         data.LOCATIONS[li] = (name, desc, ltype, lvl)
         self._persist_locations()
+        floors_changed = False
         if floors is not None:
             try:
                 f = max(1, min(10, int(floors)))
             except (TypeError, ValueError):
                 f = 1
-            self.settings.setdefault("location_floors", {})[str(li)] = f
+            floors_map = self.settings.setdefault("location_floors", {})
+            floors_changed = int(floors_map.get(str(li), 1) or 1) != f
+            floors_map[str(li)] = f
+        # Сетка существующей локации не пересобирается при обычной правке:
+        # это сохраняет ручные клетки и швы. Новые этажи применяются при
+        # следующей полной генерации мира (кнопка «Пересобрать мир»).
         self.save()
         changed = [w for w, a, b in (("название", old[0], name),
                                      ("описание", old[1], desc),
@@ -191,7 +210,7 @@ class Store:
         moved = 0
         for p in self.players.values():
             if p.loc == li:
-                p.loc, p.x, p.y = 0, world.SPAWN[0], world.SPAWN[1]
+                p.loc, p.floor, p.x, p.y = 0, 0, world.SPAWN[0], world.SPAWN[1]
                 moved += 1
             elif p.loc > li:
                 p.loc -= 1
@@ -204,11 +223,12 @@ class Store:
             if c.loc > li:
                 c.loc -= 1
             if c.link:
-                l, x, y = c.link
+                l, x, y = c.link[:3]
+                tail = c.link[3:]
                 if l == li:
                     c.link = ()
                 elif l > li:
-                    c.link = (l - 1, x, y)
+                    c.link = (l - 1, x, y, *tail)
             reborn[c.key] = c
         self.world = reborn
 
@@ -277,6 +297,6 @@ def default_dungeons():
 
 
 def _cell_dict(c):
-    return dict(loc=c.loc, x=c.x, y=c.y, name=c.name, desc=c.desc, tile=c.tile,
+    return dict(loc=c.loc, floor=c.floor, x=c.x, y=c.y, name=c.name, desc=c.desc, tile=c.tile,
                 passable=c.passable, mob=c.mob, npc=c.npc, chest=c.chest,
                 link=list(c.link), mob_at=c.mob_at, chest_at=c.chest_at)
