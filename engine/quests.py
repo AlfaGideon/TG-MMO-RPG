@@ -10,7 +10,7 @@
 """
 import time
 
-from engine import data, items, rules
+from engine import data, factions, items, rules
 from engine.models import Reply
 
 HUNT, REACH, DELIVER = "hunt", "reach", "deliver"
@@ -218,6 +218,7 @@ def hand_in(store, p, qid):
         else:
             it = rules.item(f["item"])
             lines.append(f"📜 Награда: {it['icon']} {it['name']}")
+    lines.extend(factions.award(store, p, "quest_done"))
     if levels:
         lines.append(f"\n🎖 <b>Новый уровень: {p.level}!</b>")
 

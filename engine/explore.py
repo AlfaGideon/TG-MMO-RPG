@@ -5,7 +5,8 @@
 """
 import random
 
-from engine import cataclysm, data, death, items, landmarks, respawn, rules
+from engine import (cataclysm, data, death, factions, items, landmarks,
+                    respawn, rules)
 from engine.models import Reply
 
 BACK_WORLD = [[("◀️ В мир", "world")]]
@@ -51,6 +52,11 @@ def talk(npc_index, p=None):
     from engine import quests
 
     n = data.NPCS[int(npc_index)]
+    if p is not None and factions.refuses(p, npc_index):
+        return Reply(text=f"💬 <b>{n[0]}</b>\n\n<i>«Уходи. С такими, как ты, "
+                          f"дела не имею.»</i>\n\n"
+                          f"{factions.greeting(p, npc_index)}",
+                     keyboard=[[("◀️ Назад", "world")]])
     rows = []
     if n[2] == "merchant":
         rows.append([("🛒 Торговать", "shop")])
@@ -61,7 +67,8 @@ def talk(npc_index, p=None):
     if p is not None:
         rows.extend(quests.offer_rows(p, npc_index))
     rows.append([("◀️ Назад", "world")])
-    return Reply(text=f"💬 <b>{n[0]}</b>\n\n<i>{n[1]}</i>", keyboard=rows)
+    mood = factions.greeting(p, npc_index) if p is not None else ""
+    return Reply(text=f"💬 <b>{n[0]}</b>\n\n<i>{n[1]}</i>{mood}", keyboard=rows)
 
 
 def heal(p):
@@ -99,6 +106,7 @@ def chest(p, cell, store):
         else:
             it = rules.item(idx)
             lines.append(f"И ещё: {it['icon']} {it['name']}")
+    lines.extend(factions.award(store, p, "chest_opened"))
     return Reply(text="\n".join(lines), keyboard=BACK_WORLD)
 
 

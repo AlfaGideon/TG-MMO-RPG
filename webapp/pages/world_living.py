@@ -1,8 +1,10 @@
 """Вкладка «Жизнь мира»: респавн, характеры тварей, могилы, отряды, задания."""
 import time
 
-from engine import behavior, data, death, party, quests, respawn, stash
+from engine import (behavior, data, death, factions, party, quests,
+                    respawn, stash)
 from webapp.html import esc
+from webapp.pages import world_factions as page_factions
 
 LOC_TYPES = [("safe", "🛡 Безопасные"), ("dangerous", "⚠️ Опасные"),
              ("dungeon", "💀 Подземелья"), ("boss", "👹 Логова боссов")]
@@ -12,6 +14,7 @@ def render(ctx):
     return f"""
 {_respawn_settings(ctx)}
 {_stash_settings(ctx)}
+{page_factions.render(ctx)}
 {_behavior(ctx)}
 {_queue(ctx)}
 {_graves(ctx)}

@@ -95,6 +95,9 @@ def claim(store, p):
     _graves(store)[:] = [x for x in _graves(store) if x is not g]
     store.save_player(p)
 
+    from engine import factions
+    rep_lines = [] if own else factions.award(store, p, "grave_looted")
+
     got = [f"+{taken} 🪙"] if taken else []
     if goods:
         names = ", ".join(rules.item(i)["name"] for i in goods[:4])
@@ -105,9 +108,11 @@ def claim(store, p):
         text = (f"🪦 <b>Ты вернулся за своим.</b>\n\n{body}\n\n"
                 f"<i>Земля отпускает то, что взяла.</i>")
     else:
+        rep = ("\n\n" + "\n".join(rep_lines)) if rep_lines else ""
         text = (f"🪦 <b>Чужая могила</b>\n\n{g.get('name', 'Некто')} больше не "
                 f"придёт за этим.\nТы забрал: {body}\n\n"
-                f"<i>Половина рассыпалась прахом — мародёрство не в чести.</i>")
+                f"<i>Половина рассыпалась прахом — мародёрство не в чести.</i>"
+                f"{rep}")
     return Reply(text=text, keyboard=[[("◀️ В мир", "world")]])
 
 

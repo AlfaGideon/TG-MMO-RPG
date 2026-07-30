@@ -33,6 +33,7 @@ class Game:
             [("🧭 В мир", "world"), ("🧙 Профиль", "profile")],
             [("🎒 Инвентарь", "bag"), ("🏪 Лавка", "shop")],
             [("📜 Задания", "quests"), ("🤝 Отряд", "party")],
+            [("🧭 Репутация", "rep")],
             [("🔨 Мастерская", "craft"), ("🏛 Аукцион", "auc:0")],
             [("🏆 Топ", "top"), ("❓ Помощь", "help")],
         ]
@@ -260,6 +261,7 @@ class Game:
     do_sell = lambda self, p, arg: inventory.sell(p, arg)
     do_toss = lambda self, p, arg: inventory.toss(p, arg)
 
+    do_rep = lambda self, p, arg="": social.reputation(self.store, p)
     do_boss = lambda self, p, arg="": social.boss(self.store, p)
     do_bosshit = lambda self, p, arg="": social.boss_hit(self.store, p)
     do_study = lambda self, p, arg="": social.study(self.store, p, self._cell(p))

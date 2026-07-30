@@ -9,7 +9,8 @@ SUITES = ["test_engine.py", "test_pages.py", "test_transport.py", "test_access.p
           "test_economy.py", "test_gameplay.py", "test_items_magic.py",
           "test_worldgen.py", "test_cataclysm.py",
           "test_living_world.py", "test_social_world.py",
-          "test_stash.py", "test_world_endgame.py"]
+          "test_stash.py", "test_world_endgame.py",
+          "test_factions.py"]
 
 
 def main():

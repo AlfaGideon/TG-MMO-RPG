@@ -2,8 +2,8 @@
 могут подтянуться другие твари — они ждут очереди в `queue`."""
 import random
 
-from engine import (cataclysm, craft, data, death, items, party, quests,
-                    respawn, rules, texts)
+from engine import (cataclysm, craft, data, death, factions, items, party,
+                    quests, respawn, rules, texts)
 from engine.models import Reply
 
 
@@ -155,6 +155,7 @@ def _reward(p, m, world, store=None):
             lines.append(f"🔩 Ресурс: {icon} {name}")
     if store is not None:                      # соратникам рядом — их доля
         lines.extend(party.share(store, p, m[6], m[7]))
+        lines.extend(factions.on_kill(store, p, st["mob"]))
     for q in quests.on_kill(p, st["mob"]):     # охотничьи задания
         lines.append(f"📜 Задание «{quests.fields(q)['name']}» — можно сдавать!")
     if levels:

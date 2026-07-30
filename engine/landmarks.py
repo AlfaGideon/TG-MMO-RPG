@@ -14,7 +14,7 @@
 """
 import random
 
-from engine import items, rules
+from engine import factions, items, rules
 from engine.models import Reply
 
 # имя клетки -> (значок, что даёт, текст находки)
@@ -165,6 +165,7 @@ def claim(store, p, cell, rng=None):
         else:
             lines.append(f"📦 Находка: {it['icon']} {it['name']}")
 
+    lines.extend(factions.award(store, p, "landmark_found"))
     found, all_ = total(store, p)
     lines.append(f"\n🗺 Достопримечательностей: <b>{found}/{all_}</b>")
     store.save_player(p)

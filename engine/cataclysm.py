@@ -235,6 +235,9 @@ def auto(store):
     if not store.settings.get("cataclysm_auto", True):
         return None
     chance = float(store.settings.get("cataclysm_chance", 0.02) or 0)
+    # Культисты торопят конец света, стража его отдаляет.
+    from engine import factions
+    chance *= factions.cataclysm_mult(store)
     limit = int(store.settings.get("cataclysm_limit", 2) or 2)
     if chance <= 0 or len(_events(store)) >= max(1, limit):
         return None

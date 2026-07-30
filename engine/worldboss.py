@@ -14,7 +14,7 @@
 import random
 import time
 
-from engine import audit, data, items, rules
+from engine import audit, data, factions, items, rules
 from engine.models import Reply
 
 BOSS = "worldboss"          # активный босс в settings
@@ -201,6 +201,7 @@ def _reward_all(store, ev, b):
             it = rules.item(idx)
             name = items.title(inst) if inst else it["name"]
             lines.append(f"🎁 Трофей: {it['icon']} <b>{name}</b>")
+        lines.extend(factions.award(store, p, "boss_slain"))
         if levels:
             lines.append(f"🎖 Новый уровень: {p.level}!")
         store.save_player(p)
