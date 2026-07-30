@@ -44,6 +44,9 @@
 .live-log{max-height:180px;overflow-y:auto;font-size:0.78rem;display:flex;flex-direction:column;gap:4px}
 .live-log div{padding:4px 8px;background:var(--bg-hover);border-radius:8px;border:1px solid var(--border);animation:fadeIn .25s ease}
 @keyframes fadeIn{from{opacity:0;transform:translateX(-6px)}to{opacity:1;transform:none}}
+.floor-filter{opacity:.6;transition:.15s}
+.floor-filter:hover{opacity:.85}
+.floor-filter.active{opacity:1;background:var(--accent);color:#fff;border-color:var(--accent)}
 </style>
 
 <div class="card">
@@ -51,7 +54,15 @@
         <h2 style="margin:0">🗺 Кто и где на карте мира — LIVE без обновления</h2>
         <span class="hint">Клик по клетке подсвечивает игроков • Движения приходят по WebSocket</span>
     </div>
-    <p class="section-sub">Упрощённая карта: показывает количество персонажей в каждой локации (по всем этажам). При движении — подсветка зелёным без перезагрузки.</p>
+    <p class="section-sub">Упрощённая карта: показывает количество персонажей в каждой локации. При движении — подсветка зелёным без перезагрузки.</p>
+
+    <!-- Фильтр по этажам -->
+    <div style="display:flex;gap:0.5rem;margin-bottom:1rem;flex-wrap:wrap">
+        <button class="btn btn-sm floor-filter active" data-floor="all" onclick="filterFloor('all')">🏢 Все этажи</button>
+        {% for f in range(10) %}
+        <button class="btn btn-sm floor-filter" data-floor="{{ f }}" onclick="filterFloor({{ f }})" style="display:none">Этаж {{ f }}</button>
+        {% endfor %}
+    </div>
     <div class="pm-grid" id="pmGrid">
         {% for wx in grid_range %}
             {% for wy in grid_range %}
@@ -85,7 +96,7 @@
         </thead>
         <tbody>
             {% for c in characters %}
-            <tr data-char-id="{{ c.id }}" data-loc-id="{{ c.location_id }}">
+            <tr data-char-id="{{ c.id }}" data-loc-id="{{ c.location_id }}" data-floor="{{ c.floor or 0 }}">
                 <td>{{ c.name }} {% if c.is_vip %}👑{% endif %}</td>
                 <td class="live-loc-name">{{ c.location.name if c.location else '—' }}</td>
                 <td class="live-floor">{{ c.floor or 0 }} {% if c.location and (c.location.floors_count or 1)>1 %}<span class="badge" style="font-size:0.65rem">🏢×{{ c.location.floors_count }}</span>{% endif %}</td>
@@ -117,6 +128,100 @@
     const liveCount = document.getElementById('liveCount');
     const table = document.getElementById('liveTable')?.querySelector('tbody');
 
+    // ── Храним текущее положение каждого персонажа для пересчёта счётчиков ──
+    const playerState = {}; // char_id -> {location_id, floor}
+    // инициализируем из таблицы (используем data-атрибуты, а не textContent)
+    if(table){
+        table.querySelectorAll('tr[data-char-id]').forEach(tr => {
+            playerState[tr.dataset.charId] = {
+                location_id: tr.dataset.locId,
+                floor: parseInt(tr.dataset.floor) || 0
+            };
+        });
+    }
+
+    // ── Активный фильтр по этажу ──
+    let activeFloor = 'all';
+    let selectedLocId = null;
+
+    // Показать/скрыть кнопки этажей в зависимости от реальных данных
+    (function initFloorButtons(){
+        const floors = new Set();
+        if(table){
+            table.querySelectorAll('tr[data-char-id]').forEach(tr => {
+                const st = playerState[tr.dataset.charId];
+                if(st) floors.add(st.floor);
+            });
+        }
+        // также из data-floor атрибутов
+        document.querySelectorAll('.floor-filter').forEach(btn => {
+            if(btn.dataset.floor === 'all') return;
+            const f = parseInt(btn.dataset.floor);
+            if(floors.has(f)) btn.style.display = '';
+        });
+    })();
+
+    window.filterFloor = function(floor){
+        activeFloor = floor;
+        document.querySelectorAll('.floor-filter').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.floor === String(floor));
+        });
+        // обновить счётчики на grid
+        updateGridCounters();
+        // обновить видимость строк
+        applyTableFilters();
+        addLog(`🏢 Фильтр: ${floor === 'all' ? 'все этажи' : 'этаж ' + floor}`);
+    };
+
+    // ── Пересчёт счётчиков на grid-карте ──
+    // Храним популяцию: locId -> {floor -> count}
+    const locFloors = {};
+    // Инициализируем из текущего состояния
+    Object.values(playerState).forEach(st => {
+        if(!st.location_id) return;
+        if(!locFloors[st.location_id]) locFloors[st.location_id] = {};
+        const f = st.floor || 0;
+        locFloors[st.location_id][f] = (locFloors[st.location_id][f] || 0) + 1;
+    });
+
+    function updateGridCounters(){
+        grid.querySelectorAll('.pm-cell[data-loc-id]').forEach(cell => {
+            const locId = cell.dataset.locId;
+            const floors = locFloors[locId] || {};
+            let total = 0;
+            if(activeFloor === 'all'){
+                total = Object.values(floors).reduce((a, b) => a + b, 0);
+            } else {
+                total = floors[activeFloor] || 0;
+            }
+            // Обновить или создать badge
+            let badge = cell.querySelector('.pm-count');
+            if(total > 0){
+                if(!badge){
+                    badge = document.createElement('span');
+                    badge.className = 'pm-count';
+                    badge.dataset.count = locId;
+                    cell.appendChild(badge);
+                }
+                badge.textContent = total;
+                cell.classList.add('has-players');
+            } else {
+                if(badge) badge.remove();
+                cell.classList.remove('has-players');
+            }
+        });
+    }
+
+    function applyTableFilters(){
+        if(!table) return;
+        table.querySelectorAll('tr[data-char-id]').forEach(tr => {
+            const st = playerState[tr.dataset.charId];
+            const floorMatch = activeFloor === 'all' || (st && st.floor === parseInt(activeFloor));
+            const locMatch = !selectedLocId || tr.dataset.locId === selectedLocId;
+            tr.style.display = (floorMatch && locMatch) ? '' : 'none';
+        });
+    }
+
     function addLog(text){
         if(!log) return;
         const div = document.createElement('div');
@@ -130,12 +235,6 @@
         if(!cell) return;
         cell.classList.add('moving');
         setTimeout(()=>cell.classList.remove('moving'), 1200);
-        // обновить счётчик (опционально пересчитать с сервера, но пока просто пульс)
-        const cnt = cell.querySelector('.pm-count');
-        if(cnt){
-            cnt.style.transform='scale(1.3)';
-            setTimeout(()=>cnt.style.transform='',300);
-        }
     }
 
     function updateTableMove(p){
@@ -149,8 +248,12 @@
                 locNameEl.style.background='var(--accent-soft)';
                 setTimeout(()=>locNameEl.style.background='',800);
             }
-            if(floorEl) floorEl.textContent = p.floor ?? floorEl.textContent;
+            if(floorEl){
+                const floorNum = p.floor ?? 0;
+                floorEl.innerHTML = floorNum + ((p.location_floors_count && p.location_floors_count > 1) ? ` <span class="badge" style="font-size:0.65rem">🏢×${p.location_floors_count}</span>` : '');
+            }
             row.dataset.locId = p.location_id;
+            row.dataset.floor = p.floor ?? 0;
             row.style.outline='1px solid var(--success)';
             setTimeout(()=>row.style.outline='',800);
         }else{
@@ -158,7 +261,8 @@
             const tr = document.createElement('tr');
             tr.dataset.charId = p.character_id;
             tr.dataset.locId = p.location_id;
-            tr.innerHTML = `<td>${p.name||'—'} ${p.is_vip?'👑':''}</td><td class="live-loc-name">${p.location_name||p.location_id}</td><td>${p.floor||0}</td><td>—</td><td>${p.is_vip?'✅':'—'}</td><td><a href="/player/${p.character_id}" class="btn btn-primary btn-sm">👤</a></td>`;
+            tr.dataset.floor = p.floor ?? 0;
+            tr.innerHTML = `<td>${p.name||'—'} ${p.is_vip?'👑':''}</td><td class="live-loc-name">${p.location_name||p.location_id}</td><td class="live-floor">${p.floor||0}</td><td>—</td><td>${p.is_vip?'✅':'—'}</td><td><a href="/player/${p.character_id}" class="btn btn-primary btn-sm">👤</a></td>`;
             table.prepend(tr);
         }
     }
@@ -176,13 +280,45 @@
                 if(data.type==='ping') return;
                 if(data.type==='player_move'){
                     const p = data.payload;
-                    flashCell(p.location_id);
+                    const charId = String(p.character_id);
+                    const newLocId = String(p.location_id);
+                    const newFloor = p.floor ?? 0;
+
+                    // Уменьшить счётчик на старой локации
+                    const old = playerState[charId];
+                    if(old && old.location_id){
+                        const oldLocId = String(old.location_id);
+                        const oldFloor = old.floor || 0;
+                        if(locFloors[oldLocId] && locFloors[oldLocId][oldFloor]){
+                            locFloors[oldLocId][oldFloor]--;
+                            if(locFloors[oldLocId][oldFloor] <= 0) delete locFloors[oldLocId][oldFloor];
+                        }
+                    }
+
+                    // Увеличить счётчик на новой локации
+                    if(!locFloors[newLocId]) locFloors[newLocId] = {};
+                    locFloors[newLocId][newFloor] = (locFloors[newLocId][newFloor] || 0) + 1;
+
+                    // Обновить playerState
+                    playerState[charId] = { location_id: newLocId, floor: newFloor };
+
+                    // Обновить grid и table
+                    updateGridCounters();
+                    flashCell(newLocId);
+                    if(old && old.location_id && String(old.location_id) !== newLocId){
+                        flashCell(old.location_id);
+                    }
                     updateTableMove(p);
-                    addLog(`🏃 ${p.name} → ${p.location_name||p.location_id} [${p.x},${p.y}] эт.${p.floor} ${p.via? '('+p.via+')':''}`);
+                    applyTableFilters();
+
+                    // Показать кнопку этажа если появился новый этаж
+                    const floorBtn = document.querySelector(`.floor-filter[data-floor="${newFloor}"]`);
+                    if(floorBtn) floorBtn.style.display = '';
+
+                    addLog(`🏃 ${p.name} → ${p.location_name||p.location_id} [${p.x},${p.y}] эт.${newFloor} ${p.via? '('+p.via+')':''}`);
                 }
                 if(data.type==='player_joined'){
                     addLog(`🆕 Новый игрок: ${data.payload.name} (класс ${data.payload.class})`);
-                    // увеличить счётчик
                     if(liveCount) liveCount.textContent = parseInt(liveCount.textContent||0)+1;
                 }
                 if(data.type==='battle_victory'){
@@ -221,11 +357,16 @@
         const cell = e.target.closest('.pm-cell[data-loc-id]');
         if(!cell) return;
         const locId = cell.dataset.locId;
-        table.querySelectorAll('tr').forEach(tr=>{
-            tr.style.display = (tr.dataset.locId===locId || !tr.dataset.locId) ? '' : (locId? 'none' : '');
-        });
-        if(!locId) table.querySelectorAll('tr').forEach(tr=>tr.style.display='');
-        addLog(`Фильтр: локация ${locId}`);
+
+        // Toggle: если кликнули по той же клетке — снять фильтр
+        if(selectedLocId === locId){
+            selectedLocId = null;
+        } else {
+            selectedLocId = locId;
+        }
+
+        applyTableFilters();
+        addLog(selectedLocId ? `📍 Фильтр: локация ${cell.querySelector('.pm-name')?.textContent || locId}` : '📍 Фильтр снят');
     });
 })();
 </script>

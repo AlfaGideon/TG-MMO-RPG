@@ -4669,6 +4669,31 @@ async def editor_suggestions_action(
     return RedirectResponse(url="/editor/updates", status_code=303)
 
 
+# ── API: игроки на конкретной локации (для редактора локаций) ──
+@app.get("/api/location/{location_id}/players")
+async def api_location_players(location_id: int):
+    """Список игроков на конкретной локации с этажами для редактора локаций."""
+    async with async_session() as session:
+        result = await session.execute(
+            select(Character, Cell)
+            .join(Cell, Character.cell_id == Cell.id, isouter=True)
+            .where(Character.location_id == location_id)
+            .order_by(Character.floor, Character.id)
+        )
+        players = []
+        for char, cell in result.all():
+            players.append({
+                "id": char.id,
+                "name": char.name,
+                "level": char.level,
+                "floor": char.floor or 0,
+                "x": cell.x if cell else None,
+                "y": cell.y if cell else None,
+                "is_vip": VIP.is_vip_active(char),
+            })
+        return {"players": players, "count": len(players)}
+
+
 def main():
     import uvicorn
     uvicorn.run(
