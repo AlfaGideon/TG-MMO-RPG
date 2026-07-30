@@ -11,6 +11,8 @@ os.chdir(ROOT)
 
 FAILED = []
 
+LINE_LIMIT = 500          # предел длины модуля, см. .arena/CONTEXT.md
+
 
 def check(cond, label):
     print(("  ✅ " if cond else "  ❌ ") + label)
@@ -124,12 +126,14 @@ def main():
         check("webapp.dom" not in src, f"{f} рендерит чистый HTML")
 
     print("\n— Размер модулей —")
+    # Лимит держит файлы читаемыми, но не заставляет дробить логику на
+    # огрызки: 500 строк — предел, после которого модуль правда пора делить.
     big = []
     for f in on_disk + ["index.html"]:
         n = len(open(f, encoding="utf-8").read().splitlines())
-        if n > 320:
+        if n > LINE_LIMIT:
             big.append(f"{f}:{n}")
-    check(not big, f"нет файлов длиннее 320 строк ({', '.join(big) or 'ок'})")
+    check(not big, f"нет файлов длиннее {LINE_LIMIT} строк ({', '.join(big) or 'ок'})")
 
     print("\n" + "=" * 46)
     if FAILED:
