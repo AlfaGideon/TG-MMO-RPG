@@ -82,6 +82,11 @@ def _map_card(ctx, li):
     fog_id = ctx.state.get("fog_player", "")
     fog = ctx.store.players.get(int(fog_id)) if fog_id else None
     picked = ctx.state.get("cell_pick", "")
+    floor_filter = ctx.state.get("floor_filter", "all")
+
+    # Подсчёт этажей на локации
+    floors_map = ctx.store.settings.get("location_floors", {})
+    loc_floors = floors_map.get(str(li), 1)
 
     cells = ""
     for x in range(W.SIZE):
@@ -90,12 +95,25 @@ def _map_card(ctx, li):
             c = ctx.store.world.get(key)
             if not c:
                 continue
-            here = [p.name[:2] for p in ctx.store.players.values()
+            cell_floor = getattr(c, "floor", 0) or 0
+            # Фильтр по этажам — если выбран конкретный этаж, остальные клетки полупрозрачны
+            dim = ""
+            if floor_filter != "all" and cell_floor != int(floor_filter):
+                dim = "opacity:0.2; filter:grayscale(80%);"
+            here = [p for p in ctx.store.players.values()
                     if p.created_char and p.loc == li and p.x == x and p.y == y]
+            # Фильтр игроков по этажу
+            if floor_filter != "all":
+                here = [p for p in here if (getattr(p, "floor", 0) or 0) == int(floor_filter)]
             if here:
-                mark = ("<span style='font-size:0.6rem;font-weight:bold;color:#fff;"
-                        "background:var(--accent);padding:1px 2px;border-radius:3px;'>"
-                        f"{'|'.join(here)}</span>")
+                names = "|".join(p.name[:2] for p in here)
+                floor_marks = ""
+                if loc_floors > 1:
+                    floors_set = {getattr(p, "floor", 0) or 0 for p in here}
+                    floor_marks = " ".join(f"<span style='background:var(--accent-soft);color:var(--accent);padding:0 3px;border-radius:2px;font-size:0.5rem;'>F{f}</span>" for f in sorted(floors_set))
+                mark = (f"<span style='font-size:0.6rem;font-weight:bold;color:#fff;"
+                        f"background:var(--accent);padding:1px 2px;border-radius:3px;'>"
+                        f"{names}</span>{floor_marks}")
             elif c.link:
                 mark = "🚪"
             elif c.mob >= 0:
@@ -109,14 +127,11 @@ def _map_card(ctx, li):
             else:
                 mark = ""
 
-            style = f"background:{data.TILE_COLORS.get(c.tile, '#333')};"
+            style = f"background:{data.TILE_COLORS.get(c.tile, '#333')};{dim}"
             if fog and fog.loc == li and (abs(x - fog.x) > 2 or abs(y - fog.y) > 2):
                 style += "opacity:0.25; filter:grayscale(80%);"
             css = "c picked" if key == picked else "c"
-            # data-act здесь намеренно нет: клик по клетке разбирает кисть в
-            # _script(), иначе делегированный обработчик открывал бы редактор
-            # на каждый мазок и рисование срывалось.
-            cells += (f"<div class='{css}' style='{style}' title='{esc(c.name)} [{x},{y}]' "
+            cells += (f"<div class='{css}' style='{style}' title='{esc(c.name)} [{x},{y}] эт.{cell_floor}' "
                       f"data-key='{key}'>{mark}</div>")
 
     legend = "".join(f"<span><i class='sw' style='background:{v}'></i>{k}</span>"
@@ -127,16 +142,48 @@ def _map_card(ctx, li):
     alarm = cataclysm.banner(ctx.store, li)
     alarm_html = f"<div class='cata-live'>{esc(alarm)}</div>" if alarm else ""
 
+    # Кнопки этажей
+    floor_buttons = f"<button class='btn sm {'primary' if floor_filter == 'all' else ''}' data-act='world-floor' data-arg='all'>Все этажи</button> "
+    if loc_floors > 1:
+        for f in range(loc_floors):
+            css = "primary" if floor_filter == str(f) else ""
+            # Количество игроков на этом этаже
+            cnt = sum(1 for p in ctx.store.players.values()
+                      if p.created_char and p.loc == li and (getattr(p, "floor", 0) or 0) == f)
+            badge = f" ({cnt})" if cnt else ""
+            floor_buttons += f"<button class='btn sm {css}' data-act='world-floor' data-arg='{f}'>Этаж {f}{badge}</button> "
+
+    # Список игроков на локации с этажами
+    loc_players = [p for p in ctx.store.players.values() if p.created_char and p.loc == li]
+    if floor_filter != "all":
+        loc_players = [p for p in loc_players if (getattr(p, "floor", 0) or 0) == int(floor_filter)]
+    players_html = ""
+    if loc_players:
+        rows = "".join(
+            f"<div style='display:flex;align-items:center;gap:.5rem;padding:.35rem .5rem;background:var(--bg-dark);border:1px solid var(--border);border-radius:6px;'>"
+            f"<span style='font-size:.7rem;padding:2px 6px;border-radius:999px;background:var(--accent-soft);color:var(--accent);font-weight:600;'>Этаж {getattr(p, 'floor', 0) or 0}</span>"
+            f"<span style='font-weight:600;flex:1;'>{esc(p.name)}</span>"
+            f"<span class='muted' style='font-size:.75rem;'>Ур.{p.level} [{p.x},{p.y}]</span>"
+            f"</div>" for p in loc_players
+        )
+        players_html = f"""
+<div style="margin-top:.8rem;">
+  <h3 style="margin-bottom:.4rem;">👥 Игроки на локации ({len(loc_players)})</h3>
+  <div style="display:flex;flex-direction:column;gap:.3rem;">{rows}</div>
+</div>"""
+
     return f"""
 <div class="card">
-  <h2>{esc(data.LOCATIONS[li][0])}</h2>
+  <h2>{esc(data.LOCATIONS[li][0])} {f'<span class="tag" style="font-size:.7rem;">🏢 {loc_floors} этажей</span>' if loc_floors > 1 else ''}</h2>
   {alarm_html}
   <p class="muted">{esc(data.LOCATIONS[li][1])} · тип: <span class="tag">{data.LOCATIONS[li][2]}</span>
      · мин. уровень {data.LOCATIONS[li][3]}</p>
   <p class="muted" style="margin-bottom:.7rem">👾 мобов: {mobs} · 📦 сундуков: {chests}
      · 🧱 стен: {walls} · ⭐ спавн [{W.SPAWN[0]},{W.SPAWN[1]}]</p>
+  {f'<div style="display:flex;gap:.4rem;flex-wrap:wrap;margin-bottom:.6rem;">{floor_buttons}</div>' if loc_floors > 1 else ''}
   <div class="mapgrid" id="locMapGrid">{cells}</div>
   <div class="legend">{legend}</div>
+  {players_html}
 </div>
 """
 

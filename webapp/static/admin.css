@@ -30,18 +30,21 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg-dark);color
 a{color:var(--accent);text-decoration:none}
 /* ── Оболочка: сайдбар + топбар (как в серверной админке) ── */
 .layout{display:flex;min-height:100vh}
-.sidebar{width:var(--sidebar-width);flex-shrink:0;background:var(--bg-card);border-right:1px solid var(--border);display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;overflow-y:auto;z-index:60;transition:transform .25s ease}
+.sidebar{width:var(--sidebar-width);flex-shrink:0;background:var(--bg-card);border-right:1px solid var(--border);display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;overflow:hidden;z-index:60;transition:transform .25s ease}
 .sidebar-brand{display:flex;align-items:center;gap:.75rem;padding:1.35rem 1.25rem 1.1rem;border-bottom:1px solid var(--border)}
 .brand-icon{font-size:1.75rem;line-height:1}
 .brand-title{font-weight:700;font-size:1.05rem;color:var(--text)}
 .brand-sub{font-size:.68rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin-top:.1rem}
-.sidebar-nav{flex:1;padding:.85rem .75rem;display:flex;flex-direction:column;gap:.2rem}
+.sidebar-nav{flex:1;padding:.85rem .75rem;display:flex;flex-direction:column;gap:.2rem;overflow-y:auto;overflow-x:hidden;min-height:0;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+.sidebar-nav::-webkit-scrollbar{width:4px}
+.sidebar-nav::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+.sidebar-nav::-webkit-scrollbar-track{background:transparent}
 .nav-section-label{font-size:.68rem;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);padding:.9rem .75rem .35rem}
 .nav-link{display:flex;align-items:center;gap:.7rem;padding:.62rem .75rem;border-radius:8px;color:var(--text-muted);background:none;border:none;width:100%;text-align:left;font-family:inherit;font-size:.9rem;font-weight:500;cursor:pointer;transition:background .15s,color .15s}
 .nav-link:hover{background:var(--bg-hover);color:var(--text)}
 .nav-link.active{background:var(--accent-soft);color:var(--accent)}
 .nav-icon{font-size:1rem;width:1.25rem;text-align:center;flex-shrink:0}
-.sidebar-footer{padding:1rem .9rem 1.1rem;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:.5rem}
+.sidebar-footer{padding:1rem .9rem 1.1rem;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:.5rem;flex-shrink:0}
 .sidebar-footer .build{font-size:.66rem;color:var(--text-muted);text-align:center}
 .sidebar-overlay{display:none;position:fixed;inset:0;background:#0000008c;z-index:55}
 .main{flex:1;margin-left:var(--sidebar-width);display:flex;flex-direction:column;min-height:100vh;min-width:0}
