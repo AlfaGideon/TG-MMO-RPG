@@ -226,3 +226,8 @@ tr.clickable:hover td{background:var(--accent-soft)}
     .mapgrid{max-width:100%}
     .breadcrumbs{padding:.4rem 0 .6rem}
 }
+/* Сетка всегда показывает один этаж; переключатели занимают узкую колонку справа. */
+.floor-map-layout{display:flex;align-items:flex-start;gap:.65rem}
+.floor-switcher{display:flex;flex-direction:column;gap:.4rem;min-width:max-content}
+.floor-switcher .btn{margin:0;text-align:left}
+@media (max-width:560px){.floor-map-layout{align-items:stretch}.floor-switcher{min-width:0}.floor-switcher .btn{padding:.38rem .45rem;font-size:.72rem}}

@@ -82,29 +82,29 @@ def _map_card(ctx, li):
     fog_id = ctx.state.get("fog_player", "")
     fog = ctx.store.players.get(int(fog_id)) if fog_id else None
     picked = ctx.state.get("cell_pick", "")
-    floor_filter = ctx.state.get("floor_filter", "all")
 
-    # Подсчёт этажей на локации
+    # Один слой — одна сетка. Накладывать этажи друг на друга нельзя: клетки
+    # имеют одинаковые координаты и раньше при этом всегда читался этаж 0.
     floors_map = ctx.store.settings.get("location_floors", {})
-    loc_floors = floors_map.get(str(li), 1)
+    loc_floors = max(1, int(floors_map.get(str(li), 1) or 1))
+    try:
+        active_floor = int(ctx.state.get("floor_filter", "0"))
+    except (TypeError, ValueError):
+        active_floor = 0
+    active_floor = min(max(active_floor, 0), loc_floors - 1)
 
     cells = ""
     for x in range(W.SIZE):
         for y in range(W.SIZE):
-            key = f"{li}:{x}:{y}"
-            c = ctx.store.world.get(key)
+            c = W.cell_at(ctx.store.world, li, x, y, active_floor)
             if not c:
                 continue
+            key = c.key
             cell_floor = getattr(c, "floor", 0) or 0
-            # Фильтр по этажам — если выбран конкретный этаж, остальные клетки полупрозрачны
-            dim = ""
-            if floor_filter != "all" and cell_floor != int(floor_filter):
-                dim = "opacity:0.2; filter:grayscale(80%);"
             here = [p for p in ctx.store.players.values()
                     if p.created_char and p.loc == li and p.x == x and p.y == y]
-            # Фильтр игроков по этажу
-            if floor_filter != "all":
-                here = [p for p in here if (getattr(p, "floor", 0) or 0) == int(floor_filter)]
+            # Показываем на сетке только персонажей выбранного этажа.
+            here = [p for p in here if (getattr(p, "floor", 0) or 0) == active_floor]
             if here:
                 names = "|".join(p.name[:2] for p in here)
                 floor_marks = ""
@@ -127,8 +127,9 @@ def _map_card(ctx, li):
             else:
                 mark = ""
 
-            style = f"background:{data.TILE_COLORS.get(c.tile, '#333')};{dim}"
-            if fog and fog.loc == li and (abs(x - fog.x) > 2 or abs(y - fog.y) > 2):
+            style = f"background:{data.TILE_COLORS.get(c.tile, '#333')};"
+            if (fog and fog.loc == li and (getattr(fog, "floor", 0) or 0) == active_floor
+                    and (abs(x - fog.x) > 2 or abs(y - fog.y) > 2)):
                 style += "opacity:0.25; filter:grayscale(80%);"
             css = "c picked" if key == picked else "c"
             cells += (f"<div class='{css}' style='{style}' title='{esc(c.name)} [{x},{y}] эт.{cell_floor}' "
@@ -142,21 +143,21 @@ def _map_card(ctx, li):
     alarm = cataclysm.banner(ctx.store, li)
     alarm_html = f"<div class='cata-live'>{esc(alarm)}</div>" if alarm else ""
 
-    # Кнопки этажей
-    floor_buttons = f"<button class='btn sm {'primary' if floor_filter == 'all' else ''}' data-act='world-floor' data-arg='all'>Все этажи</button> "
+    # Переключатели расположены рядом с сеткой: так карта не сдвигается вниз.
+    floor_buttons = ""
     if loc_floors > 1:
         for f in range(loc_floors):
-            css = "primary" if floor_filter == str(f) else ""
-            # Количество игроков на этом этаже
+            css = "primary" if active_floor == f else ""
             cnt = sum(1 for p in ctx.store.players.values()
                       if p.created_char and p.loc == li and (getattr(p, "floor", 0) or 0) == f)
             badge = f" ({cnt})" if cnt else ""
-            floor_buttons += f"<button class='btn sm {css}' data-act='world-floor' data-arg='{f}'>Этаж {f}{badge}</button> "
+            floor_buttons += (f"<button class='btn sm {css}' data-act='world-floor' "
+                              f"data-arg='{f}'>Этаж {f}{badge}</button>")
 
     # Список игроков на локации с этажами
     loc_players = [p for p in ctx.store.players.values() if p.created_char and p.loc == li]
-    if floor_filter != "all":
-        loc_players = [p for p in loc_players if (getattr(p, "floor", 0) or 0) == int(floor_filter)]
+    loc_players = [p for p in loc_players
+                   if (getattr(p, "floor", 0) or 0) == active_floor]
     players_html = ""
     if loc_players:
         rows = "".join(
@@ -180,8 +181,10 @@ def _map_card(ctx, li):
      · мин. уровень {data.LOCATIONS[li][3]}</p>
   <p class="muted" style="margin-bottom:.7rem">👾 мобов: {mobs} · 📦 сундуков: {chests}
      · 🧱 стен: {walls} · ⭐ спавн [{W.SPAWN[0]},{W.SPAWN[1]}]</p>
-  {f'<div style="display:flex;gap:.4rem;flex-wrap:wrap;margin-bottom:.6rem;">{floor_buttons}</div>' if loc_floors > 1 else ''}
-  <div class="mapgrid" id="locMapGrid">{cells}</div>
+  <div class="floor-map-layout">
+    <div class="mapgrid" id="locMapGrid">{cells}</div>
+    {f'<div class="floor-switcher" aria-label="Этаж карты">{floor_buttons}</div>' if loc_floors > 1 else ''}
+  </div>
   <div class="legend">{legend}</div>
   {players_html}
 </div>
