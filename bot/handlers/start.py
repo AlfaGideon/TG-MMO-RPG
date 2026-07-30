@@ -1,6 +1,9 @@
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.filters import CommandStart
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from html import escape
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
@@ -17,6 +20,12 @@ from core.classes import all_classes, get_class
 from core.vip import is_vip_active, offline_protected, set_offline
 
 router = Router()
+
+
+class IdeaForm(StatesGroup):
+    """Состояние ввода идеи после нажатия кнопки в разделе помощи."""
+
+    waiting_for_text = State()
 
 
 def _class_book_text(cls_def, page: int, total: int) -> str:
@@ -66,8 +75,14 @@ async def cmd_start(message: Message):
 
 
 @router.message(F.text)
-async def handle_text(message: Message):
-    """Handle text messages from players — check if replying to admin."""
+async def handle_text(message: Message, state: FSMContext):
+    """Обрабатывает ответы игрока, включая идею из раздела помощи.
+
+    Раньше кнопка «Предложить идею» только показывала инструкцию, поэтому
+    игроку нужно было самому угадать, что сообщение надо начинать со слова
+    «Идея». Теперь кнопка действительно переводит бота в режим ввода: любое
+    следующее текстовое сообщение сохраняется как идея.
+    """
     async with async_session() as session:
         result = await session.execute(
             select(User).where(User.telegram_id == message.from_user.id)
@@ -77,38 +92,53 @@ async def handle_text(message: Message):
             return
 
         text_lower = message.text.lower().strip()
-        if text_lower.startswith("идея") or text_lower.startswith("idea"):
-            # Extract the actual idea text
-            idea_content = message.text
-            for prefix in ["идея:", "идея", "idea:", "idea"]:
-                if text_lower.startswith(prefix):
-                    idea_content = message.text[len(prefix):].strip()
-                    break
-            
-            if idea_content:
-                result = await session.execute(
-                    select(Character).where(Character.user_id == user.id)
-                )
-                character = result.scalar_one_or_none()
-                if not character:
-                    await message.answer("Сначала создай персонажа, чтобы предлагать идеи!")
-                    return
-                
-                suggestion = PlayerSuggestion(
-                    character_id=character.id,
-                    text=idea_content,
-                    status="pending"
-                )
-                session.add(suggestion)
-                await session.commit()
-                
+        idea_mode = await state.get_state() == IdeaForm.waiting_for_text.state
+        explicit_idea = text_lower.startswith("идея") or text_lower.startswith("idea")
+        if idea_mode or explicit_idea:
+            # В режиме кнопки принимаем обычный текст. Старый формат
+            # «Идея: ...» тоже оставляем рабочим для совместимости.
+            idea_content = message.text.strip()
+            if explicit_idea:
+                for prefix in ("идея:", "идея", "idea:", "idea"):
+                    if text_lower.startswith(prefix):
+                        idea_content = message.text[len(prefix):].strip()
+                        break
+
+            if not idea_content:
                 await message.answer(
-                    "💡 <b>Твоё предложение успешно отправлено разработчикам!</b>\n\n"
-                    "Мы взяли его на рассмотрение. Как только администратор изменит статус твоей идеи в панели управления, тебе придёт уведомление здесь в боте.\n"
-                    "Спасибо за помощь в улучшении игры! 🤝",
-                    parse_mode="HTML"
+                    "💡 Напиши текст идеи одним сообщением — например: «Добавить почтовый ящик между игроками»."
                 )
                 return
+
+            result = await session.execute(
+                select(Character).where(Character.user_id == user.id)
+            )
+            character = result.scalar_one_or_none()
+            if not character:
+                await state.clear()
+                await message.answer("Сначала создай персонажа, чтобы предлагать идеи!")
+                return
+
+            # Не даём случайному огромному сообщению переполнить админскую
+            # карточку и Telegram-уведомление.
+            idea_content = idea_content[:4000]
+            suggestion = PlayerSuggestion(
+                character_id=character.id,
+                text=idea_content,
+                status="pending"
+            )
+            session.add(suggestion)
+            await session.commit()
+            await state.clear()
+
+            await message.answer(
+                "💡 <b>Идея отправлена разработчикам!</b>\n\n"
+                "Она появилась в админ-панели в разделе «Обновления и Идеи» и будет рассмотрена. "
+                "Когда статус изменится, бот пришлёт тебе уведомление.\n\n"
+                "Спасибо за помощь в развитии игры! 🤝",
+                parse_mode="HTML"
+            )
+            return
 
         # Save player message
         msg = AdminMessage(user_id=user.id, from_admin=False, text=message.text)
@@ -134,7 +164,8 @@ async def handle_text(message: Message):
 
 
 @router.callback_query(F.data == "bot_updates")
-async def bot_updates_handler(callback: CallbackQuery):
+async def bot_updates_handler(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
     async with async_session() as session:
         result = await session.execute(
             select(GameUpdate).order_by(GameUpdate.created_at.desc()).limit(15)
@@ -147,29 +178,36 @@ async def bot_updates_handler(callback: CallbackQuery):
             "Пока нет записанных обновлений. Следите за новостями в ближайшее время!"
         )
     else:
-        text = "📢 <b>Последние обновления игры:</b>\n\n"
-        for i, up in enumerate(updates, 1):
+        text = "📢 <b>Обновления и изменения игры</b>\n\n"
+        # Один экран Telegram ограничен 4096 символами. Показываем самые
+        # свежие записи и безопасно экранируем текст, который ввёл админ.
+        for i, up in enumerate(updates[:8], 1):
             date_str = up.created_at.strftime('%d.%m.%Y') if up.created_at else ''
-            text += f"{i}. <b>{up.title}</b> ({date_str})\n"
+            title = escape(up.title or '')
+            text += f"{i}. <b>{title}</b> ({date_str})\n"
             if up.change_type == "change":
-                text += f"   ❌ <i>Было:</i> {up.was_text}\n"
-                text += f"   ✅ <i>Стало:</i> {up.became_text}\n\n"
+                text += f"   ❌ <i>Было:</i> {escape(up.was_text or '')}\n"
+                text += f"   ✅ <i>Стало:</i> {escape(up.became_text or '')}\n\n"
             else:
-                text += f"   ⭐ {up.became_text}\n\n"
+                text += f"   ⭐ {escape(up.became_text or '')}\n\n"
 
     await callback.message.edit_text(text, reply_markup=back_to_help_keyboard(), parse_mode="HTML")
+    await callback.answer()
 
 
 @router.callback_query(F.data == "bot_suggest")
-async def bot_suggest_handler(callback: CallbackQuery):
+async def bot_suggest_handler(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(IdeaForm.waiting_for_text)
     text = (
-        "💡 <b>Предложить идею по улучшению игры</b>\n\n"
-        "Мы очень ценим твои отзывы и предложения!\n\n"
-        "Чтобы твоя идея попала напрямую в раздел пожеланий в админ-панели, отправь её следующим сообщением, начав со слова <b>Идея</b>.\n\n"
+        "💡 <b>Место для идей игроков</b>\n\n"
+        "Напиши одним следующим сообщением любую идею, пожелание или замечание по игре. "
+        "Я передам её разработчикам в админ-панель — добавлять слово «Идея» больше не нужно.\n\n"
         "<b>Пример:</b>\n"
-        "<code>Идея Добавить больше редкого оружия во 2-ю локацию</code>"
+        "<code>Добавить больше редкого оружия во 2-ю локацию</code>\n\n"
+        "<i>Можно отменить отправку кнопкой «Назад».</i>"
     )
     await callback.message.edit_text(text, reply_markup=back_to_help_keyboard(), parse_mode="HTML")
+    await callback.answer()
 
 
 @router.callback_query(F.data == "offline_toggle")
@@ -228,7 +266,8 @@ async def offline_resume(callback: CallbackQuery):
 
 
 @router.callback_query(F.data == "main_menu")
-async def main_menu(callback: CallbackQuery):
+async def main_menu(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
     async with async_session() as session:
         result = await session.execute(
             select(User).where(User.telegram_id == callback.from_user.id)
@@ -502,7 +541,8 @@ async def accept_stats(callback: CallbackQuery):
 
 
 @router.callback_query(F.data == "help")
-async def help_handler(callback: CallbackQuery):
+async def help_handler(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
     text = (
         "📜 <b>Помощь и Информация по игре</b>\n\n"
         "<b>Основные команды:</b>\n"
