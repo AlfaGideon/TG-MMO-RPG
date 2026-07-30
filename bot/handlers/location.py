@@ -39,9 +39,76 @@ EMPTY_INSPECT_LINES = [
 ]
 
 DIRECTIONS = {
-    "north": (-1, 0), "south": (1, 0), "west": (0, -1), "east": (0, 1),
+    "n": (-1, 0), "s": (1, 0), "w": (0, -1), "e": (0, 1),
     "nw": (-1, -1), "ne": (-1, 1), "sw": (1, -1), "se": (1, 1),
 }
+# Backward-compatible aliases for any old callback data / admin tooling.
+DIRECTION_ALIASES = {
+    "north": "n", "south": "s", "west": "w", "east": "e",
+}
+DIRECTION_ARROWS = {
+    "n": "⬆️", "s": "⬇️", "w": "⬅️", "e": "➡️",
+    "nw": "↖️", "ne": "↗️", "sw": "↙️", "se": "↘️",
+}
+
+
+def _current_transition(cell: Cell, location: Location):
+    """Button label + text hint for transition located on the current cell.
+
+    Movement arrows show transitions on neighboring cells, but when a player
+    already stands on a stair/door cell (common after adding floors to the
+    стартовая локация), they need an explicit action button.
+    """
+    if (
+        cell is None
+        or cell.target_location_id is None
+        or cell.target_x is None
+        or cell.target_y is None
+    ):
+        return None, None
+
+    target_floor = cell.target_floor if cell.target_floor is not None else 0
+    current_floor = cell.floor or 0
+    if cell.target_location_id == location.id:
+        target_label = target_floor + 1
+        if target_floor > current_floor:
+            button = f"🪜⬆️ Подняться на этаж {target_label}"
+            hint = f"🪜 <b>Лестница вверх:</b> можно подняться на этаж <b>{target_label}</b>."
+        elif target_floor < current_floor:
+            button = f"🪜⬇️ Спуститься на этаж {target_label}"
+            hint = f"🪜 <b>Лестница вниз:</b> можно спуститься на этаж <b>{target_label}</b>."
+        else:
+            button = f"🪜 Перейти на этаж {target_label}"
+            hint = f"🪜 <b>Переход:</b> ведёт на этаж <b>{target_label}</b>."
+    else:
+        button = "🚪 Перейти через дверь"
+        hint = "🚪 <b>Дверь:</b> отсюда можно перейти в другую локацию."
+    return button, hint
+
+
+async def _ensure_floor_stairs_present(session, location: Location):
+    """Lazy safety net for locations that were made multi-floor earlier.
+
+    Admin resize creates stairs, but old/manual data can have floors_count > 1
+    without enough floor links. On first player view we restore the standard
+    stair pair near the center so floors are reachable in-game.
+    """
+    floors = max(1, location.floors_count or 1)
+    if floors < 2:
+        return
+    expected_links = 2 * (floors - 1)
+    existing = await session.scalar(
+        select(func.count(Cell.id))
+        .where(Cell.location_id == location.id)
+        .where(Cell.target_location_id == location.id)
+        .where(Cell.target_floor.isnot(None))
+    ) or 0
+    if existing >= expected_links:
+        return
+
+    from core import worldgen as W
+    await W.ensure_stairs(session, location)
+    await session.commit()
 
 
 async def is_chest_available(session, cell: Cell) -> bool:
@@ -76,6 +143,7 @@ async def mark_visited(session, character: Character, cell: Cell):
 @router.callback_query(F.data.startswith("move:"))
 async def move_direction(callback: CallbackQuery):
     direction = callback.data.split(":")[1]
+    direction = DIRECTION_ALIASES.get(direction, direction)
     dx, dy = DIRECTIONS.get(direction, (0, 0))
 
     async with async_session() as session:
@@ -131,9 +199,12 @@ async def move_direction(callback: CallbackQuery):
                             f"Ты входишь на свой страх и риск…",
                             show_alert=True,
                         )
+                dest_loc = await session.get(Location, target.target_location_id)
                 character.location_id = target.target_location_id
+                character.location = dest_loc
                 character.floor = dest_floor
                 character.cell_id = dest_cell.id
+                character.cell = dest_cell
                 await mark_visited(session, character, dest_cell)
                 await session.commit()
 
@@ -145,7 +216,7 @@ async def move_direction(callback: CallbackQuery):
                         "character_id": character.id,
                         "name": character.name,
                         "location_id": character.location_id,
-                        "location_name": dest_cell.location.name if hasattr(dest_cell, 'location') and dest_cell.location else "",
+                        "location_name": dest_loc.name if dest_loc else "",
                         "floor": dest_floor,
                         "x": dest_cell.x,
                         "y": dest_cell.y,
@@ -154,10 +225,11 @@ async def move_direction(callback: CallbackQuery):
                     })
                 except Exception:
                     pass
-                await show_cell(callback, character, dest_cell.location, session)
+                await show_cell(callback, character, dest_loc, session)
                 return
 
         character.cell_id = target.id
+        character.cell = target
         await mark_visited(session, character, target)
         await session.commit()
 
@@ -183,6 +255,93 @@ async def move_direction(callback: CallbackQuery):
 @router.callback_query(F.data == "noop")
 async def noop_handler(callback: CallbackQuery):
     await callback.answer("Туда нельзя пройти.", show_alert=True)
+
+
+@router.callback_query(F.data == "cell_transition")
+async def cell_transition(callback: CallbackQuery):
+    """Use the transition on the current cell: stairs between floors or a door."""
+    async with async_session() as session:
+        result = await session.execute(
+            select(User).where(User.telegram_id == callback.from_user.id)
+        )
+        user = result.scalar_one_or_none()
+        if not user:
+            await callback.answer("Ошибка перехода.", show_alert=True)
+            return
+
+        result = await session.execute(
+            select(Character)
+            .where(Character.user_id == user.id)
+            .options(selectinload(Character.location), selectinload(Character.cell))
+        )
+        character = result.scalar_one_or_none()
+        if not character or not character.cell:
+            await callback.answer("Ошибка перехода.", show_alert=True)
+            return
+
+        current = character.cell
+        if (
+            current.target_location_id is None
+            or current.target_x is None
+            or current.target_y is None
+        ):
+            await callback.answer("Здесь нет перехода.", show_alert=True)
+            return
+
+        dest_floor = current.target_floor if current.target_floor is not None else 0
+        result = await session.execute(
+            select(Cell)
+            .where(Cell.location_id == current.target_location_id)
+            .where(Cell.floor == dest_floor)
+            .where(Cell.x == current.target_x)
+            .where(Cell.y == current.target_y)
+        )
+        dest_cell = result.scalar_one_or_none()
+        if not dest_cell or not dest_cell.is_passable:
+            await callback.answer("Переход ведёт в непроходимую клетку.", show_alert=True)
+            return
+
+        dest_loc = await session.get(Location, current.target_location_id)
+        if not dest_loc:
+            await callback.answer("Локация перехода не найдена.", show_alert=True)
+            return
+
+        old_location_id = character.location_id
+        if dest_loc.id != character.location_id and (dest_loc.min_level or 1) > character.level:
+            await callback.answer(
+                f"⚠️ {dest_loc.name} — опасность! Рекомендуется "
+                f"{dest_loc.min_level}+ уровень, у тебя {character.level}. "
+                f"Ты входишь на свой страх и риск…",
+                show_alert=True,
+            )
+
+        character.location_id = dest_loc.id
+        character.location = dest_loc
+        character.floor = dest_floor
+        character.cell_id = dest_cell.id
+        character.cell = dest_cell
+        await mark_visited(session, character, dest_cell)
+        await session.commit()
+
+        try:
+            from core.realtime import publish as rt_publish
+            from core.vip import is_vip_active as vip_active
+            await rt_publish("player_move", {
+                "character_id": character.id,
+                "name": character.name,
+                "location_id": dest_loc.id,
+                "location_name": dest_loc.name,
+                "floor": dest_floor,
+                "x": dest_cell.x,
+                "y": dest_cell.y,
+                "from_location_id": old_location_id,
+                "via": "cell_transition",
+                "is_vip": vip_active(character),
+            })
+        except Exception:
+            pass
+
+        await show_cell(callback, character, dest_loc, session)
 
 
 @router.callback_query(F.data == "inspect")
@@ -631,7 +790,10 @@ async def show_cell(callback, character, location, session):
         )
         return
 
+    await _ensure_floor_stairs_present(session, location)
+
     can_dirs = {}
+    dir_labels = {}
     for direction, (dx, dy) in DIRECTIONS.items():
         result = await session.execute(
             select(Cell)
@@ -641,10 +803,26 @@ async def show_cell(callback, character, location, session):
             .where(Cell.y == cell.y + dy)
         )
         n = result.scalar_one_or_none()
-        can_dirs[direction] = n is not None and n.is_passable
+        passable = n is not None and n.is_passable
+        can_dirs[direction] = passable
 
+        if n is None:
+            dir_labels[direction] = "⬛"
+        elif not n.is_passable:
+            # Камень прямо на кнопке: сразу понятно, куда упирается путь.
+            dir_labels[direction] = "🪨"
+        elif n.target_location_id is not None and n.target_x is not None and n.target_y is not None:
+            # Дверь/переход на соседнюю локацию или этаж: игрок видит это
+            # до нажатия стрелки, а направление всё равно остаётся на кнопке.
+            dir_labels[direction] = f"🚪{DIRECTION_ARROWS.get(direction, '')}"
+
+    transition_label, transition_hint = _current_transition(cell, location)
     portal_template_id = await _active_portal_template_id(session, cell)
-    text = cell_text(cell, location.name, portal_active=bool(portal_template_id))
+    text = cell_text(
+        cell, location.name, portal_active=bool(portal_template_id),
+        floor=character.floor or 0, total_floors=location.floors_count or 1,
+        transition_hint=transition_hint,
+    )
 
     # Use custom cell/location image if provided and valid
     custom_img = cell.image_url or location.image_url
@@ -652,7 +830,7 @@ async def show_cell(callback, character, location, session):
         await send_or_edit_photo(
             callback,
             text,
-            reply_markup=cell_movement_keyboard(can_dirs, portal_template_id),
+            reply_markup=cell_movement_keyboard(can_dirs, portal_template_id, dir_labels, transition_label),
             image_url=custom_img,
         )
         return
@@ -665,7 +843,7 @@ async def show_cell(callback, character, location, session):
     cells = result.scalars().all()
 
     img_path = ensure_cell_image(cell, cells, cell.x, cell.y)
-    kb = cell_movement_keyboard(can_dirs, portal_template_id)
+    kb = cell_movement_keyboard(can_dirs, portal_template_id, dir_labels, transition_label)
 
     await send_or_edit_photo(
         callback,

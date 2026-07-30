@@ -9,8 +9,8 @@ from core.database import async_session
 from core.models import AuctionLot, Character, InventoryItem, User
 from bot.keyboards.inline import (
     auction_browse_keyboard, auction_lot_keyboard, auction_menu_keyboard,
-    auction_my_lots_keyboard, auction_price_keyboard, auction_sell_list_keyboard,
-    main_menu_keyboard,
+    auction_listed_keyboard, auction_my_lots_keyboard, auction_price_keyboard,
+    auction_sell_list_keyboard, main_menu_keyboard,
 )
 from bot.utils.photos import send_or_edit_photo
 
@@ -46,7 +46,7 @@ async def auction_menu(callback: CallbackQuery):
         mine = await auction.my_lots(session, character.id)
         gold = character.gold
 
-    await callback.message.edit_text(
+    await send_or_edit_photo(callback,
         "⚖️ <b>Аукцион Теневых Земель</b>\n\n"
         "<i>Скупщик Молчун не поднимает глаз от гроссбуха.</i>\n\n"
         "— Выставляй, если не спешишь: покупатель найдётся. Или продай мне "
@@ -69,18 +69,34 @@ async def auction_browse(callback: CallbackQuery):
         if not character:
             await callback.answer("Сначала создай персонажа!", show_alert=True)
             return
-        lots = await auction.active_lots(session)
 
-    if not lots:
-        await callback.answer("Витрина пуста. Загляни позже.", show_alert=True)
-        return
+        # Витрина всегда открывается как полноценный экран, даже если лотов
+        # пока нет: так игрок не упирается в alert и может сразу выставить вещь.
+        await auction.sweep_expired(session)
+        await session.commit()
+        lots = await auction.active_lots(session, exclude_seller_id=character.id)
+        mine = await auction.my_lots(session, character.id)
+        gold = character.gold
 
-    await callback.message.edit_text(
-        f"🛒 <b>Витрина аукциона</b>\n\n"
-        f"Лотов: <b>{len(lots)}</b> | У тебя: <b>{character.gold}</b>🪙\n\n"
-        "<i>Значок перед ценой — способ добычи вещи. "
-        "🔁 значит, что она уже меняла хозяев.</i>",
-        reply_markup=auction_browse_keyboard(lots, page),
+    if lots:
+        body = (
+            f"Чужих лотов: <b>{len(lots)}</b> | Твоих: <b>{len(mine)}</b> | "
+            f"У тебя: <b>{gold}</b>🪙\n\n"
+            "<i>Значок перед ценой — способ добычи вещи. "
+            "🔁 значит, что она уже меняла хозяев. Твои лоты здесь скрыты — "
+            "они доступны в разделе «Мои лоты».</i>"
+        )
+    else:
+        body = (
+            f"Чужих лотов: <b>0</b> | Твоих: <b>{len(mine)}</b> | "
+            f"У тебя: <b>{gold}</b>🪙\n\n"
+            "<i>На общей витрине сейчас нет чужих лотов. "
+            "Твои активные продажи смотри в разделе «Мои лоты».</i>"
+        )
+
+    await send_or_edit_photo(callback,
+        f"🛒 <b>Общая витрина аукциона</b>\n\n{body}",
+        reply_markup=auction_browse_keyboard(lots, page, my_lot_count=len(mine)),
         parse_mode="HTML",
     )
 
@@ -218,7 +234,7 @@ async def auction_buy(callback: CallbackQuery):
         except Exception:
             pass
 
-    await callback.message.edit_text(
+    await send_or_edit_photo(callback,
         f"✅ <b>Покупка состоялась</b>\n\n"
         f"{name}\n"
         f"🆔 <code>{uid}</code>\n\n"
@@ -248,7 +264,7 @@ async def auction_my_items(callback: CallbackQuery):
         )
         return
 
-    await callback.message.edit_text(
+    await send_or_edit_photo(callback,
         "📢 <b>Что выставим?</b>\n\n"
         "Ресурсы и расходники аукцион не принимает — только вещи "
         "со своим ID.\n\n"
@@ -342,12 +358,12 @@ async def auction_list(callback: CallbackQuery):
         await callback.answer(outcome["reason"], show_alert=True)
         return
 
-    await callback.message.edit_text(
+    await send_or_edit_photo(callback,
         f"📢 <b>Лот выставлен</b>\n\n"
         f"{name} — <b>{price}</b>🪙\n\n"
         f"<i>Молчун вписывает строку в гроссбух. "
         f"Если не купят за сутки, вещь вернётся к тебе.</i>",
-        reply_markup=auction_menu_keyboard(len(mine)),
+        reply_markup=auction_listed_keyboard(len(mine)),
         parse_mode="HTML",
     )
 
@@ -380,7 +396,7 @@ async def auction_npc_sell(callback: CallbackQuery):
         await callback.answer(outcome["reason"], show_alert=True)
         return
 
-    await callback.message.edit_text(
+    await send_or_edit_photo(callback,
         f"⚡ <b>Продано скупщику</b>\n\n"
         f"{name} → <b>{outcome['price']}</b>🪙\n"
         f"Теперь у тебя: <b>{gold}</b>🪙\n\n"
@@ -415,7 +431,7 @@ async def auction_my_lots(callback: CallbackQuery):
         lines.append(f"• {name} — <b>{lot.price}</b>🪙{left}")
     lines.append("\n<i>Нажми на лот, чтобы снять его с продажи.</i>")
 
-    await callback.message.edit_text(
+    await send_or_edit_photo(callback,
         "\n".join(lines),
         reply_markup=auction_my_lots_keyboard(lots),
         parse_mode="HTML",
@@ -440,7 +456,7 @@ async def auction_cancel(callback: CallbackQuery):
         await callback.answer(outcome["reason"], show_alert=True)
         return
 
-    await callback.message.edit_text(
+    await send_or_edit_photo(callback,
         "↩️ <b>Лот снят с продажи</b>\n\nВещь вернулась в сумку.",
         reply_markup=auction_menu_keyboard(len(mine)),
         parse_mode="HTML",

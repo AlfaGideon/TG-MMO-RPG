@@ -59,8 +59,11 @@ DUNGEON_NAMES = [
 DEFAULT_MOB_NAMES = ["Пещерный паук", "Теневой крыс", "Скелет-страж", "Болотный слизень", "Древний призрак"]
 
 DIRECTIONS = {
-    "north": (-1, 0), "south": (1, 0), "west": (0, -1), "east": (0, 1),
+    "n": (-1, 0), "s": (1, 0), "w": (0, -1), "e": (0, 1),
     "nw": (-1, -1), "ne": (-1, 1), "sw": (1, -1), "se": (1, 1),
+}
+DIRECTION_ALIASES = {
+    "north": "n", "south": "s", "west": "w", "east": "e",
 }
 
 
@@ -329,6 +332,7 @@ async def dungeon_exit(callback: CallbackQuery):
 @router.callback_query(F.data.startswith("dungeon_move:"))
 async def dungeon_move(callback: CallbackQuery):
     direction = callback.data.split(":")[1]
+    direction = DIRECTION_ALIASES.get(direction, direction)
     dx, dy = DIRECTIONS.get(direction, (0, 0))
 
     async with async_session() as session:
