@@ -70,6 +70,7 @@
     "webapp/pages/economy.py",
     "webapp/pages/audit.py",
     "webapp/pages/settings.py",
+    "webapp/pages/updates.py",
     "webapp/actions/audit_actions.py",
     "webapp/actions/bot_actions.py",
     "webapp/actions/content_actions.py",
@@ -80,7 +81,9 @@
     "webapp/actions/settings_actions.py",
     "webapp/actions/living_actions.py",
     "webapp/actions/world_actions.py",
+    "webapp/actions/updates_actions.py",
     "webapp/app.py",
+    "webapp/live_timer.py",
     "webapp/boot.py"
   ]
 }

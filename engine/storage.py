@@ -25,6 +25,9 @@ class Store:
         self.settings.setdefault("cataclysm_chance", 0.02)
         self.settings.setdefault("cataclysm_limit", 2)
         self.settings.setdefault("cataclysm_notify", True)
+        # Обновления и предложения игроков — для паритета с серверным стеком
+        self.settings.setdefault("updates", [])
+        self.settings.setdefault("suggestions", [])
 
     # ── загрузка/сохранение ─────────────────────────────────
     def load(self):
