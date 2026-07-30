@@ -102,7 +102,7 @@ def prowl(store, p, rng=None):
         return None                      # на клетке и так есть кого бить
     near = []
     for dx, dy in W.DIRS.values():
-        c = W.cell_at(store.world, p.loc, p.x + dx, p.y + dy)
+        c = W.cell_at(store.world, p.loc, p.x + dx, p.y + dy, getattr(p, "floor", 0))
         if c is not None and c.mob >= 0:
             near.append(c)
     if not near:

@@ -26,11 +26,12 @@ CHEST = "📦"
 MOB = "👾"
 NPC = "💬"
 GRAVE = "🪦"      # чьё-то надгробие с золотом
+STAIRS = "🪜"
 MARK = "❇️"       # неизученная достопримечательность
 
 
-def ckey(loc, x, y):
-    return f"{loc}:{x}:{y}"
+def ckey(loc, x, y, floor=0):
+    return f"{loc}:{x}:{y}" if not floor else f"{loc}:{floor}:{x}:{y}"
 
 
 def mark_visited(p, loc=None, x=None, y=None):
@@ -38,17 +39,18 @@ def mark_visited(p, loc=None, x=None, y=None):
     loc = p.loc if loc is None else loc
     x = p.x if x is None else x
     y = p.y if y is None else y
+    floor = getattr(p, "floor", 0)
     seen = set(getattr(p, "visited", []) or [])
     for dx in (-1, 0, 1):
         for dy in (-1, 0, 1):
             nx, ny = x + dx, y + dy
             if 0 <= nx < W.SIZE and 0 <= ny < W.SIZE:
-                seen.add(ckey(loc, nx, ny))
+                seen.add(ckey(loc, nx, ny, floor))
     p.visited = sorted(seen)
 
 
-def is_visited(p, loc, x, y):
-    return ckey(loc, x, y) in set(getattr(p, "visited", []) or [])
+def is_visited(p, loc, x, y, floor=0):
+    return ckey(loc, x, y, floor) in set(getattr(p, "visited", []) or [])
 
 
 def others_here(store, p, loc=None, x=None, y=None):
@@ -65,7 +67,7 @@ def other_keys(store, p):
     """{ключ клетки: [герои]} — где сейчас стоят остальные в этой локации."""
     out = {}
     for q in others_here(store, p):
-        out.setdefault(ckey(q.loc, q.x, q.y), []).append(q)
+        out.setdefault(ckey(q.loc, q.x, q.y, getattr(q, "floor", 0)), []).append(q)
     return out
 
 
@@ -106,7 +108,7 @@ def glyph(cell, portals=(), graves=(), marks=()):
     if cell.key in portals:
         return PORTAL
     if cell.link:
-        return DOOR
+        return STAIRS if len(cell.link) >= 4 and cell.link[0] == cell.loc else DOOR
     if cell.mob >= 0:
         return MOB
     if cell.npc >= 0:
@@ -130,13 +132,13 @@ def grid(p, cells, portals=(), others=None, graves=(), marks=()):
             if (x, y) == (p.x, p.y):
                 row += PLAYER
                 continue
-            if not is_visited(p, p.loc, x, y):
+            if not is_visited(p, p.loc, x, y, getattr(p, "floor", 0)):
                 row += FOG
                 continue
             if others.get(ckey(p.loc, x, y)):
                 row += OTHER
                 continue
-            row += glyph(cells.get(ckey(p.loc, x, y)), portals, graves, marks)
+            row += glyph(cells.get(ckey(p.loc, x, y, getattr(p, "floor", 0))), portals, graves, marks)
         rows.append(row)
     return rows
 
@@ -149,13 +151,15 @@ def render(p, cells, store=None):
     marks = _mark_keys(store, p)
     rows = grid(p, cells, portals, others, graves, marks)
 
-    total = sum(1 for c in cells.values() if c.loc == p.loc)
-    seen = sum(1 for k in (getattr(p, "visited", []) or []) if k.startswith(f"{p.loc}:"))
+    floor = getattr(p, "floor", 0)
+    total = sum(1 for c in cells.values() if c.loc == p.loc and c.floor == floor)
+    prefix = f"{p.loc}:" if floor == 0 else f"{p.loc}:{floor}:"
+    seen = sum(1 for k in (getattr(p, "visited", []) or []) if k.startswith(prefix))
     pct = int(seen / total * 100) if total else 0
 
     loc = data.LOCATIONS[p.loc] if p.loc < len(data.LOCATIONS) else ("Неизвестность",)
     legend = (f"{PLAYER} ты · {OTHER} герой · {FOG} не изучено · "
-              f"{TILE['wall']} стена · {DOOR} переход\n"
+              f"{TILE['wall']} стена · {DOOR} переход · {STAIRS} лестница\n"
               f"{PORTAL} портал · {MOB} враг · {NPC} житель · {CHEST} сундук · "
               f"{GRAVE} могила · {MARK} диковина")
 

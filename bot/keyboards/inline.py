@@ -116,8 +116,8 @@ def back_to_main_keyboard():
 
 def help_menu_keyboard():
     builder = InlineKeyboardBuilder()
-    builder.button(text="🔵 📢 Обновления", callback_data="bot_updates")
-    builder.button(text="🟡 💡 Предложить идею", callback_data="bot_suggest")
+    builder.button(text="🔵 📢 Обновления и изменения", callback_data="bot_updates")
+    builder.button(text="🟡 💡 Место для идей", callback_data="bot_suggest")
     builder.button(text="◀️ В главное меню", callback_data="main_menu")
     builder.adjust(2, 1)
     return builder.as_markup()

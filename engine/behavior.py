@@ -69,7 +69,7 @@ def hunters_near(store, p, rng=None):
             if dx == 0 and dy == 0:
                 continue
             dist = max(abs(dx), abs(dy))
-            c = W.cell_at(store.world, p.loc, p.x + dx, p.y + dy)
+            c = W.cell_at(store.world, p.loc, p.x + dx, p.y + dy, getattr(p, "floor", 0))
             if c is None or c.mob < 0:
                 continue
             kind = of(c.mob)

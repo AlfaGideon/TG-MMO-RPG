@@ -174,7 +174,7 @@ class Game:
 
     # ── мир ─────────────────────────────────────────────────
     def _cell(self, p):
-        return world.cell_at(self.world, p.loc, p.x, p.y)
+        return world.cell_at(self.world, p.loc, p.x, p.y, getattr(p, "floor", 0))
 
     def do_world(self, p, arg=""):
         if not p.created_char:
@@ -188,7 +188,7 @@ class Game:
             p.loc, p.x, p.y = 0, 5, 5
             cell = self._cell(p)
         mapview.mark_visited(p)
-        ok = world.neighbours(self.world, p.loc, p.x, p.y)
+        ok = world.neighbours(self.world, p.loc, p.x, p.y, getattr(p, "floor", 0))
         rows = []
         for line in (("nw", "n", "ne"), ("w", None, "e"), ("sw", "s", "se")):
             row = []
@@ -203,7 +203,11 @@ class Game:
         # Если игрок оказался непосредственно на клетке-переходе, стрелки
         # больше не помогают: явная кнопка делает переход доступным сразу.
         if cell.link:
-            rows.append([("🚪 Перейти через дверь", "transition")])
+            if len(cell.link) >= 4 and cell.link[0] == cell.loc:
+                label = "🪜 Спуститься на следующий этаж" if cell.link[3] > getattr(p, "floor", 0) else "🪜 Подняться на верхний этаж"
+            else:
+                label = "🚪 Перейти через дверь"
+            rows.append([(label, "transition")])
         rows.append([("🏕 Отдых", "rest"), ("🎒 Инвентарь", "bag")])
         rows.append([("🗺 Карта", "map"), ("◀️ Меню", "menu")])
         alarm = cataclysm.banner(self.store, p.loc)
@@ -221,7 +225,11 @@ class Game:
         cell = self._cell(p)
         if not cell or not cell.link:
             return Reply(alert="Здесь нет перехода.")
-        p.loc, p.x, p.y = cell.link
+        if len(cell.link) >= 4:
+            p.loc, p.x, p.y, p.floor = cell.link[:4]
+        else:
+            p.loc, p.x, p.y = cell.link
+            p.floor = 0
         social.on_enter(p, p.loc)
         mapview.mark_visited(p)
         return self.do_world(p)
@@ -232,7 +240,7 @@ class Game:
         # Старые кнопки/сохранённые callback-и используют полные названия.
         d = {"north": "n", "south": "s", "west": "w", "east": "e"}.get(d, d)
         dx, dy = world.DIRS.get(d, (0, 0))
-        target = world.cell_at(self.world, p.loc, p.x + dx, p.y + dy)
+        target = world.cell_at(self.world, p.loc, p.x + dx, p.y + dy, getattr(p, "floor", 0))
         if not target or not target.passable:
             return Reply(alert="Туда нельзя пройти!")
         warn = ""
@@ -242,7 +250,11 @@ class Game:
             if dest and dest[3] > p.level:
                 warn = (f"⚠️ {dest[0]} — опасно! Рекомендуется {dest[3]}+ уровень, "
                         f"у тебя {p.level}. Ты входишь на свой страх и риск…")
-            p.loc, p.x, p.y = target.link
+            if len(target.link) >= 4:
+                p.loc, p.x, p.y, p.floor = target.link[:4]
+            else:
+                p.loc, p.x, p.y = target.link
+                p.floor = 0
             social.on_enter(p, p.loc)        # разведка засчитана
         else:
             p.x, p.y = target.x, target.y

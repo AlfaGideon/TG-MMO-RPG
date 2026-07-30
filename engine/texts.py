@@ -142,8 +142,11 @@ def cell_view(p, cell, alarm="", others=()):
         who = ", ".join(f"{q.name} (ур. {q.level})" for q in others[:4])
         more = f" и ещё {len(others) - 4}" if len(others) > 4 else ""
         company = f"\n\n🔵 <b>Здесь же:</b> {who}{more}"
+    floor_line = (f"🏢 Этаж: <b>{getattr(p, 'floor', 0) + 1}</b>\n"
+                  if getattr(p, 'floor', 0) else "")
     return (
         f"{head}🗺 <b>{loc[0]}</b>\n"
+        f"{floor_line}"
         f"📍 [{cell.x},{cell.y}] · <i>{cell.name}</i>\n\n"
         f"{cell.desc}{company}\n\n"
         f"❤️ {p.hp}/{rules.stats(p)['max_hp']}  💙 {p.mp}  🪙 {p.gold}"
