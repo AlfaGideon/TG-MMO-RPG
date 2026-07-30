@@ -110,6 +110,16 @@
     box-shadow:-12px 0 40px rgba(0,0,0,.35)}
 .side-dock.open{transform:none}
 .side-dock h3{margin:0}
+
+/* players on location */
+.loc-floor-filter{opacity:.6;transition:.15s}
+.loc-floor-filter:hover{opacity:.85}
+.loc-floor-filter.active{opacity:1;background:var(--accent);color:#fff;border-color:var(--accent)}
+.loc-player-row{display:flex;align-items:center;gap:0.6rem;padding:0.5rem 0.7rem;background:var(--bg-dark);border:1px solid var(--border);border-radius:8px;transition:.15s}
+.loc-player-row:hover{border-color:var(--accent)}
+.loc-player-row .lp-name{font-weight:600;flex:1}
+.loc-player-row .lp-info{font-size:0.75rem;color:var(--text-muted)}
+.loc-player-row .lp-floor{font-size:0.7rem;padding:2px 8px;border-radius:999px;background:var(--accent-soft);color:var(--accent);font-weight:600}
 </style>
 
 <div class="loc-layout">
@@ -233,6 +243,23 @@
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.6rem;flex-wrap:wrap;gap:0.5rem">
             <h3 style="margin:0">🗺 Сетка клеток — этаж {{ current_floor }} {% if (location.floors_count or 1)>1 %}<span class="badge">🏢 {{ location.floors_count }} этажей (подуровни визуально как слои)</span>{% endif %}</h3>
             <div class="hint">Двери: одна клетка на сторону • Лестницы: двусторонние • Подуровни на карте мира — стопка</div>
+        </div>
+
+        <!-- Игроки на локации с фильтрацией по этажам -->
+        <div class="card" style="margin-top:1.5rem">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.6rem;margin-bottom:0.8rem">
+                <h3 style="margin:0">👥 Игроки на локации <span id="locPlayerCount" style="color:var(--accent)">—</span></h3>
+                <button class="btn btn-sm" onclick="loadLocationPlayers()">🔄 Обновить</button>
+            </div>
+            <div style="display:flex;gap:0.4rem;margin-bottom:0.8rem;flex-wrap:wrap">
+                <button class="btn btn-sm loc-floor-filter active" data-floor="all" onclick="filterLocFloor('all')">Все этажи</button>
+                {% for f in floors_range %}
+                <button class="btn btn-sm loc-floor-filter" data-floor="{{ f }}" onclick="filterLocFloor({{ f }})">Этаж {{ f }}</button>
+                {% endfor %}
+            </div>
+            <div id="locPlayersList" style="display:flex;flex-direction:column;gap:0.4rem">
+                <div class="hint">Загрузка...</div>
+            </div>
         </div>
         <div class="cell-grid" id="cellGrid">
             {% for y in range(location.grid_size) %}
@@ -476,6 +503,51 @@
 
     // подсказка по подуровням на мировой карте
     console.log('🏢 Подуровни: этаж {{ current_floor }} из {{ location.floors_count }} — отображаются как слои в панели слева, на мировой карте как стопка');
+
+    // ── Игроки на локации с фильтрацией по этажам ──
+    let locPlayers = [];
+    let locFloorFilter = 'all';
+
+    window.loadLocationPlayers = async function(){
+        try{
+            const r = await fetch('/api/location/{{ location.id }}/players');
+            const data = await r.json();
+            locPlayers = data.players || [];
+            document.getElementById('locPlayerCount').textContent = `(${data.count || 0})`;
+            renderLocPlayers();
+        }catch(e){
+            document.getElementById('locPlayersList').innerHTML = '<div class="hint" style="color:var(--danger)">Ошибка загрузки</div>';
+        }
+    };
+
+    window.filterLocFloor = function(floor){
+        locFloorFilter = floor;
+        document.querySelectorAll('.loc-floor-filter').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.floor === String(floor));
+        });
+        renderLocPlayers();
+    };
+
+    function renderLocPlayers(){
+        const list = document.getElementById('locPlayersList');
+        if(!list) return;
+        const filtered = locFloorFilter === 'all' ? locPlayers : locPlayers.filter(p => p.floor === parseInt(locFloorFilter));
+        if(!filtered.length){
+            list.innerHTML = `<div class="hint">Нет игроков ${locFloorFilter === 'all' ? 'на локации' : 'на этаже ' + locFloorFilter}</div>`;
+            return;
+        }
+        list.innerHTML = filtered.map(p => `
+            <div class="loc-player-row">
+                <span class="lp-floor">Этаж ${p.floor}</span>
+                <span class="lp-name">${p.name} ${p.is_vip ? '👑' : ''}</span>
+                <span class="lp-info">Ур. ${p.level} ${p.x !== null && p.y !== null ? `[${p.x},${p.y}]` : ''}</span>
+                <a href="/player/${p.id}" class="btn btn-sm btn-primary">👤</a>
+            </div>
+        `).join('');
+    }
+
+    // Загружаем игроков при загрузке страницы
+    loadLocationPlayers();
 })();
 </script>
 {% endblock %}

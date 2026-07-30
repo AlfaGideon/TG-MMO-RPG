@@ -10,6 +10,7 @@ from webapp.pages import world as page
 def register(app, A):
     A("world-tab", lambda arg: _pick_tab(app, arg))
     A("world-loc", lambda arg: _pick_loc(app, arg))
+    A("world-floor", lambda arg: _pick_floor(app, arg))
     A("world-fog-select", lambda _="": _fog_select(app))
     A("world-regen", lambda _="": _regen(app))
     A("world-seeds-save", lambda _="": _seeds_save(app))
@@ -45,6 +46,12 @@ def _pick_tab(app, tab):
 def _pick_loc(app, idx):
     app.state["loc"] = int(idx)
     app.state["cell_pick"] = ""        # выделение чужой локации ни к чему
+    app.render()
+
+
+def _pick_floor(app, floor):
+    """Фильтр карты по этажу: 'all' или номер этажа."""
+    app.state["floor_filter"] = str(floor)
     app.render()
 
 

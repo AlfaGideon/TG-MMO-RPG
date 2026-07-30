@@ -105,7 +105,7 @@ a { color: inherit; }
     top: 0;
     left: 0;
     bottom: 0;
-    overflow-y: auto;
+    overflow: hidden;
     z-index: 60;
     transition: transform 0.25s ease;
 }
@@ -140,6 +140,24 @@ a { color: inherit; }
     display: flex;
     flex-direction: column;
     gap: 0.2rem;
+    overflow-y: auto;
+    overflow-x: hidden;
+    min-height: 0;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+}
+
+.sidebar-nav::-webkit-scrollbar {
+    width: 4px;
+}
+
+.sidebar-nav::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 4px;
+}
+
+.sidebar-nav::-webkit-scrollbar-track {
+    background: transparent;
 }
 
 .nav-section-label {
@@ -305,6 +323,33 @@ a { color: inherit; }
 .sidebar-footer {
     padding: 1rem 0.9rem 1.1rem;
     border-top: 1px solid var(--border);
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.sidebar-clock {
+    text-align: center;
+    padding: 0.6rem 0.8rem;
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+}
+
+.sidebar-clock .clock-time {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.05em;
+    line-height: 1.2;
+}
+
+.sidebar-clock .clock-date {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    margin-top: 0.15rem;
 }
 
 .sidebar-overlay {
