@@ -10,7 +10,7 @@
 """
 from datetime import datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import selectinload
 
 from core import history
@@ -71,7 +71,11 @@ async def active_lots(session, exclude_seller_id: int | None = None, limit: int 
         .limit(limit)
     )
     if exclude_seller_id is not None:
-        query = query.where(AuctionLot.seller_id != exclude_seller_id)
+        # SQL NULL != value is UNKNOWN, so include NPC lots (seller_id NULL)
+        # explicitly when building a public/buyable showcase.
+        query = query.where(
+            or_(AuctionLot.seller_id.is_(None), AuctionLot.seller_id != exclude_seller_id)
+        )
     result = await session.execute(query)
     return result.scalars().all()
 

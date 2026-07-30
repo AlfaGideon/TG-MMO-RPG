@@ -199,13 +199,21 @@ def location_text(location):
     )
 
 
-def cell_text(cell, location_name, portal_active=False):
+def cell_text(cell, location_name, portal_active=False, floor: int | None = None,
+              total_floors: int = 1, transition_hint: str | None = None):
     # No hints about mobs, NPCs, chests - player must explore
+    floor_line = ""
+    if total_floors and total_floors > 1:
+        cur_floor = 0 if floor is None else floor
+        floor_line = f"🏢 Этаж: <b>{cur_floor + 1}</b>/<b>{total_floors}</b>\n"
     text = (
         f"🗺 <b>{location_name}</b>\n"
+        f"{floor_line}"
         f"📍 Клетка [{cell.x},{cell.y}] | <i>{cell.name}</i>\n\n"
         f"{cell.description}"
     )
+    if transition_hint:
+        text += f"\n\n{transition_hint}"
     if portal_active:
         text += "\n\n🌀 <b>Здесь открылся портал в подземелье!</b>"
     return text

@@ -35,29 +35,42 @@ def admin_panel_keyboard(login_url: str = ""):
     return builder.as_markup()
 
 
-CLASSES_PER_PAGE = 6
+def _clamp_page(page: int, total: int) -> int:
+    if total <= 0:
+        return 0
+    return max(0, min(page, total - 1))
 
 
 def class_select_keyboard(classes: list, page: int = 0):
-    """Список классов из БД, постранично — их может быть сколько угодно."""
-    builder = InlineKeyboardBuilder()
-    start = page * CLASSES_PER_PAGE
-    chunk = classes[start:start + CLASSES_PER_PAGE]
+    """Книжное листание классов: одна карточка класса на странице.
 
-    for cls_def in chunk:
-        icon = cls_def.icon or "⚔️"
-        builder.button(
-            text=f"{icon} {cls_def.name}",
-            callback_data=f"select_class:{cls_def.key}",
-        )
-    rows = [2] * ((len(chunk) + 1) // 2)
+    Игрок сначала видит описание и бонусы текущего класса, листает
+    «страницы», а уже затем нажимает выбор. Старое меню-список было
+    неудобно: бонусы открывались только после отдельного нажатия.
+    """
+    builder = InlineKeyboardBuilder()
+    total = len(classes)
+    if total <= 0:
+        builder.button(text="◀️ Назад", callback_data="main_menu")
+        builder.adjust(1)
+        return builder.as_markup()
+
+    page = _clamp_page(page, total)
+    cls_def = classes[page]
+    icon = cls_def.icon or "⚔️"
+
+    builder.button(
+        text=f"✅ Выбрать и далее: {icon} {cls_def.name}",
+        callback_data=f"select_class:{cls_def.key}",
+    )
+    rows = [1]
 
     nav = 0
     if page > 0:
-        builder.button(text="⬅️", callback_data=f"class_page:{page - 1}")
+        builder.button(text="⬅️ Пред. страница", callback_data=f"class_page:{page - 1}")
         nav += 1
-    if start + CLASSES_PER_PAGE < len(classes):
-        builder.button(text="➡️", callback_data=f"class_page:{page + 1}")
+    if page + 1 < total:
+        builder.button(text="След. страница ➡️", callback_data=f"class_page:{page + 1}")
         nav += 1
     if nav:
         rows.append(nav)
@@ -68,10 +81,11 @@ def class_select_keyboard(classes: list, page: int = 0):
     return builder.as_markup()
 
 
-def confirm_class_keyboard(char_class: str):
+def confirm_class_keyboard(char_class: str, back_page: int | None = None):
     builder = InlineKeyboardBuilder()
     builder.button(text="🟢 ✅ Подтвердить", callback_data=f"confirm_class:{char_class}")
-    builder.button(text="🔴 ◀️ Другой класс", callback_data="create_character")
+    back_target = f"class_page:{back_page}" if back_page is not None else "create_character"
+    builder.button(text="🔴 ◀️ Другой класс", callback_data=back_target)
     return builder.as_markup()
 
 
@@ -111,19 +125,27 @@ def back_to_help_keyboard():
     return builder.as_markup()
 
 
-def cell_movement_keyboard(can_dirs: dict, dungeon_template_id: int | None = None):
+def cell_movement_keyboard(can_dirs: dict, dungeon_template_id: int | None = None,
+                           dir_labels: dict | None = None,
+                           current_transition_label: str | None = None):
     """
     3x3 grid: 8 directions + center inspect.
     can_dirs: {'nw': bool, 'n': bool, 'ne': bool, 'w': bool, 'e': bool,
                'sw': bool, 's': bool, 'se': bool}
+    dir_labels: optional per-direction button text. Used to show doors
+                (transitions) and rocks (blocked cells) directly on arrows.
+    current_transition_label: button for the transition on the current cell
+                itself (stairs/floor change).
     """
     builder = InlineKeyboardBuilder()
+    dir_labels = dir_labels or {}
 
     def btn(direction, icon, label):
+        text = dir_labels.get(direction) or icon
         if can_dirs.get(direction):
-            builder.button(text=f"{icon}", callback_data=f"move:{direction}")
+            builder.button(text=text, callback_data=f"move:{direction}")
         else:
-            builder.button(text="⬛", callback_data="noop")
+            builder.button(text=dir_labels.get(direction) or "⬛", callback_data="noop")
 
     # Row 1: NW, N, NE
     btn('nw', '↖️', 'СЗ')
@@ -141,6 +163,10 @@ def cell_movement_keyboard(can_dirs: dict, dungeon_template_id: int | None = Non
     btn('se', '↘️', 'ЮВ')
 
     rows = [3, 3, 3]
+
+    if current_transition_label:
+        builder.button(text=current_transition_label, callback_data="cell_transition")
+        rows.append(1)
 
     if dungeon_template_id:
         builder.button(text="🕳 Войти в подземелье", callback_data=f"dungeon_enter_tpl:{dungeon_template_id}")
@@ -282,8 +308,12 @@ def auction_menu_keyboard(my_lot_count: int = 0):
     return builder.as_markup()
 
 
-def auction_browse_keyboard(lots: list, page: int = 0, per_page: int = 6):
+def auction_browse_keyboard(lots: list, page: int = 0, per_page: int = 6,
+                            my_lot_count: int = 0):
     builder = InlineKeyboardBuilder()
+    total = len(lots)
+    max_page = max(0, (total - 1) // per_page) if total else 0
+    page = max(0, min(page, max_page))
     start = page * per_page
     chunk = lots[start:start + per_page]
 
@@ -302,15 +332,27 @@ def auction_browse_keyboard(lots: list, page: int = 0, per_page: int = 6):
     if page > 0:
         builder.button(text="⬅️", callback_data=f"auction_browse:{page - 1}")
         nav += 1
-    if start + per_page < len(lots):
+    if start + per_page < total:
         builder.button(text="➡️", callback_data=f"auction_browse:{page + 1}")
         nav += 1
     if nav:
         rows.append(nav)
 
+    builder.button(text="📢 Выставить вещь", callback_data="auction_my_items:0")
+    builder.button(text=f"📋 Мои лоты ({my_lot_count})", callback_data="auction_my_lots")
     builder.button(text="◀️ К аукциону", callback_data="auction_menu")
-    rows.append(1)
+    rows.extend([1, 1, 1])
     builder.adjust(*rows)
+    return builder.as_markup()
+
+
+def auction_listed_keyboard(my_lot_count: int = 0):
+    """Действия сразу после выставления: свой лот ведём в раздел «Мои лоты»."""
+    builder = InlineKeyboardBuilder()
+    builder.button(text=f"📋 Открыть мои лоты ({my_lot_count})", callback_data="auction_my_lots")
+    builder.button(text="🛒 Общая витрина", callback_data="auction_browse:0")
+    builder.button(text="🏠 К аукциону", callback_data="auction_menu")
+    builder.adjust(1)
     return builder.as_markup()
 
 

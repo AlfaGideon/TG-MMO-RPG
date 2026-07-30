@@ -18,6 +18,16 @@ from core.classes import all_classes, get_class
 router = Router()
 
 
+def _class_book_text(cls_def, page: int, total: int) -> str:
+    """Текст страницы «книги классов» на старте."""
+    return (
+        f"📖 <b>Книга классов</b> — страница <b>{page + 1}</b> из <b>{total}</b>\n\n"
+        f"{class_description_text(cls_def)}\n\n"
+        "<i>Листай страницы, сравнивай бонусы и нажми «Выбрать и далее», "
+        "когда определишься.</i>"
+    )
+
+
 @router.message(CommandStart())
 async def cmd_start(message: Message):
     async with async_session() as session:
@@ -194,9 +204,13 @@ async def create_character(callback: CallbackQuery):
         )
         return
 
-    await callback.message.edit_text(
-        "Выбери класс своего героя:",
-        reply_markup=class_select_keyboard(classes),
+    page = 0
+    cls_def = classes[page]
+    await send_or_edit_photo(
+        callback,
+        _class_book_text(cls_def, page, len(classes)),
+        reply_markup=class_select_keyboard(classes, page=page),
+        image_url=cls_def.image_url,
     )
 
 
@@ -205,9 +219,18 @@ async def class_page(callback: CallbackQuery):
     page = int(callback.data.split(":")[1])
     async with async_session() as session:
         classes = await all_classes(session)
-    await callback.message.edit_text(
-        "Выбери класс своего героя:",
+
+    if not classes:
+        await callback.answer("Классы ещё не настроены.", show_alert=True)
+        return
+
+    page = max(0, min(page, len(classes) - 1))
+    cls_def = classes[page]
+    await send_or_edit_photo(
+        callback,
+        _class_book_text(cls_def, page, len(classes)),
         reply_markup=class_select_keyboard(classes, page=page),
+        image_url=cls_def.image_url,
     )
 
 
@@ -216,15 +239,17 @@ async def select_class(callback: CallbackQuery):
     cls_key = callback.data.split(":")[1]
     async with async_session() as session:
         cls_def = await get_class(session, cls_key)
+        classes = await all_classes(session)
 
     if cls_def is None:
         await callback.answer("Такого класса больше нет.", show_alert=True)
         return
 
+    back_page = next((i for i, item in enumerate(classes) if item.key == cls_key), None)
     await send_or_edit_photo(
         callback,
         class_description_text(cls_def),
-        reply_markup=confirm_class_keyboard(cls_key),
+        reply_markup=confirm_class_keyboard(cls_key, back_page=back_page),
         image_url=cls_def.image_url,
     )
 
