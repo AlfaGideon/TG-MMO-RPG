@@ -5,6 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>🌑 Shadow Lands — Admin</title>
 <link rel="stylesheet" href="webapp/static/admin.css?v=4">
+<!--
+  Интерактив карты/сетки/таймеров живёт в настоящем статическом JS-файле,
+  а не в <script> внутри HTML, который Python вставляет через innerHTML —
+  такие теги браузер по спецификации никогда не выполняет. Раньше кисть по
+  карте, drag-and-drop локаций и таймер порталов из-за этого не работали.
+  Подключается один раз при загрузке страницы, до и независимо от Pyodide.
+-->
+<script src="webapp/static/interactions.js?v=2" defer></script>
 <style>
 #boot{max-width:780px;margin:2rem auto;padding:1.2rem;background:#1a1a24;
       border:1px solid #2e2e3e;border-radius:12px}
@@ -229,45 +237,73 @@ async function bootRuntime() {
     const ROOT = "/app";
     py.FS.mkdirTree(ROOT);
 
-    // Манифест грузим первым и мимо кеша. Если он недоступен — берём
-    // аварийную копию, вшитую в страницу.
-    let manifest = FALLBACK;
+    // Быстрый путь: webapp/bundle.json — все модули одним запросом
+    // (собирается заранее командой tools/build_bundle.py). Раньше страница
+    // делала ~80 отдельных fetch на медленных сетях это и было главным
+    // тормозом холодного старта. Если бандла нет, он битый или устарел —
+    // тихо откатываемся на старый способ (по одному файлу), так что бандл
+    // это ускорение, а не точка отказа.
+    let MODULES, PACKAGES, sourcesByPath, usedBundle = false;
     try {
-      say("Читаю список модулей…");
-      const r = await fetch("modules.json?v=" + stamp, { cache: "reload" });
-      if (r.ok) {
-        const parsed = await r.json();
-        if (Array.isArray(parsed.modules) && parsed.modules.length) manifest = parsed;
+      say("Загружаю пакет модулей одним запросом…");
+      const r = await fetch("webapp/bundle.json?v=" + stamp, { cache: "reload" });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const bundle = await r.json();
+      if (!bundle || !Array.isArray(bundle.modules) || !bundle.modules.length || !bundle.files) {
+        throw new Error("bundle.json повреждён или пуст");
       }
-    } catch (e) { console.warn("modules.json недоступен, беру запасной список", e); }
+      MODULES = bundle.modules;
+      PACKAGES = (bundle.packages && bundle.packages.length) ? bundle.packages : FALLBACK.packages;
+      sourcesByPath = bundle.files;
+      usedBundle = true;
+    } catch (e) {
+      console.warn("bundle.json недоступен, гружу модули по одному:", e);
+    }
 
-    const MODULES = manifest.modules;
-    const PACKAGES = manifest.packages || FALLBACK.packages;
+    if (!usedBundle) {
+      // Манифест грузим первым и мимо кеша. Если он недоступен — берём
+      // аварийную копию, вшитую в страницу.
+      let manifest = FALLBACK;
+      try {
+        say("Читаю список модулей…");
+        const r = await fetch("modules.json?v=" + stamp, { cache: "reload" });
+        if (r.ok) {
+          const parsed = await r.json();
+          if (Array.isArray(parsed.modules) && parsed.modules.length) manifest = parsed;
+        }
+      } catch (e) { console.warn("modules.json недоступен, беру запасной список", e); }
+
+      MODULES = manifest.modules;
+      PACKAGES = manifest.packages || FALLBACK.packages;
+
+      // Модули тянем параллельно и мимо кеша: иначе браузер/CDN отдаёт старую сборку.
+      sourcesByPath = {};
+      let done = 0;
+      await Promise.all(MODULES.map(async (path) => {
+        const r = await fetch(path + "?v=" + stamp, { cache: "reload" });
+        if (!r.ok) throw new Error(path + " → HTTP " + r.status);
+        const src = await r.text();
+        if (src.trimStart().startsWith("<")) {
+          throw new Error(path + " → вместо кода пришёл HTML (файла нет в репозитории)");
+        }
+        say("Загружаю модули… " + (++done) + "/" + MODULES.length);
+        sourcesByPath[path] = src;
+      }));
+    } else {
+      say("Пакет модулей получен одним запросом (" + MODULES.length + ") — распаковываю…");
+    }
 
     // Пакеты и их __init__.py создаём локально, из сети не тянем.
     for (const pkg of PACKAGES) {
       py.FS.mkdirTree(ROOT + "/" + pkg);
       py.FS.writeFile(ROOT + "/" + pkg + "/__init__.py", "");
     }
-
-    // Модули тянем параллельно и мимо кеша: иначе браузер/CDN отдаёт старую сборку.
-    let done = 0;
-    const sources = await Promise.all(MODULES.map(async (path) => {
-      const r = await fetch(path + "?v=" + stamp, { cache: "reload" });
-      if (!r.ok) throw new Error(path + " → HTTP " + r.status);
-      const src = await r.text();
-      if (src.trimStart().startsWith("<")) {
-        throw new Error(path + " → вместо кода пришёл HTML (файла нет в репозитории)");
-      }
-      say("Загружаю модули… " + (++done) + "/" + MODULES.length);
-      return src;
-    }));
     // Каталоги под вложенные модули создаём заранее — иначе writeFile упадёт.
     MODULES.forEach((path) => {
       const dir = path.slice(0, path.lastIndexOf("/"));
       if (dir) py.FS.mkdirTree(ROOT + "/" + dir);
     });
-    MODULES.forEach((path, i) => py.FS.writeFile(ROOT + "/" + path, sources[i]));
+    MODULES.forEach((path) => py.FS.writeFile(ROOT + "/" + path, sourcesByPath[path]));
     window.__modules = MODULES;
 
     py.runPython(

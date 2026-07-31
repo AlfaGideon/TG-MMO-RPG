@@ -9,10 +9,46 @@
 
 | Стек | Технологии | Entry point | Где работает |
 |---|---|---|---|
-| A — GitHub Pages | Чистый Python + Pyodide в браузере | `index.html` → `webapp/boot.py` | `alfagideon.github.io` |
+| A — GitHub Pages | Python (Pyodide, правила + рендер HTML) + статический JS (интерактив разметки) | `index.html` → `webapp/boot.py` + `webapp/static/interactions.js` | `alfagideon.github.io` |
 | B — Сервер | aiogram + FastAPI + SQLAlchemy | `launch.py` | Локально / Render / VPS |
 
 Правило из `README.md`: новая игровая механика должна попасть в `engine/`, новый раздел панели — в `webapp/pages/` + `webapp/actions/`, и оба — в `modules.json`. `tests/test_wiring.py` проверяет это.
+
+### Стек A: где Python, а где JS
+
+Не «всё на Python ради принципа» — у каждого языка своя зона:
+
+- **Python (Pyodide)**: `engine/` — правила игры; `webapp/pages/*` — рендерят
+  чистые HTML-строки; `webapp/actions/*` — обработчики кнопок/форм, дергают
+  движок и данные; `webapp/app.py` — навигация и полный `render()`.
+- **Статический JS** (`webapp/static/interactions.js`, обычный `<script src>`
+  в `index.html`, без Pyodide): жесты мыши/touch на разметке, которую Python
+  вставляет через `node.innerHTML = markup` — кисть по карте мира,
+  drag-and-drop локаций на глобальной сетке, живой таймер порталов
+  подземелий. **Причина строгая, не вкусовая**: браузеры по спецификации
+  НЕ выполняют `<script>`, попавший в DOM через `innerHTML` — такой код
+  раньше молча не работал, хотя выглядел рабочим и проходил текстовые
+  тесты (они проверяют HTML-строку, не выполнение в браузере). Слушатели в
+  `interactions.js` навешаны делегированно на `document`, поэтому переживают
+  любое количество `render()`.
+- `tests/test_wiring.py` проверяет: в `webapp/pages/*.py` нет `<script`
+  вообще (значит, интерактив либо через `data-act`, либо ушёл в
+  `interactions.js`), и что `interactions.js` синтаксически валиден.
+- Живые таймеры катаклизмов/часов (`webapp/live_timer.py`) — исключение:
+  это не разметка от Python, а `js.setInterval`, вызванный из Python
+  напрямую через Pyodide (не через innerHTML), так что там дозволен и
+  оправдан код на стороне Python — таймер завязан на игровые данные и
+  синхронизирован с `app.render()`.
+
+### Быстрый холодный старт (webapp/bundle.json)
+
+`index.html` сначала пробует одним запросом забрать `webapp/bundle.json` —
+все ~80 `.py`-файлов браузерного стека, упакованные `tools/build_bundle.py`.
+Если бандла нет или он битый — тихий откат на старый способ (fetch каждого
+модуля по отдельности). **После правки любого файла из `modules.json` нужно
+перезапустить `python3 tools/build_bundle.py`** — иначе бандл будет отдавать
+старый код, а `tests/test_wiring.py` это ловит (`digest` в bundle.json
+сверяется с содержимым файлов на диске).
 
 ## ⚠️ Правила, обязательные к соблюдению
 
@@ -49,10 +85,15 @@
 ### 3. Прочее, что проверяется автоматически
 
 - `engine/` не импортирует `js` и `webapp`;
-- `webapp/pages/*` только возвращают HTML-строки, не трогают DOM;
+- `webapp/pages/*` только возвращают HTML-строки, не трогают DOM, и не
+  содержат `<script` (интерактив — через `data-act` или
+  `webapp/static/interactions.js`, не через мёртвый inline-скрипт);
 - каждый `data-act` из разметки имеет обработчик в `webapp/actions/`;
 - новый модуль обязан попасть в `modules.json` **и** в `FALLBACK`
   внутри `index.html` (списки должны совпадать по составу и порядку);
+- после правки любого модуля из `modules.json` — перезапустить
+  `python3 tools/build_bundle.py` (иначе `webapp/bundle.json` устареет,
+  и это тоже ловится тестом);
 - перед завершением работы: `python3 tests/run_all.py` — всё зелёное.
 
 ## Директории

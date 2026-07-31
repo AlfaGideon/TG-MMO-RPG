@@ -31,7 +31,6 @@ def render(ctx):
   {_map_card(ctx, li)}
   <div class="dock" id="cellDock">{forms.cell_form(ctx, ctx.state.get("cell_pick", ""))}</div>
 </div>
-{_script()}
 {_loc_manager(ctx)}
 {_regen_card(ctx)}
 """
@@ -264,80 +263,3 @@ def _regen_card(ctx):
 </div>
 """
 
-
-def _script():
-    """Кисть по сетке: рисование тянется, правка уходит в боковой док."""
-    return """
-<script>
-(function(){
-  const grid = document.getElementById('locMapGrid');
-  if (!grid || grid.dataset.wired) return;
-  grid.dataset.wired = '1';
-  let painting = false, mode = 'paint';
-  const sel = () => document.getElementById('paintBrush');
-  const brush = () => (sel() ? sel().value : 'grass');
-
-  document.querySelectorAll('[data-brush]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const b = btn.dataset.brush;
-      if (sel()) sel().value = b;
-      const lbl = document.getElementById('brushLabel');
-      if (lbl) lbl.textContent = b;
-      document.querySelectorAll('[data-brush]').forEach(x => x.classList.remove('primary'));
-      btn.classList.add('primary');
-      if (window.__app && window.__app.set_brush) window.__app.set_brush(b);
-    });
-  });
-
-  function setMode(next){
-    mode = next;
-    const paint = document.getElementById('modePaint');
-    const inspect = document.getElementById('modeInspect');
-    if (paint) paint.classList.toggle('primary', next === 'paint');
-    if (inspect) inspect.classList.toggle('primary', next === 'inspect');
-    grid.style.cursor = next === 'paint' ? 'crosshair' : 'pointer';
-  }
-  const paintBtn = document.getElementById('modePaint');
-  const inspectBtn = document.getElementById('modeInspect');
-  if (paintBtn) paintBtn.addEventListener('click', () => setMode('paint'));
-  if (inspectBtn) inspectBtn.addEventListener('click', () => setMode('inspect'));
-  setMode('paint');
-
-  function edit(key){ if (window.__app && window.__app.edit_cell) window.__app.edit_cell(key); }
-  function paint(key){
-    const b = brush();
-    // Дверь и объекты правятся в боковом редакторе — там есть цель перехода.
-    if (b === 'door') { edit(key); return; }
-    if (window.__app && window.__app.paint_cell) window.__app.paint_cell(key, b);
-  }
-
-  grid.addEventListener('mousedown', function(e){
-    const cell = e.target.closest('.c');
-    if (!cell || e.button === 2) return;
-    e.preventDefault();
-    if (mode !== 'paint') { edit(cell.dataset.key); return; }
-    painting = true;
-    paint(cell.dataset.key);
-  });
-  grid.addEventListener('mouseover', function(e){
-    if (!painting || mode !== 'paint') return;
-    const cell = e.target.closest('.c');
-    if (cell) paint(cell.dataset.key);
-  });
-  document.addEventListener('mouseup', function(){ painting = false; });
-  grid.addEventListener('contextmenu', function(e){
-    const cell = e.target.closest('.c');
-    if (!cell) return;
-    e.preventDefault();
-    edit(cell.dataset.key);
-  });
-  grid.addEventListener('auxclick', function(e){
-    if (e.button !== 1) return;
-    const cell = e.target.closest('.c');
-    if (!cell) return;
-    e.preventDefault();
-    if (window.__app && window.__app.pick_brush) window.__app.pick_brush(cell.dataset.key);
-  });
-})();
-</script>
-"""
