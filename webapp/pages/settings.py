@@ -1,4 +1,6 @@
 """Страница: настройки, экспорт/импорт, деплой."""
+from engine import money
+
 TITLE = "⚙️ Настройки"
 CRUMBS = [("Настройки", "settings")]
 
@@ -92,7 +94,12 @@ def render(ctx):
   <h2>🎛 Параметры игры</h2>
   <div class="row">
     <div><label>Seed мира</label><input id="setSeed" value="{s.get('seed', 1337)}"></div>
-    <div><label>Стартовое золото</label><input id="setGold" value="{s.get('welcome_bonus', 50)}"></div>
+    <div><label>Стартовые монеты, 🥉 бронзы</label>
+      <input id="setGold" value="{s.get('welcome_bonus', 50)}"
+             title="Сумма в бронзе: 100🥉 = 1🥈, 100🥈 = 1🥇">
+      <div class="muted" style="font-size:.7rem;margin-top:.15rem">
+        сейчас {money.fmt(s.get('welcome_bonus', 50))} · курсы и премиум —
+        в «💰 Экономика → 🪙 Валюты»</div></div>
     <div style="flex:0 0 auto"><button class="btn primary" data-act="settings-save">💾 Сохранить</button></div>
   </div>
 </div>

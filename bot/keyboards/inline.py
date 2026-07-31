@@ -1,6 +1,7 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+from core import money
 from core.enums import CharacterClass
 
 
@@ -12,6 +13,7 @@ def main_menu_keyboard(has_character: bool = False, is_admin: bool = False,
     else:
         builder.button(text="🧙 Профиль", callback_data="profile")
         builder.button(text="🎒 Инвентарь", callback_data="inventory")
+        builder.button(text="👛 Кошелёк", callback_data="purse")
         builder.button(text="🌍 Карта мира", callback_data="world_map")
         builder.button(text="🏪 Лавка", callback_data="shop")
         builder.button(text="👥 Пати", callback_data="party_menu")
@@ -329,7 +331,7 @@ def auction_browse_keyboard(lots: list, page: int = 0, per_page: int = 6,
         badge = inst.badge() if inst else "🔹"
         name = inst.display_name(lot.item) if inst else (lot.item.name if lot.item else "Лот")
         builder.button(
-            text=f"{badge}{icon} {name} — {lot.price}🪙",
+            text=f"{badge}{icon} {name} — {money.short(lot.price)}",
             callback_data=f"auction_lot:{lot.id}",
         )
     rows = [1] * len(chunk)
@@ -410,12 +412,12 @@ def auction_price_keyboard(inv_id: int, prices: list, npc_price: int):
     builder = InlineKeyboardBuilder()
     for label, price in prices:
         builder.button(
-            text=f"{label} — {price}🪙",
+            text=f"{label} — {money.short(price)}",
             callback_data=f"auction_list:{inv_id}:{price}",
         )
     rows = [1] * len(prices)
     builder.button(
-        text=f"⚡ Сразу скупщику — {npc_price}🪙",
+        text=f"⚡ Сразу скупщику — {money.short(npc_price)}",
         callback_data=f"auction_npc_sell:{inv_id}",
     )
     builder.button(text="◀️ Назад", callback_data="auction_my_items:0")
@@ -430,7 +432,7 @@ def auction_my_lots_keyboard(lots: list):
         icon = lot.item.icon if lot.item else "❔"
         name = lot.instance.display_name(lot.item) if lot.instance else "Лот"
         builder.button(
-            text=f"↩️ {icon} {name} ({lot.price}🪙)",
+            text=f"↩️ {icon} {name} ({money.short(lot.price)})",
             callback_data=f"auction_cancel:{lot.id}",
         )
     builder.button(text="◀️ К аукциону", callback_data="auction_menu")
@@ -532,7 +534,7 @@ def shop_keyboard(shop_items: list):
     builder = InlineKeyboardBuilder()
     for si in shop_items:
         builder.button(
-            text=f"{si.item.icon} {si.item.name} — {si.price}🪙",
+            text=f"{si.item.icon} {si.item.name} — {money.short(si.price)}",
             callback_data=f"buy:{si.id}"
         )
     builder.button(text="◀️ Назад", callback_data="main_menu")

@@ -31,7 +31,7 @@
     </div>
     <div class="stat-box">
         <div class="stat-icon">🪙</div>
-        <div class="value">{{ total_gold }}</div>
+        <div class="value">{{ total_gold | coins }}</div>
         <div class="label">Золота в обороте</div>
     </div>
     <div class="stat-box">
@@ -145,7 +145,7 @@
                     {% endif %}
                 </td>
                 <td>{{ b.rounds }}</td>
-                <td>{{ b.gold_earned }}</td>
+                <td>{{ b.gold_earned | coins_short }}</td>
                 <td>{{ b.exp_earned }}</td>
                 <td>{{ b.created_at.strftime('%Y-%m-%d %H:%M') if b.created_at else '-' }}</td>
             </tr>

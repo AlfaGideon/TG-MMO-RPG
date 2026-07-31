@@ -1,5 +1,5 @@
 """Тексты интерфейса бота."""
-from engine import data, hero, permissions, rules
+from engine import data, hero, money, permissions, rules
 
 WELCOME = (
     "🌑 <b>Теневые Земли</b>\n\n"
@@ -115,9 +115,10 @@ def profile(p, store=None):
     crown = " 👑" if stash.is_vip(p) else ""
     kept = len(getattr(p, "stash", None) or [])
     hurt = f"\n{death.note(p)}" if death.wounded(p) else ""
+    gems = f" · {money.premium(p)}{money.PREMIUM_ICON}" if money.premium(p) else ""
     return (
         f"{icon} <b>{p.name}</b>{crown} · ур. {p.level}\n"
-        f"Класс: <code>{p.cls}</code> · Золото: <code>{p.gold}</code> 🪙\n"
+        f"Класс: <code>{p.cls}</code> · 👛 {money.fmt(p.gold)}{gems}\n"
         f"🎒 Сумка: {len(p.inventory)} · 🔒 Карман: {kept}/{stash.capacity(p, store)}"
         f"{hurt}\n\n"
         f"❤️ HP {p.hp}/{s['max_hp']}\n{rules.bar(p.hp, s['max_hp'])}\n"
@@ -149,7 +150,7 @@ def cell_view(p, cell, alarm="", others=()):
         f"{floor_line}"
         f"📍 [{cell.x},{cell.y}] · <i>{cell.name}</i>\n\n"
         f"{cell.desc}{company}\n\n"
-        f"❤️ {p.hp}/{rules.stats(p)['max_hp']}  💙 {p.mp}  🪙 {p.gold}"
+        f"❤️ {p.hp}/{rules.stats(p)['max_hp']}  💙 {p.mp}  👛 {money.short(p.gold)}"
     )
 
 

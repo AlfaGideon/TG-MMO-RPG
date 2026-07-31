@@ -1,18 +1,21 @@
-"""Карта локации: кисть, слои и боковой редактор клетки.
+"""Карта локации: выбор локации стрелками и боковой редактор клетки.
 
-Редактор клетки — колонка справа от карты (`.dock`), а не модалка на весь
-экран: раньше окно перекрывало сетку, и в режиме рисования кисть теряла
-клетки. Теперь рисование и правка клетки живут рядом и не мешают друг другу.
+Локации переключаются «крестом» стрелок вокруг текущей: ▲ север, ▼ юг,
+◀ запад, ▶ восток — ровно так, как локации стоят на сетке мира. Список
+кнопок с названиями убран: он разрастался с каждой новой локацией и не
+показывал, где эти земли находятся относительно друг друга.
+
+Кисти и переключателя тумана войны здесь больше нет: рисование по сетке
+конфликтовало с редактором клетки и работало через раз, а туман глазами
+игрока ничего не менял в самой панели. Клетка правится в доке справа.
 """
 from engine import cataclysm, data, world as W
 from webapp.html import esc
 from webapp.pages import world_forms as forms
 
-BRUSHES_MAIN = [("wall", "🧱 Стена"), ("grass", "🌿 Трава"), ("forest", "🌲 Лес"),
-                ("water", "💧 Вода"), ("road", "🛤 Дорога"),
-                ("village", "🏘 Деревня"), ("cave", "🕳 Пещера")]
-BRUSHES_EXTRA = [("door", "🚪 Дверь (переход)"), ("npc", "💬 NPC"),
-                 ("chest", "📦 Сундук"), ("clear", "🧹 Очистить")]
+# Стороны света: ключ → (подпись, смещение по сетке мира, класс в кресте)
+DIRS = [("north", "▲", (0, -1), "up"), ("west", "◀", (-1, 0), "left"),
+        ("east", "▶", (1, 0), "right"), ("south", "▼", (0, 1), "down")]
 
 
 def render(ctx):
@@ -21,12 +24,8 @@ def render(ctx):
         li = 0
         ctx.state["loc"] = 0
 
-    tabs = "".join(
-        f"<button class='btn {'primary' if i == li else ''}' data-act='world-loc' "
-        f"data-arg='{i}'>{esc(l[0])}</button> " for i, l in enumerate(data.LOCATIONS))
-
     return f"""
-{_toolbar(ctx, li, tabs)}
+{_picker(ctx, li)}
 <div class="mapdock">
   {_map_card(ctx, li)}
   <div class="dock" id="cellDock">{forms.cell_form(ctx, ctx.state.get("cell_pick", ""))}</div>
@@ -37,50 +36,94 @@ def render(ctx):
 """
 
 
-def _toolbar(ctx, li, tabs):
-    fog_id = ctx.state.get("fog_player", "")
-    players = "<option value=''>— Отключён —</option>" + "".join(
-        f"<option value='{p.tg_id}' {'selected' if fog_id == str(p.tg_id) else ''}>"
-        f"{esc(p.name)} (ур.{p.level})</option>"
-        for p in ctx.store.players.values() if p.created_char)
+# ── выбор локации стрелками ─────────────────────────────────
 
-    brush = ctx.state.get("brush", "grass")
-    row1 = "".join(
-        f"<button class='btn sm {'primary' if b == brush else ''}' data-brush='{b}'>{lbl}</button>"
-        for b, lbl in BRUSHES_MAIN)
-    row2 = "".join(
-        f"<button class='btn sm {'primary' if b == brush else ''}' data-brush='{b}'>{lbl}</button>"
-        for b, lbl in BRUSHES_EXTRA)
-    opts = "".join(f"<option value='{t}' {'selected' if t == brush else ''}>{t}</option>"
-                   for t in data.TILE_COLORS)
+def _grid_pos(ctx):
+    """Раскладка локаций по сетке мира: {индекс: (wx, wy)}."""
+    grid = ctx.store.settings.get("world_grid", {}) or {}
+    out = {}
+    for key, xy in grid.items():
+        try:
+            idx = int(key)
+        except (TypeError, ValueError):
+            continue
+        if 0 <= idx < len(data.LOCATIONS) and xy and len(xy) >= 2:
+            out[idx] = (int(xy[0]), int(xy[1]))
+    return out
 
+
+def neighbours(ctx, li):
+    """Соседи локации по сторонам света: {'north': idx|None, ...}.
+
+    Локация вне сетки мира соседей не имеет — для неё ◀ и ▶ листают
+    список по порядку, иначе до неё было бы не добраться стрелками.
+    """
+    pos = _grid_pos(ctx)
+    here = pos.get(li)
+    out = {key: None for key, _lbl, _d, _css in DIRS}
+    if here is None:
+        total = len(data.LOCATIONS)
+        if total > 1:
+            out["west"] = (li - 1) % total
+            out["east"] = (li + 1) % total
+        return out, None
+    for key, _lbl, (dx, dy), _css in DIRS:
+        want = (here[0] + dx, here[1] + dy)
+        out[key] = next((i for i, xy in pos.items() if xy == want), None)
+    return out, here
+
+
+def _arrow(css, label, target, hint):
+    if target is None:
+        return (f"<button class='locnav-btn {css}' disabled title='{esc(hint)}'>"
+                f"<span class='locnav-sign'>{label}</span>"
+                f"<span class='locnav-name muted'>— нет —</span></button>")
+    name = data.LOCATIONS[target][0]
+    return (f"<button class='locnav-btn {css}' data-act='world-loc' data-arg='{target}' "
+            f"title='{esc(hint)}: {esc(name)}'>"
+            f"<span class='locnav-sign'>{label}</span>"
+            f"<span class='locnav-name'>{esc(name)}</span></button>")
+
+
+def _picker(ctx, li):
+    near, here = neighbours(ctx, li)
+    loc = data.LOCATIONS[li]
+    floors = max(1, int((ctx.store.settings.get("location_floors", {}) or {})
+                        .get(str(li), 1) or 1))
+    players = sum(1 for p in ctx.store.players.values()
+                  if p.created_char and p.loc == li)
+    where = (f"сетка [{here[0]},{here[1]}]" if here
+             else "<span class='warn-text'>не на сетке мира</span>")
+    hints = {"north": "Севернее", "south": "Южнее",
+             "west": "Западнее", "east": "Восточнее"}
+    if here is None:
+        hints["west"], hints["east"] = "Предыдущая по списку", "Следующая по списку"
+
+    cross = "".join(_arrow(css, label, near[key], hints[key])
+                    for key, label, _d, css in DIRS)
+    total = len(data.LOCATIONS)
     return f"""
 <div class="card">
   <h2>🗺 Выберите локацию</h2>
-  <div style="display:flex;gap:.4rem;flex-wrap:wrap;margin-bottom:1rem;">{tabs}</div>
-  <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap">
-    <span class="muted">Туман войны глазами игрока:</span>
-    <select id="fogPlayerSelect" data-act="world-fog-select" style="max-width:200px;width:auto;">{players}</select>
-  </div>
-  <div style="margin-top:.7rem">
-    <div class="muted" style="margin-bottom:.4rem">🖌 Кисть: ЛКМ рисует и тянется по клеткам,
-       ПКМ (или режим «Осмотр») открывает редактор <b>справа</b> — карта не перекрывается.</div>
-    <div style="display:flex;gap:6px;flex-wrap:wrap">{row1}</div>
-    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">{row2}</div>
-    <div style="margin-top:.5rem;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-      <span class="muted">Выбрано: <b id="brushLabel">{esc(brush)}</b></span>
-      <button class="btn sm primary" id="modePaint">🎨 Рисование</button>
-      <button class="btn sm" id="modeInspect">👁️ Осмотр</button>
-      <select id="paintBrush" style="display:none">{opts}</select>
+  <p class="muted">Стрелки ведут к соседям по сетке мира: ▲ север, ▼ юг,
+     ◀ запад, ▶ восток. Локация {li + 1} из {total}.</p>
+  <div class="locnav">
+    {cross}
+    <div class="locnav-cur cur">
+      <div class="locnav-title">{esc(loc[0])}</div>
+      <div class="muted locnav-meta">
+        <span class="tag">{esc(loc[2])}</span> · ур. {loc[3]}+ · {where}
+        · 🏢 {floors} · 👥 {players}
+      </div>
     </div>
   </div>
 </div>
 """
 
 
+# ── карта локации ───────────────────────────────────────────
+
 def _map_card(ctx, li):
-    fog_id = ctx.state.get("fog_player", "")
-    fog = ctx.store.players.get(int(fog_id)) if fog_id else None
     picked = ctx.state.get("cell_pick", "")
 
     # Один слой — одна сетка. Накладывать этажи друг на друга нельзя: клетки
@@ -107,13 +150,9 @@ def _map_card(ctx, li):
             here = [p for p in here if (getattr(p, "floor", 0) or 0) == active_floor]
             if here:
                 names = "|".join(p.name[:2] for p in here)
-                floor_marks = ""
-                if loc_floors > 1:
-                    floors_set = {getattr(p, "floor", 0) or 0 for p in here}
-                    floor_marks = " ".join(f"<span style='background:var(--accent-soft);color:var(--accent);padding:0 3px;border-radius:2px;font-size:0.5rem;'>F{f}</span>" for f in sorted(floors_set))
                 mark = (f"<span style='font-size:0.6rem;font-weight:bold;color:#fff;"
                         f"background:var(--accent);padding:1px 2px;border-radius:3px;'>"
-                        f"{names}</span>{floor_marks}")
+                        f"{names}</span>")
             elif c.link:
                 mark = "🚪"
             elif c.mob >= 0:
@@ -128,9 +167,6 @@ def _map_card(ctx, li):
                 mark = ""
 
             style = f"background:{data.TILE_COLORS.get(c.tile, '#333')};"
-            if (fog and fog.loc == li and (getattr(fog, "floor", 0) or 0) == active_floor
-                    and (abs(x - fog.x) > 2 or abs(y - fog.y) > 2)):
-                style += "opacity:0.25; filter:grayscale(80%);"
             css = "c picked" if key == picked else "c"
             cells += (f"<div class='{css}' style='{style}' title='{esc(c.name)} [{x},{y}] эт.{cell_floor}' "
                       f"data-key='{key}'>{mark}</div>")
@@ -185,6 +221,7 @@ def _map_card(ctx, li):
     <div class="mapgrid" id="locMapGrid">{cells}</div>
     {f'<div class="floor-switcher" aria-label="Этаж карты">{floor_buttons}</div>' if loc_floors > 1 else ''}
   </div>
+  <p class="muted" style="margin-top:.6rem">🖱 Клик по клетке — правка в доке справа.</p>
   <div class="legend">{legend}</div>
   {players_html}
 </div>
@@ -203,7 +240,9 @@ def _loc_manager(ctx):
         players = sum(1 for p in ctx.store.players.values()
                       if p.created_char and p.loc == i)
         badge = f"🏢×{floors}" if floors > 1 else "1 этаж"
-        rows += (f"<tr><td>{esc(l[0])} <span style='font-size:0.7rem;color:var(--accent)'>"
+        rows += (f"<tr><td><button class='linklike' data-act='world-loc' data-arg='{i}' "
+                 f"title='Открыть карту этой локации'>{esc(l[0])}</button> "
+                 f"<span style='font-size:0.7rem;color:var(--accent)'>"
                  f"{badge}</span><div class='muted' style='font-size:.72rem'>"
                  f"{esc(l[1][:60])}</div></td>"
                  f"<td><span class='tag'>{l[2]}</span></td>"
@@ -218,9 +257,9 @@ def _loc_manager(ctx):
     return f"""
 <div class="card">
   <h2>🧭 Локации мира ({len(data.LOCATIONS)})</h2>
-  <p class="muted">✏️ правит свойства локации (клетки и швы остаются на месте),
-     🗑 удаляет её и переиндексирует мир. Новая локация сразу сшивается
-     переходами с соседями по сетке.</p>
+  <p class="muted">Клик по названию открывает карту локации — на случай, если
+     до неё не дотянуться стрелками. ✏️ правит свойства (клетки и швы остаются
+     на месте), 🗑 удаляет её и переиндексирует мир.</p>
   <table style="width:100%">
     <thead><tr><th>Название</th><th>Тип</th><th>Ур.</th><th>Сетка</th>
       <th>Швы</th><th>👥</th><th></th></tr></thead>
@@ -266,77 +305,30 @@ def _regen_card(ctx):
 
 
 def _script():
-    """Кисть по сетке: рисование тянется, правка уходит в боковой док."""
+    """Клик по клетке открывает её в боковом доке.
+
+    Своим обработчиком, а не через data-act: делегированный клик всего
+    документа ходит по всем ста клеткам и тормозит панель.
+    """
     return """
 <script>
 (function(){
   const grid = document.getElementById('locMapGrid');
   if (!grid || grid.dataset.wired) return;
   grid.dataset.wired = '1';
-  let painting = false, mode = 'paint';
-  const sel = () => document.getElementById('paintBrush');
-  const brush = () => (sel() ? sel().value : 'grass');
-
-  document.querySelectorAll('[data-brush]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const b = btn.dataset.brush;
-      if (sel()) sel().value = b;
-      const lbl = document.getElementById('brushLabel');
-      if (lbl) lbl.textContent = b;
-      document.querySelectorAll('[data-brush]').forEach(x => x.classList.remove('primary'));
-      btn.classList.add('primary');
-      if (window.__app && window.__app.set_brush) window.__app.set_brush(b);
-    });
-  });
-
-  function setMode(next){
-    mode = next;
-    const paint = document.getElementById('modePaint');
-    const inspect = document.getElementById('modeInspect');
-    if (paint) paint.classList.toggle('primary', next === 'paint');
-    if (inspect) inspect.classList.toggle('primary', next === 'inspect');
-    grid.style.cursor = next === 'paint' ? 'crosshair' : 'pointer';
-  }
-  const paintBtn = document.getElementById('modePaint');
-  const inspectBtn = document.getElementById('modeInspect');
-  if (paintBtn) paintBtn.addEventListener('click', () => setMode('paint'));
-  if (inspectBtn) inspectBtn.addEventListener('click', () => setMode('inspect'));
-  setMode('paint');
-
+  grid.style.cursor = 'pointer';
   function edit(key){ if (window.__app && window.__app.edit_cell) window.__app.edit_cell(key); }
-  function paint(key){
-    const b = brush();
-    // Дверь и объекты правятся в боковом редакторе — там есть цель перехода.
-    if (b === 'door') { edit(key); return; }
-    if (window.__app && window.__app.paint_cell) window.__app.paint_cell(key, b);
-  }
-
-  grid.addEventListener('mousedown', function(e){
-    const cell = e.target.closest('.c');
-    if (!cell || e.button === 2) return;
-    e.preventDefault();
-    if (mode !== 'paint') { edit(cell.dataset.key); return; }
-    painting = true;
-    paint(cell.dataset.key);
-  });
-  grid.addEventListener('mouseover', function(e){
-    if (!painting || mode !== 'paint') return;
-    const cell = e.target.closest('.c');
-    if (cell) paint(cell.dataset.key);
-  });
-  document.addEventListener('mouseup', function(){ painting = false; });
-  grid.addEventListener('contextmenu', function(e){
+  grid.addEventListener('click', function(e){
     const cell = e.target.closest('.c');
     if (!cell) return;
     e.preventDefault();
     edit(cell.dataset.key);
   });
-  grid.addEventListener('auxclick', function(e){
-    if (e.button !== 1) return;
+  grid.addEventListener('contextmenu', function(e){
     const cell = e.target.closest('.c');
     if (!cell) return;
     e.preventDefault();
-    if (window.__app && window.__app.pick_brush) window.__app.pick_brush(cell.dataset.key);
+    edit(cell.dataset.key);
   });
 })();
 </script>

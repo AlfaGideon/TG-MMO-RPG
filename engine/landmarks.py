@@ -14,7 +14,7 @@
 """
 import random
 
-from engine import factions, items, rules
+from engine import factions, items, money, rules
 from engine.models import Reply
 
 # имя клетки -> (значок, что даёт, текст находки)
@@ -133,8 +133,8 @@ def claim(store, p, cell, rng=None):
 
     if kind == "gold":
         gold = rng.randint(20, 40) + p.level * 10
-        p.gold += gold
-        lines.append(f"💰 Найдено: <b>{gold}</b> 🪙")
+        money.earn(p, gold)
+        lines.append(f"💰 Найдено: <b>{money.fmt(gold)}</b>")
     elif kind == "exp":
         exp = 40 + p.level * 20
         levels = rules.add_exp(p, exp)

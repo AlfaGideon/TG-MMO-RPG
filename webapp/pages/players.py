@@ -1,5 +1,5 @@
 """Страница: игроки и редактирование персонажа."""
-from engine import data, permissions, rules, stash
+from engine import data, money, permissions, rules, stash
 from webapp.html import esc
 
 TITLE = "👥 Игроки"
@@ -10,7 +10,7 @@ PER_PAGE = 15
 
 
 SORTABLE = [
-    ("name", "Имя"), ("level", "Ур."), ("gold", "Золото"),
+    ("name", "Имя"), ("level", "Ур."), ("gold", "Кошелёк"),
     ("hp", "HP"), ("kills", "Убийств"),
 ]
 
@@ -57,7 +57,9 @@ def render(ctx):
             f"<td data-label='Класс'>{esc(p.cls) or '—'}</td>"
             f"<td data-label='Ур.'><form class='inline-form' data-act='player-inline' data-arg='{p.tg_id}:level' onsubmit='return false'><input type='number' class='inline-num' value='{p.level}' min='1' max='999'></form></td>"
             f"<td data-label='HP'>{p.hp}/{p.max_hp}</td>"
-            f"<td data-label='Золото'><form class='inline-form' data-act='player-inline' data-arg='{p.tg_id}:gold' onsubmit='return false'><input type='number' class='inline-num' value='{p.gold}' min='0' max='999999'></form></td>"
+            f"<td data-label='Кошелёк'><form class='inline-form' data-act='player-inline' data-arg='{p.tg_id}:gold' onsubmit='return false'><input type='number' class='inline-num' value='{p.gold}' min='0' max='99999999' title='Сумма в бронзе'></form>"
+            f"<div class='muted' style='font-size:.7rem'>{money.fmt(p.gold)}"
+            f"{f' · {money.premium(p)}' + money.PREMIUM_ICON if money.premium(p) else ''}</div></td>"
             f"<td data-label='Позиция'>{esc(loc)} [{p.x},{p.y}]</td>"
             f"<td data-label='Предм.'>{len(p.inventory)}</td>"
             f"<td data-label='Роль'>{role_label}</td>"
@@ -142,8 +144,11 @@ def edit_form(ctx, tg_id):
 <h2>✏️ {esc(p.name)} <span class="muted">#{p.tg_id}</span></h2>
 <form data-validate data-autosave>
 <div class="row" style="margin-top:.7rem">
-  {f('name','Имя',esc(p.name))}{f('level','Уровень',p.level)}{f('gold','Золото',p.gold)}
+  {f('name','Имя',esc(p.name))}{f('level','Уровень',p.level)}
+  {f('gold','Кошелёк, 🥉 бронзы',p.gold)}{f('premium','💎 Кристаллы',money.premium(p))}
 </div>
+<div class="hint" style="margin-top:.4rem">👛 {money.fmt(p.gold)} —
+   {money.coin_line()}. Поле принимает сумму в бронзе, разряды считаются сами.</div>
 <div class="row" style="margin-top:.5rem">
   {f('hp','HP',p.hp)}{f('max_hp','Max HP',p.max_hp)}{f('mp','MP',p.mp)}{f('max_mp','Max MP',p.max_mp)}
 </div>

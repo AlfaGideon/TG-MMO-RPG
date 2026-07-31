@@ -8,6 +8,9 @@ WELCOME_TEXT = """
 <i>Выбери свой путь...</i>
 """
 
+from core import money
+
+
 def affinity_line(affinities) -> str:
     """Дар к магии для профиля и экрана создания."""
     from core.magic import affinity_line as _line
@@ -124,12 +127,14 @@ def profile_text(character, class_def=None, combat=None, affinities=None):
         f"\n📍 Клетка: {cell.name} ({cell.x},{cell.y})" if cell else ""
     )
     party_info = f"\n👥 Пати: {character.party.name}" if character.party else ""
+    gems = money.premium(character)
+    gems_line = f" · {gems}{money.PREMIUM_ICON}" if gems else ""
 
     lines = [
         f"{icon} <b>{character.name}</b> | Ур. {character.level}",
         f"Класс: <b>{class_label}</b>",
         f"⭐ Опыт: {character.experience}/{character.level * 100}",
-        f"🪙 Золото: <b>{character.gold}</b>{party_info}",
+        f"👛 Кошелёк: <b>{money.fmt(character.gold)}</b>{gems_line}{party_info}",
         "",
         f"❤️ HP: {character.current_hp}/{max_hp}",
         hp_bar,
@@ -248,7 +253,7 @@ def victory_text(mob, gold, exp):
     return (
         f"🎉 <b>Победа!</b>\n\n"
         f"Ты поверг {mob.name}!\n\n"
-        f"💰 Золото: +{gold}\n"
+        f"💰 Монеты: {money.plus(gold)}\n"
         f"⭐ Опыт: +{exp}"
     )
 

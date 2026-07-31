@@ -2,7 +2,7 @@
 import random
 
 from engine import (adminbot, adminroute, behavior, cataclysm, combat, data,
-                    explore, hero, inventory, items, mapview, respawn, rules,
+                    explore, hero, inventory, items, mapview, money, respawn, rules,
                     shop, social, stash, texts, trade, world)
 from engine.models import Reply
 
@@ -40,6 +40,7 @@ class Game:
         rows = [
             [("🧭 В мир", "world"), ("🧙 Профиль", "profile")],
             [("🎒 Инвентарь", "bag"), ("🏪 Лавка", "shop")],
+            [("👛 Кошелёк", "purse")],
             [("📜 Задания", "quests"), ("🤝 Отряд", "party")],
             [("🧭 Репутация", "rep")],
             [("🔨 Мастерская", "craft"), ("🏛 Аукцион", "auc:0")],
@@ -358,6 +359,13 @@ class Game:
     do_bosshit = lambda self, p, arg="": social.boss_hit(self.store, p)
     do_study = lambda self, p, arg="": social.study(self.store, p, self._cell(p))
 
+    # ── кошелёк и премиум ───────────────────────────────────
+    def do_purse(self, p, arg=""):
+        return money.purse(self.store, p)
+
+    def do_gemx(self, p, arg="0"):
+        return money.purse_exchange(self.store, p, arg)
+
     # ── защищённый карман ───────────────────────────────────
     def do_stash(self, p, arg=""):
         return social.stash_view(self.store, p)
@@ -385,7 +393,7 @@ class Game:
         medals = ["🥇", "🥈", "🥉"] + [f"{i}." for i in range(4, 11)]
         lines = ["🏆 <b>Топ героев</b>\n"]
         for i, q in enumerate(rows):
-            lines.append(f"{medals[i]} {q.name} — ур. {q.level} · {q.gold}🪙")
+            lines.append(f"{medals[i]} {q.name} — ур. {q.level} · {money.short(q.gold)}")
         if len(lines) == 1:
             lines.append("<i>Пока пусто.</i>")
         return Reply(text="\n".join(lines), keyboard=[[("◀️ Меню", "menu")]])

@@ -4,7 +4,7 @@
 почём, написано в тексте; карточка с кнопкой «Купить» / «Продать»
 открывается нажатием номера.
 """
-from engine import factions, itemui, rules
+from engine import factions, itemui, money, rules
 from engine.models import Reply
 
 TITLE = "🏪 <b>Лавка Варна</b>"
@@ -27,7 +27,7 @@ def _tabs(active):
 
 
 def counter(p):
-    return f"🪙 <b>{p.gold}</b> · 🎒 {len(p.inventory)}"
+    return f"👛 <b>{money.fmt(p.gold)}</b> · 🎒 {len(p.inventory)}"
 
 
 # ── покупка ─────────────────────────────────────────────────
@@ -40,8 +40,8 @@ def shop(p, page=0):
     lines = [TITLE, counter(p), ""]
     for num, _pos, idx in entries:
         price = price_for(p, idx)
-        mark = "🪙" if p.gold >= price else "🚫"
-        lines.append(itemui.line(num, idx, f"{mark} <b>{price}</b>"))
+        mark = "" if money.can_pay(p, price) else "🚫 "
+        lines.append(itemui.line(num, idx, f"{mark}<b>{money.fmt(price)}</b>"))
     lines.append("")
     if disc:
         lines.append(f"🧭 <i>Скидка за репутацию: −{int(disc * 100)}%</i>")
@@ -61,15 +61,15 @@ def buy_card(p, arg):
     if idx not in goods:
         return Reply(alert="Такого товара нет.")
     price = price_for(p, idx)
-    enough = p.gold >= price
+    enough = money.can_pay(p, price)
     page = goods.index(idx) // itemui.PER_PAGE
 
     base = itemui.price_of(idx)
-    saved = f" <s>{base}</s>" if price < base else ""
-    extra = (f"💵 Цена: <b>{price}</b> 🪙{saved}\n"
-             f"👛 У тебя: <b>{p.gold}</b> 🪙")
+    saved = f" <s>{money.fmt(base)}</s>" if price < base else ""
+    extra = (f"💵 Цена: <b>{money.fmt(price)}</b>{saved}\n"
+             f"👛 У тебя: <b>{money.wallet(p)}</b>")
     if not enough:
-        extra += f"\n\n🚫 <i>Не хватает {price - p.gold} 🪙</i>"
+        extra += f"\n\n🚫 <i>Не хватает {money.fmt(money.lack(p, price))}</i>"
     text = f"{TITLE} · товар\n\n" + itemui.card(idx, extra)
 
     rows = []
@@ -85,12 +85,11 @@ def buy(p, arg):
     if idx not in goods:
         return Reply(alert="Такого товара нет.")
     price = price_for(p, idx)
-    if p.gold < price:
-        return Reply(alert=f"Не хватает {price - p.gold} 🪙!")
-    p.gold -= price
+    if not money.pay(p, price):
+        return Reply(alert=f"Не хватает {money.fmt(money.lack(p, price))}!")
     p.inventory.append(idx)
     r = buy_card(p, idx)
-    r.alert = f"Куплено: {rules.item(idx)['name']} за {price} 🪙"
+    r.alert = f"Куплено: {rules.item(idx)['name']} за {money.fmt(price)}"
     return r
 
 
@@ -107,7 +106,7 @@ def sell_list(p, page=0):
 
     lines = [TITLE + " · скупка", counter(p), ""]
     for num, _pos, idx in entries:
-        note = f"💰 <b>{itemui.resale_of(idx)}</b>"
+        note = f"💰 <b>{money.fmt(itemui.resale_of(idx))}</b>"
         if idx in worn:
             note += " · надето"
         lines.append(itemui.line(num, idx, note))
@@ -130,8 +129,8 @@ def sell_card(p, arg):
     it = rules.item(idx)
     page = pos // itemui.PER_PAGE
 
-    extra = (f"💰 Варн даёт: <b>{itemui.resale_of(idx)}</b> 🪙\n"
-             f"👛 Станет: <b>{p.gold + itemui.resale_of(idx)}</b> 🪙")
+    extra = (f"💰 Варн даёт: <b>{money.fmt(itemui.resale_of(idx))}</b>\n"
+             f"👛 Станет: <b>{money.fmt(p.gold + itemui.resale_of(idx))}</b>")
     if p.equipped.get(it["type"]) == idx:
         extra = "⚠️ <i>Предмет надет — при продаже снимется.</i>\n\n" + extra
     text = f"{TITLE} · скупка\n\n" + itemui.card(idx, extra)
@@ -150,8 +149,7 @@ def sell_here(p, arg):
     it = rules.item(idx)
     if p.equipped.get(it["type"]) == idx:
         p.equipped.pop(it["type"])
-    paid = itemui.resale_of(idx)
-    p.gold += paid
+    paid = money.earn(p, itemui.resale_of(idx))
     r = sell_list(p, pos // itemui.PER_PAGE)
-    r.alert = f"Продано: {it['name']} за {paid} 🪙"
+    r.alert = f"Продано: {it['name']} за {money.fmt(paid)}"
     return r

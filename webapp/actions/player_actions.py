@@ -5,7 +5,7 @@ from engine import adminops, permissions
 from webapp import dom
 from webapp.pages import players as page
 
-INT_FIELDS = ["level", "gold", "hp", "max_hp", "mp", "max_mp", "strength",
+INT_FIELDS = ["level", "gold", "premium", "hp", "max_hp", "mp", "max_mp", "strength",
               "agility", "intelligence", "endurance", "luck", "x", "y"]
 
 

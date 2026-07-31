@@ -8,7 +8,7 @@
 import secrets
 import time
 
-from engine import items
+from engine import items, money
 from engine.models import Reply
 
 KEY = "auction"                 # список лотов в store.settings
@@ -95,7 +95,7 @@ def list_item(store, p, uid, price):
     inst["owner"] = 0
     items.record(store, inst, "listed", p.tg_id, price=price)
     store.save_player(p)
-    return lot, f"выставлено за {price} 🪙"
+    return lot, f"выставлено за {money.fmt(price)}"
 
 
 def cancel(store, p, lot_id):
@@ -144,15 +144,15 @@ def buy(store, p, lot_id):
     if int(lot.get("seller") or 0) == int(p.tg_id):
         return False, "это твой собственный лот"
     price = int(lot.get("price") or 0)
-    if p.gold < price:
-        return False, f"не хватает {price - p.gold} 🪙"
+    if not money.can_pay(p, price):
+        return False, f"не хватает {money.fmt(money.lack(p, price))}"
 
     inst = items.get(store, lot["uid"])
     if inst is None:
         lot["status"] = "cancelled"
         return False, "предмет исчез с витрины"
 
-    p.gold -= price
+    money.pay(p, price)
     p.inventory.append(int(inst.get("idx", 0)))
     items.transfer(store, inst, p.tg_id, "sold", price)
     lot["status"] = "sold"
@@ -165,10 +165,10 @@ def buy(store, p, lot_id):
         seller.gold += payout
         store.save_player(seller)
         adminops.queue(store, seller.tg_id,
-                       f"🔁 Продано: <b>{items.title(inst)}</b> за {price} 🪙\n"
-                       f"Зачислено {payout} 🪙 (комиссия 5 %).")
+                       f"🔁 Продано: <b>{items.title(inst)}</b> за {money.fmt(price)}\n"
+                       f"Зачислено {money.fmt(payout)} (комиссия 5 %).")
     store.save_player(p)
-    return True, f"куплено за {price} 🪙"
+    return True, f"куплено за {money.fmt(price)}"
 
 
 def sell_to_npc(store, p, uid):
@@ -179,7 +179,7 @@ def sell_to_npc(store, p, uid):
     if int(inst.get("owner") or 0) != int(p.tg_id):
         return False, "это не твоя вещь"
     paid = max(1, int(items.price(inst) * NPC_BUY))
-    p.gold += paid
+    money.earn(p, paid)
     idx = int(inst.get("idx", -1))
     if idx in p.inventory:
         p.inventory.remove(idx)
@@ -195,7 +195,7 @@ def sell_to_npc(store, p, uid):
         "ts": int(time.time()), "status": "active",
     })
     store.save_player(p)
-    return True, f"{NPC_NAME} заплатил {paid} 🪙"
+    return True, f"{NPC_NAME} заплатил {money.fmt(paid)}"
 
 
 # ── экраны бота ─────────────────────────────────────────────
@@ -210,13 +210,13 @@ def board(store, p, page=0):
                      keyboard=[[("📤 Мои лоты", "aucmine")],
                                [("◀️ Меню", "menu")]])
     entries, page = itemui.slice_page(lots, page)
-    lines = ["🏛 <b>Аукцион</b>", f"🪙 <b>{p.gold}</b>", ""]
+    lines = ["🏛 <b>Аукцион</b>", f"👛 <b>{money.fmt(p.gold)}</b>", ""]
     rows, row = [], []
     for num, _pos, lot in entries:
         inst = items.get(store, lot["uid"])
         if inst is None:
             continue
-        mark = "🪙" if p.gold >= lot["price"] else "🚫"
+        mark = "👛" if money.can_pay(p, lot["price"]) else "🚫"
         lines.append(f"{itemui.digit(num)} {inst['icon']} <b>{items.title(inst)}</b> "
                      f"· {mark} <b>{lot['price']}</b>")
         lines.append(f"     {items.tag(inst)} · продаёт {lot['seller_name']}")
@@ -250,12 +250,12 @@ def lot_card(store, p, lot_id):
             f"<code>{items.tag(inst)}</code>\n"
             f"{it[0]} {it[1]} · качество {inst.get('quality', 100)} %\n\n"
             f"{items.stats_line(inst)}\n\n"
-            f"💵 Цена: <b>{lot['price']}</b> 🪙\n"
-            f"👛 У тебя: <b>{p.gold}</b> 🪙\n"
+            f"💵 Цена: <b>{money.fmt(lot['price'])}</b>\n"
+            f"👛 У тебя: <b>{money.fmt(p.gold)}</b>\n"
             f"🧾 Продавец: {lot['seller_name']}\n\n"
             f"📖 <b>История вещи</b>\n{body}")
     rows = []
-    if p.gold >= lot["price"] and int(lot.get("seller") or 0) != int(p.tg_id):
+    if money.can_pay(p, lot["price"]) and int(lot.get("seller") or 0) != int(p.tg_id):
         rows.append([("🛒 Купить", f"aucbuy:{lot['id']}")])
     rows.append([("◀️ К витрине", "auc:0")])
     return Reply(text=text, keyboard=rows)
@@ -270,7 +270,7 @@ def my_lots(store, p):
     for n, lot in enumerate(lots, 1):
         inst = items.get(store, lot["uid"])
         name = items.title(inst) if inst else "?"
-        lines.append(f"{itemui.digit(n)} <b>{name}</b> · {lot['price']} 🪙")
+        lines.append(f"{itemui.digit(n)} <b>{name}</b> · {money.fmt(lot['price'])}")
         rows.append([(f"❌ Снять {n}", f"aucoff:{lot['id']}")])
     if not lots:
         lines.append("<i>Активных лотов нет.</i>")
@@ -282,7 +282,7 @@ def my_lots(store, p):
         row = []
         for n, inst in enumerate(own, 1):
             lines.append(f"{itemui.digit(n)} {inst['icon']} {items.title(inst)} "
-                         f"· оценка {items.price(inst)} 🪙")
+                         f"· оценка {money.fmt(items.price(inst))}")
             row.append((f"{itemui.digit(n)}{inst['icon']}", f"aucnew:{inst['uid']}"))
             if len(row) == itemui.PER_ROW:
                 rows.append(row)
@@ -302,11 +302,11 @@ def sell_form(store, p, uid):
              f"{inst['icon']} <b>{items.title(inst)}</b>",
              f"<code>{items.tag(inst)}</code>",
              f"{items.stats_line(inst)}", "",
-             f"Оценка аукциона: <b>{items.price(inst)}</b> 🪙", "",
+             f"Оценка аукциона: <b>{money.fmt(items.price(inst))}</b>", "",
              "<i>Выбери цену. Комиссия — 5 % с продажи.</i>"]
-    rows = [[(f"{label} · {price}🪙", f"aucput:{uid}:{price}")]
+    rows = [[(f"{label} · {money.short(price)}", f"aucput:{uid}:{price}")]
             for label, price in price_options(store, uid)]
-    rows.append([(f"🤝 Скупщику сразу · {int(items.price(inst) * NPC_BUY)}🪙",
+    rows.append([(f"🤝 Скупщику сразу · {money.short(int(items.price(inst) * NPC_BUY))}",
                   f"aucnpc:{uid}")])
     rows.append([("◀️ Назад", "aucmine")])
     return Reply(text="\n".join(lines), keyboard=rows)

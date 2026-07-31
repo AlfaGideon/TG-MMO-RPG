@@ -15,7 +15,7 @@
 """
 import time
 
-from engine import data, rules
+from engine import data, money, rules
 from engine.models import Reply
 
 GRAVES = "graves"           # список надгробий в settings
@@ -90,7 +90,7 @@ def claim(store, p):
     taken = gold if own else gold // 2
     if not own and goods:
         goods = goods[:max(0, len(goods) // 2)]
-    p.gold += taken
+    money.earn(p, taken)
     p.inventory.extend(goods)
     _graves(store)[:] = [x for x in _graves(store) if x is not g]
     store.save_player(p)
@@ -98,7 +98,7 @@ def claim(store, p):
     from engine import factions
     rep_lines = [] if own else factions.award(store, p, "grave_looted")
 
-    got = [f"+{taken} 🪙"] if taken else []
+    got = [money.plus(taken)] if taken else []
     if goods:
         names = ", ".join(rules.item(i)["name"] for i in goods[:4])
         more = f" и ещё {len(goods) - 4}" if len(goods) > 4 else ""
@@ -168,8 +168,8 @@ def defeat(store, p, mob_name):
 
     from engine import stash
 
-    lost = p.gold // 5
-    p.gold -= lost
+    lost = money.balance(p) // 5
+    money.pay(p, lost)
     dropped = stash.drop_on_death(p, store=store)   # часть сумки выпадает
     kept = len(getattr(p, "stash", None) or [])
     grave = bury(store, p, lost, dropped) if store is not None else None
@@ -187,7 +187,7 @@ def defeat(store, p, mob_name):
     lines = [f"💀 <b>Поражение...</b>\n\n{mob_name} оказался сильнее. "
              f"Ты очнулся в Погосте Костров."]
     if grave:
-        lines.append(f"\n🪦 Осталось там, где ты пал: <b>{lost}</b> 🪙"
+        lines.append(f"\n🪦 Осталось там, где ты пал: <b>{money.fmt(lost)}</b>"
                      f"\n📍 {spot}")
         note_items = stash.death_note(dropped, kept)
         if note_items:
@@ -223,7 +223,7 @@ def grave_card(store, p):
             else "Дойди до этого места, чтобы вернуть своё.")
     goods = list(g.get("items") or [])
     goods_line = f"\n🎒 Вещей: {len(goods)}" if goods else ""
-    return Reply(text=(f"🪦 <b>Твоя могила</b>\n\n💰 {g['gold']} 🪙{goods_line}\n"
+    return Reply(text=(f"🪦 <b>Твоя могила</b>\n\n💰 {money.fmt(g['gold'])}{goods_line}\n"
                        f"📍 {where} [{g['x']},{g['y']}]\n"
                        f"⌛ Истлеет через ~{max(0, left)} ч\n\n{body}"),
                  keyboard=rows)

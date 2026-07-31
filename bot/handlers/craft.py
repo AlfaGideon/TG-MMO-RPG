@@ -4,6 +4,7 @@ from aiogram.types import CallbackQuery
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from core import money
 from core.crafting import (
     check_recipe, craft, recipes_for_station, upgrade, upgrade_cost,
 )
@@ -78,7 +79,7 @@ async def craft_menu(callback: CallbackQuery):
         f"— Могу сковать вещь по рецепту или заточить то, что у тебя уже есть. "
         f"Материалы твои, работа моя.\n\n"
         f"📜 Доступно рецептов: <b>{len(recipes)}</b>\n"
-        f"🪙 У тебя золота: <b>{character.gold}</b>",
+        f"👛 У тебя: <b>{money.fmt(character.gold)}</b>",
         reply_markup=craft_menu_keyboard(station),
         parse_mode="HTML",
     )
@@ -139,7 +140,7 @@ def _recipe_text(recipe: CraftRecipe, status: dict, character) -> str:
         )
 
     gold_mark = "✅" if character.gold >= (recipe.gold_cost or 0) else "❌"
-    lines.append(f"{gold_mark} 🪙 Золото — {character.gold}/{recipe.gold_cost or 0}")
+    lines.append(f"{gold_mark} 👛 Плата — {money.fmt(character.gold)}/{money.fmt(recipe.gold_cost or 0)}")
     lvl_mark = "✅" if character.level >= (recipe.min_level or 1) else "❌"
     lines.append(f"{lvl_mark} ⭐ Уровень — {character.level}/{recipe.min_level or 1}")
 
@@ -321,7 +322,7 @@ def _upgrade_text(inv_item, cost, character) -> str:
     gold_ok = "✅" if character.gold >= cost["gold"] else "❌"
     lines += [
         f"<b>Улучшить до +{cost['next_level']}:</b>",
-        f"{gold_ok} 🪙 Золото — {character.gold}/{cost['gold']}",
+        f"{gold_ok} 👛 Плата — {money.fmt(character.gold)}/{money.fmt(cost['gold'])}",
     ]
     if cost["material"] is not None and cost["material_qty"]:
         lines.append(

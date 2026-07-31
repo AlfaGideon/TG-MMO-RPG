@@ -3,7 +3,7 @@
 В списке кнопки без подписей — только номер и иконка. Что скрыто за
 номером, написано в тексте сообщения; подробности открываются нажатием.
 """
-from engine import combat, itemui, rules, stash
+from engine import combat, itemui, money, rules, stash
 from engine.models import Reply
 
 
@@ -18,7 +18,7 @@ def bag(p, page=0, store=None):
     entries, page = itemui.slice_page(p.inventory, page)
 
     kept = len(getattr(p, "stash", None) or [])
-    lines = [f"🎒 <b>Инвентарь</b> · 🪙 {p.gold} · "
+    lines = [f"🎒 <b>Инвентарь</b> · 👛 {money.fmt(p.gold)} · "
              f"🔒 карман {kept}/{stash.capacity(p, store)}", ""]
     for num, _pos, idx in entries:
         note = "<b>надето</b>" if idx in worn else itemui.type_label(rules.item(idx))
@@ -45,7 +45,7 @@ def card(p, arg, store=None):
     equipped = p.equipped.get(it["type"]) == idx
     page = pos // itemui.PER_PAGE
 
-    extra = f"💰 Продать за <b>{itemui.resale_of(idx)}</b> 🪙"
+    extra = f"💰 Продать за <b>{money.fmt(itemui.resale_of(idx))}</b>"
     if equipped:
         extra = "✅ <b>Надето на герое</b>\n\n" + extra
     text = "🎒 <b>Инвентарь</b>\n\n" + itemui.card(idx, extra)
@@ -126,9 +126,9 @@ def sell(p, arg):
     if p.equipped.get(it["type"]) == idx:
         p.equipped.pop(it["type"])
     paid = itemui.resale_of(idx)
-    p.gold += paid
+    money.earn(p, paid)
     r = bag(p, pos // itemui.PER_PAGE)
-    r.alert = f"Продано: {it['name']} за {paid} 🪙"
+    r.alert = f"Продано: {it['name']} за {money.fmt(paid)}"
     return r
 
 

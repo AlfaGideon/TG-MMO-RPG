@@ -69,7 +69,7 @@
                 <td data-label="HP">{{ mob.hp }}</td>
                 <td data-label="Урон">{{ mob.damage }}</td>
                 <td data-label="Защ">{{ mob.defense }}</td>
-                <td data-label="Золото">{{ mob.gold_min }}–{{ mob.gold_max }}{% if not mob.gold_max %}{{ mob.gold_reward }}{% endif %}</td>
+                <td data-label="Добыча">{% if mob.gold_max %}{{ mob.gold_min | coins }} – {{ mob.gold_max | coins }}{% else %}{{ mob.gold_reward | coins }}{% endif %}</td>
                 <td data-label="Опыт">{{ mob.exp_reward }}</td>
                 <td data-label="Локация">{{ mob.location.name if mob.location else '—' }}</td>
                 <td data-label="Поп."><b>{{ mob.population }}</b></td>

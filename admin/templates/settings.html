@@ -224,6 +224,43 @@ setInterval(async () => {
 </script>
 
 <div class="card">
+    <h2>🪙 Деньги и премиум-валюта</h2>
+    <p class="section-sub">
+        Кошелёк героя хранится в бронзе, разряды считаются на лету:
+        {{ coin_line() }}. Премиум-валюта {{ PREMIUM_ICON }} — отдельный
+        счётчик: её нельзя выбить из моба или потерять в могиле, а обмен
+        работает только в одну сторону, {{ PREMIUM_ICON }} → монеты.
+        Те же числа действуют в Pyodide-панели.
+    </p>
+    <div class="stats-grid" style="margin-bottom:0.8rem">
+        <div class="stat-box">
+            <div class="stat-icon">👛</div>
+            <div class="value">{{ money_totals.coins_text }}</div>
+            <div class="label">Монет в мире</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-icon">{{ PREMIUM_ICON }}</div>
+            <div class="value">{{ money_totals.premium }}</div>
+            <div class="label">Кристаллов в мире</div>
+        </div>
+    </div>
+    <form action="/settings/save-money" method="post"
+          style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:0.8rem">
+        {% for key, meta in money_tunables.items() %}
+        <div>
+            <label class="form-label">{{ meta[1] }}</label>
+            <input type="number" name="{{ key }}" class="search-box"
+                   style="max-width:100%" step="1" min="0" value="{{ money_values[key] }}">
+            <div class="hint">{{ meta[2] }}</div>
+        </div>
+        {% endfor %}
+        <div style="align-self:end">
+            <button type="submit" class="btn btn-primary">💾 Сохранить</button>
+        </div>
+    </form>
+</div>
+
+<div class="card">
     <h2>🔒 Инвентарь, потери и VIP</h2>
     <p class="section-sub">
         Сумка теряется при гибели, защищённый карман — нет. Карман должен

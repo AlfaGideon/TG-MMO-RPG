@@ -10,7 +10,7 @@
 """
 import time
 
-from engine import data, factions, items, rules
+from engine import data, factions, items, money, rules
 from engine.models import Reply
 
 HUNT, REACH, DELIVER = "hunt", "reach", "deliver"
@@ -181,7 +181,7 @@ def goal_line(p, q):
     else:
         it = rules.item(f["target"])
         what = f"🎒 {it['icon']} {it['name']}: {n}/{need}"
-    prize = f"🪙 {f['gold']} · ⭐ {f['exp']}"
+    prize = f"{money.fmt(f['gold'])} · ⭐ {f['exp']}"
     if f["item"] >= 0:
         it = rules.item(f["item"])
         prize += f" · {it['icon']} {it['name']}"
@@ -205,10 +205,10 @@ def hand_in(store, p, qid):
             if int(f["target"]) in p.inventory:
                 p.inventory.remove(int(f["target"]))
 
-    p.gold += f["gold"]
+    money.earn(p, f["gold"])
     levels = rules.add_exp(p, f["exp"])
     lines = [f"✅ <b>{f['name']}</b> — выполнено!",
-             f"🪙 +{f['gold']}   ⭐ +{f['exp']}"]
+             f"💰 {money.plus(f['gold'])}   ⭐ +{f['exp']}"]
     if f["item"] >= 0:
         p.inventory.append(int(f["item"]))
         inst = items.create(store, int(f["item"]), source="quest",

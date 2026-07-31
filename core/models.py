@@ -178,7 +178,9 @@ class Character(Base):
     character_class = Column(ClassKeyType, nullable=False)
     level = Column(Integer, default=1)
     experience = Column(Integer, default=0)
+    # Кошелёк хранится в бронзе: 100🥉 = 1🥈, 100🥈 = 1🥇 (см. core/money.py).
     gold = Column(Integer, default=50)
+    premium = Column(Integer, default=0)      # 💎 донатная валюта
 
     strength = Column(Integer, default=10)
     agility = Column(Integer, default=10)

@@ -9,7 +9,7 @@
 """
 import random
 
-from engine import data, items
+from engine import data, items, money
 from engine.models import Reply
 
 KEY = "materials"           # {tg_id: {material_idx: count}}
@@ -95,8 +95,8 @@ def can_craft(store, p, i):
     name, _icon, _st, _idx, need, price, lvl = recipe(i)
     if p.level < lvl:
         return False, f"нужен уровень {lvl}"
-    if p.gold < price:
-        return False, f"не хватает {price - p.gold} 🪙"
+    if not money.can_pay(p, price):
+        return False, f"не хватает {money.fmt(money.lack(p, price))}"
     have = pouch(store, p.tg_id)
     for m, count in need.items():
         if have.get(int(m), 0) < count:
@@ -113,7 +113,7 @@ def craft(store, p, i):
     name, _icon, _st, idx, need, price, _lvl = recipe(i)
     if not take_materials(store, p.tg_id, need):
         return None, "материалы кончились"
-    p.gold -= price
+    money.pay(p, price)
     inst = items.create(store, idx, source="craft", owner=p.tg_id,
                         luck=p.luck, detail=name)
     if inst is None:                       # стопка — кладём в сумку как обычно
@@ -156,14 +156,14 @@ def upgrade(store, p, uid):
         return False, f"максимум +{data.MAX_UPGRADE}"
     chance, _mult = upgrade_odds(level)
     cost = upgrade_price(inst)
-    if p.gold < cost:
-        return False, f"не хватает {cost - p.gold} 🪙"
-    p.gold -= cost
+    if not money.can_pay(p, cost):
+        return False, f"не хватает {money.fmt(money.lack(p, cost))}"
+    money.pay(p, cost)
     store.save_player(p)
     if random.random() > chance:
         items.record(store, inst, "upgraded", p.tg_id,
                      detail=f"неудача на +{level + 1}", price=cost)
-        return False, f"заточка сорвалась · −{cost} 🪙"
+        return False, f"заточка сорвалась · −{money.fmt(cost)}"
     inst["upgrade"] = level + 1
     for k in list(inst.get("stats") or {}):
         inst["stats"][k] = int(round(inst["stats"][k] * 1.1)) or 1
@@ -177,7 +177,7 @@ def upgrade(store, p, uid):
 def workshop(store, p):
     """Главный экран мастерской: материалы и станки."""
     mine = pouch(store, p.tg_id)
-    lines = ["🔨 <b>Мастерская</b>", f"🪙 <b>{p.gold}</b>", ""]
+    lines = ["🔨 <b>Мастерская</b>", f"👛 <b>{money.fmt(p.gold)}</b>", ""]
     if mine:
         lines.append("<b>Материалы:</b>")
         for idx in sorted(mine):
@@ -197,7 +197,7 @@ def station_view(store, p, station):
     """Список рецептов станка."""
     icon, name = data.STATIONS.get(station, ("🔨", "Кузница"))
     idxs = recipes_for(station)
-    lines = [f"{icon} <b>{name}</b>", f"🪙 <b>{p.gold}</b>", ""]
+    lines = [f"{icon} <b>{name}</b>", f"👛 <b>{money.fmt(p.gold)}</b>", ""]
     rows, row = [], []
     from engine import itemui
     for n, i in enumerate(idxs, 1):
@@ -205,7 +205,7 @@ def station_view(store, p, station):
         ok, why = can_craft(store, p, i)
         mark = "✅" if ok else "🚫"
         parts = " + ".join(material_line(m, c) for m, c in need.items())
-        lines.append(f"{itemui.digit(n)} {ricon} <b>{rname}</b> · {price}🪙 · ур.{lvl} {mark}")
+        lines.append(f"{itemui.digit(n)} {ricon} <b>{rname}</b> · {money.fmt(price)} · ур.{lvl} {mark}")
         lines.append(f"     {parts}" + ("" if ok else f" · <i>{why}</i>"))
         row.append((f"{itemui.digit(n)}{ricon}", f"mk:{i}"))
         if len(row) == itemui.PER_ROW:
@@ -231,13 +231,13 @@ def sharpen_view(store, p, page=0):
                            "Они появляются из боя, сундуков и кузницы.</i>"),
                      keyboard=[[("◀️ В мастерскую", "craft")]])
     entries, page = itemui.slice_page(mine, page)
-    lines = ["⚡ <b>Заточка</b>", f"🪙 <b>{p.gold}</b>", ""]
+    lines = ["⚡ <b>Заточка</b>", f"👛 <b>{money.fmt(p.gold)}</b>", ""]
     rows, row = [], []
     for num, _pos, inst in entries:
         cost = upgrade_price(inst)
         chance, _m = upgrade_odds(int(inst.get("upgrade") or 0))
         lines.append(f"{itemui.digit(num)} {inst['icon']} <b>{items.title(inst)}</b>")
-        lines.append(f"     {items.tag(inst)} · {cost}🪙 · шанс {int(chance * 100)}%")
+        lines.append(f"     {items.tag(inst)} · {money.fmt(cost)} · шанс {int(chance * 100)}%")
         row.append((f"{itemui.digit(num)}{inst['icon']}", f"shrp:{inst['uid']}"))
         if len(row) == itemui.PER_ROW:
             rows.append(row)

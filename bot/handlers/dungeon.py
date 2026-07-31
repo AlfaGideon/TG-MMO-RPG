@@ -6,6 +6,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from core import money
 from core.classes import get_class, level_up_gains
 from core.database import async_session
 from core.enums import ItemSource
@@ -588,7 +589,7 @@ async def dungeon_combat_attack(callback: CallbackQuery):
             text = (
                 f"🎉 <b>Победа в подземелье!</b>\n\n"
                 f"Ты поверг {state['mob_name']}!\n"
-                f"💰 +{state['mob_gold']}🪙 | ⭐ +{state['mob_exp']} опыта"
+                f"💰 {money.plus(state['mob_gold'])} | ⭐ +{state['mob_exp']} опыта"
             )
             if leveled:
                 text += f"\n\n🎖 <b>Новый уровень: {character.level}!</b>"
@@ -671,7 +672,7 @@ async def dungeon_open_chest(callback: CallbackQuery):
         loot = await _dungeon_loot(session, character, run.template_id, is_chest=True)
         await session.commit()
 
-        text = f"📦 <b>Сундук открыт!</b>\n\nВнутри {current.chest_gold}🪙 золота."
+        text = f"📦 <b>Сундук открыт!</b>\n\nВнутри {money.fmt(current.chest_gold)}."
         if loot:
             text += "\n\n" + loot_text(loot)
 

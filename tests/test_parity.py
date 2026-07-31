@@ -113,6 +113,9 @@ REGISTRY = [
     Feature("Достопримечательности",
             browser=["engine/landmarks.py"],
             server=["core/landmarks.py"]),
+    Feature("Деньги: бронза/серебро/золото и премиум",
+            browser=["engine/money.py"],
+            server=["core/money.py"]),
 
     # ── ниже: механики без паритета, причина обязательна ──
     Feature("Задания",
@@ -191,6 +194,28 @@ def test_shared_numbers_match():
     except ImportError as e:                      # нет sqlalchemy — не беда
         check(True, f"серверный стек недоступен, пропуск ({e})")
         return
+
+    from engine import money as engine_money
+
+    try:
+        from core import money as core_money
+    except ImportError as e:
+        check(True, f"серверные деньги недоступны, пропуск ({e})")
+    else:
+        coin_pairs = [
+            ("бронзы в серебре", engine_money.BRONZE_PER_SILVER,
+             core_money.BRONZE_PER_SILVER),
+            ("серебра в золоте", engine_money.SILVER_PER_GOLD,
+             core_money.SILVER_PER_GOLD),
+            ("бронзы в золоте", engine_money.BRONZE_PER_GOLD,
+             core_money.BRONZE_PER_GOLD),
+            ("курс кристалла", engine_money.PREMIUM_RATE,
+             core_money.PREMIUM_RATE),
+        ]
+        for label, a, b in coin_pairs:
+            check(a == b, f"{label}: {a} = {b}")
+        check(set(engine_money.TUNABLES) == set(core_money.TUNABLES),
+              "настройки валют совпадают")
 
     pairs = [
         ("размер кармана", engine_stash.SLOTS, core_stash.SLOTS),

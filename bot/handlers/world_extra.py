@@ -16,6 +16,7 @@ from core import behavior as core_behavior
 from core import death as core_death
 from core import factions as core_factions
 from core import landmarks as core_landmarks
+from core import money
 from core import worldevents as core_events
 from core.database import async_session
 from core.models import Character, User
@@ -79,7 +80,7 @@ async def claim_grave(callback: CallbackQuery):
             core_factions.award(character, "grave_looted")
         await session.commit()
 
-    got = [f"+{gold} 🪙"] if gold else []
+    got = [money.plus(gold)] if gold else []
     if items:
         got.append(f"🎒 вещей: {len(items)}")
     body = ", ".join(got) if got else "здесь уже пусто"

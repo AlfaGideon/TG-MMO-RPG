@@ -112,6 +112,10 @@ async def run_migrations():
             cols = {row[1] for row in cols_result.fetchall()}
             if "floor" not in cols:
                 await conn.execute(text("ALTER TABLE characters ADD COLUMN floor INTEGER DEFAULT 0"))
+            # 💎 донатная валюта: отдельный счётчик, не смешивается с монетами.
+            if "premium" not in cols:
+                await conn.execute(text(
+                    "ALTER TABLE characters ADD COLUMN premium INTEGER DEFAULT 0"))
 
         # Add missing columns to dungeon_runs
         if "dungeon_runs" in tables:

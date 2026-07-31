@@ -7,7 +7,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from engine import data, itemui, rules  # noqa: E402
+from engine import data, itemui, money, rules  # noqa: E402
 from engine.game import Game  # noqa: E402
 from engine.storage import Store  # noqa: E402
 from webapp.backend import MemoryStorage  # noqa: E402
@@ -79,8 +79,8 @@ def main():
           "на кнопке есть иконка товара")
     check(all(rules.item(i)["name"] in r.text for i in range(on_page)),
           "названия товаров — в тексте сообщения")
-    check(all(str(rules.item(i)["price"]) in r.text for i in range(on_page)),
-          "цены видны в тексте")
+    check(all(money.fmt(rules.item(i)["price"]) in r.text for i in range(on_page)),
+          "цены видны в тексте разрядами монет")
     check(max(len(row) for row in r.keyboard) <= itemui.PER_ROW,
           f"не больше {itemui.PER_ROW} кнопок в ряду")
 
@@ -100,7 +100,7 @@ def main():
     check("Урон" in card.text and f"+{it['bonus']['damage']}" in card.text,
           "бонусы расписаны словами")
     check("Редкий" in card.text, "редкость показана")
-    check(str(it["price"]) in card.text, "цена показана")
+    check(money.fmt(it["price"]) in card.text, "цена показана разрядами монет")
     acts = [a for _, a in buttons(card)]
     check(f"buy:{rare_idx}" in acts, "кнопка «Купить» ведёт к покупке")
     check(any(a.startswith("shop") for a in acts), "есть возврат в лавку")

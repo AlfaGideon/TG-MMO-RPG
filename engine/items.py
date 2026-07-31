@@ -14,7 +14,7 @@
 import random
 import time
 
-from engine import data, rules
+from engine import data, money, rules
 
 KEY = "instances"           # реестр экземпляров в store.settings
 LIMIT = 600                 # сколько экземпляров храним (старые вытесняются)
@@ -179,7 +179,7 @@ def history(inst):
         icon, label = data.EVENTS.get(e.get("event"), ("•", e.get("event", "")))
         when = stamp(e.get("ts", 0))
         who = f" — {e['name']}" if e.get("name") else ""
-        price = f" за {e['price']}🪙" if e.get("price") else ""
+        price = f" за {money.fmt(e['price'])}" if e.get("price") else ""
         detail = f" ({e['detail']})" if e.get("detail") else ""
         out.append(f"{icon} {when} {label}{who}{price}{detail}")
     return out

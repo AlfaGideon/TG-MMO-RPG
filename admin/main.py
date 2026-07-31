@@ -19,6 +19,7 @@ from core import worldgen as W, worldops as WO
 from core import realtime as RT
 from engine import rules as engine_rules
 from core import dates
+from core import money as core_money
 from core import vip as VIP
 from core.models import (
     User, Character, Location, Mob, Item, ShopItem, Battle, AppSetting, Cell,
@@ -66,6 +67,12 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Shadow Lands Admin", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="admin/static"), name="static")
 templates = Jinja2Templates(directory="admin/templates")
+# Деньги во всех шаблонах печатаются разрядами: {{ char.gold | coins }}
+# → «1🥇 23🥈 45🥉». Иначе каждый шаблон изобретал бы свой формат.
+templates.env.filters["coins"] = core_money.fmt
+templates.env.filters["coins_short"] = core_money.short
+templates.env.globals["PREMIUM_ICON"] = core_money.PREMIUM_ICON
+templates.env.globals["coin_line"] = core_money.coin_line
 
 PUBLIC_PATHS = {"/admin-login", "/admin-logout"}
 
@@ -534,6 +541,7 @@ async def player_edit(
     character_class: str = Form(""),
     level: int = Form(1),
     gold: int = Form(0),
+    premium: int = Form(0),
     experience: int = Form(0),
     strength: int = Form(10),
     agility: int = Form(10),
@@ -585,6 +593,7 @@ async def player_edit(
                 char.character_class = character_class.strip()
             char.level = new_level
             char.gold = max(0, gold)
+            char.premium = max(0, premium)
             char.experience = max(0, experience)
             char.strength = strength
             char.agility = agility
@@ -641,7 +650,8 @@ async def player_inline_edit(
 ):
     """Inline-редактирование простых полей персонажа прямо в таблице."""
     guard(request, "manage_players")
-    allowed = {"level", "gold", "strength", "agility", "intelligence", "endurance", "luck"}
+    allowed = {"level", "gold", "premium", "strength", "agility", "intelligence",
+               "endurance", "luck"}
     if field not in allowed:
         return JSONResponse({"success": False, "error": "Нельзя редактировать это поле"})
     try:
@@ -673,6 +683,8 @@ async def player_inline_edit(
                 char.current_mp = min(char.max_mp, max(0, char.current_mp + delta * gains.get("max_mp", 5)))
         elif field == "gold":
             char.gold = max(0, num)
+        elif field == "premium":
+            char.premium = max(0, num)
         else:
             setattr(char, field, num)
         await session.commit()
@@ -1478,6 +1490,9 @@ async def settings_page(request: Request):
     async with async_session() as session:
         stash_values = {key: await stash_core.tune(session, key)
                         for key in stash_core.TUNABLES}
+        money_values = {key: await core_money.tune(session, key)
+                        for key in core_money.TUNABLES}
+        money_totals = await core_money.world_totals(session)
         result = await session.execute(
             select(Character).where(Character.is_vip == True)
         )
@@ -1494,6 +1509,9 @@ async def settings_page(request: Request):
             "example_login_url": build_login_url(panel_url or detected, 123456789),
             "stash_tunables": stash_core.TUNABLES,
             "stash_values": stash_values,
+            "money_tunables": core_money.TUNABLES,
+            "money_values": money_values,
+            "money_totals": money_totals,
             "vip_players": vip_players,
         },
     )
@@ -1510,6 +1528,17 @@ async def save_stash_settings(request: Request):
     async with async_session() as session:
         await stash_core.set_tunables(session, values)
         await session.commit()
+    return RedirectResponse(url="/settings", status_code=303)
+
+
+@app.post("/settings/save-money")
+async def save_money_settings(request: Request):
+    """Курс премиум-валюты и стартовые кристаллы. Те же ключи, что в Pyodide."""
+    guard(request, "settings")
+    form = await request.form()
+    values = {key: form.get(key, "") for key in core_money.TUNABLES}
+    async with async_session() as session:
+        await core_money.set_tunables(session, values)
     return RedirectResponse(url="/settings", status_code=303)
 
 

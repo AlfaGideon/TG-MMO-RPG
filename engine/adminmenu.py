@@ -1,7 +1,7 @@
 """Экраны админки внутри бота. Только сборка Reply — работу делает adminops."""
 import random
 
-from engine import adminops, audit, data, itemui, permissions, rules
+from engine import adminops, audit, data, itemui, money, permissions, rules
 from engine.models import Reply
 
 PAGE = 6                    # игроков на страницу списка
@@ -49,7 +49,7 @@ def stats(p, store):
         "📊 <b>Сводка мира</b>\n\n"
         f"👥 Игроков: <b>{s['players']}</b> · героев: <b>{s['heroes']}</b>\n"
         f"⭐ Средний уровень: <b>{s['avg_level']}</b>\n"
-        f"🪙 Золота в мире: <b>{s['gold']}</b>\n"
+        f"👛 Монет в мире: <b>{money.fmt(s['gold'])}</b>\n"
         f"☠️ Убито мобов: <b>{s['kills']}</b>\n"
         f"🧱 Клеток мира: <b>{s['cells']}</b>\n"
         f"🌀 Открытых порталов: <b>{portals}</b>\n"
@@ -81,7 +81,7 @@ def players(p, store, page=0):
         rows.append(nav)
 
     text = (f"👥 <b>Игроки</b> ({len(ps)})\n\n"
-            + ("\n".join(f"• {q.name} — ур. {q.level} · {q.gold}🪙 · "
+            + ("\n".join(f"• {q.name} — ур. {q.level} · {money.short(q.gold)} · "
                          f"{'герой' if q.created_char else 'без героя'}"
                          for q in chunk) or "<i>Пока никого.</i>"))
     return Reply(text=text, keyboard=_back(rows))
@@ -100,7 +100,7 @@ def player_card(p, store, tg_id):
         f"👤 <b>{q.name}</b> <code>#{q.tg_id}</code>\n\n"
         f"Класс: {q.cls or '—'} · ур. <b>{q.level}</b>\n"
         f"❤️ {q.hp}/{s['max_hp']} · 💙 {q.mp}/{s['max_mp']}\n"
-        f"🪙 {q.gold} · 🎒 {len(q.inventory)} предм. · ☠️ {q.kills}\n"
+        f"👛 {money.fmt(q.gold)} · 💎 {money.premium(q)} · 🎒 {len(q.inventory)} предм. · ☠️ {q.kills}\n"
         f"📍 {where} [{q.x},{q.y}]\n"
         f"👑 Доступ: {role}")
 
@@ -113,8 +113,8 @@ def player_card(p, store, tg_id):
     if line:
         rows.append(line)
     if permissions.can(p, "edit_players"):
-        rows.append([("🪙 +100", f"adm:gold:{q.tg_id}:100"),
-                     ("🪙 −100", f"adm:gold:{q.tg_id}:-100")])
+        rows.append([("🥈 +1", f"adm:gold:{q.tg_id}:100"),
+                     ("🥈 −1", f"adm:gold:{q.tg_id}:-100")])
         rows.append([("⭐ +1 ур.", f"adm:lvl:{q.tg_id}:1"),
                      ("⭐ −1 ур.", f"adm:lvl:{q.tg_id}:-1")])
         rows.append([("🏠 В деревню", f"adm:tp:{q.tg_id}")])

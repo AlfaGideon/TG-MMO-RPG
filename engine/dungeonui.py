@@ -3,7 +3,7 @@
 Отделено от engine/dungeon.py, где живут правила: генерация клеток,
 перемещение и содержимое. Здесь только сборка Reply.
 """
-from engine import rules
+from engine import money, rules
 from engine.dungeon import (ARROWS, DIRS, EXIT, _passable, cell, leave,
                             run_of, size_of, template)
 from engine.models import Reply
@@ -32,7 +32,7 @@ def view(store, p):
     if c["stairs"]:
         here.append("⬇️ Спуск глубже")
     lines.append("\n".join(here) if here else "<i>Пусто.</i>")
-    lines.append(f"\n❤️ {p.hp}/{rules.stats(p, store)['max_hp']}  🪙 {p.gold}")
+    lines.append(f"\n❤️ {p.hp}/{rules.stats(p, store)['max_hp']}  👛 {money.short(p.gold)}")
 
     rows = []
     nav = []

@@ -5,6 +5,7 @@ from sqlalchemy.orm import selectinload
 
 from datetime import timedelta
 
+from core import money
 from core.database import async_session
 from core.loot import give_chest_loot
 from core.models import User, Character, Location, Cell, VisitedCell
@@ -410,7 +411,7 @@ async def inspect_cell(callback: CallbackQuery):
         if grave is not None:
             whose = ("твоя" if grave.character_id == character.id
                      else grave.owner_name or "чужая")
-            found.append(f"🪦 Надгробие ({whose}) — {grave.gold} 🪙")
+            found.append(f"🪦 Надгробие ({whose}) — {money.fmt(grave.gold)}")
 
         if found:
             lines.append("\n" + "\n".join(found))
@@ -778,7 +779,7 @@ async def open_chest(callback: CallbackQuery):
         except Exception:
             pass
 
-        text = f"📦 <b>Сундук открыт!</b>\n\nВнутри ты нашёл {gold}🪙 золота."
+        text = f"📦 <b>Сундук открыт!</b>\n\nВнутри ты нашёл {money.fmt(gold)}."
         if is_vip_active(character) and gold != base_gold:
             text += f" <i>(+{gold - base_gold} бонус VIP)</i>"
         if loot:

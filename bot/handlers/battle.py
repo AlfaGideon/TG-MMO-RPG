@@ -5,7 +5,7 @@ from aiogram.types import CallbackQuery
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from core import magic
+from core import magic, money
 from core.classes import get_class, level_up_gains
 from core.database import async_session
 from core.loot import give_mob_loot
@@ -62,7 +62,7 @@ async def _lose_bag(session, character):
 
     parts = []
     if grave:
-        parts.append(f"🪦 Осталось на месте гибели: <b>{gold_lost}</b> 🪙")
+        parts.append(f"🪦 Осталось на месте гибели: <b>{money.fmt(gold_lost)}</b>")
     if lost:
         parts.append(f"🎒 Выпало из сумки: <b>{len(lost)}</b>")
     if kept:

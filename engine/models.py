@@ -34,7 +34,8 @@ class Player:
     cls: str = ""
     level: int = 1
     exp: int = 0
-    gold: int = 50
+    gold: int = 50                                  # кошелёк в бронзе (см. engine/money.py)
+    premium: int = 0                                # 💎 донатная валюта
     strength: int = 10
     agility: int = 10
     intelligence: int = 10

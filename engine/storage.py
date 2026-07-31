@@ -263,6 +263,17 @@ class Store:
         p = self.players.get(tg_id)
         if not p:
             p = Player(tg_id=tg_id, name=name or f"Герой{tg_id % 1000}")
+            # Стартовый кошелёк из настроек панели. Раньше welcome_bonus
+            # был в настройках, но нигде не применялся — новичок всегда
+            # получал зашитые в модель 50 бронзы.
+            try:
+                p.gold = max(0, int(self.settings.get("welcome_bonus", 50)))
+            except (TypeError, ValueError):
+                pass
+            try:
+                p.premium = max(0, int(self.settings.get("premium_welcome", 0) or 0))
+            except (TypeError, ValueError):
+                pass
             self.players[tg_id] = p
         elif name and p.name.startswith("Герой"):
             p.name = name

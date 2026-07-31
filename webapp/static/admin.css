@@ -629,12 +629,58 @@ tr.clickable:hover td { background: var(--accent-soft); }
 
 /* ── Карты этажей ── */
 .floor-map-layout { display: flex; align-items: flex-start; gap: 0.65rem; }
+/* Без явной ширины сетка-грид внутри флекса ужимается до содержимого и
+   карта локации выходит вдвое мельче, чем такая же карта в «Подземельях». */
+.floor-map-layout .mapgrid { flex: 0 0 auto; width: 430px; max-width: 100%; }
 .floor-switcher { display: flex; flex-direction: column; gap: 0.4rem; min-width: max-content; }
 .floor-switcher .btn { margin: 0; text-align: left; }
 @media (max-width: 560px) {
   .floor-map-layout { align-items: stretch; }
+  .floor-map-layout .mapgrid { width: 100%; }
   .floor-switcher { min-width: 0; }
   .floor-switcher .btn { padding: 0.38rem 0.45rem; font-size: 0.72rem; }
+}
+
+/* ── Выбор локации стрелками (крест вокруг текущей) ── */
+.locnav {
+  display: grid; gap: 0.5rem; justify-content: center;
+  grid-template-columns: minmax(120px, 1fr) minmax(180px, 1.4fr) minmax(120px, 1fr);
+  grid-template-areas: ". up ." "left cur right" ". down .";
+  align-items: stretch; max-width: 620px;
+}
+.locnav-btn.up { grid-area: up; } .locnav-btn.down { grid-area: down; }
+.locnav-btn.left { grid-area: left; } .locnav-btn.right { grid-area: right; }
+.locnav .cur { grid-area: cur; }
+.locnav-btn {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 0.15rem; padding: 0.5rem 0.6rem; min-height: 54px; cursor: pointer;
+  background: var(--bg-input); color: var(--text); border: 1px solid var(--border);
+  border-radius: 10px; font: inherit; transition: border-color 0.15s, background 0.15s;
+}
+.locnav-btn:hover:not(:disabled) { border-color: var(--accent); background: var(--bg-hover); }
+.locnav-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.locnav-sign { font-size: 0.95rem; line-height: 1; color: var(--accent); }
+.locnav-btn:disabled .locnav-sign { color: var(--text-muted); }
+.locnav-name {
+  font-size: 0.75rem; font-weight: 600; text-align: center; line-height: 1.2;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.locnav-cur {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 0.25rem; padding: 0.7rem; text-align: center;
+  border: 1px solid var(--accent); border-radius: 10px; background: var(--accent-soft);
+}
+.locnav-title { font-size: 1.02rem; font-weight: 700; }
+.locnav-meta { font-size: 0.74rem; display: flex; gap: 0.3rem; flex-wrap: wrap; justify-content: center; }
+.warn-text { color: var(--warning); }
+.linklike {
+  background: none; border: none; padding: 0; font: inherit; font-weight: 600;
+  color: var(--accent); cursor: pointer; text-align: left;
+}
+.linklike:hover { text-decoration: underline; }
+@media (max-width: 560px) {
+  .locnav { grid-template-columns: 1fr 1.3fr 1fr; gap: 0.35rem; }
+  .locnav-name { font-size: 0.66rem; }
 }
 
 /* ── Адаптивность для мобильных экранов ── */

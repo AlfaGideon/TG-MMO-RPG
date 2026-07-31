@@ -5,13 +5,15 @@
 лоты аукциона.
 """
 from engine import auction, craft, data, items, itemui
+from webapp.pages import economy_money
 from webapp.html import esc
 
 TITLE = "💰 Экономика"
 CRUMBS = [("Экономика", "economy")]
 
-TABS = [("instances", "🆔 Экземпляры"), ("auction", "🏛 Аукцион"),
-        ("craft", "🔨 Крафт"), ("sources", "🏷 Значки")]
+TABS = [("instances", "🆔 Экземпляры"), ("money", "🪙 Валюты"),
+        ("auction", "🏛 Аукцион"), ("craft", "🔨 Крафт"),
+        ("sources", "🏷 Значки")]
 
 
 def render(ctx):
@@ -20,13 +22,15 @@ def render(ctx):
         f"<button class='btn {'primary' if tab == key else ''}' "
         f"data-act='eco-tab' data-arg='{key}'>{label}</button> "
         for key, label in TABS)
-    body = {"instances": _instances, "auction": _auction,
-            "craft": _craft, "sources": _sources}[tab](ctx)
+    body = {"instances": _instances, "money": economy_money.render,
+            "auction": _auction, "craft": _craft,
+            "sources": _sources}.get(tab, _instances)(ctx)
     return f"""
 <div class="card">
   <h2>💰 Экономика мира</h2>
   <p class="muted">Уникальные экземпляры предметов, аукцион между игроками и
-     крафт у ремесленников. Каждая вещь имеет свой ID, статы и летопись.</p>
+     крафт у ремесленников. Каждая вещь имеет свой ID, статы и летопись.
+     Вкладка «Валюты» — монеты, разряды и премиум.</p>
   <div style="display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.6rem">{buttons}</div>
 </div>
 {body}

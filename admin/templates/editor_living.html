@@ -195,7 +195,7 @@
                 <tr>
                     <td>{{ g.owner_name or '—' }}</td>
                     <td>{{ g.location.name if g.location else '—' }} [{{ g.x }},{{ g.y }}]</td>
-                    <td>{{ g.gold }} 🪙</td>
+                    <td>{{ g.gold | coins }}</td>
                     <td>{{ g.created_at.strftime('%d.%m %H:%M') if g.created_at else '—' }}</td>
                 </tr>
             {% endfor %}

@@ -110,6 +110,24 @@ def main():
             check(False, f"вкладка {tab} → {type(e).__name__}: {e}")
     ctx.state["world_tab"] = "map"
 
+    print("\n— Выбор локации: стрелки вместо кнопок с названиями —")
+    from webapp.pages import world_map
+    ctx.state["world_tab"] = "map"
+    ctx.state["loc"] = 0
+    m = world.render(ctx)
+    check("locnav" in m, "крест стрелок нарисован")
+    near, here = world_map.neighbours(ctx, 0)
+    check(here is not None, "локация 0 стоит на сетке мира")
+    check(near["east"] is not None, "у неё есть сосед на востоке")
+    check(f"data-arg='{near['east']}'" in m, "стрелка ведёт к соседу по сетке")
+    check(near["west"] is None and "— нет —" in m,
+          "без соседа стрелка гаснет, а не исчезает")
+    # Кисть и туман войны убраны: они не работали и мешали правке клеток.
+    for gone in ("data-brush", "paintBrush", "fogPlayerSelect", "Туман войны"):
+        check(gone not in m, f"убрано: {gone}")
+    check("locMapGrid" in m, "сетка карты на месте")
+    check("cf_name" not in m or "cellDock" in m, "редактор клетки живёт в доке")
+
     print("\n— Экранирование —")
     evil = ctx.store.player(8, "<script>alert(1)</script>")
     ctx.store.save_player(evil)

@@ -3,6 +3,7 @@ from aiogram.types import CallbackQuery
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from core import money
 from core.database import async_session
 from core.enums import ItemSource
 from core.loot import grant_item
@@ -74,15 +75,17 @@ async def buy_item(callback: CallbackQuery):
             await callback.answer("Товар не найден.", show_alert=True)
             return
 
-        if character.gold < shop_item.price:
-            await callback.answer("Недостаточно золота!", show_alert=True)
+        if not money.can_pay(character, shop_item.price):
+            await callback.answer(
+                f"Не хватает {money.fmt(money.lack(character, shop_item.price))}!",
+                show_alert=True)
             return
 
         if shop_item.stock == 0:
             await callback.answer("Товар распродан!", show_alert=True)
             return
 
-        character.gold -= shop_item.price
+        money.pay(character, shop_item.price)
         if shop_item.stock > 0:
             shop_item.stock -= 1
 
@@ -97,5 +100,6 @@ async def buy_item(callback: CallbackQuery):
 
         await session.commit()
 
-    await callback.answer(f"Куплено: {shop_item.item.name}")
+    await callback.answer(
+        f"Куплено: {shop_item.item.name} за {money.fmt(shop_item.price)}")
     await shop(callback)

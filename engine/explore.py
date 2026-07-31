@@ -5,7 +5,7 @@
 """
 import random
 
-from engine import (cataclysm, data, death, factions, items, landmarks,
+from engine import (cataclysm, data, death, factions, items, landmarks, money,
                     respawn, rules)
 from engine.models import Reply
 
@@ -32,7 +32,7 @@ def look(p, cell, store=None):
     grave = death.at(store, cell.loc, cell.x, cell.y) if store is not None else None
     if grave is not None:
         whose = "твоя" if int(grave.get("owner", 0)) == int(p.tg_id) else f"{grave.get('name', '?')}"
-        found.append(f"🪦 Надгробие ({whose}) — {grave.get('gold', 0)} 🪙")
+        found.append(f"🪦 Надгробие ({whose}) — {money.fmt(grave.get('gold', 0))}")
         rows.append([("💰 Забрать", "claim")])
     for q in mapview.others_here(store, p, cell.loc, cell.x, cell.y):
         found.append(f"🔵 Герой: {q.name} (ур. {q.level})")
@@ -100,8 +100,8 @@ def chest(p, cell, store):
     respawn.schedule_chest(store, cell)     # новый появится в этой локации
     eff = cataclysm.effects(store, p.loc)
     gold = max(1, int(random.randint(10, 45) * eff["gold"]))
-    p.gold += gold
-    lines = [f"📦 <b>Сундук открыт!</b>\n\nВнутри: {gold} 🪙"]
+    money.earn(p, gold)
+    lines = [f"📦 <b>Сундук открыт!</b>\n\nВнутри: {money.fmt(gold)}"]
     if random.random() < min(0.95, 0.5 * eff["loot"]):
         idx = random.randrange(len(data.ITEMS))
         p.inventory.append(idx)

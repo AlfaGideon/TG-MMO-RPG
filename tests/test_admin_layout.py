@@ -276,6 +276,27 @@ def test_nav_fits():
           f"{count} пунктов (~{need:.0f}px) влезают в max-height {limit:.0f}px")
 
 
+def test_location_map_not_shrunk():
+    """Карта локации обязана быть того же размера, что карта подземелий.
+
+    Обе рисуются классом .mapgrid, но карта локации лежит во флекс-строке
+    рядом с переключателем этажей. Грид внутри флекса ужимается по
+    содержимому, и карта выходила заметно мельче эталонной — поэтому
+    ширина задаётся явно и должна совпадать с .mapgrid.
+    """
+    print("\n— Карта локации не мельче карты подземелий —")
+    css = open(PYODIDE_CSS_PATH, encoding="utf-8").read()
+    base = re.search(r"\.mapgrid\s*\{[^}]*max-width:\s*(\d+)px", css)
+    check(base is not None, "у .mapgrid задана базовая ширина")
+    inner = re.search(r"\.floor-map-layout \.mapgrid\s*\{[^}]*width:\s*(\d+)px", css)
+    check(inner is not None, "карта локации получает явную ширину во флексе")
+    if base and inner:
+        check(int(inner.group(1)) == int(base.group(1)),
+              f"ширины совпадают: {inner.group(1)}px = {base.group(1)}px")
+    check("flex: 0 0 auto" in (inner.group(0) if inner else ""),
+          "карта не сжимается флексом")
+
+
 def main():
     print("=" * 46)
     print("Вёрстка админки")
@@ -287,6 +308,7 @@ def main():
     test_css_sane()
     test_contrast()
     test_nav_fits()
+    test_location_map_not_shrunk()
 
     print("\n" + "=" * 46)
     if FAILED:

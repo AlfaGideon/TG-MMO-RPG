@@ -9,6 +9,7 @@ from .dungeon import router as dungeon_router
 from .craft import router as craft_router
 from .auction import router as auction_router
 from .admin import router as admin_router
+from .purse import router as purse_router
 from .world_extra import router as world_extra_router
 
 routers = [
@@ -23,5 +24,6 @@ routers = [
     craft_router,
     auction_router,
     admin_router,
+    purse_router,
     world_extra_router,
 ]

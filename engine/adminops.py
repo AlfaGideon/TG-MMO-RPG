@@ -6,7 +6,7 @@
 транспорт бота. Поэтому кнопка в Telegram и кнопка в панели делают ровно
 одно и то же и одинаково видны во вкладке «Действия админов».
 """
-from engine import audit, data, permissions, rules
+from engine import audit, data, money, permissions, rules
 
 OUTBOX = "outbox"
 MAX_OUTBOX = 200
@@ -109,12 +109,11 @@ def add_gold(store, actor, tg_id, amount, source="panel"):
     require(actor, "edit_players")
     p = _target(store, tg_id)
     amount = int(amount)
-    p.gold = max(0, p.gold + amount)
+    p.gold = max(0, money.balance(p) + amount)
     store.save_player(p)
-    sign = "+" if amount >= 0 else ""
-    queue(store, p.tg_id, f"🪙 Администратор изменил твоё золото: {sign}{amount}")
+    queue(store, p.tg_id, f"👛 Администратор изменил твой кошелёк: {money.plus(amount)}")
     return _done(store, actor, source, "Изменил золото", _who(p),
-                 f"{sign}{amount} → {p.gold} 🪙")
+                 f"{money.plus(amount)} → {money.fmt(p.gold)}")
 
 
 def add_level(store, actor, tg_id, delta, source="panel"):

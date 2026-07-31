@@ -25,7 +25,7 @@
                 <th>{{ macros.sort_link('Раундов', 'rounds', sort, order, '/battles') }}</th>
                 <th>{{ macros.sort_link('Урон нанёс', 'damage_dealt', sort, order, '/battles') }}</th>
                 <th>{{ macros.sort_link('Урон получил', 'damage_taken', sort, order, '/battles') }}</th>
-                <th>{{ macros.sort_link('Золото', 'gold_earned', sort, order, '/battles') }}</th>
+                <th>{{ macros.sort_link('Добыча', 'gold_earned', sort, order, '/battles') }}</th>
                 <th>{{ macros.sort_link('Опыт', 'exp_earned', sort, order, '/battles') }}</th>
                 <th>{{ macros.sort_link('Время', 'created_at', sort, order, '/battles') }}</th>
             </tr>
@@ -48,7 +48,7 @@
                 <td data-label="Раундов">{{ b.rounds }}</td>
                 <td data-label="Урон нанёс">{{ b.damage_dealt }}</td>
                 <td data-label="Урон получил">{{ b.damage_taken }}</td>
-                <td data-label="Золото">{{ b.gold_earned }}</td>
+                <td data-label="Добыча">{{ b.gold_earned | coins_short }}</td>
                 <td data-label="Опыт">{{ b.exp_earned }}</td>
                 <td data-label="Время">{{ b.created_at.strftime('%Y-%m-%d %H:%M') if b.created_at else '-' }}</td>
             </tr>

@@ -45,7 +45,7 @@
                     {{ ing.item.icon }}{{ ing.item.name }}×{{ ing.quantity }}{% if not loop.last %}, {% endif %}
                     {% else %}<span style="color:var(--danger)">нет ингредиентов</span>{% endfor %}
                 </td>
-                <td data-label="Золото" class="num">{{ r.gold_cost }}</td>
+                <td data-label="Плата" class="num">{{ r.gold_cost | coins }}</td>
                 <td data-label="Ур." class="num">{{ r.min_level }}</td>
                 <td data-label="Шанс" class="num">{{ (r.success_chance * 100)|int }}%</td>
                 <td data-label="Вкл">{{ '✅' if r.is_enabled else '🚫' }}</td>

@@ -2,7 +2,7 @@
 могут подтянуться другие твари — они ждут очереди в `queue`."""
 import random
 
-from engine import (cataclysm, craft, data, death, factions, items, party,
+from engine import (cataclysm, craft, data, death, factions, items, money, party,
                     quests, respawn, rules, texts)
 from engine.models import Reply
 
@@ -173,7 +173,7 @@ def _slay(p, world, store=None):
         _schedule_home(store, p, st, final=not (st.get("queue") or []))
     if _next_foe(p):
         # Бой не окончен: показываем добычу строкой в логе и идём дальше.
-        st["log"].append(f"☠️ {m[0]} повержен · +{gold} 🪙 +{exp} ⭐")
+        st["log"].append(f"☠️ {m[0]} повержен · {money.plus(gold)} +{exp} ⭐")
         return view(p)
     p.combat = {}
     return Reply(text="\n".join(lines), keyboard=[
@@ -194,7 +194,7 @@ def _reward(p, m, world, store=None):
     if store is not None:
         k = party.bonus(store, p)
         gold, exp = max(1, int(gold * k)), max(1, int(exp * k))
-    p.gold += gold
+    money.earn(p, gold)
     p.kills += 1
     levels = rules.add_exp(p, exp)
 
@@ -207,7 +207,7 @@ def _reward(p, m, world, store=None):
 
     loot = rules.loot_roll(st["mob"])
     lines = [f"🎉 <b>Победа!</b>\n\nТы поверг: {m[0]}",
-             f"💰 +{gold} 🪙   ⭐ +{exp} опыта"]
+             f"💰 {money.plus(gold)}   ⭐ +{exp} опыта"]
     if store is not None:
         alarm = cataclysm.banner(store, p.loc)
         if alarm:

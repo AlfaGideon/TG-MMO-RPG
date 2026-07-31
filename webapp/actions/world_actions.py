@@ -11,7 +11,6 @@ def register(app, A):
     A("world-tab", lambda arg: _pick_tab(app, arg))
     A("world-loc", lambda arg: _pick_loc(app, arg))
     A("world-floor", lambda arg: _pick_floor(app, arg))
-    A("world-fog-select", lambda _="": _fog_select(app))
     A("world-regen", lambda _="": _regen(app))
     A("world-seeds-save", lambda _="": _seeds_save(app))
     A("world-seeds-roll", lambda _="": _seeds_roll(app))
@@ -54,11 +53,6 @@ def _pick_floor(app, floor):
     """Показывает отдельную сетку выбранного этажа."""
     app.state["floor_filter"] = str(floor)
     app.state["cell_pick"] = ""
-    app.render()
-
-
-def _fog_select(app):
-    app.state["fog_player"] = dom.value("#fogPlayerSelect", "")
     app.render()
 
 

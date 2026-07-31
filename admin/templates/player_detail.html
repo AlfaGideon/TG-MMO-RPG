@@ -34,7 +34,8 @@
                     {% else %}<code>{{ char.character_class }}</code>{% endif %}
                 </td></tr>
                 <tr><td>Уровень</td><td><b>{{ char.level }}</b> ({{ char.experience }}/{{ char.level * 100 }} опыта)</td></tr>
-                <tr><td>Золото</td><td>{{ char.gold }} 🪙</td></tr>
+                <tr><td>Кошелёк</td><td>{{ char.gold | coins }}<br><span style="color:var(--text-muted);font-size:0.8rem">{{ coin_line() }}</span></td></tr>
+                <tr><td>Премиум</td><td>{{ char.premium or 0 }} {{ PREMIUM_ICON }}</td></tr>
                 <tr><td>Локация</td><td>{{ char.location.name if char.location else '—' }}{% if char.floor %} (этаж {{ char.floor }}){% endif %}</td></tr>
                 <tr><td>VIP</td><td>{{ '✅ до ' + char.vip_until.strftime('%Y-%m-%d') if char.vip_until else '❌' }}</td></tr>
                 <tr><td>Веб-админка</td><td>
@@ -172,8 +173,15 @@
                     <input type="number" name="experience" value="{{ char.experience }}" min="0" class="search-box">
                 </div>
                 <div>
-                    <label class="form-label">Золото</label>
-                    <input type="number" name="gold" value="{{ char.gold }}" min="0" class="search-box">
+                    <label class="form-label">Кошелёк, 🥉 бронзы</label>
+                    <input type="number" name="gold" value="{{ char.gold }}" min="0" class="search-box"
+                           title="Сумма в бронзе: 100🥉 = 1🥈, 100🥈 = 1🥇">
+                    <span style="color:var(--text-muted);font-size:0.78rem">{{ char.gold | coins }}</span>
+                </div>
+                <div>
+                    <label class="form-label">{{ PREMIUM_ICON }} Кристаллы</label>
+                    <input type="number" name="premium" value="{{ char.premium or 0 }}" min="0" class="search-box"
+                           title="Донатная валюта — не смешивается с монетами">
                 </div>
             </div>
         </fieldset>

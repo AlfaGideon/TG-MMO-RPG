@@ -16,7 +16,7 @@
 """
 import random
 
-from engine import data, itemui, rules
+from engine import data, itemui, money, rules
 from engine.models import Reply
 
 SIZE_DEFAULT = 10
@@ -247,8 +247,8 @@ def open_chest(store, p):
 
     floor = int(run["floor"])
     gold = random.randint(15, 45) + floor * 12
-    p.gold += gold
-    lines = [f"📦 <b>Сундук подземелья</b>\n\nВнутри: {gold} 🪙"]
+    money.earn(p, gold)
+    lines = [f"📦 <b>Сундук подземелья</b>\n\nВнутри: {money.fmt(gold)}"]
 
     if random.random() < 0.6:
         from engine import items

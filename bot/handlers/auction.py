@@ -4,7 +4,7 @@ from aiogram.types import CallbackQuery
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from core import auction, history
+from core import auction, history, money
 from core.database import async_session
 from core.models import AuctionLot, Character, InventoryItem, User
 from bot.keyboards.inline import (
@@ -53,7 +53,7 @@ async def auction_menu(callback: CallbackQuery):
         "сразу — дешевле, зато сейчас. Всё записано, вон, гляди.\n\n"
         f"🛒 Лотов на витрине: <b>{len(lots)}</b>\n"
         f"📋 Твоих лотов: <b>{len(mine)}</b> из {auction.MAX_ACTIVE_LOTS}\n"
-        f"🪙 У тебя золота: <b>{gold}</b>\n\n"
+        f"👛 У тебя: <b>{money.fmt(gold)}</b>\n\n"
         f"<i>Комиссия аукциона — {int(auction.COMMISSION * 100)} %. "
         f"Непроданный лот вернётся через сутки.</i>",
         reply_markup=auction_menu_keyboard(len(mine)),
@@ -81,7 +81,7 @@ async def auction_browse(callback: CallbackQuery):
     if lots:
         body = (
             f"Чужих лотов: <b>{len(lots)}</b> | Твоих: <b>{len(mine)}</b> | "
-            f"У тебя: <b>{gold}</b>🪙\n\n"
+            f"У тебя: <b>{money.fmt(gold)}</b>\n\n"
             "<i>Значок перед ценой — способ добычи вещи. "
             "🔁 значит, что она уже меняла хозяев. Твои лоты здесь скрыты — "
             "они доступны в разделе «Мои лоты».</i>"
@@ -89,7 +89,7 @@ async def auction_browse(callback: CallbackQuery):
     else:
         body = (
             f"Чужих лотов: <b>0</b> | Твоих: <b>{len(mine)}</b> | "
-            f"У тебя: <b>{gold}</b>🪙\n\n"
+            f"У тебя: <b>{money.fmt(gold)}</b>\n\n"
             "<i>На общей витрине сейчас нет чужих лотов. "
             "Твои активные продажи смотри в разделе «Мои лоты».</i>"
         )
@@ -155,7 +155,7 @@ async def auction_lot_view(callback: CallbackQuery):
 
     lines += [
         f"👤 Продавец: <b>{lot.seller_name or 'Скупщик'}</b>",
-        f"💰 Цена: <b>{lot.price}</b>🪙 (у тебя {character.gold}🪙)",
+        f"💰 Цена: <b>{money.fmt(lot.price)}</b> (у тебя {money.fmt(character.gold)})",
     ]
     if item.level_requirement and item.level_requirement > 1:
         lines.append(f"⭐ Требуется уровень: {item.level_requirement}")
@@ -225,8 +225,8 @@ async def auction_buy(callback: CallbackQuery):
                     chat_id=seller_tg,
                     text=(
                         f"💰 <b>Твой лот продан!</b>\n\n"
-                        f"{name} ушёл за {price}🪙.\n"
-                        f"На руки: <b>{seller_payout}</b>🪙 "
+                        f"{name} ушёл за {money.fmt(price)}.\n"
+                        f"На руки: <b>{money.fmt(seller_payout)}</b> "
                         f"(комиссия {int(auction.COMMISSION * 100)} %)."
                     ),
                     parse_mode="HTML",
@@ -238,8 +238,8 @@ async def auction_buy(callback: CallbackQuery):
         f"✅ <b>Покупка состоялась</b>\n\n"
         f"{name}\n"
         f"🆔 <code>{uid}</code>\n\n"
-        f"Списано: <b>{price}</b>🪙\n"
-        f"Осталось: <b>{character.gold}</b>🪙\n\n"
+        f"Списано: <b>{money.fmt(price)}</b>\n"
+        f"Осталось: <b>{money.fmt(character.gold)}</b>\n\n"
         f"<i>Вещь легла в сумку вместе со своей историей.</i>",
         reply_markup=auction_menu_keyboard(),
         parse_mode="HTML",
@@ -319,8 +319,8 @@ async def auction_sell(callback: CallbackQuery):
         callback,
         f"📢 <b>{name}</b>\n"
         f"🆔 <code>{uid}</code>\n\n"
-        f"Оценка аукциона: <b>{hint}</b>🪙\n"
-        f"Допустимая цена: от {low}🪙 до {high}🪙\n\n"
+        f"Оценка аукциона: <b>{money.fmt(hint)}</b>\n"
+        f"Допустимая цена: от {money.fmt(low)} до {money.fmt(high)}\n\n"
         f"Выбери, за сколько выставить. Комиссия — "
         f"{int(auction.COMMISSION * 100)} % с продажи.\n"
         f"Не купят за сутки — вещь вернётся в сумку.",
@@ -360,7 +360,7 @@ async def auction_list(callback: CallbackQuery):
 
     await send_or_edit_photo(callback,
         f"📢 <b>Лот выставлен</b>\n\n"
-        f"{name} — <b>{price}</b>🪙\n\n"
+        f"{name} — <b>{money.fmt(price)}</b>\n\n"
         f"<i>Молчун вписывает строку в гроссбух. "
         f"Если не купят за сутки, вещь вернётся к тебе.</i>",
         reply_markup=auction_listed_keyboard(len(mine)),
@@ -398,8 +398,8 @@ async def auction_npc_sell(callback: CallbackQuery):
 
     await send_or_edit_photo(callback,
         f"⚡ <b>Продано скупщику</b>\n\n"
-        f"{name} → <b>{outcome['price']}</b>🪙\n"
-        f"Теперь у тебя: <b>{gold}</b>🪙\n\n"
+        f"{name} → <b>{money.fmt(outcome['price'])}</b>\n"
+        f"Теперь у тебя: <b>{money.fmt(gold)}</b>\n\n"
         f"<i>Молчун сдувает пыль с вещи и ставит её на витрину. "
         f"История предмета остаётся с ним.</i>",
         reply_markup=auction_menu_keyboard(),
@@ -429,7 +429,7 @@ async def auction_my_lots(callback: CallbackQuery):
             from core.dates import aware, utcnow
             hours = int((aware(lot.expires_at) - utcnow()).total_seconds() // 3600)
             left = f" · осталось ~{max(0, hours)}ч"
-        lines.append(f"• {name} — <b>{lot.price}</b>🪙{left}")
+        lines.append(f"• {name} — <b>{money.fmt(lot.price)}</b>{left}")
     lines.append("\n<i>Нажми на лот, чтобы снять его с продажи.</i>")
 
     await send_or_edit_photo(callback,
