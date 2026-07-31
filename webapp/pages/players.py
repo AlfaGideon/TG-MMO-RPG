@@ -62,7 +62,7 @@ def render(ctx):
             f"<td data-label='Предм.'>{len(p.inventory)}</td>"
             f"<td data-label='Роль'>{role_label}</td>"
             f"<td data-label=''><button class='btn' data-act='player-edit' data-arg='{p.tg_id}'>✏️</button> "
-            f"<button class='btn danger' data-act='player-del' data-arg='{p.tg_id}'>🗑</button></td></tr>")
+            f"<button class='btn danger' data-act='player-del' data-arg='{p.tg_id}' data-confirm='Удалить игрока «{esc(p.name)}»? Вернуть персонажа будет нельзя.'>🗑</button></td></tr>")
     if not rows:
         rows = ("<tr><td colspan='11'><div class='empty-state'>"
                 "<div class='empty-icon'>👥</div>"

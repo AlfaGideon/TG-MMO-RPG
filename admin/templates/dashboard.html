@@ -160,7 +160,9 @@
     <div class="modal-box" onclick="event.stopPropagation()">
         <h3>📣 Рассылка всем игрокам</h3>
         <textarea id="broadcastText" rows="4" placeholder="Текст сообщения..."></textarea>
+        <div id="broadcastPreview" class="hint" hidden></div>
         <div class="modal-actions">
+            <button class="btn" onclick="previewBroadcast()">👁 Предпросмотр</button>
             <button class="btn" onclick="closeBroadcastModal()">Отмена</button>
             <button class="btn btn-primary" onclick="sendBroadcast(this)">📨 Отправить</button>
         </div>
@@ -281,6 +283,13 @@ function closeBroadcastModal(e) {
     if (!e || e.target === document.getElementById('broadcastModal')) {
         document.getElementById('broadcastModal').classList.remove('open');
     }
+}
+function previewBroadcast() {
+    const text = document.getElementById('broadcastText').value.trim();
+    if (!text) return showToast('Введите текст сообщения', 'err');
+    const box = document.getElementById('broadcastPreview');
+    box.textContent = '📢 Сообщение от администрации:\n\n' + text;
+    box.hidden = false;
 }
 
 async function sendBroadcast(btn) {

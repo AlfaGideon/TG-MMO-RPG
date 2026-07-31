@@ -154,7 +154,7 @@ def instance_form(ctx, uid):
 <h3>📖 Летопись</h3>
 <div class="story">{story}</div>
 <div style="margin-top:1rem;display:flex;gap:.5rem;flex-wrap:wrap">
-  <button class="btn danger" data-act="inst-del" data-arg="{esc(inst['uid'])}">🗑 Удалить вещь</button>
+  <button class="btn danger" data-act="inst-del" data-arg="{esc(inst['uid'])}" data-confirm="Удалить эту именную вещь? Восстановить её будет нельзя.">🗑 Удалить вещь</button>
   <button class="btn" data-act="modal-close">Закрыть</button>
 </div>
 """
@@ -177,7 +177,7 @@ def _auction(ctx):
                  f"<td><b>{lot.get('price', 0)}</b> 🪙</td>"
                  f"<td class='muted'>{esc(items.stamp(lot.get('ts', 0)))}</td>"
                  f"<td><button class='btn danger' data-act='lot-del' "
-                 f"data-arg='{esc(str(lot.get('id')))}'>🗑</button></td></tr>")
+                 f"data-arg='{esc(str(lot.get('id')))}' data-confirm='Снять лот с аукциона? Вещь будет возвращена продавцу.'>🗑</button></td></tr>")
     if not rows:
         rows = ("<tr><td colspan='6' class='muted'>Витрина пуста. Игроки "
                 "выставляют вещи через «🏛 Аукцион» в боте.</td></tr>")

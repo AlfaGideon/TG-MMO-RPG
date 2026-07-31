@@ -77,8 +77,14 @@ def render(ctx):
 
 <div class="card">
   <h2>📣 Рассылка игрокам</h2>
+  <p class="muted">Сначала проверь текст: предпросмотр не отправляет сообщение, «себе» шлёт только текущему админу.</p>
   <textarea id="castText" rows="3" placeholder="Текст сообщения (HTML разрешён)"></textarea>
-  <div style="margin-top:.5rem"><button class="btn primary" data-act="broadcast">Отправить всем</button></div>
+  <div class="row-actions">
+    <button class="btn" data-act="broadcast-preview">👁 Предпросмотр</button>
+    <button class="btn" data-act="broadcast-test">✉️ Отправить себе</button>
+    <button class="btn primary" data-act="broadcast" data-confirm="Отправить это сообщение всем игрокам?">📣 Отправить всем</button>
+  </div>
+  <div id="broadcastPreview" class="hint" hidden></div>
 </div>
 
 <div class="card">
