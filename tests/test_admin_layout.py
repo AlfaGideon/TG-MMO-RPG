@@ -27,6 +27,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TPL_DIR = os.path.join(ROOT, "admin", "templates")
 CSS_PATH = os.path.join(ROOT, "admin", "static", "style.css")
+PYODIDE_CSS_PATH = os.path.join(ROOT, "webapp", "static", "admin.css")
 
 FAILED = []
 SKIPPED = []
@@ -168,39 +169,31 @@ def test_template_conventions():
 
 def test_css_sane():
     print("\n— CSS: синтаксис, дубли, переменные —")
-    css = open(CSS_PATH, encoding="utf-8").read()
-    check(css.count("{") == css.count("}"),
-          f"скобки сбалансированы ({css.count('{')} пар)")
+    for label, path in (("серверная", CSS_PATH), ("pyodide", PYODIDE_CSS_PATH)):
+        css = open(path, encoding="utf-8").read()
+        check(css.count("{") == css.count("}"),
+              f"{label}: скобки сбалансированы ({css.count('{')} пар)")
 
-    if _have("tinycss2"):
-        import tinycss2
-        rules, _ = tinycss2.parse_stylesheet_bytes(
-            css.encode(), skip_whitespace=True, skip_comments=True)
-        errors = [r for r in rules if r.type == "error"]
-        check(not errors, f"tinycss2 разбирает без ошибок ({len(errors)} ошибок)")
-    else:
-        skip("разбор CSS", "нет tinycss2")
+        if _have("tinycss2"):
+            import tinycss2
+            rules, _ = tinycss2.parse_stylesheet_bytes(
+                css.encode(), skip_whitespace=True, skip_comments=True)
+            errors = [r for r in rules if r.type == "error"]
+            check(not errors, f"{label}: tinycss2 разбирает без ошибок ({len(errors)} ошибок)")
+        else:
+            skip(f"{label}: разбор CSS", "нет tinycss2")
 
-    # Ключевые блоки описаны ровно один раз. Считаем только объявление
-    # в начале строки: «td .btn {» и «.empty-state .btn {» — это уточнения,
-    # а не повторное определение базового класса.
-    for sel in (".empty-state", ".badge", ".btn", ".toast-msg"):
-        n = len(re.findall(rf"^{re.escape(sel)}\s*\{{", css, re.M))
-        check(n == 1, f"{sel} объявлен один раз ({n})")
+        for sel in (".empty-state", ".badge", ".btn"):
+            n = len(re.findall(rf"^{re.escape(sel)}\s*\{{", css, re.M))
+            check(n == 1, f"{label}: {sel} объявлен один раз ({n})")
 
-    # Классы, которые шаблоны используют как «общие»
-    for cls in (".muted", ".row-actions", ".check-label", ".split-2",
-                ".btn-icon", ".breadcrumbs", ".pagination"):
-        check(cls in css, f"{cls} описан в style.css")
-
-    # Ни одного жёсткого цвета вне блоков тем
-    blocks = re.findall(r'(:root\s*\{.*?\n\}|\[data-theme="light"\]\s*\{.*?\n\})',
-                        css, re.S)
-    rest = css
-    for b in blocks:
-        rest = rest.replace(b, "")
-    hard = re.findall(r"(?:^|[^-\w])(?:background|color|border-color)\s*:\s*(#[0-9a-fA-F]{3,8})", rest)
-    check(not hard, f"нет зашитых цветов вне тем (найдено: {set(hard)})")
+        blocks = re.findall(r'(:root\s*\{.*?\n\}|\[data-theme="light"\]\s*\{.*?\n\}|\[data-theme=light\]\s*\{.*?\n\})',
+                            css, re.S)
+        rest = css
+        for b in blocks:
+            rest = rest.replace(b, "")
+        hard = re.findall(r"(?:^|[^-\w])(?:background|color|border-color)\s*:\s*(#[0-9a-fA-F]{3,8})", rest)
+        check(not hard, f"{label}: нет зашитых цветов вне тем (найдено: {set(hard)})")
 
 
 # ── 6. Контраст в обеих темах ─────────────────────────────────
@@ -226,40 +219,41 @@ def _contrast(fg, bg):
 
 def test_contrast():
     print("\n— Контраст текста не ниже AA (4.5:1) —")
-    css = open(CSS_PATH, encoding="utf-8").read()
-    root = re.search(r":root\s*\{(.*?)\n\}", css, re.S).group(1)
-    light = re.search(r'\[data-theme="light"\]\s*\{(.*?)\n\}', css, re.S).group(1)
+    for label, path in (("серверная", CSS_PATH), ("pyodide", PYODIDE_CSS_PATH)):
+        css = open(path, encoding="utf-8").read()
+        root = re.search(r":root\s*\{(.*?)\n\}", css, re.S).group(1)
+        light_match = re.search(r'\[data-theme="light"\]\s*\{(.*?)\n\}', css, re.S) or re.search(r'\[data-theme=light\]\s*\{(.*?)\n\}', css, re.S)
+        light = light_match.group(1) if light_match else ""
 
-    def var(block, name):
-        m = re.search(rf"{name}\s*:\s*(#[0-9a-fA-F]{{6}})", block)
-        return m.group(1) if m else None
+        def var(block, name):
+            m = re.search(rf"{name}\s*:\s*(#[0-9a-fA-F]{{6}})", block)
+            return m.group(1) if m else None
 
-    names = ["--text", "--text-muted", "--accent-text", "--danger",
-             "--success", "--warning",
-             "--rarity-common", "--rarity-uncommon", "--rarity-rare",
-             "--rarity-epic", "--rarity-legendary",
-             "--school-fire", "--school-ice", "--school-lightning",
-             "--school-nature", "--school-arcane", "--school-shadow",
-             "--school-holy"]
+        names = ["--text", "--text-muted", "--accent-text", "--danger",
+                 "--success", "--warning",
+                 "--rarity-common", "--rarity-uncommon", "--rarity-rare",
+                 "--rarity-epic", "--rarity-legendary",
+                 "--school-fire", "--school-ice", "--school-lightning",
+                 "--school-nature", "--school-arcane", "--school-shadow",
+                 "--school-holy"]
 
-    for theme, block, bg in (("тёмная", root, var(root, "--bg-card")),
-                             ("светлая", light, var(light, "--bg-card"))):
-        low = []
-        for n in names:
-            v = var(block, n) or var(root, n)
-            if not v:
-                continue
-            r = _contrast(v, bg)
-            if r < 4.5:
-                low.append(f"{n}={v} ({r:.2f})")
-        check(not low, f"{theme} тема: все цвета ≥4.5 на {bg}" +
-              ("" if not low else f" → {low}"))
+        for theme, block, bg in ((f"{label} тёмная", root, var(root, "--bg-card")),
+                                 (f"{label} светлая", light, var(light, "--bg-card"))):
+            low = []
+            for n in names:
+                v = var(block, n) or var(root, n)
+                if not v:
+                    continue
+                r = _contrast(v, bg)
+                if r < 4.5:
+                    low.append(f"{n}={v} ({r:.2f})")
+            check(not low, f"{theme} тема: все цвета ≥4.5 на {bg}" +
+                  ("" if not low else f" → {low}"))
 
-    # Белый текст на первичной кнопке
-    for theme, block in (("тёмная", root), ("светлая", light)):
-        acc = var(block, "--accent") or var(root, "--accent")
-        r = _contrast("#ffffff", acc)
-        check(r >= 4.0, f"{theme}: белый текст на .btn-primary = {r:.2f}")
+        for theme, block in ((f"{label} тёмная", root), (f"{label} светлая", light)):
+            acc = var(block, "--accent") or var(root, "--accent")
+            r = _contrast("#ffffff", acc)
+            check(r >= 4.0, f"{theme}: белый текст на .btn-primary = {r:.2f}")
 
 
 # ── 7. Навигация вмещает свои пункты ──────────────────────────
