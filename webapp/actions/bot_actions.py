@@ -9,8 +9,6 @@ def register(app, A):
     A("token-eye", lambda _="": _eye())
     A("token-forget", lambda _="": _forget(app))
     A("broadcast", lambda _="": _broadcast(app))
-    A("broadcast-preview", lambda _="": _broadcast_preview(app))
-    A("broadcast-test", lambda _="": _broadcast_test(app))
     A("dash-broadcast", lambda _="": _dash_broadcast(app))
     A("log-clear", lambda _="": _log_clear(app))
     A("proxy-save", lambda _="": _proxy_save(app))
@@ -65,43 +63,8 @@ def _forget(app):
     app.render()
 
 
-def _broadcast_text():
-    return dom.value("#castText").strip()
-
-
-def _broadcast_preview(app):
-    text = _broadcast_text()
-    if not text:
-        dom.toast("Сначала введи текст", "err")
-        return
-    box = dom.el("#broadcastPreview")
-    if box is not None:
-        # Это текстовый предпросмотр: не исполняем присланный HTML в панели.
-        box.textContent = "📢 Сообщение от администрации:\n\n" + text
-        box.hidden = False
-
-
-async def _broadcast_test(app):
-    text = _broadcast_text()
-    if not text:
-        dom.toast("Пустое сообщение", "err")
-        return
-    if not app.bot.running:
-        dom.toast("Сначала запусти бота", "err")
-        return
-    target = getattr(app.actor, "tg_id", 0) if app.actor is not None else 0
-    if not target:
-        dom.toast("Войди как администратор: у владельца без Telegram ID нет адресата для теста", "err")
-        return
-    res = await app.bot.call("sendMessage", chat_id=target,
-                             text="📢 <b>Тест рассылки</b>\n\n" + text,
-                             parse_mode="HTML")
-    dom.toast("Тест отправлен тебе" if res.get("ok") else res.get("description", "Не удалось отправить"),
-              "ok" if res.get("ok") else "err")
-
-
 async def _broadcast(app):
-    text = _broadcast_text()
+    text = dom.value("#castText").strip()
     if not text:
         dom.toast("Пустое сообщение", "err")
         return
