@@ -604,12 +604,17 @@ async def dungeon_combat_attack(callback: CallbackQuery):
 
         if state["char_hp"] <= 0:
             character.current_hp = 1
+            # Паритет с боем на поверхности и с браузерным стеком: смерть
+            # в подземелье — это рана и надгробие с частью добра, а не
+            # просто «едва унёс ноги» без последствий.
+            from bot.handlers.battle import _lose_bag
+            note = await _lose_bag(session, character)
             await session.commit()
             del dungeon_combat_state[callback.from_user.id]
 
             await callback.message.edit_text(
                 "💀 <b>Поражение в подземелье...</b>\n\n"
-                "Ты едва унёс ноги, оставив кровавый след.",
+                "Ты едва унёс ноги, оставив кровавый след." + note,
                 reply_markup=main_menu_keyboard(has_character=True),
                 parse_mode="HTML",
             )

@@ -14,7 +14,7 @@ import json
 import random
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from engine.cataclysm_kinds import KINDS, MOB_MULT, ORDER  # noqa: F401
 from engine.worldboss import BOSSES, MIN_SHARE, PHASE_AT
@@ -186,12 +186,28 @@ async def _risky_location(session):
 
 
 async def hit_boss(session, character, damage):
-    """Записать урон. Возвращает (осталось HP, сменилась ли фаза)."""
+    """Записать урон. Возвращает (осталось HP, сменилась ли фаза).
+
+    HP списывается одним атомарным UPDATE — при одновременных ударах
+    урон не теряется. Награду за добивание раздаёт только тот, кто
+    отщёлкнул `is_active` первым (иначе два добивших получали награду
+    дважды — по разу на каждого).
+    """
+    from sqlalchemy import update
     ev = await active_boss(session)
     if ev is None:
         return 0, False
     dealt = max(1, int(damage))
-    ev.hp = max(0, int(ev.hp) - dealt)
+    await session.execute(
+        update(WorldEvent)
+        .where(WorldEvent.id == ev.id)
+        .where(WorldEvent.is_active == True)  # noqa: E712
+        # MAX(0, hp - N): работает и в SQLite, и в Postgres (greatest — нет)
+        .values(hp=func.max(0, WorldEvent.hp - dealt))
+    )
+    await session.flush()
+    await session.refresh(ev, ["hp"])
+    ev_hp = int(ev.hp)
 
     result = await session.execute(
         select(WorldEventDamage)
@@ -207,14 +223,22 @@ async def hit_boss(session, character, damage):
         row.damage = int(row.damage) + dealt
 
     phased = False
-    if not ev.phase and ev.hp <= ev.max_hp * PHASE_AT:
+    if not ev.phase and ev_hp <= ev.max_hp * PHASE_AT:
         ev.phase = 1
         phased = True
-    if ev.hp <= 0:
-        await _reward_boss(session, ev)
-        ev.is_active = False
+    if ev_hp <= 0:
+        # Добивший ровно один: у проигравшего гонку rowcount == 0.
+        res = await session.execute(
+            update(WorldEvent)
+            .where(WorldEvent.id == ev.id)
+            .where(WorldEvent.is_active == True)  # noqa: E712
+            .values(is_active=False)
+        )
+        if res.rowcount == 1:
+            await _reward_boss(session, ev)
+            ev.is_active = False
     await session.flush()
-    return ev.hp, phased
+    return ev_hp, phased
 
 
 async def _reward_boss(session, ev):

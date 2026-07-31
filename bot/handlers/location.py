@@ -1,9 +1,9 @@
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, FSInputFile
-from sqlalchemy import select, func
+from sqlalchemy import or_, select, func, update
 from sqlalchemy.orm import selectinload
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from core.database import async_session
 from core.loot import give_chest_loot
@@ -113,9 +113,10 @@ async def _ensure_floor_stairs_present(session, location: Location):
 
 async def is_chest_available(session, cell: Cell) -> bool:
     """Сундук доступен, если он есть на клетке и таймер восстановления вышел."""
+    from core.dates import aware, utcnow
     if not cell or not cell.has_chest:
         return False
-    if cell.chest_respawn_at and cell.chest_respawn_at > datetime.utcnow():
+    if cell.chest_respawn_at and aware(cell.chest_respawn_at) > utcnow():
         return False
     return True
 
@@ -403,8 +404,9 @@ async def inspect_cell(callback: CallbackQuery):
                 found.append(f"{mark['icon']} <b>{cell.name}</b> — здесь что-то есть!")
                 has_landmark = True
 
-        # Надгробие: чьё-то золото ждёт хозяина.
-        grave = await core_death.at(session, cell.location_id, cell.x, cell.y)
+        # Надгробие: чьё-то золото ждёт хозяина (на этом же этаже).
+        grave = await core_death.at(session, cell.location_id, cell.x, cell.y,
+                                    floor=cell.floor or 0)
         if grave is not None:
             whose = ("твоя" if grave.character_id == character.id
                      else grave.owner_name or "чужая")
@@ -733,6 +735,24 @@ async def open_chest(callback: CallbackQuery):
             return
 
         import random
+        from core.dates import utcnow
+        # Атомарный захват: сундук — общая клетка мира, и двое игроков (или
+        # ретрай клиента) могли прочитать «доступен» одновременно. Кто
+        # первым отщёлкнул таймер — того и лут, у остальных rowcount == 0.
+        new_respawn = utcnow() + timedelta(minutes=random.randint(20, 60))
+        claimed = await session.execute(
+            update(Cell)
+            .where(Cell.id == cell.id)
+            .where(Cell.has_chest == True)  # noqa: E712
+            .where(or_(Cell.chest_respawn_at.is_(None),
+                       Cell.chest_respawn_at <= utcnow()))
+            .values(chest_respawn_at=new_respawn)
+        )
+        if claimed.rowcount != 1:
+            await callback.answer("Сундук уже пуст. Загляни позже.", show_alert=True)
+            return
+        cell.chest_respawn_at = new_respawn
+
         from core.vip import apply_vip_chest_gold, is_vip_active
         tier = max(1, cell.chest_tier or 1)
         base_gold = random.randint(5 * tier, 25 * tier)
@@ -741,12 +761,6 @@ async def open_chest(callback: CallbackQuery):
 
         # Уникальный лут: статы предметов катаются в момент открытия
         loot = await give_chest_loot(session, character, cell.location_id, tier)
-
-        # Сундук не исчезает навсегда — восстановится через некоторое время
-        # VIP — быстрее восстановление (личный множитель не влияет на глобальный, но показываем)
-        cell.chest_respawn_at = datetime.utcnow() + timedelta(
-            minutes=random.randint(20, 60)
-        )
         await session.commit()
 
         # realtime — открытие сундука

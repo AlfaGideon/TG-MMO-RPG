@@ -77,7 +77,11 @@ async def mine(session, character):
 
 
 async def claim(session, character, grave):
-    """Забрать содержимое. Своё — целиком, чужое — половина."""
+    """Забрать содержимое. Своё — целиком, чужое — половина.
+
+    Гонка «кто первый до могилы» решается атомарным удалением: два
+    мародёра одновременно не начистят одну и ту же могилу.
+    """
     own = grave.character_id == character.id
     gold = int(grave.gold or 0)
     try:
@@ -85,13 +89,20 @@ async def claim(session, character, grave):
     except (ValueError, TypeError):
         items = []
 
+    # Сначала атомарно убираем могилу из мира — потом раздаём содержимое.
+    from sqlalchemy import delete
+    res = await session.execute(
+        delete(Grave).where(Grave.id == grave.id)
+    )
+    if res.rowcount != 1:
+        return 0, [], own                      # кто-то успел раньше
+
     taken_gold = gold if own else gold // 2
     taken_items = items if own else items[:len(items) // 2]
     character.gold += taken_gold
     for item_id in taken_items:
         session.add(InventoryItem(character_id=character.id,
                                   item_id=int(item_id), quantity=1))
-    await session.delete(grave)
     await session.flush()
     return taken_gold, taken_items, own
 

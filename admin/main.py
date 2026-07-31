@@ -18,6 +18,7 @@ from core.migrations import run_migrations
 from core import worldgen as W, worldops as WO
 from core import realtime as RT
 from engine import rules as engine_rules
+from core import dates
 from core import vip as VIP
 from core.models import (
     User, Character, Location, Mob, Item, ShopItem, Battle, AppSetting, Cell,
@@ -1996,7 +1997,8 @@ async def editor_cell(request: Request, cell_id: int):
         request,
         "editor_cell.html",
         {"cell": cell, "neighbors": neighbors, "all_locations": all_locations,
-         "dungeon_templates": dungeon_templates},
+         "dungeon_templates": dungeon_templates,
+         "error": request.query_params.get("error")},
     )
 
 
@@ -2048,13 +2050,37 @@ async def editor_cell_save(
         cell.has_house = has_house
         cell.has_tree = has_tree
         cell.has_campfire = has_campfire
-        cell.dungeon_template_id = int(dungeon_template_id) if dungeon_template_id.strip() else None
 
-        if target_location_id.strip():
-            cell.target_location_id = int(target_location_id)
-            cell.target_x = int(target_x) if target_x.strip() else None
-            cell.target_y = int(target_y) if target_y.strip() else None
-            cell.target_floor = int(target_floor) if target_floor.strip() else 0
+        # Поля-строки из формы: мусор в них раньше ронял эндпоинт на 500
+        # и откатывал всю правку клетки. Невалидное число = отказ с ошибкой.
+        _BAD = object()
+
+        def _parse_int(raw: str):
+            raw = (raw or "").strip()
+            if not raw:
+                return None
+            try:
+                return int(raw)
+            except ValueError:
+                return _BAD
+
+        dungeon_id = _parse_int(dungeon_template_id)
+        loc_id = _parse_int(target_location_id) if target_location_id.strip() else None
+        tgt_x = _parse_int(target_x)
+        tgt_y = _parse_int(target_y)
+        tgt_floor = _parse_int(target_floor)
+        if _BAD in (dungeon_id, loc_id, tgt_x, tgt_y, tgt_floor):
+            return RedirectResponse(
+                url=f"/editor/cell/{cell_id}?error=Нечисловое значение в поле портала или подземелья",
+                status_code=303,
+            )
+
+        cell.dungeon_template_id = dungeon_id
+        if loc_id is not None:
+            cell.target_location_id = loc_id
+            cell.target_x = tgt_x
+            cell.target_y = tgt_y
+            cell.target_floor = tgt_floor if tgt_floor is not None else 0
         else:
             cell.target_location_id = None
             cell.target_x = None
@@ -4384,7 +4410,8 @@ async def api_live_portals():
                 "opened_at": tpl.portal_opened_at.isoformat() if tpl.portal_opened_at else None,
                 "closed_at": tpl.portal_closed_at.isoformat() if tpl.portal_closed_at else None,
                 "time_left_sec": (
-                    max(0, int(7200 - (datetime.utcnow() - tpl.portal_opened_at).total_seconds()))
+                    # aware-сравнение: на Postgres utcnow()-datetime бросил бы TypeError
+                    max(0, int(7200 - (dates.utcnow() - dates.aware(tpl.portal_opened_at)).total_seconds()))
                     if tpl.portal_opened_at and tpl.portal_closed_at is None else None
                 ),
             })
