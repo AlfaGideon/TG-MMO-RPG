@@ -18,11 +18,53 @@ modules.json остаётся единственным источником пр
 import hashlib
 import json
 import os
+import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MANIFEST_PATH = os.path.join(ROOT, "modules.json")
 BUNDLE_PATH = os.path.join(ROOT, "webapp", "bundle.json")
+INDEX_PATH = os.path.join(ROOT, "index.html")
+
+# Статика, чьи ?v= нужно авто-бампать при сборке. GitHub Pages кеширует
+# файлы агрессивно: если версия в href зашита вручную, правки CSS/JS не
+# видны, пока не обновишь цифру руками — частый источник жалоб
+# «дизайн не меняется». Теперь версия = хэш содержимого файла.
+STATIC_ASSETS = [
+    ("webapp/static/admin.css", "admin.css?v="),
+    ("webapp/static/interactions.js", "interactions.js?v="),
+]
+
+
+def _asset_hash(rel):
+    path = os.path.join(ROOT, rel)
+    if not os.path.exists(path):
+        return None
+    return hashlib.sha256(open(path, "rb").read()).hexdigest()[:12]
+
+
+def stamp_static_versions():
+    """Подставляет актуальные ?v= для CSS/JS в index.html.
+
+    Меняет index.html только если версия действительно устарела, поэтому
+    повторные сборки без правки статики не создают шума в git.
+    """
+    if not os.path.exists(INDEX_PATH):
+        return 0
+    text = open(INDEX_PATH, encoding="utf-8").read()
+    changed = 0
+    for rel, marker in STATIC_ASSETS:
+        h = _asset_hash(rel)
+        if h is None:
+            continue
+        new = re.sub(re.escape(marker) + r"[A-Za-z0-9]+", marker + h, text)
+        if new != text:
+            text = new
+            changed += 1
+    if changed:
+        with open(INDEX_PATH, "w", encoding="utf-8") as fh:
+            fh.write(text)
+    return changed
 
 
 def build():
@@ -82,9 +124,12 @@ def is_stale():
 
 def main():
     bundle = build()
+    bumped = stamp_static_versions()
     print(f"✅ webapp/bundle.json собран: {len(bundle['files'])} модулей, "
           f"{sum(len(s) for s in bundle['files'].values())} символов, "
           f"digest {bundle['digest'][:12]}…")
+    if bumped:
+        print(f"   + обновлены ?v= для {bumped} статических файлов (анти-кеш CSS/JS)")
     return 0
 
 
