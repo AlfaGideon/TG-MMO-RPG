@@ -1,8 +1,13 @@
 # 🌑 Shadow Lands — Telegram MMORPG
 
-Игровой движок и админ-панель **целиком на Python**.
-`index.html` — только загрузчик: поднимает Python в браузере (Pyodide) и отдаёт
-ему управление. Игровой логики на JavaScript нет.
+Игровой движок и админ-панель на Python. `index.html` поднимает Python в
+браузере (Pyodide) и отдаёт ему игровую логику и рендер страниц; настоящий
+интерактив разметки (кисть по карте, drag-and-drop локаций, живые таймеры)
+работает на обычном статическом JS — `webapp/static/interactions.js`.
+Каждый инструмент делает то, для чего подходит: Python — правила игры и
+HTML-строки, JS — события мыши/касаний и DOM, которые Python в Pyodide
+дёргает медленнее и не может выполнить из вставленного через `innerHTML`
+`<script>` (это специально запрещено спецификацией браузеров).
 
 ---
 
@@ -26,13 +31,30 @@ Telegram с осени 2025 отклоняет запросы с браузер�
 (corsproxy / allorigins / codetabs) или укажи свой и нажми «Применить».
 Для постоянной работы 24/7 используй серверный запуск (см. ниже).
 
+### После правки любого модуля `engine/` или `webapp/`
+
+Обнови собранный пакет модулей, иначе холодный старт панели возьмёт
+устаревший код из `webapp/bundle.json`:
+
+```bash
+python3 tools/build_bundle.py
+```
+
+`tests/test_wiring.py` проверяет, что `bundle.json` не отстал от
+`modules.json` — забытый билд ловится тестами до того, как попадёт в прод.
+
 ---
 
 ## 🗂 Структура
 
 ```
-index.html              загрузчик Pyodide (единственный JS, ~40 строк)
-webapp/static/admin.css оформление
+index.html                    загрузчик Pyodide + подключение interactions.js
+webapp/static/admin.css       оформление
+webapp/static/interactions.js статический JS: карта/сетка/таймеры (не Python)
+webapp/bundle.json             все .py браузерного стека одним файлом —
+                               собирается tools/build_bundle.py, ускоряет
+                               холодный старт (один fetch вместо ~80)
+tools/build_bundle.py         сборка webapp/bundle.json из modules.json
 
 engine/                 правила игры — чистый Python, без зависимостей
   data.py               контент: классы, локации, мобы, предметы, NPC

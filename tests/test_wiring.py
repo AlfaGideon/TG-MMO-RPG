@@ -39,6 +39,49 @@ def main():
     check(not [m for m in listed if os.path.dirname(m) not in pkgs],
           "каталог каждого модуля объявлен пакетом")
 
+    print("\n— Пакет модулей webapp/bundle.json —")
+    # Собирается tools/build_bundle.py: все .py браузерного стека одним
+    # файлом, чтобы index.html не делал десятки отдельных fetch на старте.
+    # Если он отстал от modules.json — холодный старт панели снова
+    # молчаливо деградирует до забытой версии кода.
+    sys.path.insert(0, os.path.join(ROOT, "tools"))
+    import build_bundle
+    check(os.path.exists("webapp/bundle.json"), "webapp/bundle.json существует")
+    if os.path.exists("webapp/bundle.json"):
+        check(not build_bundle.is_stale(),
+              "webapp/bundle.json актуален (запусти tools/build_bundle.py)")
+        bundle = json.load(open("webapp/bundle.json", encoding="utf-8"))
+        check(bundle.get("modules") == listed,
+              "состав и порядок модулей в bundle.json совпадают с manifest")
+
+    print("\n— Никаких <script> внутри HTML, вставляемого через innerHTML —")
+    # webapp/app.py рисует страницы через `node.innerHTML = markup`
+    # (webapp/dom.py:html()). Браузеры по спецификации НЕ выполняют
+    # <script>, попавшие в DOM через innerHTML — такой код молча не
+    # работает, хотя выглядит рабочим и проходит текстовые тесты. Весь
+    # интерактив живёт в webapp/static/interactions.js, подключённом
+    # обычным <script src> в index.html.
+    for f in sorted(glob.glob("webapp/pages/*.py")):
+        src = open(f, encoding="utf-8").read()
+        check("<script" not in src.lower(), f"{f}: нет мёртвого <script> внутри innerHTML-разметки")
+
+    print("\n— Статический JS интерактива —")
+    check(os.path.exists("webapp/static/interactions.js"),
+          "webapp/static/interactions.js существует")
+    check('webapp/static/interactions.js' in html,
+          "index.html подключает interactions.js тегом <script src>")
+    import shutil
+    import subprocess
+    node = shutil.which("node")
+    if node:
+        res = subprocess.run([node, "--check", "webapp/static/interactions.js"],
+                             capture_output=True, text=True)
+        check(res.returncode == 0,
+              "interactions.js — синтаксически валидный JS" +
+              ("" if res.returncode == 0 else f" → {res.stderr[:200]}"))
+    else:
+        print("  ⚠️  ПРОПУСК: синтаксис interactions.js (нет node)")
+
     print("\n— Аварийный список в index.html —")
     # FALLBACK обязан совпадать с modules.json: иначе при недоступном
     # modules.json страница молча грузит устаревший набор модулей.

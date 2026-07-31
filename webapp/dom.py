@@ -1,11 +1,57 @@
-"""Тонкая обёртка над DOM, чтобы писать UI на Python без JS."""
+"""Тонкая обёртка над DOM, чтобы писать UI на Python без JS.
+
+Управление временем жизни pyodide-прокси — то, что раньше «тормозило»
+панель на долгих сессиях. Каждый `create_proxy(fn)` держит JS-обёртку
+над Python-объектом; если её не освободить явно (`.destroy()`), она живёт
+вечно, даже когда DOM-узел, на который она навешана, давно удалён
+перерисовкой (`app.render()` вызывается почти на каждое действие в панели).
+Раньше все проксирования копились в один список `_proxies` без счёта, и
+за сессию с полусотней кликов набирались сотни забытых обработчиков —
+отсюда «жор» памяти и дёрганый UI при длинной работе с админкой.
+
+Прокси делятся на два времени жизни:
+
+  * `_scoped` — навешаны на разметку текущего рендера (валидация форм,
+    автосохранение, превью картинок, инлайн-редактирование). Уничтожаются
+    и создаются заново в каждом `wire_forms()` — то есть при каждом
+    `render()`.
+  * «постоянные» — один делегированный клик-слушатель на `document`
+    (`bind_actions`) и общий обработчик исчезновения тоста (`toast`).
+    Создаются один раз за всё время жизни страницы.
+"""
 from js import document
 from pyodide.ffi import create_proxy
 
 from webapp.html import esc  # noqa: F401  (реэкспорт для страниц)
 
-_proxies = []          # держим ссылки, иначе pyodide освободит колбэки
-_actions = {}          # {name: callable}
+_scoped = []            # прокси текущего рендера — гасим перед следующим
+_permanent = []         # прокси на весь жизненный цикл страницы
+_actions = {}           # {name: callable}
+
+
+def _destroy(proxy):
+    """Освобождает pyodide-прокси. В тестах (стаб create_proxy) — no-op."""
+    destroy = getattr(proxy, "destroy", None)
+    if callable(destroy):
+        try:
+            destroy()
+        except Exception:
+            pass
+
+
+def _track(proxy, bucket):
+    bucket.append(proxy)
+    return proxy
+
+
+def _proxy_scoped(fn):
+    return _track(create_proxy(fn), _scoped)
+
+
+def _release_scoped():
+    """Гасит прокси прошлого рендера перед тем, как навесить новые."""
+    while _scoped:
+        _destroy(_scoped.pop())
 
 
 def el(sel):
@@ -31,12 +77,11 @@ def set_value(sel, val):
 
 
 def on(sel, event, fn):
+    """Разовая привязка к текущему рендеру — живёт до следующего wire_forms()."""
     node = el(sel)
     if node is None:
         return
-    proxy = create_proxy(fn)
-    _proxies.append(proxy)
-    node.addEventListener(event, proxy)
+    node.addEventListener(event, _proxy_scoped(fn))
 
 
 def action(name):
@@ -52,7 +97,7 @@ def register(name, fn):
 
 
 def bind_actions():
-    """Один делегированный слушатель на весь документ."""
+    """Один делегированный слушатель на весь документ. Вызывается один раз."""
     import asyncio
 
     def handler(evt):
@@ -85,24 +130,45 @@ def bind_actions():
             import traceback
             traceback.print_exc()
 
-    proxy = create_proxy(handler)
-    _proxies.append(proxy)
-    document.addEventListener("click", proxy)
+    document.addEventListener("click", _track(create_proxy(handler), _permanent))
+
+
+# ── тост: один переиспользуемый таймер, а не проксирование на каждый вызов ──
+_toast_timeout_id = None
+_toast_hide_proxy = None
+
+
+def _toast_hide(node):
+    def hide(*_):
+        node.setAttribute("class", "toast")
+    return hide
 
 
 def toast(text, kind="ok"):
+    global _toast_timeout_id, _toast_hide_proxy
     node = el("#toast")
     if node is None:
         return
     node.textContent = text
     node.className = f"toast show {kind}"
-    from js import setTimeout
-    setTimeout(create_proxy(lambda *_: node.setAttribute("class", "toast")), 2600)
+    from js import clearTimeout, setTimeout
+    if _toast_timeout_id is not None:
+        clearTimeout(_toast_timeout_id)
+    if _toast_hide_proxy is None:                     # создаём прокси один раз
+        _toast_hide_proxy = _track(create_proxy(_toast_hide(node)), _permanent)
+    _toast_timeout_id = setTimeout(_toast_hide_proxy, 2600)
 
 
 def wire_forms():
-    """Подключает клиентскую валидацию и автосохранение черновиков форм."""
+    """Подключает клиентскую валидацию и автосохранение черновиков форм.
+
+    Вызывается после каждого `render()`. Сначала гасит прокси прошлого
+    рендера (`_release_scoped`) — иначе на разметку, которую только что
+    заменил `innerHTML`, продолжают ссылаться обработчики со старых,
+    уже отсоединённых от DOM узлов.
+    """
     from js import window
+    _release_scoped()
 
     def validate_input(inp):
         msg = ""
@@ -153,21 +219,16 @@ def wire_forms():
     def setup(form):
         if form.hasAttribute("data-validate"):
             for inp in form.querySelectorAll("input, select, textarea"):
-                proxy = create_proxy(lambda evt, i=inp: validate_input(i))
-                _proxies.append(proxy)
-                inp.addEventListener("input", proxy)
-            proxy = create_proxy(lambda evt, f=form: validate_form(f))
-            _proxies.append(proxy)
-            form.addEventListener("submit", proxy)
+                inp.addEventListener("input", _proxy_scoped(lambda evt, i=inp: validate_input(i)))
+            form.addEventListener("submit", _proxy_scoped(lambda evt, f=form: validate_form(f)))
         if form.hasAttribute("data-autosave"):
             for inp in form.querySelectorAll("input, select, textarea"):
-                proxy = create_proxy(lambda evt, f=form: save_draft(f))
-                _proxies.append(proxy)
-                inp.addEventListener("input", proxy)
+                inp.addEventListener("input", _proxy_scoped(lambda evt, f=form: save_draft(f)))
             restore_draft(form)
-            proxy = create_proxy(lambda evt, f=form: window.localStorage.removeItem("draft:" + (f.getAttribute("id") or f.action or "form")))
-            _proxies.append(proxy)
-            form.addEventListener("submit", proxy)
+            form.addEventListener(
+                "submit",
+                _proxy_scoped(lambda evt, f=form: window.localStorage.removeItem(
+                    "draft:" + (f.getAttribute("id") or f.action or "form"))))
 
     for form in document.querySelectorAll("form[data-validate], form[data-autosave]"):
         setup(form)
@@ -177,26 +238,25 @@ def wire_forms():
         target = document.querySelector(inp.getAttribute("data-preview"))
         if target is None:
             continue
+
         def onchange(evt, t=target):
             files = evt.target.files
             if not files or not files.length:
                 return
             reader = __import__("js").FileReader.new()
+
             def done(e):
                 t.src = e.target.result
-            proxy = create_proxy(done)
-            _proxies.append(proxy)
-            reader.addEventListener("load", proxy)
+            reader.addEventListener("load", _proxy_scoped(done))
             reader.readAsDataURL(files.item(0))
-        proxy = create_proxy(onchange)
-        _proxies.append(proxy)
-        inp.addEventListener("change", proxy)
+        inp.addEventListener("change", _proxy_scoped(onchange))
 
     # inline editing: blur or Enter saves the value
     for form in document.querySelectorAll("form.inline-form[data-act]"):
         inp = form.querySelector("input, select, textarea")
         if inp is None:
             continue
+
         def make_submit(f):
             def submit(evt):
                 act = f.getAttribute("data-act")
@@ -206,14 +266,12 @@ def wire_forms():
                 if fn is not None:
                     fn(arg + ":" + val)
             return submit
-        proxy = create_proxy(make_submit(form))
-        _proxies.append(proxy)
-        inp.addEventListener("change", proxy)
+        submit_proxy = _proxy_scoped(make_submit(form))
+        inp.addEventListener("change", submit_proxy)
+
         def make_key(p):
             def key(evt):
                 if evt.key == "Enter":
                     p(evt)
             return key
-        key_proxy = create_proxy(make_key(proxy))
-        _proxies.append(key_proxy)
-        inp.addEventListener("keydown", key_proxy)
+        inp.addEventListener("keydown", _proxy_scoped(make_key(submit_proxy)))
