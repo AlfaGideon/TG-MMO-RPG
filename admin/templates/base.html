@@ -112,7 +112,7 @@
             <a href="/players" class="nav-link {% if path.startswith('/player') %}active{% endif %}">
                 <span class="nav-icon">👥</span> Игроки
             </a>
-            {% set player_ctx = request.state.player_ctx if request.state and request.state.get('player_ctx') else None %}
+            {% set player_ctx = request.state.player_ctx if request.state.player_ctx is defined else None %}
             {% if player_ctx %}
             <div class="context-submenu">
                 <div class="context-label">👤 {{ player_ctx.name }}</div>
@@ -165,6 +165,7 @@
                     <a href="/editor/events" class="nav-sublink {% if path == '/editor/events' %}active{% endif %}">🎄 События</a>
                     <a href="/editor/npcs" class="nav-sublink {% if path == '/editor/npcs' %}active{% endif %}">💬 NPC</a>
                     <a href="/editor/quests" class="nav-sublink {% if path == '/editor/quests' %}active{% endif %}">📜 Квесты</a>
+                    <a href="/editor/ai" class="nav-sublink {% if path == '/editor/ai' %}active{% endif %}">✨ AI-мастерская</a>
                     <a href="/editor/updates" class="nav-sublink {% if path == '/editor/updates' %}active{% endif %}">📢 Обновления и Идеи</a>
                 </div>
             </div>

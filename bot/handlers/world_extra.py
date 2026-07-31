@@ -69,7 +69,8 @@ async def claim_grave(callback: CallbackQuery):
             await callback.answer("Ошибка.", show_alert=True)
             return
         cell = character.cell
-        grave = await core_death.at(session, cell.location_id, cell.x, cell.y)
+        grave = await core_death.at(session, cell.location_id, cell.x, cell.y,
+                                    floor=cell.floor or 0)
         if grave is None:
             await callback.answer("Здесь нечего забирать.", show_alert=True)
             return

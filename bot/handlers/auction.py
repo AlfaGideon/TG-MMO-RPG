@@ -425,8 +425,9 @@ async def auction_my_lots(callback: CallbackQuery):
         name = lot.instance.display_name(lot.item) if lot.instance else "?"
         left = ""
         if lot.expires_at:
-            from datetime import datetime
-            hours = int((lot.expires_at - datetime.utcnow()).total_seconds() // 3600)
+            # aware-сравнение: на Postgres utcnow()-datetime бросил бы TypeError
+            from core.dates import aware, utcnow
+            hours = int((aware(lot.expires_at) - utcnow()).total_seconds() // 3600)
             left = f" · осталось ~{max(0, hours)}ч"
         lines.append(f"• {name} — <b>{lot.price}</b>🪙{left}")
     lines.append("\n<i>Нажми на лот, чтобы снять его с продажи.</i>")

@@ -171,7 +171,7 @@ def put(p, arg, store=None):
     if not safe_here(p):
         return _need_safe()
     pos = int(arg)
-    if pos >= len(p.inventory):
+    if pos < 0 or pos >= len(p.inventory):
         return Reply(alert="Предмет не найден.")
     if free_slots(p, store) <= 0:
         return Reply(alert=f"Карман полон: {capacity(p, store)} ячеек. "
@@ -192,7 +192,7 @@ def take(p, arg, store=None):
         return _need_safe()
     pos = int(arg)
     lst = _stash(p)
-    if pos >= len(lst):
+    if pos < 0 or pos >= len(lst):
         return Reply(alert="Предмет не найден.")
     idx = lst.pop(pos)
     p.inventory.append(idx)

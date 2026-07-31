@@ -15,6 +15,9 @@
 {% endblock %}
 
 {% block content %}
+{% if error %}
+<div class="banner warn">⚠️ {{ error.replace('+', ' ') }}</div>
+{% endif %}
 <div class="card">
 
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">

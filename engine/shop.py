@@ -124,7 +124,7 @@ def sell_list(p, page=0):
 def sell_card(p, arg):
     """Карточка своего предмета перед продажей."""
     pos = int(arg)
-    if pos >= len(p.inventory):
+    if pos < 0 or pos >= len(p.inventory):
         return Reply(alert="Предмет не найден.")
     idx = p.inventory[pos]
     it = rules.item(idx)
@@ -144,7 +144,7 @@ def sell_card(p, arg):
 def sell_here(p, arg):
     """Продажа из лавки: остаёмся в скупке, а не уходим в сумку."""
     pos = int(arg)
-    if pos >= len(p.inventory):
+    if pos < 0 or pos >= len(p.inventory):
         return Reply(alert="Предмет не найден.")
     idx = p.inventory.pop(pos)
     it = rules.item(idx)

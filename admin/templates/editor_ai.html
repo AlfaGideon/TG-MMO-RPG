@@ -1,0 +1,302 @@
+{% extends "base.html" %}
+
+{% block title %}AI-мастерская — Shadow Lands{% endblock %}
+{% block page_title %}✨ AI-мастерская{% endblock %}
+
+{% block content %}
+{% if error %}
+<div class="banner warn">⚠️ {{ error }}</div>
+{% endif %}
+{% if saved %}
+<div class="banner ok">✅ Сохранено.</div>
+{% endif %}
+
+<div style="display:grid; grid-template-columns: 1.2fr 0.8fr; gap:1rem; align-items:start;">
+
+    <!-- ═══ Генератор ═══ -->
+    <div class="card">
+        <h2>🪄 Генератор</h2>
+        <p class="section-sub">
+            Квесты, линейки, диалоги и лор. В контекст каждой генерации подаётся
+            досье мира: <b>{{ dossier_chars }}</b> символов (~{{ (dossier_chars / 4) | int }} токенов),
+            из них утверждённая библия лора — <b>{{ bible_count }}</b> записей.
+            «Память» длинная ровно настолько, насколько вы утверждаете канон.
+        </p>
+        <form id="ai-form">
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:.75rem;">
+                <div>
+                    <label class="ai-label">Что делаем</label>
+                    <select name="kind" class="search-box" id="ai-kind">
+                        {% for key, (label, desc) in kinds.items() %}
+                        <option value="{{ key }}" title="{{ desc }}">{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="ai-label">Локация</label>
+                    <select name="location_id" class="search-box">
+                        <option value="">— любая —</option>
+                        {% for loc in locations %}
+                        <option value="{{ loc.id }}">{{ loc.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="ai-label">NPC (для диалогов/заказчиков)</label>
+                    <input type="text" name="npc_name" class="search-box" list="ai-npcs"
+                           placeholder="текущая реплика кого?..">
+                    <datalist id="ai-npcs">
+                        {% for c in npc_cells %}
+                        <option value="{{ c.npc_name }}">{{ c.location.name }}</option>
+                        {% endfor %}
+                    </datalist>
+                </div>
+                <div>
+                    <label class="ai-label">Роль NPC</label>
+                    <input type="text" name="npc_type" class="search-box"
+                           placeholder="торговец / лекарь / …">
+                </div>
+                <div>
+                    <label class="ai-label">Уровень игрока</label>
+                    <input type="text" name="level" class="search-box" placeholder="1">
+                </div>
+                <div>
+                    <label class="ai-label">Тон</label>
+                    <select name="tone" class="search-box">
+                        {% for t in tones %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+                    </select>
+                </div>
+            </div>
+            <label class="ai-label" style="margin-top:.75rem">Затравка (необязательно)</label>
+            <textarea name="seed_text" class="search-box ai-seed" rows="2"
+                      placeholder="например: культ хоронит что-то под полом таверны"></textarea>
+            <div style="display:flex; gap:.5rem; margin-top:.75rem; align-items:center;">
+                <button type="submit" class="btn btn-primary" id="ai-go">✨ Сгенерировать</button>
+                <span id="ai-busy" style="display:none; opacity:.75;">мыслим… (до 2 мин)</span>
+            </div>
+        </form>
+    </div>
+
+    <!-- ═══ Провайдер ═══ -->
+    <div class="card">
+        <h2>🔌 Провайдер <span class="badge {{ 'badge-ok' if status.configured else 'badge-warn' }}">{{ 'настроен' if status.configured else 'офлайн' }}</span></h2>
+        <p class="section-sub">
+            {{ status.name }}<br>
+            Модель: <code>{{ status.model or '—' }}</code><br>
+            Ключ: <code>{{ status.api_key or 'не задан' }}</code>
+            {% if status.env_only %}(из окружения){% endif %}<br>
+            <span style="opacity:.8">{{ status.limits }}</span><br>
+            {% if status.key_url %}<a href="{{ status.key_url }}" target="_blank" rel="noopener">Получить ключ ↗</a> · {% endif %}
+            <span style="opacity:.65">{{ status.note }}</span>
+        </p>
+        {% if not status.configured %}
+        <div class="banner warn" style="margin:.5rem 0;">
+            Без ключа работает <b>офлайн-режим</b>: заготовки собираются из живого
+            контента игры шаблонами. Добавьте ключ — генерация станет
+            полноценной (все провайдеры бесплатны, без карты).
+        </div>
+        {% endif %}
+        <form action="/editor/ai/settings" method="post" style="margin-top:.5rem;">
+            <label class="ai-label">Провайдер</label>
+            <select name="provider" class="search-box" id="provider-select">
+                {% for key, p in providers.items() %}
+                <option value="{{ key }}" {% if key == status.provider %}selected{% endif %}>{{ p.name }}</option>
+                {% endfor %}
+            </select>
+            <label class="ai-label">Модель</label>
+            <select name="model" class="search-box" id="provider-model"></select>
+            <label class="ai-label">API-ключ (пустое = оставить как есть)</label>
+            <input type="password" name="api_key" class="search-box" autocomplete="off"
+                   placeholder="{{ status.api_key or 'вставьте ключ' }}">
+            <div id="custom-base-wrap" style="display:none;">
+                <label class="ai-label">Base URL (для «свой endpoint»)</label>
+                <input type="text" name="base_url" class="search-box"
+                       placeholder="http://localhost:11434/v1">
+            </div>
+            <button type="submit" class="btn" style="margin-top:.5rem;">💾 Сохранить</button>
+        </form>
+        <p class="section-sub" style="margin-top:.75rem; opacity:.7">
+            Подборка тарифов: <a href="https://github.com/mnfst/awesome-free-llm-apis#provider-apis" target="_blank" rel="noopener">awesome-free-llm-apis</a>.
+            Рекомендован Mistral: 256K контекст, работает из ЕС, ~1 млрд токенов/мес free.
+        </p>
+    </div>
+</div>
+
+<!-- ═══ Результат ═══ -->
+<div class="card" id="ai-result-card" style="display:none; margin-top:1rem;">
+    <h2><span id="ai-result-title">Черновик</span>
+        <span class="badge badge-ok" id="ai-result-provider"></span>
+        <span class="badge badge-warn" id="ai-result-offline" style="display:none;">офлайн-режим</span>
+    </h2>
+    <div id="ai-result-text" class="ai-output"></div>
+    <div style="display:flex; gap:.5rem; margin-top:.75rem; flex-wrap:wrap;">
+        <form id="ai-apply-bible" method="post" style="display:inline">
+            <button class="btn" type="submit">📖 В библию лора</button>
+        </form>
+        <button class="btn" type="button" id="ai-toggle-quest">📜 Применить как квест</button>
+        <button class="btn" type="button" id="ai-toggle-dialogue">💬 Применить как диалог NPC</button>
+        <button class="btn" type="button" id="ai-copy">📋 Скопировать</button>
+    </div>
+    <form id="ai-apply-quest" method="post" class="ai-apply" style="display:none;">
+        <div style="display:grid; grid-template-columns:2fr 1fr 1fr; gap:.5rem; margin-top:.5rem;">
+            <input type="text" name="name" class="search-box" placeholder="Название квеста" id="aq-name" required>
+            <select name="objective_type" class="search-box" id="aq-type">
+                <option value="kill">kill</option><option value="collect">collect</option>
+                <option value="explore">explore</option><option value="talk">talk</option>
+            </select>
+            <input type="text" name="objective_target" class="search-box" placeholder="Цель (моб/предмет)" id="aq-target">
+            <input type="number" name="objective_count" class="search-box" value="1" min="1" placeholder="Кол-во">
+            <input type="number" name="reward_gold" class="search-box" value="50" min="0" placeholder="Золото">
+            <input type="number" name="reward_exp" class="search-box" value="100" min="0" placeholder="Опыт">
+            <input type="number" name="min_level" class="search-box" value="1" min="1" placeholder="Мин. ур.">
+            <select name="location_id" class="search-box">
+                <option value="">— локация —</option>
+                {% for loc in locations %}<option value="{{ loc.id }}">{{ loc.name }}</option>{% endfor %}
+            </select>
+            <input type="text" name="npc_name" class="search-box" placeholder="NPC-заказчик" id="aq-npc">
+        </div>
+        <textarea name="description" class="search-box ai-seed" rows="3" id="aq-desc"
+                  placeholder="Текст квеста"></textarea>
+        <button class="btn btn-primary" type="submit">✅ Создать квест</button>
+    </form>
+    <form id="ai-apply-dialogue" method="post" class="ai-apply" style="display:none;">
+        <select name="cell_id" class="search-box" style="margin-top:.5rem;">
+            {% for c in npc_cells %}
+            <option value="{{ c.id }}">{{ c.npc_name }} — {{ c.location.name }} [{{ c.x }},{{ c.y }}]</option>
+            {% endfor %}
+        </select>
+        <textarea name="dialogue" class="search-box ai-seed" rows="5" id="ad-dialogue"></textarea>
+        <button class="btn btn-primary" type="submit">✅ Записать диалог в клетку</button>
+    </form>
+</div>
+
+<!-- ═══ История ═══ -->
+<div class="card" style="margin-top:1rem;" id="history">
+    <h2>🗂 История генераций</h2>
+    {% if history %}
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>ID</th><th>Черновик</th><th>Тип</th><th>Где</th><th>Модель</th><th>Статус</th><th></th></tr></thead>
+            <tbody>
+            {% for g in history %}
+                <tr>
+                    <td>{{ g.id }}</td>
+                    <td>
+                        <details>
+                            <summary style="cursor:pointer">{{ g.title }}</summary>
+                            <div class="ai-output" style="max-width:520px;">{{ g.content }}</div>
+                        </details>
+                    </td>
+                    <td>{{ kinds.get(g.kind, (g.kind,))[0] }}</td>
+                    <td>{{ g.target_label or '—' }}</td>
+                    <td><code>{{ g.provider }}</code></td>
+                    <td>
+                        {% if g.status == 'bible' %}<span class="badge badge-ok">библия</span>
+                        {% elif g.status == 'applied' %}<span class="badge">применён</span>
+                        {% else %}<span class="badge badge-warn">черновик</span>{% endif %}
+                    </td>
+                    <td style="white-space:nowrap;">
+                        {% if g.status != 'bible' %}
+                        <form action="/editor/ai/{{ g.id }}/to-bible" method="post" style="display:inline">
+                            <button class="btn btn-sm" title="В библию лора">📖</button>
+                        </form>
+                        {% endif %}
+                        <form action="/editor/ai/{{ g.id }}/discard" method="post" style="display:inline">
+                            <button class="btn btn-sm" title="В корзину">🗑</button>
+                        </form>
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="section-sub">Пусто. Первая генерация положит начало канону.</p>
+    {% endif %}
+</div>
+
+<style>
+.ai-label { display:block; margin-bottom:.2rem; font-size:.8rem; color:var(--text-muted); }
+.ai-seed { width:100%; resize:vertical; }
+.ai-output {
+    white-space: pre-wrap; background: var(--bg, #14161c); border:1px solid var(--border);
+    border-radius:8px; padding:.75rem 1rem; margin-top:.5rem; line-height:1.5; font-size:.95rem;
+}
+.badge { display:inline-block; padding:.1rem .5rem; border-radius:999px; font-size:.75rem;
+         border:1px solid var(--border); opacity:.85; vertical-align:middle; }
+.badge-ok { border-color:#3a7d44; color:#7fca8a; }
+.badge-warn { border-color:#8a6d3b; color:#e0b96d; }
+</style>
+
+<script>
+const PROVIDERS = {{ provider_models | tojson }};
+const providerSelect = document.getElementById('provider-select');
+const modelSelect = document.getElementById('provider-model');
+const baseWrap = document.getElementById('custom-base-wrap');
+function syncModels() {
+    const key = providerSelect.value;
+    modelSelect.innerHTML = '';
+    for (const m of PROVIDERS[key] || []) {
+        if (!m) continue;
+        const opt = document.createElement('option');
+        opt.value = m; opt.textContent = m;
+        if (m === "{{ status.model }}") opt.selected = true;
+        modelSelect.appendChild(opt);
+    }
+    baseWrap.style.display = key === 'custom' ? 'block' : 'none';
+}
+providerSelect.addEventListener('change', syncModels);
+syncModels();
+
+// ── генерация без перезагрузки ──
+const form = document.getElementById('ai-form');
+const busy = document.getElementById('ai-busy');
+let lastGenId = null;
+form.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    busy.style.display = 'inline';
+    document.getElementById('ai-go').disabled = true;
+    try {
+        const resp = await fetch('/editor/ai/generate', {
+            method: 'POST', body: new FormData(form),
+        });
+        const data = await resp.json();
+        if (!data.ok) { alert('Ошибка: ' + (data.error || resp.status)); return; }
+        lastGenId = data.id;
+        document.getElementById('ai-result-card').style.display = 'block';
+        document.getElementById('ai-result-title').textContent = data.title;
+        document.getElementById('ai-result-provider').textContent =
+            data.provider + ' / ' + data.model + ' · ' + data.prompt_chars + ' симв. промпта';
+        document.getElementById('ai-result-offline').style.display = data.offline ? 'inline-block' : 'none';
+        document.getElementById('ai-result-text').textContent = data.content;
+        // предзаполнить формы применения
+        const f = data.fields || {};
+        document.getElementById('aq-name').value = f.name || data.title;
+        if (f.objective_type) document.getElementById('aq-type').value = f.objective_type;
+        document.getElementById('aq-target').value = f.objective_target || '';
+        document.getElementById('aq-npc').value = f.npc_name ||
+            (new FormData(form)).get('npc_name') || '';
+        document.getElementById('aq-desc').value = f.description || data.content;
+        document.getElementById('ad-dialogue').value = data.content;
+        document.getElementById('ai-apply-bible').action = '/editor/ai/' + data.id + '/to-bible';
+        document.getElementById('ai-apply-quest').action = '/editor/ai/' + data.id + '/apply-quest';
+        document.getElementById('ai-apply-dialogue').action = '/editor/ai/' + data.id + '/apply-dialogue';
+        document.getElementById('ai-result-card').scrollIntoView({behavior: 'smooth'});
+    } catch (e) {
+        alert('Сеть: ' + e);
+    } finally {
+        busy.style.display = 'none';
+        document.getElementById('ai-go').disabled = false;
+    }
+});
+
+function toggle(id) {
+    const el = document.getElementById(id);
+    el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+document.getElementById('ai-toggle-quest').onclick = () => toggle('ai-apply-quest');
+document.getElementById('ai-toggle-dialogue').onclick = () => toggle('ai-apply-dialogue');
+document.getElementById('ai-copy').onclick = () =>
+    navigator.clipboard.writeText(document.getElementById('ai-result-text').textContent);
+</script>
+{% endblock %}

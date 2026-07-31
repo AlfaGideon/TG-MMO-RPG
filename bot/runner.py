@@ -9,6 +9,7 @@ from aiogram.enums import ParseMode
 from bot.handlers import routers
 from bot.middlewares.db import DBSessionMiddleware
 from bot.middlewares.offline import OfflineProtectionMiddleware
+from bot.middlewares.serialize import SerializeUserMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,7 @@ class BotRunner:
         self._task: Optional[asyncio.Task] = None
         self._portal_sweep_task: Optional[asyncio.Task] = None
         self._spawn_tick_task: Optional[asyncio.Task] = None
+        self._bg_tasks: set = set()      # ссылки на fire-and-forget задачи
         self._running = False
 
     def is_running(self) -> bool:
@@ -36,16 +38,26 @@ class BotRunner:
                 default=DefaultBotProperties(parse_mode=ParseMode.HTML)
             )
             self.dp = Dispatcher()
-            self.dp.message.middleware(DBSessionMiddleware())
-            self.dp.callback_query.middleware(DBSessionMiddleware())
-            self.dp.message.middleware(OfflineProtectionMiddleware())
-            self.dp.callback_query.middleware(OfflineProtectionMiddleware())
+            # Внешние middleware — в порядке регистрации: сначала сериализация
+            # (двойной тап ждёт), затем сессия БД, затем офлайн-страж.
+            for event_type in (self.dp.message, self.dp.callback_query):
+                event_type.middleware(SerializeUserMiddleware())
+                event_type.middleware(DBSessionMiddleware())
+                event_type.middleware(OfflineProtectionMiddleware())
             for router in routers:
                 self.dp.include_router(router)
 
             self._running = True
             self._task = asyncio.create_task(self._poll())
-            asyncio.create_task(self._notify_resume_on_start())
+            # Ссылку держим явно: цикл событий хранит задачи слабо,
+            # и несохранённый create_task может быть собран GC на полпути
+            # (задокументированная ловушка asyncio).
+            notice = asyncio.create_task(self._notify_resume_on_start())
+            self._bg_tasks.add(notice)
+            notice.add_done_callback(self._bg_tasks.discard)
+            cleanup = asyncio.create_task(self._cleanup_after_restart())
+            self._bg_tasks.add(cleanup)
+            cleanup.add_done_callback(self._bg_tasks.discard)
             self._portal_sweep_task = asyncio.create_task(self._portal_sweep_loop())
             self._spawn_tick_task = asyncio.create_task(self._spawn_tick_loop())
             logger.info("Bot started")
@@ -66,6 +78,28 @@ class BotRunner:
                 logger.info(f"Sent resume-action notices to {count} player(s)")
         except Exception as e:
             logger.debug(f"resume notification pass failed: {e}")
+
+    async def _cleanup_after_restart(self):
+        """Боевое состояние живёт в памяти: после рестарта середина боя
+        теряется, а моб так и остался бы «в чужих руках» навсегда —
+        неуязвимый и неподвижный (`engaged_by_id` без хозяина). Снимаем
+        все захваты при старте."""
+        try:
+            await asyncio.sleep(1)                     # дать БД подняться
+            from sqlalchemy import update
+            from core.database import async_session
+            from core.models import MobSpawn
+            async with async_session() as session:
+                res = await session.execute(
+                    update(MobSpawn)
+                    .where(MobSpawn.engaged_by_id.isnot(None))
+                    .values(engaged_by_id=None)
+                )
+                await session.commit()
+            if res.rowcount:
+                logger.info(f"Released {res.rowcount} mobs engaged before restart")
+        except Exception as e:
+            logger.debug(f"engagement cleanup failed: {e}")
 
     async def _portal_sweep_loop(self):
         """Periodically auto-closes dungeon portals that have been open

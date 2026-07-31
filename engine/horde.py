@@ -110,4 +110,6 @@ def prowl(store, p, rng=None):
     c = rng.choice(near)
     mob_index = c.mob
     c.mob = -1
-    return mob_index
+    # Ключ домашней клетки — чтобы боевая система вернула/воскресила тварь
+    # там, где она стояла, а не под игроком.
+    return mob_index, c.key

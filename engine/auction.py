@@ -5,6 +5,7 @@
 на витрине, а не в сумке. Скупщик Молчун выкупает вещь мгновенно за ~55 %
 оценки и перевыставляет с наценкой, чтобы вещи не пропадали из мира.
 """
+import secrets
 import time
 
 from engine import items
@@ -80,7 +81,9 @@ def list_item(store, p, uid, price):
     price = max(1, int(price))
 
     lot = {
-        "id": f"L{int(time.time() * 1000) % 10 ** 9}",
+        # Миллисекунды одни на двоих не делят: два лота за одну ms раньше
+        # получали одинаковый id и снимались/покупались «по кругу».
+        "id": f"L{int(time.time() * 1000) % 10 ** 9}{secrets.token_hex(2)}",
         "uid": str(uid), "seller": int(p.tg_id), "seller_name": p.name,
         "price": price, "ts": int(time.time()), "status": "active",
     }
@@ -186,7 +189,7 @@ def sell_to_npc(store, p, uid):
     inst["trades"] = int(inst.get("trades") or 0) + 1
 
     _lots(store).append({
-        "id": f"N{int(time.time() * 1000) % 10 ** 9}",
+        "id": f"N{int(time.time() * 1000) % 10 ** 9}{secrets.token_hex(2)}",
         "uid": str(uid), "seller": 0, "seller_name": NPC_NAME,
         "price": max(1, int(items.price(inst) * NPC_MARKUP)),
         "ts": int(time.time()), "status": "active",

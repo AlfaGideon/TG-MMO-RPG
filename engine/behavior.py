@@ -87,7 +87,9 @@ def hunters_near(store, p, rng=None):
         if rng.random() < chance:
             mob_index = c.mob
             c.mob = -1
-            return mob_index
+            # Ключ домашней клетки отдаём вместе с тварью: бой должен
+            # знать, куда её вернуть при побеге и где её воскрешать.
+            return mob_index, c.key
     return None
 
 

@@ -125,7 +125,21 @@ async def start_cell_battle(callback, character, spawn: MobSpawn, session):
         await callback.answer("С этим врагом уже кто-то сражается.", show_alert=True)
         return
 
-    # Пока идёт бой, моб не бродит по карте
+    # Атомарный захват: двое, ударившие одного моба одновременно, раньше
+    # оба «захватывали» его и каждый получал награду. Отщёлкиваем одним
+    # UPDATE — у второго rowcount == 0.
+    from sqlalchemy import or_, update
+    claimed = await session.execute(
+        update(MobSpawn)
+        .where(MobSpawn.id == spawn.id)
+        .where(MobSpawn.is_alive == True)  # noqa: E712
+        .where(or_(MobSpawn.engaged_by_id.is_(None),
+                   MobSpawn.engaged_by_id == character.id))
+        .values(engaged_by_id=character.id)
+    )
+    if claimed.rowcount != 1:
+        await callback.answer("С этим врагом уже кто-то сражается.", show_alert=True)
+        return
     spawn.engaged_by_id = character.id
     if not spawn.current_hp:
         spawn.current_hp = mob.hp

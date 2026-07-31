@@ -38,7 +38,7 @@ def bag(p, page=0, store=None):
 def card(p, arg, store=None):
     """Карточка предмета из сумки: что это и что с ним можно сделать."""
     pos = int(arg)
-    if pos >= len(p.inventory):
+    if pos < 0 or pos >= len(p.inventory):
         return Reply(alert="Предмет не найден.")
     idx = p.inventory[pos]
     it = rules.item(idx)
@@ -67,7 +67,7 @@ def card(p, arg, store=None):
 
 def equip(p, arg):
     pos = int(arg)
-    if pos >= len(p.inventory):
+    if pos < 0 or pos >= len(p.inventory):
         return Reply(alert="Предмет не найден.")
     idx = p.inventory[pos]
     it = rules.item(idx)
@@ -81,7 +81,7 @@ def equip(p, arg):
 
 def unequip(p, arg):
     pos = int(arg)
-    if pos >= len(p.inventory):
+    if pos < 0 or pos >= len(p.inventory):
         return Reply(alert="Предмет не найден.")
     idx = p.inventory[pos]
     it = rules.item(idx)
@@ -95,7 +95,7 @@ def unequip(p, arg):
 
 def use(p, arg):
     pos = int(arg)
-    if pos >= len(p.inventory):
+    if pos < 0 or pos >= len(p.inventory):
         return Reply(alert="Предмет не найден.")
     idx = p.inventory[pos]
     it = rules.item(idx)
@@ -119,7 +119,7 @@ def use(p, arg):
 
 def sell(p, arg):
     pos = int(arg)
-    if pos >= len(p.inventory):
+    if pos < 0 or pos >= len(p.inventory):
         return Reply(alert="Предмет не найден.")
     idx = p.inventory.pop(pos)
     it = rules.item(idx)
@@ -134,7 +134,7 @@ def sell(p, arg):
 
 def toss(p, arg):
     pos = int(arg)
-    if pos >= len(p.inventory):
+    if pos < 0 or pos >= len(p.inventory):
         return Reply(alert="Предмет не найден.")
     idx = p.inventory.pop(pos)
     it = rules.item(idx)

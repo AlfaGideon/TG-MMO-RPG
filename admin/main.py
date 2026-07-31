@@ -17,6 +17,8 @@ from core.database import init_db, async_session
 from core.migrations import run_migrations
 from core import worldgen as W, worldops as WO
 from core import realtime as RT
+from engine import rules as engine_rules
+from core import dates
 from core import vip as VIP
 from core.models import (
     User, Character, Location, Mob, Item, ShopItem, Battle, AppSetting, Cell,
@@ -24,6 +26,7 @@ from core.models import (
     CharacterClassDef, ItemInstance, DropEntry, CraftRecipe, CraftIngredient,
     UpgradeRule, MobSpawn, ItemHistory, AuctionLot, CharacterAffinity,
     WorldEvent, WorldEventDamage, Grave, GameUpdate, PlayerSuggestion,
+    AIGeneration,
 )
 from core.enums import (
     LocationType, ItemType, ItemRarity, QuestStatus, ItemSource, CraftStation,
@@ -577,7 +580,7 @@ async def player_edit(
                     max_mp = max(0, max_mp + delta * gains.get("max_mp", 5))
                     current_mp = min(max_mp, max(0, current_mp + delta * gains.get("max_mp", 5)))
 
-            char.name = name
+            char.name = engine_rules.clean_name(name)
             if character_class.strip():
                 char.character_class = character_class.strip()
             char.level = new_level
@@ -1995,7 +1998,8 @@ async def editor_cell(request: Request, cell_id: int):
         request,
         "editor_cell.html",
         {"cell": cell, "neighbors": neighbors, "all_locations": all_locations,
-         "dungeon_templates": dungeon_templates},
+         "dungeon_templates": dungeon_templates,
+         "error": request.query_params.get("error")},
     )
 
 
@@ -2047,13 +2051,37 @@ async def editor_cell_save(
         cell.has_house = has_house
         cell.has_tree = has_tree
         cell.has_campfire = has_campfire
-        cell.dungeon_template_id = int(dungeon_template_id) if dungeon_template_id.strip() else None
 
-        if target_location_id.strip():
-            cell.target_location_id = int(target_location_id)
-            cell.target_x = int(target_x) if target_x.strip() else None
-            cell.target_y = int(target_y) if target_y.strip() else None
-            cell.target_floor = int(target_floor) if target_floor.strip() else 0
+        # Поля-строки из формы: мусор в них раньше ронял эндпоинт на 500
+        # и откатывал всю правку клетки. Невалидное число = отказ с ошибкой.
+        _BAD = object()
+
+        def _parse_int(raw: str):
+            raw = (raw or "").strip()
+            if not raw:
+                return None
+            try:
+                return int(raw)
+            except ValueError:
+                return _BAD
+
+        dungeon_id = _parse_int(dungeon_template_id)
+        loc_id = _parse_int(target_location_id) if target_location_id.strip() else None
+        tgt_x = _parse_int(target_x)
+        tgt_y = _parse_int(target_y)
+        tgt_floor = _parse_int(target_floor)
+        if _BAD in (dungeon_id, loc_id, tgt_x, tgt_y, tgt_floor):
+            return RedirectResponse(
+                url=f"/editor/cell/{cell_id}?error=Нечисловое значение в поле портала или подземелья",
+                status_code=303,
+            )
+
+        cell.dungeon_template_id = dungeon_id
+        if loc_id is not None:
+            cell.target_location_id = loc_id
+            cell.target_x = tgt_x
+            cell.target_y = tgt_y
+            cell.target_floor = tgt_floor if tgt_floor is not None else 0
         else:
             cell.target_location_id = None
             cell.target_x = None
@@ -2813,6 +2841,218 @@ async def editor_npcs(request: Request):
         "editor_npcs.html",
         {"npc_cells": npc_cells},
     )
+
+
+# ── AI-мастерская ────────────────────────────────────────────
+# Генерация квестов/лора/диалогов бесплатными LLM
+# (выбор провайдеров — по awesome-free-llm-apis, см. core/ai.py).
+
+
+@app.get("/editor/ai")
+async def editor_ai(request: Request):
+    guard(request, "manage_content")
+    from core import ai as AI, lore as LORE
+    async with async_session() as session:
+        status = await AI.provider_status(session)
+        result = await session.execute(select(Location).order_by(Location.id))
+        locations = result.scalars().all()
+        result = await session.execute(
+            select(Cell).where(Cell.has_npc == True)  # noqa: E712
+            .options(selectinload(Cell.location)))
+        npc_cells = [c for c in result.scalars().all() if c.npc_name]
+        result = await session.execute(
+            select(Mob).order_by(Mob.level).limit(120))
+        mobs = result.scalars().all()
+
+        result = await session.execute(
+            select(AIGeneration)
+            .where(AIGeneration.status != "discarded")
+            .order_by(AIGeneration.created_at.desc()).limit(50))
+        history = result.scalars().all()
+        result = await session.execute(
+            select(func.count(AIGeneration.id))
+            .where(AIGeneration.status == "bible"))
+        bible_count = result.scalar() or 0
+
+        dossier = await LORE.collect_dossier(session)
+    provider_models = {
+        key: ([p["default_model"]] + [m for m, _ in p["models"]]
+              if p["default_model"] else [])
+        for key, p in AI.PROVIDERS.items()
+    }
+    return templates.TemplateResponse(
+        request,
+        "editor_ai.html",
+        {"status": status, "providers": AI.PROVIDERS, "kinds": LORE.KINDS,
+         "tones": LORE.TONES, "locations": locations, "npc_cells": npc_cells,
+         "mobs": mobs, "history": history, "bible_count": bible_count,
+         "dossier_chars": len(dossier), "provider_models": provider_models,
+         "saved": request.query_params.get("saved"),
+         "error": request.query_params.get("error")},
+    )
+
+
+@app.post("/editor/ai/generate")
+async def ai_generate(
+    request: Request,
+    kind: str = Form("quest"),
+    location_id: str = Form(""),
+    npc_name: str = Form(""),
+    npc_type: str = Form(""),
+    level: str = Form(""),
+    tone: str = Form(""),
+    seed_text: str = Form(""),
+):
+    """Сгенерировать черновик. Возвращает JSON для работы без перезагрузки."""
+    guard(request, "manage_content")
+    from core import ai as AI, lore as LORE
+
+    if kind not in LORE.KINDS:
+        return JSONResponse({"ok": False, "error": "Неизвестный тип"}, 400)
+
+    params = {"level": level.strip(), "tone": tone.strip(),
+              "seed_text": seed_text.strip(),
+              "npc_name": npc_name.strip(), "npc_type": npc_type.strip()}
+    async with async_session() as session:
+        if location_id.strip() and location_id.strip().isdigit():
+            loc = await session.get(Location, int(location_id))
+            if loc:
+                params["location_name"] = loc.name
+        dossier = await LORE.collect_dossier(session)
+        messages = LORE.build_messages(kind, params, dossier)
+        try:
+            out = await AI.generate(session, kind, params, dossier, messages)
+        except AI.AIError as e:
+            return JSONResponse({"ok": False, "error": str(e)})
+
+        gen = AIGeneration(
+            kind=kind,
+            title=LORE.guess_title(kind, params, out["content"]),
+            prompt_summary=LORE.summarize_params(kind, params),
+            content=out["content"],
+            status="draft",
+            provider=out["provider"],
+            model=out["model"],
+            target_label=" / ".join(x for x in
+                [params.get("location_name"), params.get("npc_name")] if x),
+        )
+        session.add(gen)
+        await session.commit()
+        fields = LORE.parse_quest_fields(out["content"]) if kind in (
+            "quest", "quest_chain") else {}
+        return JSONResponse({
+            "ok": True, "id": gen.id, "title": gen.title,
+            "content": out["content"], "provider": out["provider"],
+            "model": out["model"], "offline": out["offline"],
+            "prompt_chars": out["prompt_chars"], "fields": fields,
+        })
+
+
+@app.post("/editor/ai/settings")
+async def ai_save_settings(
+    request: Request,
+    provider: str = Form(...),
+    api_key: str = Form(""),
+    model: str = Form(""),
+    base_url: str = Form(""),
+):
+    guard(request, "manage_content")
+    from core import ai as AI
+    try:
+        async with async_session() as session:
+            await AI.save_settings(session, provider, api_key, model, base_url)
+            await session.commit()
+    except AI.AIError as e:
+        return RedirectResponse(url=f"/editor/ai?error={e}", status_code=303)
+    return RedirectResponse(url="/editor/ai?saved=1", status_code=303)
+
+
+async def _ai_get_draft(session, gen_id: int):
+    gen = await session.get(AIGeneration, gen_id)
+    if gen is None or gen.status == "discarded":
+        return None
+    return gen
+
+
+@app.post("/editor/ai/{gen_id}/to-bible")
+async def ai_to_bible(request: Request, gen_id: int):
+    """Утвердить в «библию лора»: запись войдёт в контекст будущих генераций."""
+    guard(request, "manage_content")
+    async with async_session() as session:
+        gen = await _ai_get_draft(session, gen_id)
+        if gen is None:
+            return RedirectResponse("/editor/ai?error=Запись не найдена", 303)
+        gen.status = "bible"
+        await session.commit()
+    return RedirectResponse(url="/editor/ai#history", status_code=303)
+
+
+@app.post("/editor/ai/{gen_id}/discard")
+async def ai_discard(request: Request, gen_id: int):
+    guard(request, "manage_content")
+    async with async_session() as session:
+        gen = await _ai_get_draft(session, gen_id)
+        if gen is not None:
+            gen.status = "discarded"
+            await session.commit()
+    return RedirectResponse(url="/editor/ai#history", status_code=303)
+
+
+@app.post("/editor/ai/{gen_id}/apply-quest")
+async def ai_apply_quest(
+    request: Request, gen_id: int,
+    name: str = Form(...),
+    description: str = Form(""),
+    objective_type: str = Form("kill"),
+    objective_target: str = Form(""),
+    objective_count: int = Form(1),
+    reward_gold: int = Form(0),
+    reward_exp: int = Form(0),
+    min_level: int = Form(1),
+    location_id: str = Form(""),
+    npc_name: str = Form(""),
+):
+    """Черновик → настоящий квест в игре (та же модель, что и редактор)."""
+    guard(request, "manage_content")
+    async with async_session() as session:
+        gen = await _ai_get_draft(session, gen_id)
+        if gen is None:
+            return RedirectResponse("/editor/ai?error=Запись не найдена", 303)
+        quest = Quest(
+            name=name.strip()[:128], description=description,
+            objective_type=objective_type,
+            objective_target=objective_target[:64],
+            objective_count=max(1, objective_count),
+            reward_gold=max(0, reward_gold), reward_exp=max(0, reward_exp),
+            min_level=max(1, min_level),
+            location_id=int(location_id) if location_id.strip().isdigit() else None,
+            npc_name=npc_name.strip() or None,
+        )
+        session.add(quest)
+        gen.status = "applied"
+        await session.commit()
+    return RedirectResponse(url="/editor/ai?saved=1#history", status_code=303)
+
+
+@app.post("/editor/ai/{gen_id}/apply-dialogue")
+async def ai_apply_dialogue(
+    request: Request, gen_id: int,
+    cell_id: int = Form(...),
+    dialogue: str = Form(...),
+):
+    """Черновик → реплика на клетке NPC (заменяет npc_dialogue)."""
+    guard(request, "manage_content")
+    async with async_session() as session:
+        gen = await _ai_get_draft(session, gen_id)
+        if gen is None:
+            return RedirectResponse("/editor/ai?error=Запись не найдена", 303)
+        cell = await session.get(Cell, cell_id)
+        if cell is None or not cell.has_npc:
+            return RedirectResponse("/editor/ai?error=Клетка с NPC не найдена", 303)
+        cell.npc_dialogue = dialogue.strip()
+        gen.status = "applied"
+        await session.commit()
+    return RedirectResponse(url="/editor/ai?saved=1#history", status_code=303)
 
 
 # ── Shop Editor ──────────────────────────────────────────────
@@ -4383,7 +4623,8 @@ async def api_live_portals():
                 "opened_at": tpl.portal_opened_at.isoformat() if tpl.portal_opened_at else None,
                 "closed_at": tpl.portal_closed_at.isoformat() if tpl.portal_closed_at else None,
                 "time_left_sec": (
-                    max(0, int(7200 - (datetime.utcnow() - tpl.portal_opened_at).total_seconds()))
+                    # aware-сравнение: на Postgres utcnow()-datetime бросил бы TypeError
+                    max(0, int(7200 - (dates.utcnow() - dates.aware(tpl.portal_opened_at)).total_seconds()))
                     if tpl.portal_opened_at and tpl.portal_closed_at is None else None
                 ),
             })

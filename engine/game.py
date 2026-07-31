@@ -269,7 +269,9 @@ class Game:
         if ambusher is None:
             ambusher = cataclysm.prowl(self.store, p)
         if ambusher is not None:             # тварь бросилась сама
-            r = combat.start(p, ambusher, ambush=True, store=self.store)
+            mob_index, origin = ambusher     # (тварь, её клетка)
+            r = combat.start(p, mob_index, ambush=True, store=self.store,
+                             origin=origin)
         elif cell.mob >= 0 and random.random() < rate:
             r = combat.start(p, cell.mob)
         else:
