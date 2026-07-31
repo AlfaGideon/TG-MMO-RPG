@@ -211,4 +211,109 @@
   }
   setInterval(tickDungeonTimers, 1000);
   tickDungeonTimers();
+
+  // ── Многоязычная песочница кода ────────────────────────────────────
+  // Pyodide умеет исполнять только Python (это свойство, а не баг), поэтому
+  // JS / C++ / Ruby здесь исполняются своими отдельными рантаймами прямо в
+  // браузере. Тяжёлые (C++ → JSCPP, Ruby → ruby.wasm) подгружаются лениво,
+  // только при первом запуске, чтобы не замедлять холодный старт панели.
+  // Python-раннер живёт в Python (webapp/actions/code_actions.py) и дёргает
+  // уже загруженный Pyodide. Здесь — только JS/C++/Ruby и общая точка вызова.
+  function loadScript(src) {
+    return new Promise(function (resolve, reject) {
+      const s = document.createElement("script");
+      s.src = src;
+      s.onload = resolve;
+      s.onerror = function () { reject(new Error("не удалось загрузить " + src)); };
+      document.head.appendChild(s);
+    });
+  }
+
+  function formatValue(v) {
+    if (v === undefined || v === null) return "";
+    if (typeof v === "string") return v;
+    if (typeof v === "object") {
+      try { return JSON.stringify(v); } catch (_) { return String(v); }
+    }
+    return String(v);
+  }
+
+  // Временный перехват console: stdout рантаймов (JSCPP, ruby.wasm) и
+  // console.log пользовательского JS по умолчанию идут в консоль браузера.
+  // Мы перехватываем их, чтобы собрать вывод в одну строку для панели.
+  function captureConsole(run) {
+    const lines = [];
+    const oldLog = console.log, oldErr = console.error, oldWarn = console.warn;
+    const joinArgs = function () {
+      const parts = Array.prototype.slice.call(arguments);
+      return parts.map(formatValue).join(" ");
+    };
+    console.log = function () { lines.push(joinArgs.apply(null, arguments)); };
+    console.warn = function () { lines.push("⚠ " + joinArgs.apply(null, arguments)); };
+    console.error = function () { lines.push("❌ " + joinArgs.apply(null, arguments)); };
+    try {
+      return run(lines);
+    } finally {
+      console.log = oldLog; console.error = oldErr; console.warn = oldWarn;
+    }
+  }
+
+  async function loadJSCPP() {
+    if (window.JSCPP) return;
+    await loadScript("https://cdn.jsdelivr.net/gh/felixhao28/JSCPP@gh-pages/dist/JSCPP.es5.min.js");
+    if (!window.JSCPP) throw new Error("интерпретатор C++ (JSCPP) не загрузился");
+  }
+
+  async function loadRuby() {
+    if (window["ruby-wasm-wasi"]) return;
+    await loadScript("https://cdn.jsdelivr.net/npm/@ruby/4.0-wasm-wasi@2.9.3-2.9.4/dist/browser.umd.js");
+    if (!window["ruby-wasm-wasi"]) throw new Error("ruby.wasm не загрузился");
+  }
+
+  function runJS(code) {
+    return captureConsole(function () {
+      const fn = new Function(code);
+      const result = fn();
+      if (result !== undefined) console.log(result);
+    }).join("\n");
+  }
+
+  async function runCpp(code) {
+    await loadJSCPP();
+    return captureConsole(function () {
+      const out = [];
+      const config = { stdio: { write: function (s) { out.push(String(s)); } } };
+      const exitCode = window.JSCPP.run(code, "", config);
+      if (exitCode) out.push("\n[код выхода: " + exitCode + "]");
+      return out;
+    }).join("");
+  }
+
+  async function runRuby(code) {
+    await loadRuby();
+    const { DefaultRubyVM } = window["ruby-wasm-wasi"];
+    const resp = await fetch(
+      "https://cdn.jsdelivr.net/npm/@ruby/4.0-wasm-wasi@2.9.3-2.9.4/dist/ruby+stdlib.wasm");
+    if (!resp.ok) throw new Error("ruby.wasm не скачался: HTTP " + resp.status);
+    const module = await WebAssembly.compileStreaming(resp);
+    const { vm } = await DefaultRubyVM(module);
+    return captureConsole(function () {
+      const value = vm.eval(code);
+      if (value !== undefined && value !== null) console.log(value);
+    }).join("\n");
+  }
+
+  window.__runCode = function (lang, code) {
+    if (lang === "javascript") {
+      try { return Promise.resolve(runJS(code)); }
+      catch (e) { return Promise.resolve("❌ " + ((e && e.message) || e)); }
+    }
+    if (lang === "cpp") {
+      return runCpp(code).catch(function (e) { return "❌ " + ((e && e.message) || e); });
+    }
+    if (lang === "ruby") {
+      return runRuby(code).catch(function (e) { return "❌ " + ((e && e.message) || e); });
+    }
+    return Promise.resolve("❌ Неизвестный язык: " + lang);
+  };
 })();

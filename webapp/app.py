@@ -2,12 +2,13 @@
 from engine import permissions
 from engine.storage import Store
 from webapp import dom, session
-from webapp.actions import (audit_actions, bot_actions, content_actions,
-                            devops_actions, economy_actions, player_actions,
-                            updates_actions, world_actions)
+from webapp.actions import (audit_actions, bot_actions, code_actions,
+                            content_actions, devops_actions, economy_actions,
+                            player_actions, updates_actions, world_actions)
 from webapp.backend import LocalStorage
 from webapp.pages import audit as page_audit
 from webapp.pages import bot as page_bot
+from webapp.pages import code as page_code
 from webapp.pages import content as page_content
 from webapp.pages import dashboard as page_dash
 from webapp.pages import economy as page_economy
@@ -21,7 +22,7 @@ PAGES = [
     ("dash", page_dash), ("bot", page_bot), ("players", page_players),
     ("world", page_world), ("content", page_content),
     ("economy", page_economy), ("audit", page_audit),
-    ("settings", page_settings),
+    ("code", page_code), ("settings", page_settings),
     ("updates", page_updates),
 ]
 
@@ -30,6 +31,7 @@ NAV_SECTIONS = [
     ("", ["dash"]),
     ("Игроки", ["players"]),
     ("Контент мира", ["world", "content", "economy"]),
+    ("Инструменты", ["code"]),
     ("Система", ["audit", "bot", "settings", "updates"]),
 ]
 
@@ -40,10 +42,11 @@ PAGE_CAPS = {
     "bot": "bot_control", "settings": "settings",
     "audit": "",                     # журнал доступен любому админу
     "updates": "manage_content",
+    "code": "",                      # песочница — клиентская, без прав
 }
 
 # cataclysm_actions регистрируется из world_actions — вкладка живёт там же.
-ACTION_MODULES = [audit_actions, bot_actions, content_actions,
+ACTION_MODULES = [audit_actions, bot_actions, code_actions, content_actions,
                   devops_actions, economy_actions, player_actions,
                   updates_actions, world_actions]
 

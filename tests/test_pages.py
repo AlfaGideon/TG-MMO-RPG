@@ -7,7 +7,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from engine.game import Game
 from engine.storage import Store
 from webapp.backend import MemoryStorage
-from webapp.pages import bot, content, dashboard, players, settings, world
+from webapp.pages import bot, code, content, dashboard, players, settings, world
 
 FAILED = []
 
@@ -109,6 +109,22 @@ def main():
         except Exception as e:
             check(False, f"вкладка {tab} → {type(e).__name__}: {e}")
     ctx.state["world_tab"] = "map"
+
+    print("\n— Песочница кода —")
+    try:
+        m = code.render(ctx)
+        check("🧪" in m and "▶ Запустить" in m and "code-lang" in m,
+              "страница песочницы рисуется")
+        check("<script" not in m.lower(),
+              "нет мёртвого <script> внутри разметки песочницы")
+        ctx.state.update({"code_lang": "cpp", "code": "int main(){}",
+                          "code_output": "0\n"})
+        m2 = code.render(ctx)
+        check("selected" in m2 and "0\n" in m2, "выбор языка и вывод сохраняются")
+        ctx.state.pop("code_lang", None); ctx.state.pop("code", None)
+        ctx.state.pop("code_output", None)
+    except Exception as e:
+        check(False, f"песочница кода → {type(e).__name__}: {e}")
 
     print("\n— Экранирование —")
     evil = ctx.store.player(8, "<script>alert(1)</script>")
