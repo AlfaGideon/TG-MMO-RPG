@@ -8,6 +8,7 @@ from aiogram.enums import ParseMode
 
 from bot.handlers import routers
 from bot.middlewares.db import DBSessionMiddleware
+from bot.middlewares.dedup import DedupUpdateMiddleware, reset_deduper
 from bot.middlewares.offline import OfflineProtectionMiddleware
 from bot.middlewares.serialize import SerializeUserMiddleware
 
@@ -38,9 +39,15 @@ class BotRunner:
                 default=DefaultBotProperties(parse_mode=ParseMode.HTML)
             )
             self.dp = Dispatcher()
-            # Внешние middleware — в порядке регистрации: сначала сериализация
-            # (двойной тап ждёт), затем сессия БД, затем офлайн-страж.
+            # Свежий LRU update_id на каждый старт — после рестарта Telegram
+            # может прислать старые id, но offset уже сдвинут, а если нет —
+            # лучше один раз обработать, чем проглотить «как будто дубль».
+            reset_deduper()
+            # aiogram 3: wrap_middlewares делает reversed() — первый
+            # зарегистрированный middleware = самый внешний (идёт первым).
+            # Снаружи внутрь: дедуп → сериализация → БД → офлайн → handler.
             for event_type in (self.dp.message, self.dp.callback_query):
+                event_type.middleware(DedupUpdateMiddleware())
                 event_type.middleware(SerializeUserMiddleware())
                 event_type.middleware(DBSessionMiddleware())
                 event_type.middleware(OfflineProtectionMiddleware())
