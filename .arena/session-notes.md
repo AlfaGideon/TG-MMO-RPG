@@ -57,3 +57,30 @@
   грейсфул-скипаются с ⚠.
 - **Проверка «до»**: `git worktree add /tmp/orig HEAD` + прогон
   сценариев оттуда; не забыть `git worktree remove`.
+
+## 2026-07-31 — AI-мастерская в админке (квесты/лор/диалоги)
+
+- Блок: `/editor/ai` (меню «Контент мира → ✨ AI-мастерская»). Модули:
+  `core/ai.py` (провайдеры, chat_complete через aiohttp, офлайн-режим),
+  `core/lore.py` (досье мира + «библия лора» + промпты), модель
+  `AIGeneration` (draft → bible → applied/discarded), шаблон
+  `editor_ai.html`, роуты в `admin/main.py`.
+- **Выбор провайдера** (по mnfst/awesome-free-llm-apis, июль 2026):
+  основной — **Mistral** (256K контекст, ~1B токенов/мес free, FR — у
+  владельца ЕС; free-tier Gemini из EU/UK недоступен, поэтому Gemini —
+  опция, не дефолт). Альтернативы в UI: Groq, OpenRouter, GitHub Models,
+  свой OpenAI-совместимый endpoint.
+- **«Долгая память»** = досье мира в системном промпте (локации, NPC,
+  квесты, мобы, боссы, фракции + записи со статусом bible), бюджеты в
+  `core/lore.py` (60K/30K символов).
+- **Без ключа работает офлайн-режим** (шаблоны из engine.data) — честно
+  помечен в UI и в ответе API (`offline: true`).
+- Ключ: AppSetting `ai_api_key`/провайдер/модель (приоритет над env
+  AI_API_KEY и т.д.); в HTML только маска `xxx…yyyy`; сохранение маски
+  ключ не затирает.
+- Настоящие сетевые вызовы в тестах НЕ делаются: `chat_complete` гоняется
+  против aiohttp-мок-сервера (200/429/401/мусор), эндпоинты — через
+  FastAPI TestClient с тестовой SQLite (DATABASE_URL ставится ДО
+  импорта admin.main; httpx нужен только тесту — гейтится).
+- Попутно починен латентный баг: `base.html` + `request.state.get()` =
+  500 на starlette 1.3 (AUDIT-BUGS.md №19.5).

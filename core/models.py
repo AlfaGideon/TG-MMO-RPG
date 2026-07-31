@@ -916,6 +916,27 @@ class AppSetting(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
+class AIGeneration(Base):
+    """Черновик AI-мастерской: сгенерированный квест/диалог/лор-запись.
+
+    status: draft (черновик) → bible («библия лора», попадает в контекст
+    будущих генераций — это и есть «долгая память» генератора) → applied
+    (применён: создан квест или записан диалог NPC).
+    """
+    __tablename__ = "ai_generations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    kind = Column(String(24), nullable=False)        # quest / npc_dialogue / quest_chain / location_desc / lore_note
+    title = Column(String(200), default="")           # короткая подпись
+    prompt_summary = Column(Text, default="")         # параметры запроса (JSON)
+    content = Column(Text, nullable=False, default="")
+    status = Column(String(16), default="draft", index=True)
+    provider = Column(String(32), default="offline")
+    model = Column(String(64), default="")
+    target_label = Column(String(200), default="")    # «Тёмный Лес / Торговец Варн»
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class WorldEvent(Base):
     """Катаклизм или мировой босс — событие с таймером.
 

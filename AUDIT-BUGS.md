@@ -182,6 +182,16 @@ call-site (`floor=cell.floor or 0`).
 ничего. `api_cell_paint` уже умел тихий except — у формы поведение
 честнее: ошибку видно.
 
+### 19.5. Админка целиком 500-илась на современном starlette (найдено при сборке AI-мастерской)
+`admin/templates/base.html` держал `request.state.get('player_ctx')` — у
+`starlette.datastructures.State` нет метода `.get`, и Jinja здесь не
+спасает: **любая страница админки падала с 500** на актуальной стеке
+зависимостей (`fastapi 0.141`/`starlette 1.3`); выживало, видимо, на
+старой версии starlette. Заменено на `request.state.player_ctx
+is defined` — проверено рендером через TestClient; регрессия —
+`tests/test_ai_lore.py` (страница `/editor/ai` открывается = base.html
+рендерится).
+
 ## Известные проблемы, сознательно НЕ тронутые в этой сессии
 
 ### A. Идентичность предмета = индекс шаблона (браузерный стек)
