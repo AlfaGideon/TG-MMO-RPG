@@ -11,7 +11,7 @@
   `min_level` домашней локации моба.
 """
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
@@ -23,7 +23,14 @@ MOVE_JITTER = 0.35
 
 
 def _now():
-    return datetime.utcnow()
+    # aware-время под timestamptz-колонки: на Postgres сравнение с naive
+    # utcnow() падало, и живой мир (респавн/передвижение) молча умирал.
+    return datetime.now(timezone.utc)
+
+
+def _aware(dt):
+    """SQLite возвращает naive, Postgres — aware; приводим к aware."""
+    return dt if (dt is None or dt.tzinfo) else dt.replace(tzinfo=timezone.utc)
 
 
 async def _passable_cells(session, location_id: int, floor: int = 0):
@@ -80,13 +87,13 @@ async def ensure_population(session, mob: Mob) -> list[MobSpawn]:
 
     # Трупы, чей таймер ещё тикает, уже «занимают место» в популяции —
     # иначе на месте только что убитого моба мгновенно вставал бы новый.
-    pending = sum(1 for d in dead if d.respawn_at and d.respawn_at > now)
+    pending = sum(1 for d in dead if d.respawn_at and _aware(d.respawn_at) > now)
 
     created = []
     for spawn in dead:
         if missing <= 0:
             break
-        if spawn.respawn_at and spawn.respawn_at > now:
+        if spawn.respawn_at and _aware(spawn.respawn_at) > now:
             continue
         cell = await _pick_spawn_cell(session, mob.location_id)
         if not cell:
@@ -194,7 +201,8 @@ async def move_spawn(session, spawn: MobSpawn, mob: Mob) -> bool:
         return False
 
     now = _now()
-    if spawn.last_move_at and (now - spawn.last_move_at).total_seconds() < interval:
+    if spawn.last_move_at \
+            and (now - _aware(spawn.last_move_at)).total_seconds() < interval:
         return False
     if random.random() < MOVE_JITTER:
         spawn.last_move_at = now

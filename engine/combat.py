@@ -7,14 +7,20 @@ from engine import (cataclysm, craft, data, death, factions, items, party,
 from engine.models import Reply
 
 
-def start(p, mob_index, ambush=False, store=None):
-    """Начать бой. `ambush` — тварь напала сама и бьёт первой."""
+def start(p, mob_index, ambush=False, store=None, origin=None):
+    """Начать бой. `ambush` — тварь напала сама и бьёт первой.
+
+    `origin` — ключ клетки, с которой тварь ушла в бой (для напавших со
+    стороны). По нему тварь вернётся домой при побеге/гибели игрока,
+    а после победы респавн встанет на родную клетку, а не под игрока.
+    """
     from engine import stash
     if stash.offline_protected(p):
         return Reply(alert="Ты офлайн: нападения отключены.")
     m = data.MOBS[mob_index]
     p.combat = {"mob": mob_index, "mob_hp": m[3], "round": 0, "log": [],
-                "defend": False, "queue": [], "ambush": bool(ambush)}
+                "defend": False, "queue": [], "ambush": bool(ambush),
+                "from": origin}
     if ambush:
         # Внезапный удар: за неожиданность игрок платит одним пропущенным.
         dmg, dodged = rules.mob_roll(p, m[4])
@@ -31,14 +37,18 @@ def start(p, mob_index, ambush=False, store=None):
     return view(p)
 
 
-def join(p, mob_index):
-    """Подтянуть тварь к идущему бою: встанет в очередь после текущей."""
+def join(p, mob_index, origin=None):
+    """Подтянуть тварь к идущему бою: встанет в очередь после текущей.
+
+    `origin` — клетка, откуда тварь пришла: без неё она не умела ни
+    вернуться при побеге игрока, ни воскреснуть у себя дома.
+    """
     if not p.combat:
         return False
     queue = p.combat.setdefault("queue", [])
     if len(queue) >= 3:                  # больше трёх в хвосте не копим
         return False
-    queue.append(int(mob_index))
+    queue.append({"mob": int(mob_index), "from": origin})
     p.combat.setdefault("log", []).append(
         f"➕ {data.MOBS[mob_index][0]} присоединяется к бою!")
     return True
@@ -68,8 +78,15 @@ def reinforce(p, store):
     c = random.choice(near)
     mob_index = c.mob
     c.mob = -1
-    join(p, mob_index)
+    join(p, mob_index, origin=c.key)
     return mob_index
+
+
+def _entry_parts(entry):
+    """Элемент очереди: новый формат — dict, старые сохранения — int."""
+    if isinstance(entry, dict):
+        return int(entry.get("mob", 0)), entry.get("from")
+    return int(entry), None
 
 
 def _next_foe(p):
@@ -78,11 +95,65 @@ def _next_foe(p):
     queue = st.get("queue") or []
     if not queue:
         return False
-    nxt = queue.pop(0)
-    st["mob"], st["mob_hp"] = nxt, data.MOBS[nxt][3]
+    mob_index, origin = _entry_parts(queue.pop(0))
+    st["mob"], st["mob_hp"] = mob_index, data.MOBS[mob_index][3]
+    st["from"] = origin
     st["defend"] = False
-    st["log"].append(f"👾 На смену выходит {data.MOBS[nxt][0]}!")
+    st["log"].append(f"👾 На смену выходит {data.MOBS[mob_index][0]}!")
     return True
+
+
+def _home_cell(store, p, origin):
+    """Клетка, откуда тварь пришла в бой; иначе — клетка под игроком."""
+    if origin:
+        home = store.world.get(origin)
+        if home is not None:
+            return home
+    return world_cell(store, p)
+
+
+def world_cell(store, p):
+    from engine import world as W
+    return W.cell_at(store.world, p.loc, p.x, p.y, getattr(p, "floor", 0))
+
+
+def _schedule_home(store, p, st, final=False):
+    """Павшая тварь: респавн на её родной клетке, а не по месту игрока.
+
+    Клетку, на которой играют сам бой («фронт»), отмечаем только когда
+    добита вся свора: пока очередь не пуста, она остаётся занятой —
+    иначе снаружи бой выглядел бы законченным.
+    """
+    home = _home_cell(store, p, st.get("from"))
+    if home is None:
+        return
+    if home is world_cell(store, p) and not final:
+        return                              # свора не добита — клетка в бою
+    respawn.schedule_mob(store, home)       # вернётся сюда через время
+    st["from"] = None
+
+
+def _release(store, p):
+    """Побег/гибель: живые твари из очереди возвращаются на свои клетки.
+
+    Раньше они просто испарялись: reinforce снимал их с карты, а при
+    побеге бой бросался целиком — популяция мира таяла с каждой сворой.
+    """
+    if store is None or not p.combat:
+        return
+    st = p.combat
+    pending = [{"mob": st.get("mob", 0), "from": st.get("from")}]
+    pending += [(_entry_parts(e)) for e in (st.get("queue") or [])]
+    for mob_index, origin in pending:
+        if not origin:
+            continue                       # со своей клетки — и там остался
+        home = store.world.get(origin)
+        if home is None:
+            continue
+        if home.mob < 0 and home.passable:
+            home.mob = int(mob_index)      # ушёл с поля боя — живёт дома
+        else:
+            respawn.schedule_mob(store, home)
 
 
 def view(p):
@@ -97,6 +168,9 @@ def _slay(p, world, store=None):
     st = p.combat
     m = data.MOBS[st["mob"]]
     gold, exp, lines = _reward(p, m, world, store)
+    if store is not None:
+        # респавн на родной клетке павшего; «фронт» боя — когда свора добита
+        _schedule_home(store, p, st, final=not (st.get("queue") or []))
     if _next_foe(p):
         # Бой не окончен: показываем добычу строкой в логе и идём дальше.
         st["log"].append(f"☠️ {m[0]} повержен · +{gold} 🪙 +{exp} ⭐")
@@ -124,11 +198,11 @@ def _reward(p, m, world, store=None):
     p.kills += 1
     levels = rules.add_exp(p, exp)
 
-    if not (p.combat.get("queue") or []):
+    if store is None and not (p.combat.get("queue") or []):
+        # Режим без хранилища (чистые расчёты): просто стираем тварь.
+        # С хранилищем респавн ставит _schedule_home — на родной клетке.
         cell = world.get(f"{p.loc}:{p.x}:{p.y}")
-        if cell and store is not None:
-            respawn.schedule_mob(store, cell)   # вернётся сюда через время
-        elif cell:
+        if cell:
             cell.mob = -1
 
     loot = rules.loot_roll(st["mob"])
@@ -169,6 +243,7 @@ def _reward(p, m, world, store=None):
 def _finish_lose(p, store=None):
     """Поражение: золото остаётся надгробием на месте гибели, герой ранен."""
     m = data.MOBS[p.combat["mob"]]
+    _release(store, p)                   # недобитая свора расходится по домам
     return death.defeat(store, p, m[0])
 
 
@@ -184,6 +259,7 @@ def action(p, what, world, store=None):
         # От своры уйти труднее: каждый в хвосте очереди режет шанс.
         chance = 0.6 - 0.15 * len(st.get("queue") or [])
         if random.random() < max(0.15, chance):
+            _release(store, p)           # твари возвращаются на свои клетки
             p.combat = {}
             return Reply(text="🏃 Ты сбежал с поля боя. Жизнь дороже чести.",
                          keyboard=[[("🧭 В мир", "world")], [("◀️ Меню", "menu")]])

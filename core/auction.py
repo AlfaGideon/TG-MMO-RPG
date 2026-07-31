@@ -8,9 +8,9 @@
 Скупщик-NPC подстраховывает рынок: он выкупает залежавшиеся лоты по
 сниженной цене и перевыставляет их, чтобы вещи не пропадали.
 """
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import selectinload
 
 from core import history
@@ -38,7 +38,30 @@ MAX_ACTIVE_LOTS = 5
 
 
 def _now():
-    return datetime.utcnow()
+    # aware-время под timestamptz-колонки: на Postgres так корректно,
+    # SQLite при записи отбрасывает tz — сравнения остаются согласованными.
+    return datetime.now(timezone.utc)
+
+
+async def _claim_lot(session, lot: AuctionLot, new_status: str) -> bool:
+    """Атомарно перевести лот из ACTIVE в `new_status`.
+
+    Обычное «прочитал статус → проверил → записал» даёт гонку: два
+    покупателя одновременно видели ACTIVE, оба списывали золото и оба
+    получали одну и ту же вещь (см. отсутствие уникальности у
+    InventoryItem.instance_id). Условный UPDATE отщёлкивает статус ровно
+    один раз: у проигравшего гонку rowcount == 0.
+    """
+    res = await session.execute(
+        update(AuctionLot)
+        .where(AuctionLot.id == lot.id)
+        .where(AuctionLot.status == AuctionStatus.ACTIVE.value)
+        .values(status=new_status)
+    )
+    if res.rowcount != 1:
+        return False
+    lot.status = new_status
+    return True
 
 
 def suggested_price(instance: ItemInstance, item: Item) -> int:
@@ -162,7 +185,9 @@ async def cancel_lot(session, character, lot: AuctionLot) -> dict:
     if lot.status != AuctionStatus.ACTIVE.value:
         return {"ok": False, "reason": "Лот уже неактивен."}
 
-    lot.status = AuctionStatus.CANCELLED.value
+    # Атомарный захват: параллельный sweep/double-click не вернёт вещь дважды
+    if not await _claim_lot(session, lot, AuctionStatus.CANCELLED.value):
+        return {"ok": False, "reason": "Лот уже неактивен."}
     await _return_to_owner(session, lot, character, event="unlisted")
     await session.flush()
     return {"ok": True}
@@ -200,6 +225,11 @@ async def buy_lot(session, buyer: Character, lot: AuctionLot) -> dict:
             "ok": False,
             "reason": f"Нужен {item.level_requirement} уровень, чтобы владеть этим.",
         }
+
+    # Атомарный захват лота: только один покупатель проходит дальше,
+    # второй получит отказ — денег у него не спишется и дубля вещи не будет.
+    if not await _claim_lot(session, lot, AuctionStatus.SOLD.value):
+        return {"ok": False, "reason": "Лот уже продан или снят."}
 
     buyer.gold -= lot.price
 
@@ -242,14 +272,18 @@ async def sweep_expired(session) -> list[AuctionLot]:
         .where(AuctionLot.expires_at < _now())
     )
     expired = result.scalars().all()
+    claimed = []
     for lot in expired:
-        lot.status = AuctionStatus.EXPIRED.value
+        # Гонка со снятием/покупкой: лот успели продать или снять — пропускаем
+        if not await _claim_lot(session, lot, AuctionStatus.EXPIRED.value):
+            continue
+        claimed.append(lot)
         if lot.is_npc_lot or not lot.seller_id:
             # Лот скупщика просто снимается с витрины
             continue
         seller = await session.get(Character, lot.seller_id)
         await _return_to_owner(session, lot, seller, event="expired")
-    return expired
+    return claimed
 
 
 # ── Скупщик-NPC ─────────────────────────────────────────────

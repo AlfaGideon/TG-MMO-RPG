@@ -17,6 +17,7 @@ from core.database import init_db, async_session
 from core.migrations import run_migrations
 from core import worldgen as W, worldops as WO
 from core import realtime as RT
+from engine import rules as engine_rules
 from core import vip as VIP
 from core.models import (
     User, Character, Location, Mob, Item, ShopItem, Battle, AppSetting, Cell,
@@ -577,7 +578,7 @@ async def player_edit(
                     max_mp = max(0, max_mp + delta * gains.get("max_mp", 5))
                     current_mp = min(max_mp, max(0, current_mp + delta * gains.get("max_mp", 5)))
 
-            char.name = name
+            char.name = engine_rules.clean_name(name)
             if character_class.strip():
                 char.character_class = character_class.strip()
             char.level = new_level

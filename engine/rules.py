@@ -131,3 +131,16 @@ def bar(cur, mx, fill="🟥", empty="⬛", size=10):
         return ""
     n = max(0, min(size, int(cur / mx * size)))
     return fill * n + empty * (size - n)
+
+
+def clean_name(text, fallback="Герой"):
+    """Имя героя без HTML-активных символов, не длиннее 40 знаков.
+
+    Имя попадает в HTML-сообщения бота (боёвка, топ, аукцион, отряды) и на
+    веб-экраны. first_name в Telegram может содержать `<`, `>`, `&` — такой
+    игрок ломал бы разметку всех сообщений со своим именем, вплоть до
+    TelegramBadRequest у бота.
+    """
+    cleaned = "".join(ch for ch in str(text or "") if ch not in "<>&")
+    cleaned = " ".join(cleaned.split()).strip()[:40]
+    return cleaned or fallback

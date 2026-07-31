@@ -58,11 +58,13 @@ async def bury(session, character, gold: int, item_ids=()):
 
 
 async def at(session, location_id, x, y, floor=0):
-    """Надгробие в этой клетке или None."""
+    """Надгробие в этой клетке или None. Этаж учитывается: могила на
+    первом этаже подземелья не должна светиться на поверхности."""
     await decay(session)
     result = await session.execute(
         select(Grave).where(Grave.location_id == location_id)
                      .where(Grave.x == x).where(Grave.y == y)
+                     .where(Grave.floor == (floor or 0))
     )
     return result.scalars().first()
 

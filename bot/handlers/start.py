@@ -18,6 +18,7 @@ from bot.utils.photos import send_or_edit_photo
 from core import magic, statroll
 from core.classes import all_classes, get_class
 from core.vip import is_vip_active, offline_protected, set_offline
+from engine.rules import clean_name
 
 router = Router()
 
@@ -397,7 +398,9 @@ async def confirm_class(callback: CallbackQuery):
 
         character = Character(
             user_id=user.id,
-            name=callback.from_user.first_name or "Изгнанник",
+            # first_name может содержать <>& и сломать HTML-разметку всех
+            # сообщений бота, куда попадает имя, — чистим на входе.
+            name=clean_name(callback.from_user.first_name, "Изгнанник"),
             character_class=cls_def.key,
             level=1,
             experience=0,

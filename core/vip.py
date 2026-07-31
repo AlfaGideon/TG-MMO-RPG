@@ -6,8 +6,17 @@ VIP система для Shadow Lands.
 
 Активный VIP = is_vip == True и (vip_until is None или в будущем).
 """
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
+
+
+def _now():
+    return datetime.now(timezone.utc)
+
+
+def _aware(dt):
+    """SQLite возвращает naive, Postgres — aware; приводим к aware."""
+    return dt if (dt is None or dt.tzinfo) else dt.replace(tzinfo=timezone.utc)
 
 
 def is_vip_active(char) -> bool:
@@ -18,13 +27,11 @@ def is_vip_active(char) -> bool:
         return True
     # поддержка naive / aware
     try:
-        now = datetime.utcnow()
-        if until.tzinfo is not None:
-            until_naive = until.replace(tzinfo=None)
-            return until_naive > now
-        return until > now
+        return _aware(until) > _now()
     except Exception:
-        return True
+        # Было fail-open (True) — «мусорные» данные давали вечный VIP.
+        # Для платной фичи безопаснее fail-closed.
+        return False
 
 
 def vip_tier(char) -> int:

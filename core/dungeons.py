@@ -7,7 +7,7 @@ Closing a portal only blocks *new* entries — anyone with an already-active
 DungeonRun keeps playing (their run references the template by id directly,
 independent of the world cell), until they die or leave voluntarily.
 """
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 
@@ -17,7 +17,14 @@ PORTAL_MAX_LIFETIME = timedelta(hours=2)
 
 
 def _now():
-    return datetime.utcnow()
+    # aware-время: колонки timestamptz, на Postgres datetime.utcnow() ломал
+    # сравнения («naive vs aware»), порталы не закрывались никогда.
+    return datetime.now(timezone.utc)
+
+
+def _aware(dt):
+    """SQLite возвращает naive, Postgres — aware; приводим к aware."""
+    return dt if (dt is None or dt.tzinfo) else dt.replace(tzinfo=timezone.utc)
 
 
 async def close_portal(session, template: DungeonTemplate):
@@ -42,7 +49,8 @@ def is_portal_open(template: DungeonTemplate) -> bool:
         return False
     if template.portal_closed_at is not None:
         return False
-    if template.portal_opened_at is not None and _now() - template.portal_opened_at > PORTAL_MAX_LIFETIME:
+    if template.portal_opened_at is not None \
+            and _now() - _aware(template.portal_opened_at) > PORTAL_MAX_LIFETIME:
         return False
     return True
 
@@ -60,7 +68,7 @@ async def sweep_expired_portals(session) -> list[DungeonTemplate]:
     now = _now()
     closed = []
     for tpl in templates:
-        if now - tpl.portal_opened_at > PORTAL_MAX_LIFETIME:
+        if now - _aware(tpl.portal_opened_at) > PORTAL_MAX_LIFETIME:
             await close_portal(session, tpl)
             closed.append(tpl)
     return closed

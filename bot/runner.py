@@ -20,6 +20,7 @@ class BotRunner:
         self._task: Optional[asyncio.Task] = None
         self._portal_sweep_task: Optional[asyncio.Task] = None
         self._spawn_tick_task: Optional[asyncio.Task] = None
+        self._bg_tasks: set = set()      # ссылки на fire-and-forget задачи
         self._running = False
 
     def is_running(self) -> bool:
@@ -45,7 +46,12 @@ class BotRunner:
 
             self._running = True
             self._task = asyncio.create_task(self._poll())
-            asyncio.create_task(self._notify_resume_on_start())
+            # Ссылку держим явно: цикл событий хранит задачи слабо,
+            # и несохранённый create_task может быть собран GC на полпути
+            # (задокументированная ловушка asyncio).
+            notice = asyncio.create_task(self._notify_resume_on_start())
+            self._bg_tasks.add(notice)
+            notice.add_done_callback(self._bg_tasks.discard)
             self._portal_sweep_task = asyncio.create_task(self._portal_sweep_loop())
             self._spawn_tick_task = asyncio.create_task(self._spawn_tick_loop())
             logger.info("Bot started")

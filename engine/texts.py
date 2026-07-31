@@ -165,7 +165,9 @@ def battle_view(p, st):
     queue = st.get("queue") or []
     waiting = ""
     if queue:
-        names = ", ".join(data.MOBS[i][0] for i in queue)
+        names = ", ".join(
+            data.MOBS[e["mob"] if isinstance(e, dict) else int(e)][0]
+            for e in queue)
         waiting = f"\n⏳ Ждут своей очереди ({len(queue)}): <i>{names}</i>\n"
     return (
         f"⚔️ <b>Бой: {m[0]}</b> (ур. {m[2]})\n"
