@@ -58,6 +58,22 @@
 - **Проверка «до»**: `git worktree add /tmp/orig HEAD` + прогон
   сценариев оттуда; не забыть `git worktree remove`.
 
+## 2026-07-31 — дедуп Telegram-апдейтов (двойные /start и колбэки)
+
+Симптом: один /start или help → две строки в логе и два ответа,
+плюс `message is not modified` на повторном edit.
+
+- **Браузерный стек** (`webapp/telegram.py`): `UpdateDeduper` (LRU update_id)
+  + `_ingest` под asyncio.Lock; `start()` не плодит зомби-loop
+  (`_halt_loop` await'ит cancel, `_loop_gen` гасит старый поллер).
+- **Серверный стек** (`bot/middlewares/dedup.py`): `DedupUpdateMiddleware`
+  первым на message/callback_query; `reset_deduper()` при каждом
+  `BotRunner.start`.
+- Регрессия: `tests/test_telegram_dedup.py` (в `run_all.py`).
+- Если дубли останутся — проверь, что **не крутятся оба стека**
+  (Pyodide-панель + launch.py) с одним токеном: дедуп внутри
+  процесса, не между процессами.
+
 ## 2026-07-31 — AI-мастерская в админке (квесты/лор/диалоги)
 
 - Блок: `/editor/ai` (меню «Контент мира → ✨ AI-мастерская»). Модули:

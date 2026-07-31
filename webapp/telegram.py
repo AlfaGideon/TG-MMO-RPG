@@ -1,8 +1,54 @@
 """Telegram Bot API клиент на Python + long polling из браузера."""
 import asyncio
+from collections import OrderedDict
 
 from engine.game import Game
 from webapp.transport import Transport
+
+# Сколько последних update_id помним. Telegram не переиспользует id в
+# разумных пределах; 4k хватает с запасом на ретраи прокси и рестарты.
+_SEEN_MAX = 4000
+
+
+class UpdateDeduper:
+    """Идемпотентность по update_id.
+
+    Telegram (и cors-прокси) могут отдать один апдейт дважды: два poll-loop
+    (две вкладки / гонка start), кэш прокси, повтор getUpdates с тем же
+    offset. Без дедупа /start и колбэки обрабатываются дважды — два ответа
+    и «message is not modified» на повторном edit.
+    """
+
+    def __init__(self, maxlen: int = _SEEN_MAX):
+        self._seen: OrderedDict[int, bool] = OrderedDict()
+        self._maxlen = max(1, int(maxlen))
+
+    def seen_before(self, update_id: int) -> bool:
+        """True = уже обрабатывали (дубль). False = новый, помечен как виденный."""
+        try:
+            uid = int(update_id)
+        except (TypeError, ValueError):
+            return False
+        if uid in self._seen:
+            # refresh LRU-порядок
+            self._seen.move_to_end(uid)
+            return True
+        self._seen[uid] = True
+        while len(self._seen) > self._maxlen:
+            self._seen.popitem(last=False)
+        return False
+
+    def clear(self) -> None:
+        self._seen.clear()
+
+    def __contains__(self, update_id: int) -> bool:
+        try:
+            return int(update_id) in self._seen
+        except (TypeError, ValueError):
+            return False
+
+    def __len__(self) -> int:
+        return len(self._seen)
 
 
 class TelegramBot:
@@ -15,9 +61,14 @@ class TelegramBot:
         self.offset = 0
         self.last_update_id = -1
         self._task = None
+        self._loop_gen = 0            # поколение poll-loop: старый loop умирает
         self.game = Game(store)
         self.transport = Transport(store.settings)
-        self.counters = {"updates": 0, "sent": 0, "errors": 0}
+        self.counters = {"updates": 0, "sent": 0, "errors": 0, "dupes": 0}
+        self.deduper = UpdateDeduper()
+        # Замок на «отметить + обработать», чтобы два concurrent dispatch
+        # одного id не прошли оба между проверкой и записью.
+        self._dedup_lock = asyncio.Lock()
 
     # ── HTTP ────────────────────────────────────────────────
     async def call(self, method, **params):
@@ -29,11 +80,11 @@ class TelegramBot:
 
     # ── жизненный цикл ──────────────────────────────────────
     async def start(self, token):
-        if self.running:
+        if self.running and self._task is not None and not self._task.done():
             return False, "Бот уже запущен"
-        if self._task and not self._task.done():
-            self._task.cancel()
-            self._task = None
+        # Гасим предыдущий loop полностью (cancel без await оставлял
+        # зомби-поллер, и два getUpdates ели один и тот же апдейт).
+        await self._halt_loop()
         self.token = token.strip()
         data = await self.call("getMe")
         if not data.get("ok"):
@@ -46,43 +97,109 @@ class TelegramBot:
         self.store.settings["token"] = self.token
         self.store.save()
         await self.call("deleteWebhook", drop_pending_updates=False)
-        self._task = asyncio.ensure_future(self._loop())
+        self._loop_gen += 1
+        gen = self._loop_gen
+        self._task = asyncio.ensure_future(self._loop(gen))
         self.log("sys", f"Бот @{self.me['username']} запущен")
         return True, self.me["username"]
 
     def stop(self):
+        """Синхронная остановка из UI. Полный await — через _halt_loop."""
         self.running = False
-        if self._task:
-            self._task.cancel()
-            self._task = None
+        self._loop_gen += 1
+        task = self._task
+        self._task = None
+        if task is not None and not task.done():
+            task.cancel()
         self.log("sys", "Бот остановлен")
 
-    async def _loop(self):
-        while self.running:
-            try:
-                data = await self.call("getUpdates", offset=self.offset,
-                                       timeout=25, allowed_updates=["message", "callback_query"])
-                for upd in data.get("result", []):
-                    upd_id = upd.get("update_id", 0)
-                    if upd_id <= self.last_update_id:
-                        continue
-                    self.last_update_id = upd_id
-                    self.offset = upd_id + 1
-                    self.counters["updates"] += 1
-                    try:
-                        await self.dispatch(upd)
-                    except Exception as e:
-                        self.log("err", f"handler: {e}")
+    async def _halt_loop(self):
+        """Отменяет poll-loop и дожидается его выхода."""
+        self.running = False
+        self._loop_gen += 1
+        task = self._task
+        self._task = None
+        if task is None:
+            return
+        if not task.done():
+            task.cancel()
+        # shield: CancelledError от task не должен отменить вызывающий
+        # корутин (start / тесты). wait с timeout — страховка от зависания.
+        try:
+            await asyncio.wait({task}, timeout=2.0)
+        except Exception:
+            pass
+
+    async def _loop(self, gen: int):
+        try:
+            while self.running and gen == self._loop_gen:
                 try:
-                    await self.flush_outbox()      # уведомления из панели
+                    data = await self.call(
+                        "getUpdates", offset=self.offset, timeout=25,
+                        allowed_updates=["message", "callback_query"],
+                    )
+                    if not self.running or gen != self._loop_gen:
+                        return
+                    for upd in data.get("result", []) or []:
+                        if not self.running or gen != self._loop_gen:
+                            return
+                        await self._ingest(upd)
+                    try:
+                        await self.flush_outbox()
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as e:
+                        self.log("err", f"outbox: {e}")
+                except asyncio.CancelledError:
+                    return
                 except Exception as e:
-                    self.log("err", f"outbox: {e}")
-            except asyncio.CancelledError:
-                return
-            except Exception as e:
-                self.counters["errors"] += 1
-                self.log("err", f"poll: {e}")
-                await asyncio.sleep(3)
+                    if not self.running or gen != self._loop_gen:
+                        return
+                    self.counters["errors"] += 1
+                    self.log("err", f"poll: {e}")
+                    try:
+                        await asyncio.sleep(3)
+                    except asyncio.CancelledError:
+                        return
+        except asyncio.CancelledError:
+            return
+
+    async def _ingest(self, upd: dict) -> bool:
+        """Принять один апдейт: дедуп → offset → dispatch.
+
+        Возвращает True, если апдейт реально обработан (не дубль).
+        """
+        upd_id = upd.get("update_id", 0)
+        try:
+            upd_id = int(upd_id)
+        except (TypeError, ValueError):
+            upd_id = 0
+
+        async with self._dedup_lock:
+            if self.deduper.seen_before(upd_id):
+                self.counters["dupes"] += 1
+                # Всё равно двигаем offset, чтобы Telegram не слал снова.
+                if upd_id >= self.offset:
+                    self.offset = upd_id + 1
+                if upd_id > self.last_update_id:
+                    self.last_update_id = upd_id
+                return False
+            if upd_id <= self.last_update_id:
+                # Поясной ремень: id меньше последнего, но не в LRU —
+                # считаем дублем по монотонности.
+                self.counters["dupes"] += 1
+                if upd_id >= self.offset:
+                    self.offset = upd_id + 1
+                return False
+            self.last_update_id = upd_id
+            self.offset = upd_id + 1
+            self.counters["updates"] += 1
+
+        try:
+            await self.dispatch(upd)
+        except Exception as e:
+            self.log("err", f"handler: {e}")
+        return True
 
     # ── обработка апдейтов ──────────────────────────────────
     async def dispatch(self, upd):
