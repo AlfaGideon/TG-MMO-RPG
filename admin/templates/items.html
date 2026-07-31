@@ -6,9 +6,7 @@
 {% block topbar_actions %}<a href="#new-item" class="btn btn-primary">➕ Новый предмет</a>{% endblock %}
 
 {% block breadcrumbs %}
-<div class="breadcrumbs">
-    <a href="/">Dashboard</a><span class="sep">/</span><span class="current">Предметы</span>
-</div>
+{{ macros.crumbs([('Dashboard','/'), ('Предметы', none)]) }}
 {% endblock %}
 
 {% block content %}
@@ -20,20 +18,27 @@
 
     {{ macros.search_form('/items', q, 'Поиск по названию...') }}
 
-    <form action="/items/mass-action" method="post" id="itemsMassForm" onsubmit="return confirm('Удалить выбранные предметы? Это сотрёт и все их экземпляры.')">
+    {#- Форма массовых действий НЕ оборачивает таблицу: внутри строк
+        есть свои формы (клон/удаление), а вложенные <form> браузер
+        выбрасывает вместе с их полями. Чекбоксы строк привязаны к форме
+        атрибутом form="itemsMassForm" — это разрешено HTML5. -#}
+    <form action="/items/mass-action" method="post" id="itemsMassForm"
+          onsubmit="return confirm('Удалить выбранные предметы? Это сотрёт и все их экземпляры.')">
         <div class="mass-bar">
-            <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.85rem;color:var(--text-muted);cursor:pointer;">
+            <label class="check-label">
                 <input type="checkbox" class="row-check" id="selectAllItems"> Все
             </label>
             <span class="mass-count" id="itemsMassCount">Выбрано: 0</span>
             <button type="submit" name="action" value="delete" class="btn btn-danger btn-sm">🗑 Удалить выбранные</button>
         </div>
+    </form>
 
         <div class="table-wrap">
         <table>
             <thead>
                 <tr>
-                    <th style="width:40px;"><input type="checkbox" class="row-check" id="selectAllItemsHeader"></th>
+                    <th style="width:40px;"><input type="checkbox" class="row-check" id="selectAllItemsHeader"
+                            form="itemsMassForm" aria-label="Выбрать все"></th>
                     <th>{{ macros.sort_link('ID', 'id', sort, order, '/items', q) }}</th>
                     <th>Иконка</th>
                     <th>{{ macros.sort_link('Название', 'name', sort, order, '/items', q) }}</th>
@@ -49,34 +54,40 @@
             <tbody>
             {% for item in items %}
             <tr>
-                <td data-label="Выбрать"><input type="checkbox" name="ids" value="{{ item.id }}" class="row-check item-check"></td>
+                <td data-label="Выбрать"><input type="checkbox" name="ids" value="{{ item.id }}"
+                        class="row-check item-check" form="itemsMassForm" aria-label="Выбрать {{ item.name }}"></td>
                 <td data-label="ID">{{ item.id }}</td>
                 <td data-label="Иконка">{{ item.icon }}</td>
                 <td data-label="Название">{{ item.name }}</td>
                 <td data-label="Тип">{{ item.item_type.value }}</td>
                 <td data-label="Редкость"><span class="badge badge-{{ item.rarity.value }}">{{ item.rarity.value }}</span></td>
+                {#- Вложенные <form> внутри формы массовых действий недопустимы:
+                    браузер их удаляет, а поля уезжают во внешнюю форму удаления.
+                    Инлайн-правка идёт через fetch из data-атрибутов. -#}
                 <td data-label="Ур.">
-                    <form action="/api/item/{{ item.id }}/inline" method="post" class="inline-form" onsubmit="return inlineSave(this)">
-                        <input type="hidden" name="field" value="level_requirement">
-                        <input type="number" name="value" value="{{ item.level_requirement }}" min="1" class="search-box" style="max-width:70px">
-                    </form>
+                    <div class="inline-form" data-inline-url="/api/item/{{ item.id }}/inline" data-inline-field="level_requirement">
+                        <input type="number" name="value" value="{{ item.level_requirement }}" min="1"
+                               class="search-box" style="max-width:70px" aria-label="Уровень: {{ item.name }}">
+                    </div>
                 </td>
                 <td data-label="Цена">
-                    <form action="/api/item/{{ item.id }}/inline" method="post" class="inline-form" onsubmit="return inlineSave(this)">
-                        <input type="hidden" name="field" value="price">
-                        <input type="number" name="value" value="{{ item.price }}" min="0" class="search-box" style="max-width:90px">
-                    </form>
+                    <div class="inline-form" data-inline-url="/api/item/{{ item.id }}/inline" data-inline-field="price">
+                        <input type="number" name="value" value="{{ item.price }}" min="0"
+                               class="search-box" style="max-width:90px" aria-label="Цена: {{ item.name }}">
+                    </div>
                 </td>
                 <td data-label="Разброс">{% if item.is_unique_roll %}±{{ ((item.stat_variance or 0) * 100)|int }}%{% else %}<span style="color:var(--text-muted)">стак</span>{% endif %}</td>
                 <td data-label="Копий">{{ instance_counts.get(item.id, 0) }}</td>
                 <td data-label="Действия">
-                    <a href="/item/{{ item.id }}/edit" class="btn btn-primary btn-sm">✏️</a>
-                    <form action="/item/{{ item.id }}/clone" method="post" style="display:inline" title="Клонировать">
-                        <button type="submit" class="btn btn-sm">📋</button>
-                    </form>
-                    <form action="/item/{{ item.id }}/delete" method="post" style="display:inline" onsubmit="return confirm('Удалить предмет?')">
-                        <button type="submit" class="btn btn-danger btn-sm">🗑</button>
-                    </form>
+                    <div class="row-actions">
+                        <a href="/item/{{ item.id }}/edit" class="btn btn-primary btn-sm btn-icon" title="Редактировать">✏️</a>
+                        <form action="/item/{{ item.id }}/clone" method="post" title="Клонировать">
+                            <button type="submit" class="btn btn-sm btn-icon">📋</button>
+                        </form>
+                        <form action="/item/{{ item.id }}/delete" method="post" onsubmit="return confirm('Удалить предмет «{{ item.name }}»? Это сотрёт и все его экземпляры.')">
+                            <button type="submit" class="btn btn-danger btn-sm btn-icon" title="Удалить">🗑</button>
+                        </form>
+                    </div>
                 </td>
             </tr>
             {% else %}
@@ -91,7 +102,6 @@
             </tbody>
         </table>
         </div>
-    </form>
 
     {{ macros.pagination(pagination, '/items', q) }}
 </div>

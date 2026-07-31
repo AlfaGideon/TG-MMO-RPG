@@ -1,7 +1,12 @@
 {% extends "base.html" %}
+{% import "macros.html" as macros %}
 
 {% block title %}Редактор мобов — Shadow Lands{% endblock %}
 {% block page_title %}👾 Монстры{% endblock %}
+
+{% block breadcrumbs %}
+{{ macros.crumbs([('Dashboard','/'), ('Контент','/content'), ('Мобы', none)]) }}
+{% endblock %}
 {% block topbar_actions %}
 <a href="/editor/spawns" class="btn">👣 Популяция</a>
 <a href="/editor/drops" class="btn">🎁 Лут</a>
@@ -55,8 +60,8 @@
             <tr>
                 <td data-label="Фото">
                     {% if mob.image_url %}
-                    <img src="{{ mob.image_url }}" style="width:36px;height:36px;object-fit:cover;border-radius:6px;border:1px solid var(--border);">
-                    {% else %}<span style="opacity:0.4;">🖼</span>{% endif %}
+                    <img src="{{ mob.image_url }}" class="thumb" alt="{{ mob.name }}">
+                    {% else %}<span class="thumb-empty">🖼</span>{% endif %}
                 </td>
                 <td data-label="ID">{{ mob.id }}</td>
                 <td data-label="Имя">{{ mob.name }}</td>
@@ -72,7 +77,8 @@
                 <td data-label="Ход">{{ '🚶 ' ~ mob.move_interval_seconds ~ 'с' if mob.can_roam and mob.move_interval_seconds else '🚫' }}</td>
                 <td data-label="Босс">{{ '✅' if mob.is_boss else '—' }}</td>
                 <td data-label="Действия">
-                    <button type="button" class="btn btn-primary btn-sm mob-edit"
+                    <div class="row-actions">
+                    <button type="button" class="btn btn-primary btn-sm btn-icon mob-edit" title="Редактировать"
                             data-id="{{ mob.id }}"
                             data-name="{{ mob.name }}"
                             data-desc="{{ mob.description }}"
@@ -93,13 +99,14 @@
                             data-roam="{{ '1' if mob.can_roam else '' }}"
                             data-radius="{{ mob.roam_radius }}"
                             data-image="{{ mob.image_url or '' }}">✏️</button>
-                    <button type="button" class="btn btn-sm mob-drops" data-id="{{ mob.id }}" data-name="{{ mob.name }}" title="Что выпадает">🎁</button>
-                    <form action="/editor/mobs/{{ mob.id }}/clone" method="post" style="display:inline" title="Клонировать">
-                        <button type="submit" class="btn btn-sm">📋</button>
+                    <button type="button" class="btn btn-sm btn-icon mob-drops" data-id="{{ mob.id }}" data-name="{{ mob.name }}" title="Что выпадает">🎁</button>
+                    <form action="/editor/mobs/{{ mob.id }}/clone" method="post" title="Клонировать">
+                        <button type="submit" class="btn btn-sm btn-icon">📋</button>
                     </form>
-                    <form action="/editor/mobs/{{ mob.id }}/delete" method="post" style="display:inline" onsubmit="return confirm('Удалить моба? Его живые экземпляры тоже исчезнут.')">
-                        <button type="submit" class="btn btn-danger btn-sm">🗑</button>
+                    <form action="/editor/mobs/{{ mob.id }}/delete" method="post" onsubmit="return confirm('Удалить моба «{{ mob.name }}»? Его живые экземпляры тоже исчезнут.')">
+                        <button type="submit" class="btn btn-danger btn-sm btn-icon" title="Удалить">🗑</button>
                     </form>
+                    </div>
                 </td>
             </tr>
             {% else %}

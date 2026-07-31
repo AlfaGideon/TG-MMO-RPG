@@ -1,7 +1,12 @@
 {% extends "base.html" %}
+{% import "macros.html" as macros %}
 
 {% block title %}Новая локация — Shadow Lands{% endblock %}
 {% block page_title %}➕ Создать новую локацию{% endblock %}
+
+{% block breadcrumbs %}
+{{ macros.crumbs([('Dashboard','/'), ('Контент','/content'), ('Локации','/editor/locations'), ('Новая локация', none)]) }}
+{% endblock %}
 {% block topbar_actions %}<a href="/editor/locations" class="btn">◀️ Назад</a>{% endblock %}
 
 {% block content %}
@@ -15,7 +20,7 @@
         Опционально — бесшовные переходы ко всем соседям по мировой карте.
     </p>
     <form action="/editor/location/new" method="post">
-        <div class="form-grid" style="grid-template-columns: repeat(2, 1fr);">
+        <div class="form-grid">
             <div>
                 <label class="form-label">Название</label>
                 <input type="text" name="name" class="search-box" style="max-width: 100%;" required>

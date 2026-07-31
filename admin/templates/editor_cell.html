@@ -1,66 +1,68 @@
 {% extends "base.html" %}
+{% import "macros.html" as macros %}
 
 {% block title %}Клетка [{{ cell.x }},{{ cell.y }}] — Редактор — Shadow Lands{% endblock %}
 {% block page_title %}🧩 Клетка [{{ cell.x }},{{ cell.y }}]{% endblock %}
 {% block topbar_actions %}<a href="/editor/location/{{ cell.location_id }}" class="btn">◀️ Назад к локации</a>{% endblock %}
 
 {% block breadcrumbs %}
-<div class="breadcrumbs">
-    <a href="/">Dashboard</a><span class="sep">/</span>
-    <a href="/content">Контент</a><span class="sep">/</span>
-    <a href="/editor/locations">Локации</a><span class="sep">/</span>
-    <a href="/editor/location/{{ cell.location_id }}">{{ cell.location.name if cell.location else 'Локация ' + cell.location_id|string }}</a><span class="sep">/</span>
-    <span class="current">Клетка [{{ cell.x }}, {{ cell.y }}]</span>
-</div>
+{{ macros.crumbs([('Dashboard','/'), ('Контент','/content'), ('Локации','/editor/locations'), (cell.location.name if cell.location else 'Локация ' ~ cell.location_id, '/editor/location/' ~ cell.location_id), ('Клетка [' ~ cell.x ~ ', ' ~ cell.y ~ ']', none)]) }}
 {% endblock %}
 
 {% block content %}
 {% if error %}
 <div class="banner warn">⚠️ {{ error.replace('+', ' ') }}</div>
 {% endif %}
-<div class="card">
 
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
-        <div>
-            <form action="/editor/cell/{{ cell.id }}/save" method="post" enctype="multipart/form-data" data-validate data-autosave>
-                <div style="margin-bottom: 1rem;">
-                    <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Название клетки</label>
-                    <input type="text" name="name" value="{{ cell.name }}" class="search-box" style="max-width: 100%;" required>
-                </div>
+<div class="split-2">
+    <div class="card">
+        <form action="/editor/cell/{{ cell.id }}/save" method="post"
+              enctype="multipart/form-data" data-validate data-autosave>
 
-                <div style="margin-bottom: 1rem;">
-                    <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Тип тайла</label>
-                    <select name="tile_type" class="search-box" style="max-width: 100%;">
-                        <option value="grass" {% if cell.tile_type == 'grass' %}selected{% endif %}>🌿 Трава</option>
-                        <option value="forest" {% if cell.tile_type == 'forest' %}selected{% endif %}>🌲 Лес</option>
-                        <option value="water" {% if cell.tile_type == 'water' %}selected{% endif %}>💧 Вода</option>
-                        <option value="wall" {% if cell.tile_type == 'wall' %}selected{% endif %}>🧱 Стена</option>
-                        <option value="road" {% if cell.tile_type == 'road' %}selected{% endif %}>🛤 Дорога</option>
-                        <option value="village" {% if cell.tile_type == 'village' %}selected{% endif %}>🏘 Деревня</option>
-                        <option value="cave" {% if cell.tile_type == 'cave' %}selected{% endif %}>🕳 Пещера</option>
-                        <option value="portal" {% if cell.tile_type == 'portal' %}selected{% endif %}>🌀 Портал подземелья</option>
-                    </select>
-                </div>
-
-                <div style="margin-bottom: 1rem;">
-                    <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">
-                        <input type="checkbox" name="is_passable" {% if cell.is_passable %}checked{% endif %}> Проходима
+            <fieldset class="field-group">
+                <span class="group-title">🧩 Основное</span>
+                <div class="form-stack">
+                    <div class="field">
+                        <label class="form-label" for="cell_name">Название клетки</label>
+                        <input type="text" id="cell_name" name="name" value="{{ cell.name }}"
+                               class="search-box" required>
+                    </div>
+                    <div class="field">
+                        <label class="form-label" for="cell_tile">Тип тайла</label>
+                        <select name="tile_type" id="cell_tile" class="search-box">
+                            <option value="grass" {% if cell.tile_type == 'grass' %}selected{% endif %}>🌿 Трава</option>
+                            <option value="forest" {% if cell.tile_type == 'forest' %}selected{% endif %}>🌲 Лес</option>
+                            <option value="water" {% if cell.tile_type == 'water' %}selected{% endif %}>💧 Вода</option>
+                            <option value="wall" {% if cell.tile_type == 'wall' %}selected{% endif %}>🧱 Стена</option>
+                            <option value="road" {% if cell.tile_type == 'road' %}selected{% endif %}>🛤 Дорога</option>
+                            <option value="village" {% if cell.tile_type == 'village' %}selected{% endif %}>🏘 Деревня</option>
+                            <option value="cave" {% if cell.tile_type == 'cave' %}selected{% endif %}>🕳 Пещера</option>
+                            <option value="portal" {% if cell.tile_type == 'portal' %}selected{% endif %}>🌀 Портал подземелья</option>
+                        </select>
+                    </div>
+                    <label class="check-label">
+                        <input type="checkbox" name="is_passable" {% if cell.is_passable %}checked{% endif %}>
+                        Проходима
                     </label>
+                    <div class="field">
+                        <label class="form-label" for="cell_desc">Описание (история клетки)</label>
+                        <textarea name="description" id="cell_desc" class="search-box"
+                                  style="min-height:120px;">{{ cell.description }}</textarea>
+                    </div>
                 </div>
+            </fieldset>
 
-                <div style="margin-bottom: 1rem;">
-                    <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Описание (история клетки)</label>
-                    <textarea name="description" class="search-box" style="max-width: 100%; width: 100%; min-height: 120px; resize: vertical;">{{ cell.description }}</textarea>
-                </div>
-
-                <hr style="border-color: var(--border); margin: 1.5rem 0;">
-
-                <h3 style="margin-bottom: 1rem;">🌍 Переход в другую локацию / на этаж</h3>
-                <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">Если игрок заходит на эту клетку, он телепортируется в указанную локацию, координаты и этаж (для переходов внутри одной локации между этажами укажи ту же локацию и нужный этаж).</p>
-                <div style="display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 0.5rem; margin-bottom: 1rem;">
+            <fieldset class="field-group">
+                <span class="group-title">🌍 Переход в другую локацию / на этаж</span>
+                <p class="hint" style="margin-top:0; margin-bottom:0.7rem;">
+                    Если игрок заходит на эту клетку, он телепортируется в указанную
+                    локацию, координаты и этаж. Для перехода между этажами одной
+                    локации укажи ту же локацию и нужный этаж.
+                </p>
+                <div class="field-row cols-2">
                     <div>
-                        <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Целевая локация</label>
-                        <select name="target_location_id" class="search-box" style="max-width: 100%;">
+                        <label class="form-label" for="tgt_loc">Целевая локация</label>
+                        <select name="target_location_id" id="tgt_loc" class="search-box">
                             <option value="">— нет —</option>
                             {% for loc in all_locations %}
                             <option value="{{ loc.id }}" {% if cell.target_location_id == loc.id %}selected{% endif %}>{{ loc.name }}</option>
@@ -68,141 +70,175 @@
                         </select>
                     </div>
                     <div>
-                        <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">X</label>
-                        <input type="number" name="target_x" value="{{ cell.target_x or '' }}" class="search-box" style="max-width: 100%;">
+                        <label class="form-label" for="tgt_x">X</label>
+                        <input type="number" id="tgt_x" name="target_x" value="{{ cell.target_x or '' }}" class="search-box">
                     </div>
                     <div>
-                        <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Y</label>
-                        <input type="number" name="target_y" value="{{ cell.target_y or '' }}" class="search-box" style="max-width: 100%;">
+                        <label class="form-label" for="tgt_y">Y</label>
+                        <input type="number" id="tgt_y" name="target_y" value="{{ cell.target_y or '' }}" class="search-box">
                     </div>
                     <div>
-                        <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Этаж</label>
-                        <input type="number" name="target_floor" value="{{ cell.target_floor if cell.target_floor is not none else '' }}" class="search-box" style="max-width: 100%;" placeholder="0">
+                        <label class="form-label" for="tgt_floor">Этаж</label>
+                        <input type="number" id="tgt_floor" name="target_floor" placeholder="0"
+                               value="{{ cell.target_floor if cell.target_floor is not none else '' }}" class="search-box">
                     </div>
                 </div>
+            </fieldset>
 
-                <hr style="border-color: var(--border); margin: 1.5rem 0;">
-
-                <h3 style="margin-bottom: 1rem;">🕳 Вход в процедурное подземелье</h3>
-                <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">Порталы обычно открываются автоматически в случайном месте при создании шаблона в разделе «Подземелья» (с уведомлением игрокам). Здесь можно вручную назначить портал этой конкретной клетке (генерация подземелья идёт отдельно от карты мира, не занимает клетки 100×100).</p>
-                <div style="margin-bottom: 1rem;">
-                    <select name="dungeon_template_id" class="search-box" style="max-width: 100%;">
+            <fieldset class="field-group">
+                <span class="group-title">🕳 Вход в процедурное подземелье</span>
+                <p class="hint" style="margin-top:0; margin-bottom:0.7rem;">
+                    Порталы обычно открываются автоматически в случайном месте при
+                    создании шаблона в разделе «Подземелья» (с уведомлением игрокам).
+                    Здесь можно вручную назначить портал этой конкретной клетке.
+                </p>
+                <div class="field">
+                    <label class="form-label" for="cell_dungeon">Шаблон подземелья</label>
+                    <select name="dungeon_template_id" id="cell_dungeon" class="search-box">
                         <option value="">— нет —</option>
                         {% for tpl in dungeon_templates %}
                         <option value="{{ tpl.id }}" {% if cell.dungeon_template_id == tpl.id %}selected{% endif %}>{{ tpl.name }} ({{ tpl.grid_size }}×{{ tpl.grid_size }})</option>
                         {% endfor %}
                     </select>
                 </div>
+            </fieldset>
 
-                <hr style="border-color: var(--border); margin: 1.5rem 0;">
+            <fieldset class="field-group">
+                <span class="group-title">🎭 NPC</span>
+                <div class="form-stack">
+                    <label class="check-label">
+                        <input type="checkbox" name="has_npc" {% if cell.has_npc %}checked{% endif %}>
+                        Есть NPC
+                    </label>
+                    <div class="field-row cols-2">
+                        <div>
+                            <label class="form-label" for="npc_name">Имя NPC</label>
+                            <input type="text" id="npc_name" name="npc_name" value="{{ cell.npc_name or '' }}" class="search-box">
+                        </div>
+                        <div>
+                            <label class="form-label" for="npc_type">Тип NPC</label>
+                            <select name="npc_type" id="npc_type" class="search-box">
+                                <option value="">—</option>
+                                <option value="merchant" {% if cell.npc_type == 'merchant' %}selected{% endif %}>🛒 Торговец</option>
+                                <option value="quest_giver" {% if cell.npc_type == 'quest_giver' %}selected{% endif %}>❓ Квестодатель</option>
+                                <option value="storyteller" {% if cell.npc_type == 'storyteller' %}selected{% endif %}>📖 Рассказчик</option>
+                                <option value="crafter" {% if cell.npc_type == 'crafter' %}selected{% endif %}>🔨 Ремесленник</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label class="form-label" for="npc_station">Станок (для ремесленника)</label>
+                        <select name="npc_station" id="npc_station" class="search-box">
+                            <option value="">—</option>
+                            <option value="forge" {% if cell.npc_station == 'forge' %}selected{% endif %}>🔨 Кузница (оружие, броня)</option>
+                            <option value="alchemy" {% if cell.npc_station == 'alchemy' %}selected{% endif %}>⚗️ Алхимия (зелья)</option>
+                            <option value="jewelry" {% if cell.npc_station == 'jewelry' %}selected{% endif %}>💎 Ювелир (аксессуары)</option>
+                            <option value="any" {% if cell.npc_station == 'any' %}selected{% endif %}>🛠 Все рецепты</option>
+                        </select>
+                        <p class="hint">Ремесленник даёт крафт по рецептам своего станка и заточку любых вещей.</p>
+                    </div>
+                    <div class="field">
+                        <label class="form-label" for="npc_dialogue">Диалог NPC</label>
+                        <textarea name="npc_dialogue" id="npc_dialogue" class="search-box">{{ cell.npc_dialogue or '' }}</textarea>
+                    </div>
+                </div>
+            </fieldset>
 
-                <h3 style="margin-bottom: 1rem;">🎭 NPC</h3>
-                <div style="margin-bottom: 1rem;">
-                    <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">
-                        <input type="checkbox" name="has_npc" {% if cell.has_npc %}checked{% endif %}> Есть NPC
+            <fieldset class="field-group">
+                <span class="group-title">📦 Объекты на клетке</span>
+                <div class="field-row cols-2">
+                    <label class="check-card">
+                        <input type="checkbox" name="has_chest" {% if cell.has_chest %}checked{% endif %}> 📦 Сундук
+                    </label>
+                    <div>
+                        <label class="form-label" for="chest_tier">Уровень сундука</label>
+                        <input type="number" id="chest_tier" name="chest_tier" min="1" max="5"
+                               value="{{ cell.chest_tier or 1 }}" class="search-box">
+                    </div>
+                    <label class="check-card">
+                        <input type="checkbox" name="has_house" {% if cell.has_house %}checked{% endif %}> 🏠 Дом
+                    </label>
+                    <label class="check-card">
+                        <input type="checkbox" name="has_tree" {% if cell.has_tree %}checked{% endif %}> 🌳 Дерево
+                    </label>
+                    <label class="check-card">
+                        <input type="checkbox" name="has_campfire" {% if cell.has_campfire %}checked{% endif %}> 🔥 Костёр
                     </label>
                 </div>
-                <div style="margin-bottom: 1rem;">
-                    <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Имя NPC</label>
-                    <input type="text" name="npc_name" value="{{ cell.npc_name or '' }}" class="search-box" style="max-width: 100%;">
-                </div>
-                <div style="margin-bottom: 1rem;">
-                    <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Тип NPC</label>
-                    <select name="npc_type" class="search-box" style="max-width: 100%;">
-                        <option value="">—</option>
-                        <option value="merchant" {% if cell.npc_type == 'merchant' %}selected{% endif %}>🛒 Торговец</option>
-                        <option value="quest_giver" {% if cell.npc_type == 'quest_giver' %}selected{% endif %}>❓ Квестодатель</option>
-                        <option value="storyteller" {% if cell.npc_type == 'storyteller' %}selected{% endif %}>📖 Рассказчик</option>
-                        <option value="crafter" {% if cell.npc_type == 'crafter' %}selected{% endif %}>🔨 Ремесленник</option>
-                    </select>
-                </div>
-                <div style="margin-bottom: 1rem;">
-                    <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Станок (для ремесленника)</label>
-                    <select name="npc_station" class="search-box" style="max-width: 100%;">
-                        <option value="">—</option>
-                        <option value="forge" {% if cell.npc_station == 'forge' %}selected{% endif %}>🔨 Кузница (оружие, броня)</option>
-                        <option value="alchemy" {% if cell.npc_station == 'alchemy' %}selected{% endif %}>⚗️ Алхимия (зелья)</option>
-                        <option value="jewelry" {% if cell.npc_station == 'jewelry' %}selected{% endif %}>💎 Ювелир (аксессуары)</option>
-                        <option value="any" {% if cell.npc_station == 'any' %}selected{% endif %}>🛠 Все рецепты</option>
-                    </select>
-                    <p class="hint">Ремесленник даёт крафт по рецептам своего станка и заточку любых вещей.</p>
-                </div>
-                <div style="margin-bottom: 1rem;">
-                    <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Диалог NPC</label>
-                    <textarea name="npc_dialogue" class="search-box" style="max-width: 100%; width: 100%; min-height: 60px; resize: vertical;">{{ cell.npc_dialogue or '' }}</textarea>
-                </div>
+            </fieldset>
 
-                <hr style="border-color: var(--border); margin: 1.5rem 0;">
-
-                <h3 style="margin-bottom: 1rem;">📦 Объекты</h3>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 1rem;">
-                    <label style="font-size: 0.85rem;"><input type="checkbox" name="has_chest" {% if cell.has_chest %}checked{% endif %}> 📦 Сундук</label>
-                    <div><label class="form-label" style="font-size:0.75rem;">Уровень сундука</label>
-                        <input type="number" name="chest_tier" value="{{ cell.chest_tier or 1 }}" min="1" max="5" class="search-box" style="max-width:90px"></div>
-                    <label style="font-size: 0.85rem;"><input type="checkbox" name="has_house" {% if cell.has_house %}checked{% endif %}> 🏠 Дом</label>
-                    <label style="font-size: 0.85rem;"><input type="checkbox" name="has_tree" {% if cell.has_tree %}checked{% endif %}> 🌳 Дерево</label>
-                    <label style="font-size: 0.85rem;"><input type="checkbox" name="has_campfire" {% if cell.has_campfire %}checked{% endif %}> 🔥 Костёр</label>
+            <fieldset class="field-group">
+                <span class="group-title">🖼 Картинка клетки</span>
+                <img id="cellPreview" class="img-preview"
+                     {% if cell.image_url %}src="{{ cell.image_url }}" alt="Превью клетки"{% else %}style="display:none"{% endif %}>
+                <div class="field-row cols-2">
+                    <div>
+                        <label class="form-label" for="cell_image">Загрузить новую картинку</label>
+                        <input type="file" id="cell_image" name="image" accept="image/*"
+                               class="search-box" data-preview="#cellPreview">
+                    </div>
+                    <div>
+                        <label class="form-label" for="cell_image_url">Или URL картинки</label>
+                        <input type="text" id="cell_image_url" name="image_url" placeholder="https://..."
+                               value="{{ cell.image_url or '' }}" class="search-box">
+                    </div>
                 </div>
+            </fieldset>
 
-                <hr style="border-color: var(--border); margin: 1.5rem 0;">
-
-                <h3 style="margin-bottom: 1rem;">🖼 Картинка клетки</h3>
-                {% if cell.image_url %}
-                <div style="margin-bottom: 1rem;">
-                    <img id="cellPreview" src="{{ cell.image_url }}" style="max-width: 200px; border-radius: 8px; border: 1px solid var(--border);">
-                </div>
-                {% else %}
-                <img id="cellPreview" style="display:none; max-width:200px; border-radius:8px; border:1px solid var(--border); margin-bottom:1rem;">
-                {% endif %}
-                <div style="margin-bottom: 1rem;">
-                    <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Загрузить новую картинку</label>
-                    <input type="file" name="image" accept="image/*" class="search-box" style="max-width: 100%;" data-preview="#cellPreview">
-                </div>
-                <div style="margin-bottom: 1rem;">
-                    <label style="display: block; margin-bottom: 0.25rem; font-size: 0.8rem; color: var(--text-muted);">Или URL картинки</label>
-                    <input type="text" name="image_url" value="{{ cell.image_url or '' }}" class="search-box" style="max-width: 100%;" placeholder="https://...">
-                </div>
-
+            <div class="form-actions">
                 <button type="submit" class="btn btn-primary">💾 Сохранить клетку</button>
-            </form>
-        </div>
+                <a href="/editor/location/{{ cell.location_id }}" class="btn">Отмена</a>
+            </div>
+        </form>
+    </div>
 
-        <div>
-            <h3>Превью клетки</h3>
-            <div style="background: var(--bg-hover); border-radius: 8px; padding: 1rem; margin-bottom: 1rem;">
-                <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem;">
-                    Тип: {{ cell.tile_type }} | Проходима: {{ 'да' if cell.is_passable else 'нет' }}
+    <div>
+        <div class="card">
+            <h3>👁 Превью клетки</h3>
+            <div class="cell-preview">
+                <div class="hint" style="margin-top:0;">
+                    Тип: {{ cell.tile_type }} · Проходима: {{ 'да' if cell.is_passable else 'нет' }}
                     {% if cell.target_location_id %}
-                    <br>🌍 Переход: {{ cell.target_location.name if cell.target_location else 'Локация ' + cell.target_location_id|string }} [{{ cell.target_x }},{{ cell.target_y }}]
+                    <br>🌍 Переход: {{ cell.target_location.name if cell.target_location else 'Локация ' ~ cell.target_location_id }} [{{ cell.target_x }},{{ cell.target_y }}]
                     {% endif %}
                 </div>
-                <div style="font-weight: 600; margin-bottom: 0.5rem;">{{ cell.name }}</div>
-                <div style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.5;">
-                    {{ cell.description[:200] }}{% if cell.description|length > 200 %}...{% endif %}
+                <div class="cell-preview-title">{{ cell.name }}</div>
+                <div class="hint" style="margin-top:0;">
+                    {{ cell.description[:200] }}{% if cell.description and cell.description|length > 200 %}…{% endif %}
                 </div>
                 {% if cell.has_npc %}
-                <div style="margin-top: 1rem; padding: 0.75rem; background: var(--bg-dark); border-radius: 6px;">
-                    <div style="font-size: 0.8rem; color: var(--accent);">💬 {{ cell.npc_name }} ({{ cell.npc_type }})</div>
-                    <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">{{ cell.npc_dialogue[:100] }}{% if cell.npc_dialogue|length > 100 %}...{% endif %}</div>
+                <div class="cell-preview-npc">
+                    <div style="color:var(--accent); font-size:0.8rem;">💬 {{ cell.npc_name }} ({{ cell.npc_type or '—' }})</div>
+                    <div class="hint" style="margin-top:0.25rem;">
+                        {{ (cell.npc_dialogue or '')[:100] }}{% if cell.npc_dialogue and cell.npc_dialogue|length > 100 %}…{% endif %}
+                    </div>
                 </div>
                 {% endif %}
             </div>
+        </div>
 
-            <h3>Соседние клетки</h3>
-            <table style="font-size: 0.8rem;">
-                <thead>
-                    <tr><th>Направление</th><th>Клетка</th><th>Проходима</th></tr>
-                </thead>
-                <tbody>
-                    {% for dir_name, ncell in neighbors.items() %}
-                    <tr>
-                        <td>{{ dir_name }}</td>
-                        <td>{{ ncell.name if ncell else '—' }}</td>
-                        <td>{{ 'да' if ncell and ncell.is_passable else 'нет' }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+        <div class="card">
+            <h3>🧭 Соседние клетки</h3>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr><th>Направление</th><th>Клетка</th><th>Проходима</th></tr>
+                    </thead>
+                    <tbody>
+                        {% for dir_name, ncell in neighbors.items() %}
+                        <tr>
+                            <td data-label="Направление">{{ dir_name }}</td>
+                            <td data-label="Клетка">{{ ncell.name if ncell else '—' }}</td>
+                            <td data-label="Проходима">{{ '✅' if ncell and ncell.is_passable else '🚫' }}</td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="3">
+                            <div class="empty-state"><div class="empty-icon">🧭</div>Соседей нет.</div>
+                        </td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 </div>

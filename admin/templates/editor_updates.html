@@ -1,10 +1,15 @@
 {% extends "base.html" %}
+{% import "macros.html" as macros %}
 
 {% block title %}Обновления и Идеи — Shadow Lands{% endblock %}
 {% block page_title %}📢 Обновления и Идеи игроков{% endblock %}
 
+{% block breadcrumbs %}
+{{ macros.crumbs([('Dashboard','/'), ('Контент','/content'), ('Обновления и идеи', none)]) }}
+{% endblock %}
+
 {% block content %}
-<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; align-items: start;">
+<div class="split-2 tight">
 
     <!-- ================== КОЛОНКА ОБНОВЛЕНИЙ ================== -->
     <div>

@@ -1,7 +1,12 @@
 {% extends "base.html" %}
+{% import "macros.html" as macros %}
 
 {% block title %}События — Shadow Lands{% endblock %}
 {% block page_title %}🎄 События и реликвии{% endblock %}
+
+{% block breadcrumbs %}
+{{ macros.crumbs([('Dashboard','/'), ('Контент','/content'), ('События', none)]) }}
+{% endblock %}
 {% block topbar_actions %}<a href="/editor/instances" class="btn">🆔 Экземпляры</a>{% endblock %}
 
 {% block content %}
@@ -16,8 +21,7 @@
     <form action="/settings/festive-events" method="post">
         <div class="field-row cols-2">
             {% for ev in events %}
-            <label style="display:flex; align-items:center; gap:0.5rem; background:var(--bg-dark);
-                          border:1px solid var(--border); border-radius:8px; padding:0.6rem 0.8rem;">
+            <label class="check-card">
                 <input type="checkbox" name="events" value="{{ ev }}" {% if ev in active %}checked{% endif %}>
                 <span>
                     <b>{{ {'winter':'❄️ Зимняя стужа','harvest':'🍂 Праздник жатвы','spirits':'🏮 Ночь духов'}.get(ev, ev) }}</b><br>
@@ -51,13 +55,15 @@
             {% for ev, items in by_event.items() %}
             {% for item in items %}
             <tr>
-                <td>{{ ev }}</td>
-                <td>{{ item.icon }} {{ item.name }}</td>
-                <td><span class="badge badge-{{ item.rarity.value }}">{{ item.rarity.value }}</span></td>
-                <td>{{ item.level_requirement }}</td>
-                <td>{% if ev in active %}<span class="badge badge-success">выпадает</span>
+                <td data-label="Событие">{{ ev }}</td>
+                <td data-label="Предмет">{{ item.icon }} {{ item.name }}</td>
+                <td data-label="Редкость"><span class="badge badge-{{ item.rarity.value }}">{{ item.rarity.value }}</span></td>
+                <td data-label="Ур." class="num">{{ item.level_requirement }}</td>
+                <td data-label="Статус">{% if ev in active %}<span class="badge badge-success">выпадает</span>
                     {% else %}<span class="badge badge-common">событие выключено</span>{% endif %}</td>
-                <td><a href="/item/{{ item.id }}/edit" class="btn btn-sm">✏️</a></td>
+                <td data-label="Действия"><div class="row-actions">
+                    <a href="/item/{{ item.id }}/edit" class="btn btn-sm btn-icon" title="Редактировать">✏️</a>
+                </div></td>
             </tr>
             {% endfor %}
             {% endfor %}
@@ -79,24 +85,26 @@
         <tbody>
             {% for item in unique_items %}
             <tr>
-                <td>🌟 {{ item.icon }} <b>{{ item.name }}</b></td>
-                <td><span class="badge badge-{{ item.rarity.value }}">{{ item.rarity.value }}</span></td>
-                <td>{{ item.level_requirement }}</td>
-                <td>
+                <td data-label="Реликвия">🌟 {{ item.icon }} <b>{{ item.name }}</b></td>
+                <td data-label="Редкость"><span class="badge badge-{{ item.rarity.value }}">{{ item.rarity.value }}</span></td>
+                <td data-label="Ур." class="num">{{ item.level_requirement }}</td>
+                <td data-label="Статус">
                     {% if item.id in taken %}
                     <span class="badge badge-danger">уже у кого-то</span>
                     {% else %}
                     <span class="badge badge-success">ждёт героя</span>
                     {% endif %}
                 </td>
-                <td>
-                    <a href="/item/{{ item.id }}/edit" class="btn btn-sm">✏️</a>
-                    {% if item.id in taken %}
-                    <form action="/editor/events/reset-unique/{{ item.id }}" method="post" style="display:inline"
-                          onsubmit="return confirm('Удалить существующий экземпляр и вернуть реликвию в розыгрыш? Владелец её потеряет.')">
-                        <button type="submit" class="btn btn-danger btn-sm">♻️ Сбросить</button>
-                    </form>
-                    {% endif %}
+                <td data-label="Действия">
+                    <div class="row-actions">
+                        <a href="/item/{{ item.id }}/edit" class="btn btn-sm btn-icon" title="Редактировать">✏️</a>
+                        {% if item.id in taken %}
+                        <form action="/editor/events/reset-unique/{{ item.id }}" method="post"
+                              onsubmit="return confirm('Удалить существующий экземпляр «{{ item.name }}» и вернуть реликвию в розыгрыш? Владелец её потеряет.')">
+                            <button type="submit" class="btn btn-danger btn-sm">♻️ Сбросить</button>
+                        </form>
+                        {% endif %}
+                    </div>
                 </td>
             </tr>
             {% else %}

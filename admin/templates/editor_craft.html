@@ -1,7 +1,12 @@
 {% extends "base.html" %}
+{% import "macros.html" as macros %}
 
 {% block title %}Крафт — Shadow Lands{% endblock %}
 {% block page_title %}🔨 Крафт и заточка{% endblock %}
+
+{% block breadcrumbs %}
+{{ macros.crumbs([('Dashboard','/'), ('Контент','/content'), ('Крафт и заточка', none)]) }}
+{% endblock %}
 {% block topbar_actions %}<a href="#new-recipe" class="btn btn-primary">➕ Новый рецепт</a>{% endblock %}
 
 {% block content %}
@@ -32,24 +37,27 @@
         <tbody>
             {% for r in recipes %}
             <tr>
-                <td>{{ {'forge':'🔨','alchemy':'⚗️','jewelry':'💎','any':'🛠'}.get(r.station, '🛠') }}</td>
-                <td><b>{{ r.name }}</b></td>
-                <td>{{ r.result_item.icon }} {{ r.result_item.name }}{% if r.result_quantity > 1 %} ×{{ r.result_quantity }}{% endif %}</td>
-                <td style="font-size:0.78rem;">
+                <td data-label="Станок">{{ {'forge':'🔨','alchemy':'⚗️','jewelry':'💎','any':'🛠'}.get(r.station, '🛠') }}</td>
+                <td data-label="Рецепт"><b>{{ r.name }}</b></td>
+                <td data-label="Результат">{{ r.result_item.icon }} {{ r.result_item.name }}{% if r.result_quantity > 1 %} ×{{ r.result_quantity }}{% endif %}</td>
+                <td data-label="Материалы" style="font-size:0.78rem;">
                     {% for ing in r.ingredients %}
                     {{ ing.item.icon }}{{ ing.item.name }}×{{ ing.quantity }}{% if not loop.last %}, {% endif %}
                     {% else %}<span style="color:var(--danger)">нет ингредиентов</span>{% endfor %}
                 </td>
-                <td>{{ r.gold_cost }}</td>
-                <td>{{ r.min_level }}</td>
-                <td>{{ (r.success_chance * 100)|int }}%</td>
-                <td>{{ '✅' if r.is_enabled else '🚫' }}</td>
-                <td>
-                    <button class="btn btn-primary btn-sm" onclick="toggleRow('rec-{{ r.id }}')">✏️</button>
-                    <form action="/editor/craft/{{ r.id }}/delete" method="post" style="display:inline"
-                          onsubmit="return confirm('Удалить рецепт?')">
-                        <button type="submit" class="btn btn-danger btn-sm">🗑</button>
-                    </form>
+                <td data-label="Золото" class="num">{{ r.gold_cost }}</td>
+                <td data-label="Ур." class="num">{{ r.min_level }}</td>
+                <td data-label="Шанс" class="num">{{ (r.success_chance * 100)|int }}%</td>
+                <td data-label="Вкл">{{ '✅' if r.is_enabled else '🚫' }}</td>
+                <td data-label="Действия">
+                    <div class="row-actions">
+                        <button type="button" class="btn btn-primary btn-sm btn-icon" title="Редактировать"
+                                onclick="toggleRow('rec-{{ r.id }}')">✏️</button>
+                        <form action="/editor/craft/{{ r.id }}/delete" method="post"
+                              onsubmit="return confirm('Удалить рецепт «{{ r.name }}»?')">
+                            <button type="submit" class="btn btn-danger btn-sm btn-icon" title="Удалить">🗑</button>
+                        </form>
+                    </div>
                 </td>
             </tr>
             <tr id="rec-{{ r.id }}" style="display:none;">
@@ -87,7 +95,7 @@
                                 <label class="form-label">Описание</label>
                                 <input type="text" name="description" value="{{ r.description or '' }}" class="search-box" style="width:100%">
                             </div>
-                            <label style="display:flex; align-items:center; gap:0.4rem; font-size:0.85rem; margin-top:0.6rem;">
+                            <label class="check-label" style="margin-top:0.6rem;">
                                 <input type="checkbox" name="is_enabled" value="true" {% if r.is_enabled %}checked{% endif %}> Рецепт доступен игрокам
                             </label>
                             <button type="submit" class="btn btn-primary" style="margin-top:0.6rem">💾 Сохранить</button>
@@ -268,11 +276,13 @@
         <tbody>
             {% for c in crafters %}
             <tr>
-                <td>💬 <b>{{ c.npc_name }}</b></td>
-                <td>{{ {'forge':'🔨 Кузница','alchemy':'⚗️ Алхимия','jewelry':'💎 Ювелир','any':'🛠 Любой'}.get(c.npc_station, c.npc_station) }}</td>
-                <td>{{ c.location.name if c.location else '—' }}</td>
-                <td>[{{ c.x }},{{ c.y }}]{% if c.floor %} эт.{{ c.floor }}{% endif %}</td>
-                <td><a href="/editor/cell/{{ c.id }}" class="btn btn-sm">✏️ Клетка</a></td>
+                <td data-label="NPC">💬 <b>{{ c.npc_name }}</b></td>
+                <td data-label="Станок">{{ {'forge':'🔨 Кузница','alchemy':'⚗️ Алхимия','jewelry':'💎 Ювелир','any':'🛠 Любой'}.get(c.npc_station, c.npc_station) }}</td>
+                <td data-label="Локация">{{ c.location.name if c.location else '—' }}</td>
+                <td data-label="Клетка">[{{ c.x }},{{ c.y }}]{% if c.floor %} эт.{{ c.floor }}{% endif %}</td>
+                <td data-label="Действия"><div class="row-actions">
+                    <a href="/editor/cell/{{ c.id }}" class="btn btn-sm">✏️ Клетка</a>
+                </div></td>
             </tr>
             {% else %}
             <tr><td colspan="5">

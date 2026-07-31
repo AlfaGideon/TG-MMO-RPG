@@ -1,7 +1,12 @@
 {% extends "base.html" %}
+{% import "macros.html" as macros %}
 
 {% block title %}Редактор квестов — Shadow Lands{% endblock %}
 {% block page_title %}📜 Квесты{% endblock %}
+
+{% block breadcrumbs %}
+{{ macros.crumbs([('Dashboard','/'), ('Контент','/content'), ('Квесты', none)]) }}
+{% endblock %}
 {% block topbar_actions %}<a href="#quest-form" class="btn btn-primary">➕ Новый квест</a>{% endblock %}
 
 {% block content %}
@@ -27,30 +32,46 @@
         <tbody>
             {% for q in quests %}
             <tr>
-                <td>
+                <td data-label="Фото">
                     {% if q.image_url %}
-                    <img src="{{ q.image_url }}" style="width:36px;height:36px;object-fit:cover;border-radius:6px;border:1px solid var(--border);">
+                    <img src="{{ q.image_url }}" class="thumb" alt="{{ q.name }}">
                     {% else %}
-                    <span style="opacity:0.4;">🖼</span>
+                    <span class="thumb-empty">🖼</span>
                     {% endif %}
                 </td>
-                <td>{{ q.id }}</td>
-                <td>{{ q.name }}</td>
-                <td>{{ q.objective_type }}</td>
-                <td>{{ q.objective_target }}</td>
-                <td>{{ q.objective_count }}</td>
-                <td>{{ q.reward_gold }}🪙 / {{ q.reward_exp }}⭐ {% if q.reward_item %}+ {{ q.reward_item.name }}{% endif %}</td>
-                <td>{{ q.min_level }}</td>
-                <td>{{ q.location.name if q.location else '—' }}</td>
-                <td>{{ q.npc_name or '—' }}</td>
-                <td>
-                    <button onclick="editQuest({{ q.id }}, '{{ q.name|replace("'", "\\'") }}', '{{ q.description|replace("'", "\\'") }}', '{{ q.objective_type }}', '{{ q.objective_target|replace("'", "\\'") }}', {{ q.objective_count }}, {{ q.reward_gold }}, {{ q.reward_exp }}, {{ q.reward_item_id or 'null' }}, {{ q.min_level }}, {{ q.location_id or 'null' }}, '{{ q.npc_name or '' }}', '{{ q.image_url or '' }}')" class="btn btn-primary btn-sm">✏️</button>
-                    <form action="/editor/quests/{{ q.id }}/clone" method="post" style="display:inline" title="Клонировать">
-                        <button type="submit" class="btn btn-sm">📋</button>
-                    </form>
-                    <form action="/editor/quests/{{ q.id }}/delete" method="post" style="display:inline" onsubmit="return confirm('Удалить квест?')">
-                        <button type="submit" class="btn btn-danger btn-sm">🗑</button>
-                    </form>
+                <td data-label="ID">{{ q.id }}</td>
+                <td data-label="Название"><b>{{ q.name }}</b></td>
+                <td data-label="Тип">{{ {'kill':'⚔️ убить','collect':'🎒 собрать','explore':'🗺 исследовать','talk':'💬 поговорить'}.get(q.objective_type, q.objective_type) }}</td>
+                <td data-label="Цель">{{ q.objective_target or '—' }}</td>
+                <td data-label="Кол-во" class="num">{{ q.objective_count }}</td>
+                <td data-label="Награда">{{ q.reward_gold }}🪙 / {{ q.reward_exp }}⭐{% if q.reward_item %} + {{ q.reward_item.name }}{% endif %}</td>
+                <td data-label="Ур." class="num">{{ q.min_level }}</td>
+                <td data-label="Локация">{{ q.location.name if q.location else '—' }}</td>
+                <td data-label="NPC">{{ q.npc_name or '—' }}</td>
+                <td data-label="Действия">
+                    <div class="row-actions">
+                        <button type="button" class="btn btn-primary btn-sm btn-icon quest-edit"
+                                title="Редактировать"
+                                data-id="{{ q.id }}"
+                                data-name="{{ q.name }}"
+                                data-desc="{{ q.description or '' }}"
+                                data-type="{{ q.objective_type }}"
+                                data-target="{{ q.objective_target or '' }}"
+                                data-count="{{ q.objective_count }}"
+                                data-gold="{{ q.reward_gold }}"
+                                data-exp="{{ q.reward_exp }}"
+                                data-item="{{ q.reward_item_id or '' }}"
+                                data-level="{{ q.min_level }}"
+                                data-loc="{{ q.location_id or '' }}"
+                                data-npc="{{ q.npc_name or '' }}"
+                                data-image="{{ q.image_url or '' }}">✏️</button>
+                        <form action="/editor/quests/{{ q.id }}/clone" method="post" title="Клонировать">
+                            <button type="submit" class="btn btn-sm btn-icon">📋</button>
+                        </form>
+                        <form action="/editor/quests/{{ q.id }}/delete" method="post" onsubmit="return confirm('Удалить квест «{{ q.name }}»?')">
+                            <button type="submit" class="btn btn-danger btn-sm btn-icon" title="Удалить">🗑</button>
+                        </form>
+                    </div>
                 </td>
             </tr>
             {% else %}
@@ -113,24 +134,34 @@
 </div>
 
 <script>
-function editQuest(id, name, desc, type, target, count, gold, exp, itemId, lvl, locId, npc, imageUrl) {
-    document.getElementById('quest-form-title').textContent = '✏️ Редактировать квест';
-    const form = document.getElementById('questForm');
-    form.action = '/editor/quests/' + id + '/edit';
-    document.getElementById('q_name').value = name;
-    document.getElementById('q_desc').value = desc;
-    document.getElementById('q_type').value = type;
-    document.getElementById('q_target').value = target;
-    document.getElementById('q_count').value = count;
-    document.getElementById('q_gold').value = gold;
-    document.getElementById('q_exp').value = exp;
-    document.getElementById('q_item').value = itemId || '';
-    document.getElementById('q_lvl').value = lvl;
-    document.getElementById('q_loc').value = locId || '';
-    document.getElementById('q_npc').value = npc;
-    document.getElementById('q_image_url').value = imageUrl || '';
-    window.location.hash = 'quest-form';
-}
+// Данные едут через data-атрибуты, а не аргументами inline-onclick:
+// названия и описания квестов содержат кавычки, апострофы и переносы
+// строк — раньше такая строка ломала весь JS на странице.
+document.querySelectorAll('.quest-edit').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const d = btn.dataset;
+        document.getElementById('quest-form-title').textContent = '✏️ Редактировать: ' + d.name;
+        const form = document.getElementById('questForm');
+        form.action = '/editor/quests/' + d.id + '/edit';
+
+        const set = (id, value) => { document.getElementById(id).value = value; };
+        set('q_name', d.name);
+        set('q_desc', d.desc);
+        set('q_type', d.type);
+        set('q_target', d.target);
+        set('q_count', d.count);
+        set('q_gold', d.gold);
+        set('q_exp', d.exp);
+        set('q_item', d.item);
+        set('q_lvl', d.level);
+        set('q_loc', d.loc);
+        set('q_npc', d.npc);
+        set('q_image_url', d.image);
+
+        document.getElementById('quest-form').scrollIntoView({behavior: 'smooth'});
+    });
+});
+
 function resetQuestForm() {
     document.getElementById('quest-form-title').textContent = '➕ Новый квест';
     const form = document.getElementById('questForm');

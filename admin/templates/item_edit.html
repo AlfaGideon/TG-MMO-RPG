@@ -1,15 +1,12 @@
 {% extends "base.html" %}
+{% import "macros.html" as macros %}
 
 {% block title %}Редактировать {{ item.name }} — Shadow Lands{% endblock %}
 {% block page_title %}✏️ {{ item.icon }} {{ item.name }} <span style="color:var(--text-muted); font-weight:400; font-size:0.85rem;">(шаблон #{{ item.id }})</span>{% endblock %}
 {% block topbar_actions %}<a href="/items" class="btn">◀️ Назад</a>{% endblock %}
 
 {% block breadcrumbs %}
-<div class="breadcrumbs">
-    <a href="/">Dashboard</a><span class="sep">/</span>
-    <a href="/items">Предметы</a><span class="sep">/</span>
-    <span class="current">{{ item.name }}</span>
-</div>
+{{ macros.crumbs([('Dashboard','/'), ('Предметы','/items'), (item.name, none)]) }}
 {% endblock %}
 
 {% block content %}

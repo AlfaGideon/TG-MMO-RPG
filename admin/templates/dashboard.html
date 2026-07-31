@@ -1,12 +1,11 @@
 {% extends "base.html" %}
+{% import "macros.html" as macros %}
 
 {% block title %}Dashboard — Shadow Lands{% endblock %}
 {% block page_title %}📊 Dashboard{% endblock %}
 
 {% block breadcrumbs %}
-<div class="breadcrumbs">
-    <span class="current">Dashboard</span>
-</div>
+{{ macros.crumbs([('Dashboard', none)]) }}
 {% endblock %}
 
 {% block topbar_actions %}

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "macros.html" as macros %}
 
 {% block title %}{{ location.name }} — Редактор — Shadow Lands{% endblock %}
 {% block page_title %}✏️ {{ location.name }} <span style="font-weight:400;color:var(--text-muted);font-size:0.85rem">— {{ location.grid_size }}×{{ location.grid_size }} • этажей {{ location.floors_count or 1 }}</span>{% endblock %}
@@ -10,12 +11,7 @@
 {% endblock %}
 
 {% block breadcrumbs %}
-<div class="breadcrumbs">
-    <a href="/">Dashboard</a><span class="sep">/</span>
-    <a href="/content">Контент</a><span class="sep">/</span>
-    <a href="/editor/locations">Локации</a><span class="sep">/</span>
-    <span class="current">{{ location.name }}</span>
-</div>
+{{ macros.crumbs([('Dashboard','/'), ('Контент','/content'), ('Локации','/editor/locations'), (location.name, none)]) }}
 {% endblock %}
 
 {% block content %}
@@ -171,7 +167,7 @@
         <!-- форма локации -->
         <div class="card" style="margin-bottom:1rem">
             <h3 style="margin-bottom:0.6rem">✏️ {{ location.name }}</h3>
-            <form action="/editor/location/{{ location.id }}/save" method="post" enctype="multipart/form-data" data-validate data-autosave style="display:grid;grid-template-columns:1fr 1fr;gap:0.8rem">
+            <form action="/editor/location/{{ location.id }}/save" method="post" enctype="multipart/form-data" data-validate data-autosave class="form-grid">
                 <div><label class="form-label">Название</label><input type="text" name="name" value="{{ location.name }}" class="search-box" style="max-width:100%" required></div>
                 <div><label class="form-label">Тип</label>
                     <select name="location_type" class="search-box" style="max-width:100%">
@@ -302,7 +298,7 @@
         <p class="hint" style="margin-bottom:0.6rem">Дверь — одна клетка, которая телепортирует в другую локацию или на этаж. Укажи цель.</p>
         <form id="doorForm" onsubmit="return submitDoor(event)">
             <input type="hidden" name="cell_id" id="doorCellId">
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.6rem;margin-bottom:0.8rem">
+            <div class="field-row cols-2" style="margin-bottom:0.8rem">
                 <div><label class="form-label">Целевая локация</label>
                     <select name="target_location_id" id="doorTargetLoc" class="search-box" style="max-width:100%">
                         <option value="">— нет —</option>

@@ -1,7 +1,12 @@
 {% extends "base.html" %}
+{% import "macros.html" as macros %}
 
 {% block title %}Редактор NPC — Shadow Lands{% endblock %}
 {% block page_title %}🎭 NPC на карте{% endblock %}
+
+{% block breadcrumbs %}
+{{ macros.crumbs([('Dashboard','/'), ('Контент','/content'), ('NPC', none)]) }}
+{% endblock %}
 
 {% block content %}
 <div class="card">
@@ -22,14 +27,16 @@
         <tbody>
             {% for cell in npc_cells %}
             <tr>
-                <td>{{ cell.id }}</td>
-                <td>{{ cell.location.name }}</td>
-                <td>[{{ cell.x }},{{ cell.y }}]</td>
-                <td>{{ cell.npc_name }}</td>
-                <td>{{ cell.npc_type or '—' }}</td>
-                <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ cell.npc_dialogue or '—' }}</td>
-                <td>
-                    <a href="/editor/cell/{{ cell.id }}" class="btn btn-primary btn-sm">✏️ Клетка</a>
+                <td data-label="ID клетки">{{ cell.id }}</td>
+                <td data-label="Локация">{{ cell.location.name if cell.location else '—' }}</td>
+                <td data-label="Координаты">[{{ cell.x }},{{ cell.y }}]{% if cell.floor %} эт.{{ cell.floor }}{% endif %}</td>
+                <td data-label="Имя NPC"><b>{{ cell.npc_name }}</b></td>
+                <td data-label="Тип">{{ cell.npc_type or '—' }}</td>
+                <td data-label="Диалог" class="cell-truncate" title="{{ cell.npc_dialogue or '' }}">{{ cell.npc_dialogue or '—' }}</td>
+                <td data-label="Действия">
+                    <div class="row-actions">
+                        <a href="/editor/cell/{{ cell.id }}" class="btn btn-primary btn-sm">✏️ Клетка</a>
+                    </div>
                 </td>
             </tr>
             {% else %}

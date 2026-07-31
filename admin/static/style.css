@@ -87,6 +87,105 @@ body {
 
 a { color: inherit; }
 
+/* ── Базовая типографика форм ─────────────────────────────
+   Раньше без класса .search-box контрол отдавался браузеру:
+   в тёмной теме получались белые поля и рваные высоты в одном
+   ряду. Теперь единый вид для всех input/select/textarea. */
+
+input, select, textarea, button {
+    font-family: inherit;
+    font-size: 0.875rem;
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not([type="submit"]):not([type="button"]),
+select,
+textarea {
+    padding: 0.5rem 0.7rem;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg-input);
+    color: var(--text);
+    line-height: 1.4;
+    min-height: 2.25rem;
+    max-width: 100%;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+textarea { min-height: 4.5rem; resize: vertical; }
+
+input:not([type="checkbox"]):not([type="radio"]):hover,
+select:hover,
+textarea:hover { border-color: var(--text-muted); }
+
+input[type="file"] {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    max-width: 100%;
+}
+
+input[type="file"]::file-selector-button {
+    font-family: inherit;
+    font-size: 0.78rem;
+    padding: 0.35rem 0.6rem;
+    margin-right: 0.6rem;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg-hover);
+    color: var(--text);
+    cursor: pointer;
+}
+
+input[type="checkbox"], input[type="radio"] {
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+
+/* Видимый фокус: без него навигация с клавиатуры вслепую */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 6px;
+}
+
+input:focus, select:focus, textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+:disabled, [aria-disabled="true"] { opacity: 0.55; cursor: not-allowed; }
+
+code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.85em;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 0.05em 0.35em;
+}
+
+hr { border: none; border-top: 1px solid var(--border); margin: 1.25rem 0; }
+
+/* Приглушённый текст — класс использовался в шаблонах, но не был описан */
+.muted { color: var(--text-muted); }
+
+/* Блокировка прокрутки фона под открытым мобильным меню */
+body.no-scroll { overflow: hidden; }
+
+/* Кнопка во всю ширину контейнера */
+.btn-block { width: 100%; justify-content: center; }
+
+/* Только для скринридеров */
+.sr-only {
+    position: absolute;
+    width: 1px; height: 1px;
+    padding: 0; margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+}
+
 /* ── Layout shell ─────────────────────────────────────── */
 
 .layout {
@@ -260,8 +359,10 @@ a { color: inherit; }
     padding-left: 1.95rem;
 }
 
+/* 14 подпунктов «Контент мира» не влезали в 320px — нижние
+   («Квесты», «AI-мастерская», «Обновления») просто обрезались. */
 .nav-group.open .nav-subitems {
-    max-height: 320px;
+    max-height: 40rem;
     opacity: 1;
     margin-top: 0.15rem;
     margin-bottom: 0.3rem;
@@ -401,10 +502,21 @@ a { color: inherit; }
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    flex: 1;
+    /* Длинный заголовок больше не выдавливает кнопки за край экрана */
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
-.topbar-actions { display: flex; align-items: center; gap: 0.75rem; margin-left: auto; }
+.topbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-left: auto;
+    flex-shrink: 0;
+}
 
 .container {
     padding: 1.75rem;
@@ -421,6 +533,182 @@ a { color: inherit; }
     .menu-toggle { display: inline-flex; align-items: center; justify-content: center; }
     .container { padding: 1.1rem; }
 }
+
+/* ── Хлебные крошки ───────────────────────────────────────
+   Раньше жили в <style> внутри base.html — дублировались в
+   каждом ответе и не кэшировались. */
+
+.breadcrumbs {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    margin-bottom: 1.1rem;
+    flex-wrap: wrap;
+    min-height: 1.2rem;
+}
+
+.breadcrumbs a {
+    color: var(--text-muted);
+    text-decoration: none;
+    transition: color 0.15s;
+    border-radius: 4px;
+}
+
+.breadcrumbs a:hover { color: var(--accent); text-decoration: underline; }
+.breadcrumbs .sep { opacity: 0.45; }
+.breadcrumbs .current {
+    color: var(--text);
+    font-weight: 500;
+    max-width: 28ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ── Глобальный поиск (Ctrl/Cmd+K) ────────────────────── */
+
+.search-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.7);
+    z-index: 100;
+    display: none;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 12vh;
+}
+
+.search-modal-overlay.open { display: flex; }
+
+.search-modal {
+    width: min(560px, 92vw);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    overflow: hidden;
+}
+
+.search-input-wrap {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.85rem 1rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.search-input-wrap input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: var(--text);
+    font-size: 1rem;
+    outline: none;
+    min-height: auto;
+    padding: 0;
+}
+
+.search-input-wrap input:focus { box-shadow: none; }
+
+.search-shortcut {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+    padding: 0.15rem 0.4rem;
+    border-radius: 6px;
+    white-space: nowrap;
+    line-height: 1.4;
+}
+
+/* На узком экране в топбаре остаётся только лупа: подпись и
+   подсказка «Ctrl K» выдавливали кнопки страницы за край. */
+@media (max-width: 720px) {
+    .search-btn-label,
+    .topbar-actions .search-shortcut { display: none; }
+}
+
+.search-results { max-height: 60vh; overflow-y: auto; }
+
+.search-category {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    padding: 0.6rem 1rem 0.35rem;
+}
+
+.search-result-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.65rem 1rem;
+    color: var(--text);
+    text-decoration: none;
+    border-bottom: 1px solid var(--border);
+    transition: background 0.1s;
+}
+
+.search-result-row:hover, .search-result-row.active {
+    background: var(--bg-hover);
+    color: var(--text);
+}
+
+.search-result-meta { font-size: 0.72rem; color: var(--text-muted); white-space: nowrap; }
+.search-empty { padding: 1.5rem; text-align: center; color: var(--text-muted); }
+
+/* ── Пагинация ────────────────────────────────────────── */
+
+.pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    margin-top: 1.25rem;
+    flex-wrap: wrap;
+}
+
+.pagination a, .pagination span {
+    min-width: 2.25rem;
+    height: 2.25rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    text-decoration: none;
+    font-size: 0.82rem;
+    font-variant-numeric: tabular-nums;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.pagination a:hover { border-color: var(--accent); color: var(--text); background: var(--bg-hover); }
+
+.pagination .current {
+    background: var(--accent-soft);
+    color: var(--accent);
+    border-color: var(--accent);
+    font-weight: 600;
+}
+
+.pagination .disabled { opacity: 0.35; pointer-events: none; }
+
+/* ── Тулбар списка (поиск + счётчик) ──────────────────── */
+
+.list-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6rem 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+}
+
+.list-toolbar form { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.list-toolbar .hint { margin-top: 0; }
 
 /* ── Cards & headers ──────────────────────────────────── */
 
@@ -513,7 +801,9 @@ a { color: inherit; }
 .content-card:hover {
     border-color: var(--accent);
     transform: translateY(-2px);
-    background: #2a2a3a;
+    /* было жёстко зашитое #2a2a3a — в светлой теме плитка темнела */
+    background: var(--accent-soft);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
 }
 
 .content-card .content-icon {
@@ -557,9 +847,12 @@ table {
 }
 
 th, td {
-    padding: 0.75rem 1rem;
+    padding: 0.7rem 0.9rem;
     text-align: left;
     border-bottom: 1px solid var(--border);
+    /* Ячейки были выровнены по baseline: строка с кнопками
+       «съезжала» относительно строки с обычным текстом. */
+    vertical-align: middle;
 }
 
 th {
@@ -567,11 +860,108 @@ th {
     text-transform: uppercase;
     letter-spacing: 0.05em;
     color: var(--text-muted);
+    font-weight: 600;
+    white-space: nowrap;
+    background: var(--bg-card);
 }
+
+/* Числовые колонки читаются столбиком, а не «прыгают» */
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Длинный текст (диалоги NPC, описания) обрезается многоточием,
+   а не растягивает таблицу на два экрана вширь. */
+td.cell-truncate {
+    max-width: 28ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Превью картинки в списках (мобы, квесты) — один размер везде,
+   раньше задавался инлайном и разъезжался от шаблона к шаблону. */
+.thumb {
+    width: 36px;
+    height: 36px;
+    object-fit: cover;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    display: block;
+    background: var(--bg-dark);
+}
+
+.thumb-empty {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 6px;
+    border: 1px dashed var(--border);
+    opacity: 0.45;
+}
+
+/* Превью загружаемой картинки в формах */
+.img-preview {
+    display: block;
+    max-width: 200px;
+    max-height: 200px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    margin-bottom: 0.9rem;
+}
+
+/* Превью клетки в редакторе */
+.cell-preview {
+    background: var(--bg-hover);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.cell-preview-title { font-weight: 600; }
+
+.cell-preview-npc {
+    padding: 0.75rem;
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+}
+
+tbody tr:last-child td { border-bottom: none; }
 
 tr:hover td { background: var(--bg-hover); }
 
-.table-wrap { overflow-x: auto; }
+/* Пустое состояние занимает всю строку — hover-подсветка тут лишняя */
+tr:hover td:has(.empty-state) { background: transparent; }
+
+/* Ряд кнопок в колонке «Действия»: раньше отдельные <form
+   style="display:inline"> давали разную высоту и рваные отступы. */
+td .btn { vertical-align: middle; }
+
+.row-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    flex-wrap: wrap;
+}
+
+.row-actions form { display: inline-flex; margin: 0; }
+
+.table-wrap {
+    overflow-x: auto;
+    /* горизонтальный скролл не должен обрезать тень/фокус */
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+}
+
+.table-wrap::-webkit-scrollbar { height: 8px; }
+.table-wrap::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 8px;
+}
 
 .sort-header {
     color: inherit;
@@ -587,22 +977,38 @@ tr:hover td { background: var(--bg-hover); }
 .sort-header .sort-inactive { opacity: 0.3; font-size: 0.7rem; }
 
 .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
     text-align: center;
     padding: 2.5rem 1rem;
     color: var(--text-muted);
+    /* Пустое состояние живёт внутри <td colspan>: без этого
+       текст прижимался влево, а кнопка уезжала под него. */
+    width: 100%;
 }
 
-.empty-state .empty-icon { font-size: 2.2rem; margin-bottom: 0.5rem; }
+.empty-state .empty-icon { font-size: 2.2rem; margin-bottom: 0.25rem; line-height: 1; }
+.empty-state .hint { margin-top: 0; max-width: 46ch; }
+.empty-state .btn { margin-top: 0.5rem; }
 
 /* ── Badges ───────────────────────────────────────────── */
 
 .badge {
-    display: inline-block;
-    padding: 0.25rem 0.55rem;
+    /* inline-block ронял бейдж относительно текста рядом —
+       теперь центрируется по своей строке. */
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.2rem 0.55rem;
     border-radius: 999px;
     font-size: 0.72rem;
     font-weight: 600;
+    line-height: 1.4;
     white-space: nowrap;
+    vertical-align: middle;
 }
 
 .badge-common { background: var(--rarity-common-bg); color: var(--rarity-common); }
@@ -631,21 +1037,30 @@ tr:hover td { background: var(--bg-hover); }
 .btn {
     display: inline-flex;
     align-items: center;
-    gap: 0.5rem;
-    padding: 0.55rem 1rem;
+    justify-content: center;
+    gap: 0.45rem;
+    padding: 0.5rem 0.9rem;
     border-radius: 8px;
     border: 1px solid transparent;
     font-size: 0.85rem;
     font-weight: 500;
+    font-family: inherit;
     cursor: pointer;
     text-decoration: none;
-    transition: background 0.2s, border-color 0.2s, opacity 0.2s;
+    white-space: nowrap;
+    /* Фиксированная высота = кнопки-ссылки (<a>) и кнопки-формы
+       (<button>) больше не отличаются на 1–3px в одном ряду. */
+    min-height: 2.25rem;
+    line-height: 1.2;
+    transition: background 0.2s, border-color 0.2s, opacity 0.2s, transform 0.08s;
     background: var(--bg-hover);
     color: var(--text);
     border-color: var(--border);
 }
 
 .btn:hover { border-color: var(--accent); }
+.btn:active { transform: translateY(1px); }
+.btn:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
 
 .btn-primary {
     background: var(--accent);
@@ -663,7 +1078,45 @@ tr:hover td { background: var(--bg-hover); }
 
 .btn-danger:hover { opacity: 0.88; }
 
-.btn-sm { padding: 0.3rem 0.6rem; font-size: 0.75rem; }
+.btn-sm {
+    padding: 0.3rem 0.6rem;
+    font-size: 0.75rem;
+    min-height: 1.85rem;
+    gap: 0.3rem;
+}
+
+/* Кнопка-иконка (🗑, 📋, ✏️) — квадратная, чтобы ряд действий
+   в таблице не выглядел «лесенкой» из разной ширины. */
+.btn-icon {
+    padding: 0.3rem;
+    min-width: 1.85rem;
+    min-height: 1.85rem;
+}
+
+.btn-ghost {
+    background: transparent;
+    border-color: transparent;
+    color: var(--text-muted);
+}
+
+.btn-ghost:hover { background: var(--bg-hover); color: var(--text); }
+
+/* Мягкие акценты вместо inline style="background:var(--accent-soft)" */
+.btn-accent {
+    background: var(--accent-soft);
+    color: var(--accent);
+    border-color: transparent;
+}
+
+.btn-accent:hover { border-color: var(--accent); }
+
+.btn-danger-soft {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--danger);
+    border-color: transparent;
+}
+
+.btn-danger-soft:hover { border-color: var(--danger); }
 
 .form-label {
     display: block;
@@ -676,29 +1129,130 @@ tr:hover td { background: var(--bg-hover); }
 .search-box, select.search-box, textarea.search-box {
     width: 100%;
     max-width: 300px;
-    padding: 0.55rem 0.85rem;
+    padding: 0.5rem 0.7rem;
     border-radius: 8px;
     border: 1px solid var(--border);
     background: var(--bg-input);
     color: var(--text);
     font-size: 0.875rem;
     font-family: inherit;
+    min-height: 2.25rem;
 }
 
 .search-box:focus {
     outline: none;
     border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .form-grid {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 0.9rem;
+    /* Было ровно 4 колонки: на узком экране поля сплющивались,
+       на широком — растягивались непропорционально. */
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 0.9rem 1rem;
+    align-items: start;
 }
 
-@media (max-width: 800px) {
-    .form-grid { grid-template-columns: repeat(2, 1fr); }
+/* Внутри сеток поле занимает всю колонку: иначе 300px-потолок
+   .search-box оставлял рваный правый край (отсюда десятки
+   inline style="max-width:100%" по шаблонам). */
+.form-grid .search-box,
+.form-grid input,
+.form-grid select,
+.form-grid textarea,
+.field-group .search-box {
+    max-width: 100%;
+    width: 100%;
 }
+
+/* Ячейка формы: подпись + контрол, ровная базовая линия в ряду */
+.form-grid > div,
+.field-row > div:not(.stat-input) {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+/* Чекбокс с подписью — единый компонент вместо inline-стилей */
+.check-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+    user-select: none;
+    line-height: 1.3;
+}
+
+.check-label input[type="checkbox"],
+.check-label input[type="radio"] {
+    flex-shrink: 0;
+    width: 1rem;
+    height: 1rem;
+    margin: 0;
+}
+
+/* Карточка-чекбокс (события, права доступа) */
+.check-card {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.6rem 0.8rem;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.check-card:hover { border-color: var(--accent); }
+.check-card:has(input:checked) {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+}
+
+/* Ряд кнопок под формой */
+.form-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-top: 1rem;
+}
+
+/* Вертикальный стек полей: заменяет россыпь
+   style="margin-bottom:1rem" в редакторах клетки и локации. */
+.form-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.form-stack > .field { display: flex; flex-direction: column; }
+
+.field > .form-label { margin-bottom: 0.3rem; }
+
+/* Две колонки, схлопывающиеся в одну на узком экране —
+   вместо жёсткого inline grid-template-columns: 1fr 1fr. */
+.split-2 {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1.5rem;
+    align-items: start;
+}
+
+.split-2.tight { gap: 1rem; }
+
+/* Форма-строка: поля и кнопка выровнены по нижнему краю */
+.form-inline {
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    align-items: flex-end;
+}
+
+.form-inline > div { display: flex; flex-direction: column; }
 
 @media (max-width: 500px) {
     .form-grid { grid-template-columns: 1fr; }
@@ -708,9 +1262,23 @@ tr:hover td { background: var(--bg-hover); }
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 1rem;
+    gap: 0.75rem 1rem;
     flex-wrap: wrap;
     margin-bottom: 1rem;
+}
+
+/* Заголовок в тулбаре не должен тащить нижний отступ от .card h2 */
+.toolbar h2, .toolbar h3 { margin-bottom: 0; }
+.toolbar form { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.toolbar .hint { margin-top: 0; }
+
+/* Правая группа тулбара прижимается к краю */
+.toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-left: auto;
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -720,13 +1288,19 @@ tr:hover td { background: var(--bg-hover); }
 /* ── Вкладки ── */
 .tabs {
     display: flex;
-    gap: 0.35rem;
+    align-items: flex-end;
+    gap: 0.25rem;
     border-bottom: 1px solid var(--border);
     margin-bottom: 1.25rem;
     flex-wrap: wrap;
 }
 
+/* Вкладки бывают и <button>, и <a> (лут, аукцион, экземпляры) —
+   правило общее, чтобы ссылки не выглядели ниже кнопок. */
 .tab-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
     background: transparent;
     border: 1px solid transparent;
     border-bottom: none;
@@ -736,7 +1310,11 @@ tr:hover td { background: var(--bg-hover); }
     cursor: pointer;
     font-size: 0.85rem;
     font-family: inherit;
-    transition: all 0.15s;
+    line-height: 1.3;
+    text-decoration: none;
+    /* компенсируем 1px рамки активной вкладки */
+    margin-bottom: -1px;
+    transition: color 0.15s, background 0.15s, border-color 0.15s;
     white-space: nowrap;
 }
 
@@ -746,7 +1324,9 @@ tr:hover td { background: var(--bg-hover); }
     color: var(--text);
     background: var(--bg-card);
     border-color: var(--border);
+    border-bottom: 1px solid var(--bg-card);
     box-shadow: inset 0 2px 0 var(--accent);
+    font-weight: 600;
 }
 
 .tab-panel { display: none; }
@@ -914,11 +1494,27 @@ tr:hover td { background: var(--bg-hover); }
     flex-wrap: wrap;
 }
 
-.inline-form input, .inline-form select { max-width: 90px; }
-.inline-form input.wide { max-width: 180px; }
+.inline-form input,
+.inline-form select {
+    max-width: 90px;
+    /* компактнее обычного поля: иначе редактируемая строка
+       таблицы становилась вдвое выше соседних */
+    min-height: 1.95rem;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.82rem;
+}
+
+.inline-form input.wide, .inline-form select.wide { max-width: 180px; }
 .inline-form { margin: 0; }
-.inline-form.saved input { border-color: var(--success); }
+.inline-form .btn { min-height: 1.95rem; }
+.inline-form.saved input {
+    border-color: var(--success);
+    box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.18);
+}
 .inline-form td { padding: 0.3rem 0.5rem; }
+
+/* Ячейка с инлайн-формой не должна растягивать строку */
+td > .inline-form { min-height: 1.95rem; }
 
 /* ── Мини-подсказка ── */
 .hint {
@@ -941,6 +1537,44 @@ tr:hover td { background: var(--bg-hover); }
 .banner.warn { background: rgba(248, 113, 113, .08); border-color: var(--danger); }
 .banner.ok { background: rgba(74, 222, 128, .08); border-color: var(--success); }
 .banner.info { background: var(--accent-soft); border-color: var(--accent); }
+
+/* ── Строка статуса (бот запущен / остановлен) ── */
+.status-row {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    padding: 0.8rem 1rem;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--bg-hover);
+    margin-bottom: 1.5rem;
+}
+
+.status-row .status-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: var(--text-muted);
+}
+
+.status-row.ok .status-dot {
+    background: var(--success);
+    box-shadow: 0 0 8px var(--success);
+}
+
+.status-row.down .status-dot {
+    background: var(--danger);
+    box-shadow: 0 0 8px var(--danger);
+}
+
+.status-row .status-text { font-weight: 600; }
+
+.status-msg {
+    margin-top: 1rem;
+    font-size: 0.9rem;
+    min-height: 1.3rem;
+}
 
 /* ── Полоска популяции мобов ── */
 .pop-bar {
@@ -1087,18 +1721,6 @@ tr:hover td { background: var(--bg-hover); }
 .toast-msg.show { opacity: 1; transform: none; }
 .toast-msg.err { border-left-color: var(--danger); }
 
-/* ── Empty states with CTA ──────────────────────────────── */
-
-.empty-state {
-    text-align: center;
-    padding: 2.5rem 1rem;
-    color: var(--text-muted);
-}
-
-.empty-state .empty-icon { font-size: 2.2rem; margin-bottom: 0.5rem; }
-
-.empty-state .btn { margin-top: 0.75rem; }
-
 /* ── Theme toggle ───────────────────────────────────────── */
 
 .theme-toggle {
@@ -1218,7 +1840,9 @@ tr:hover td { background: var(--bg-hover); }
 
     .table-wrap td:last-child { border-bottom: none; }
 
-    .table-wrap td::before {
+    /* Подпись показываем только там, где она задана: иначе
+       у ячейки появлялся пустой блок, а значение уезжало вправо. */
+    .table-wrap td[data-label]:not([data-label=""])::before {
         content: attr(data-label);
         font-weight: 600;
         color: var(--text-muted);
@@ -1226,6 +1850,12 @@ tr:hover td { background: var(--bg-hover); }
         text-transform: uppercase;
         letter-spacing: 0.04em;
         flex-shrink: 0;
+    }
+
+    /* Ячейка без подписи занимает всю ширину карточки */
+    .table-wrap td:not([data-label]),
+    .table-wrap td[data-label=""] {
+        justify-content: flex-start;
     }
 
     .table-wrap td:has(.inline-form)::before { align-self: flex-start; }

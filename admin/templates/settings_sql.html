@@ -1,14 +1,11 @@
 {% extends "base.html" %}
+{% import "macros.html" as macros %}
 
 {% block title %}SQL песочница — Shadow Lands{% endblock %}
 {% block page_title %}🛠 SQL песочница{% endblock %}
 
 {% block breadcrumbs %}
-<div class="breadcrumbs">
-    <a href="/">Dashboard</a><span class="sep">/</span>
-    <a href="/settings">Настройки</a><span class="sep">/</span>
-    <span class="current">SQL</span>
-</div>
+{{ macros.crumbs([('Dashboard','/'), ('Настройки','/settings'), ('SQL', none)]) }}
 {% endblock %}
 
 {% block content %}

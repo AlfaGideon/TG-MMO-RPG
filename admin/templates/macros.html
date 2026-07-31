@@ -34,11 +34,25 @@
 {% set qparam = ('q=' + q | urlencode + '&') if q else '' %}
 {% set active = current_sort == field %}
 {% set next_order = 'asc' if active and current_order == 'desc' else 'desc' %}
-<a href="{{ base_url }}{{ sep }}{{ qparam }}sort={{ field }}&order={{ next_order }}"
+<a href="{{ base_url }}{{ sep }}{{ qparam }}sort={{ field }}&amp;order={{ next_order }}"
    class="sort-header {% if active %}active {{ current_order }}{% endif %}">
     {{ label }}
     {% if active %}{{ '▲' if current_order == 'asc' else '▼' }}{% else %}<span class="sort-inactive">⇅</span>{% endif %}
 </a>
+{% endmacro %}
+
+{% macro crumbs(trail) %}
+{#- Хлебные крошки одной строкой: trail — список (label, url),
+    последний элемент рисуется как текущая страница без ссылки. -#}
+<nav class="breadcrumbs" aria-label="Хлебные крошки">
+    {%- for label, url in trail %}
+        {%- if loop.last or not url %}
+    <span class="current" aria-current="page">{{ label }}</span>
+        {%- else %}
+    <a href="{{ url }}">{{ label }}</a><span class="sep" aria-hidden="true">/</span>
+        {%- endif %}
+    {%- endfor %}
+</nav>
 {% endmacro %}
 
 {% macro search_form(action, q='', placeholder='Поиск...') %}

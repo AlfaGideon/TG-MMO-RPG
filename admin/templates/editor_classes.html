@@ -1,7 +1,12 @@
 {% extends "base.html" %}
+{% import "macros.html" as macros %}
 
 {% block title %}Классы — Shadow Lands{% endblock %}
 {% block page_title %}🎭 Классы персонажей{% endblock %}
+
+{% block breadcrumbs %}
+{{ macros.crumbs([('Dashboard','/'), ('Контент','/content'), ('Классы', none)]) }}
+{% endblock %}
 {% block topbar_actions %}<a href="#new-class" class="btn btn-primary">➕ Новый класс</a>{% endblock %}
 
 {% block content %}
@@ -44,14 +49,17 @@
                 <td>{{ usage.get(c.key, 0) }}</td>
                 <td>{{ '✅' if c.is_enabled else '🚫' }}</td>
                 <td>
-                    <button class="btn btn-primary btn-sm" onclick="toggleForm('cls-{{ c.id }}')">✏️</button>
-                    <form action="/editor/classes/{{ c.id }}/clone" method="post" style="display:inline" title="Клонировать">
-                        <button type="submit" class="btn btn-sm">📋</button>
+                    <div class="row-actions">
+                    <button type="button" class="btn btn-primary btn-sm btn-icon" title="Редактировать"
+                            onclick="toggleForm('cls-{{ c.id }}')">✏️</button>
+                    <form action="/editor/classes/{{ c.id }}/clone" method="post" title="Клонировать">
+                        <button type="submit" class="btn btn-sm btn-icon">📋</button>
                     </form>
-                    <form action="/editor/classes/{{ c.id }}/delete" method="post" style="display:inline"
+                    <form action="/editor/classes/{{ c.id }}/delete" method="post"
                           onsubmit="return confirm({% if usage.get(c.key, 0) %}'Классом играют {{ usage.get(c.key) }} героев — он будет просто выключен. Продолжить?'{% else %}'Удалить класс?'{% endif %})">
-                        <button type="submit" class="btn btn-danger btn-sm">🗑</button>
+                        <button type="submit" class="btn btn-danger btn-sm btn-icon" title="Удалить">🗑</button>
                     </form>
+                    </div>
                 </td>
             </tr>
             <tr id="cls-{{ c.id }}" style="display:none;">

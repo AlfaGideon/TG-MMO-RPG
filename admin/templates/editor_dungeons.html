@@ -1,7 +1,12 @@
 {% extends "base.html" %}
+{% import "macros.html" as macros %}
 
 {% block title %}Подземелья — Shadow Lands{% endblock %}
 {% block page_title %}🕳 Шаблоны подземелий{% endblock %}
+
+{% block breadcrumbs %}
+{{ macros.crumbs([('Dashboard','/'), ('Контент','/content'), ('Подземелья', none)]) }}
+{% endblock %}
 {% block topbar_actions %}<a href="#dungeon-form" class="btn btn-primary">➕ Новый шаблон</a>{% endblock %}
 
 {% block content %}
@@ -18,10 +23,10 @@
             <tbody>
             {% for run in active_runs %}
                 <tr>
-                    <td>{{ run.character.name if run.character else '—' }}</td>
-                    <td>{{ run.template.name if run.template else 'без шаблона' }}</td>
-                    <td>{{ run.floor }}</td>
-                    <td>{{ run.created_at.strftime('%d.%m %H:%M') if run.created_at else '—' }}</td>
+                    <td data-label="Герой">{{ run.character.name if run.character else '—' }}</td>
+                    <td data-label="Подземелье">{{ run.template.name if run.template else 'без шаблона' }}</td>
+                    <td data-label="Этаж" class="num">{{ run.floor }}</td>
+                    <td data-label="Начал">{{ run.created_at.strftime('%d.%m %H:%M') if run.created_at else '—' }}</td>
                 </tr>
             {% endfor %}
             </tbody>
@@ -52,16 +57,16 @@
         <tbody>
             {% for tpl in dungeon_templates %}
             <tr data-tpl-id="{{ tpl.id }}">
-                <td>{{ tpl.id }}</td>
-                <td>{{ tpl.name }}</td>
-                <td>{{ tpl.grid_size }}×{{ tpl.grid_size }}</td>
-                <td>{{ tpl.floors_count }}</td>
-                <td>{{ tpl.min_level }}</td>
-                <td>{{ (tpl.wall_chance * 100)|round|int }}%</td>
-                <td>{{ (tpl.chest_chance * 100)|round|int }}%</td>
-                <td>{{ (tpl.mob_chance * 100)|round|int }}%</td>
-                <td>{{ '✅' if tpl.is_active else '—' }}</td>
-                <td>
+                <td data-label="ID">{{ tpl.id }}</td>
+                <td data-label="Название"><b>{{ tpl.name }}</b></td>
+                <td data-label="Размер" class="num">{{ tpl.grid_size }}×{{ tpl.grid_size }}</td>
+                <td data-label="Этажи" class="num">{{ tpl.floors_count }}</td>
+                <td data-label="Мин.ур" class="num">{{ tpl.min_level }}</td>
+                <td data-label="Стены" class="num">{{ (tpl.wall_chance * 100)|round|int }}%</td>
+                <td data-label="Сундуки" class="num">{{ (tpl.chest_chance * 100)|round|int }}%</td>
+                <td data-label="Мобы" class="num">{{ (tpl.mob_chance * 100)|round|int }}%</td>
+                <td data-label="Активен">{{ '✅' if tpl.is_active else '—' }}</td>
+                <td data-label="Портал">
                     {% set portal = portal_by_template.get(tpl.id) %}
                     {% set is_open = portal_open_by_template.get(tpl.id) %}
                     <div data-portal-id="{{ tpl.id }}" data-opened="{{ tpl.portal_opened_at.isoformat() if tpl.portal_opened_at else '' }}" data-is-open="{{ '1' if is_open else '0' }}">
@@ -76,19 +81,36 @@
                     {% endif %}
                     </div>
                 </td>
-                <td>
-                    <button onclick="editDungeon({{ tpl.id }}, '{{ tpl.name|replace("'", "\\'") }}', '{{ tpl.description|replace("'", "\\'") }}', {{ tpl.grid_size }}, {{ tpl.floors_count }}, {{ tpl.min_level }}, {{ tpl.wall_chance }}, {{ tpl.chest_chance }}, {{ tpl.mob_chance }}, {{ tpl.mob_level_min }}, {{ tpl.mob_level_max }}, '{{ tpl.mob_pool|replace("'", "\\'") }}', '{{ tpl.image_url or '' }}', {{ 'true' if tpl.is_active else 'false' }})" class="btn btn-primary btn-sm">✏️</button>
-                    <form action="/editor/dungeons/{{ tpl.id }}/open-portal" method="post" style="display:inline" onsubmit="return confirm('Открыть новый портал в случайном месте? Все игроки получат уведомление.')">
-                        <button type="submit" class="btn btn-sm" style="background:var(--accent-soft); color:var(--accent);">🌀 {{ 'Открыть заново' if portal else 'Открыть портал' }}</button>
-                    </form>
-                    {% if is_open %}
-                    <form action="/editor/dungeons/{{ tpl.id }}/close-portal" method="post" style="display:inline" onsubmit="return confirm('Закрыть портал для новых входов? Игроки внутри продолжат играть до смерти или выхода.')">
-                        <button type="submit" class="btn btn-sm" style="background:rgba(239,68,68,0.15); color:var(--danger);">🚫 Закрыть портал</button>
-                    </form>
-                    {% endif %}
-                    <form action="/editor/dungeons/{{ tpl.id }}/delete" method="post" style="display:inline" onsubmit="return confirm('Удалить шаблон подземелья полностью?')">
-                        <button type="submit" class="btn btn-danger btn-sm">🗑</button>
-                    </form>
+                <td data-label="Действия">
+                    <div class="row-actions">
+                        <button type="button" class="btn btn-primary btn-sm btn-icon dungeon-edit"
+                                title="Редактировать"
+                                data-id="{{ tpl.id }}"
+                                data-name="{{ tpl.name }}"
+                                data-desc="{{ tpl.description or '' }}"
+                                data-grid="{{ tpl.grid_size }}"
+                                data-floors="{{ tpl.floors_count }}"
+                                data-level="{{ tpl.min_level }}"
+                                data-wall="{{ tpl.wall_chance }}"
+                                data-chest="{{ tpl.chest_chance }}"
+                                data-mob="{{ tpl.mob_chance }}"
+                                data-mlmin="{{ tpl.mob_level_min }}"
+                                data-mlmax="{{ tpl.mob_level_max }}"
+                                data-pool="{{ tpl.mob_pool or '' }}"
+                                data-image="{{ tpl.image_url or '' }}"
+                                data-active="{{ '1' if tpl.is_active else '' }}">✏️</button>
+                        <form action="/editor/dungeons/{{ tpl.id }}/open-portal" method="post" onsubmit="return confirm('Открыть новый портал в случайном месте? Все игроки получат уведомление.')">
+                            <button type="submit" class="btn btn-sm btn-accent">🌀 {{ 'Открыть заново' if portal else 'Открыть портал' }}</button>
+                        </form>
+                        {% if is_open %}
+                        <form action="/editor/dungeons/{{ tpl.id }}/close-portal" method="post" onsubmit="return confirm('Закрыть портал для новых входов? Игроки внутри продолжат играть до смерти или выхода.')">
+                            <button type="submit" class="btn btn-sm btn-danger-soft">🚫 Закрыть портал</button>
+                        </form>
+                        {% endif %}
+                        <form action="/editor/dungeons/{{ tpl.id }}/delete" method="post" onsubmit="return confirm('Удалить шаблон подземелья «{{ tpl.name }}» полностью?')">
+                            <button type="submit" class="btn btn-danger btn-sm btn-icon" title="Удалить">🗑</button>
+                        </form>
+                    </div>
                 </td>
             </tr>
             {% else %}
@@ -138,25 +160,34 @@
 </div>
 
 <script>
-function editDungeon(id, name, desc, grid, floors, lvl, wall, chest, mob, mlmin, mlmax, pool, image, active) {
-    document.getElementById('dungeon-form-title').textContent = '✏️ Редактировать шаблон';
-    const form = document.getElementById('dungeonForm');
-    form.action = '/editor/dungeons/' + id + '/edit';
-    document.getElementById('d_name').value = name;
-    document.getElementById('d_desc').value = desc;
-    document.getElementById('d_grid').value = grid;
-    document.getElementById('d_floors').value = floors;
-    document.getElementById('d_lvl').value = lvl;
-    document.getElementById('d_wall').value = wall;
-    document.getElementById('d_chest').value = chest;
-    document.getElementById('d_mob').value = mob;
-    document.getElementById('d_mlmin').value = mlmin;
-    document.getElementById('d_mlmax').value = mlmax;
-    document.getElementById('d_pool').value = pool;
-    document.getElementById('d_image').value = image || '';
-    document.getElementById('d_active').checked = active;
-    window.location.hash = 'dungeon-form';
-}
+// data-атрибуты вместо аргументов inline-onclick: имя и описание
+// подземелья с кавычкой или переносом строки ломали разметку.
+document.querySelectorAll('.dungeon-edit').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const d = btn.dataset;
+        document.getElementById('dungeon-form-title').textContent = '✏️ Редактировать: ' + d.name;
+        const form = document.getElementById('dungeonForm');
+        form.action = '/editor/dungeons/' + d.id + '/edit';
+
+        const set = (id, value) => { document.getElementById(id).value = value; };
+        set('d_name', d.name);
+        set('d_desc', d.desc);
+        set('d_grid', d.grid);
+        set('d_floors', d.floors);
+        set('d_lvl', d.level);
+        set('d_wall', d.wall);
+        set('d_chest', d.chest);
+        set('d_mob', d.mob);
+        set('d_mlmin', d.mlmin);
+        set('d_mlmax', d.mlmax);
+        set('d_pool', d.pool);
+        set('d_image', d.image);
+        document.getElementById('d_active').checked = !!d.active;
+
+        document.getElementById('dungeon-form').scrollIntoView({behavior: 'smooth'});
+    });
+});
+
 function resetDungeonForm() {
     document.getElementById('dungeon-form-title').textContent = '➕ Новый шаблон подземелья';
     const form = document.getElementById('dungeonForm');

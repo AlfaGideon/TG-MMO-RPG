@@ -1,7 +1,12 @@
 {% extends "base.html" %}
+{% import "macros.html" as macros %}
 
 {% block title %}Редактор мира — Shadow Lands{% endblock %}
 {% block page_title %}🌍 Редактор мировой сетки{% endblock %}
+
+{% block breadcrumbs %}
+{{ macros.crumbs([('Dashboard','/'), ('Контент','/content'), ('Мир', none)]) }}
+{% endblock %}
 {% block topbar_actions %}
 <span id="liveDot" title="Live соединение" style="display:inline-flex;align-items:center;gap:4px;font-size:0.8rem;color:var(--text-muted)"><span class="live-indicator"></span> LIVE</span>
 <button class="btn btn-primary" onclick="openCreateModal()">➕ Новая локация</button>

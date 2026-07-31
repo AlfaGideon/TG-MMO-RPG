@@ -1,15 +1,12 @@
 {% extends "base.html" %}
+{% import "macros.html" as macros %}
 
 {% block title %}{{ char.name }} — Игрок — Shadow Lands{% endblock %}
 {% block page_title %}👤 {{ char.name }} <span style="color:var(--text-muted); font-weight:400; font-size:0.85rem;">(ID: {{ char.id }})</span>{% endblock %}
 {% block topbar_actions %}<a href="/players" class="btn">◀️ Назад</a>{% endblock %}
 
 {% block breadcrumbs %}
-<div class="breadcrumbs">
-    <a href="/">Dashboard</a><span class="sep">/</span>
-    <a href="/players">Игроки</a><span class="sep">/</span>
-    <span class="current">{{ char.name }}</span>
-</div>
+{{ macros.crumbs([('Dashboard','/'), ('Игроки','/players'), (char.name, none)]) }}
 {% endblock %}
 
 {% block content %}
@@ -25,7 +22,7 @@
 <!-- ══════════════ ОБЗОР ══════════════ -->
 <div class="tab-panel active" id="tab-overview">
 <div class="card">
-    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:2rem;">
+    <div class="split-2">
         <div>
             <h3>📊 Сводка</h3>
             <table style="font-size:0.9rem;">
@@ -454,7 +451,7 @@
 <div class="tab-panel" id="tab-access">
 <div class="card">
     <h3>👑 VIP и доступ к веб-админке</h3>
-    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:1.5rem;">
+    <div class="split-2 tight">
         <div>
             <h4 style="margin-bottom:0.5rem; font-size:0.9rem; color:var(--text-muted);">⭐ VIP-статус</h4>
             {% if char.is_vip %}

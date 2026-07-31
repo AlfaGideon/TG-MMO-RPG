@@ -1,7 +1,12 @@
 {% extends "base.html" %}
+{% import "macros.html" as macros %}
 
 {% block title %}Карта игроков — Shadow Lands{% endblock %}
 {% block page_title %}🗺 Карта игроков <span id="liveBadge" style="font-size:0.75rem;color:var(--success)">● LIVE</span>{% endblock %}
+
+{% block breadcrumbs %}
+{{ macros.crumbs([('Dashboard','/'), ('Карта игроков', none)]) }}
+{% endblock %}
 
 {% block content %}
 <style>

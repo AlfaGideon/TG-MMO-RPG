@@ -1,7 +1,12 @@
 {% extends "base.html" %}
+{% import "macros.html" as macros %}
 
 {% block title %}Лут — Shadow Lands{% endblock %}
 {% block page_title %}🎁 Таблицы лута{% endblock %}
+
+{% block breadcrumbs %}
+{{ macros.crumbs([('Dashboard','/'), ('Контент','/content'), ('Лут', none)]) }}
+{% endblock %}
 {% block topbar_actions %}<a href="#new-drop" class="btn btn-primary">➕ Добавить дроп</a>{% endblock %}
 
 {% block content %}

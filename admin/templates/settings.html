@@ -1,7 +1,12 @@
 {% extends "base.html" %}
+{% import "macros.html" as macros %}
 
 {% block title %}Настройки — Shadow Lands{% endblock %}
 {% block page_title %}⚙️ Настройки{% endblock %}
+
+{% block breadcrumbs %}
+{{ macros.crumbs([('Dashboard','/'), ('Настройки', none)]) }}
+{% endblock %}
 
 {% block content %}
 <div class="card">
@@ -10,45 +15,33 @@
         Здесь ты управляешь Telegram-ботом. Введи токен от @BotFather, сохрани и запусти.
     </p>
 
-    <div class="stat-box" style="margin-bottom: 1.5rem; text-align: left;">
-        <div style="display: flex; align-items: center; gap: 0.75rem;">
-            <span id="status-dot" style="width: 12px; height: 12px; border-radius: 50%; background: {{ 'var(--success)' if bot_running else 'var(--danger)' }}; display: inline-block;"></span>
-            <span id="status-text" style="font-weight: 600;">
-                {{ 'Бот работает' if bot_running else 'Бот остановлен' }}
-            </span>
-        </div>
+    <div class="status-row {{ 'ok' if bot_running else 'down' }}" id="status-row">
+        <span id="status-dot" class="status-dot"></span>
+        <span id="status-text" class="status-text">
+            {{ 'Бот работает' if bot_running else 'Бот остановлен' }}
+        </span>
     </div>
 
-    <form action="/settings/save-token" method="post" style="margin-bottom: 1.5rem;">
-        <label style="display: block; margin-bottom: 0.5rem; font-size: 0.875rem; color: var(--text-muted);">
-            Telegram Bot Token
-        </label>
-        <div style="display: flex; gap: 0.75rem;">
-            <input
-                type="text"
-                name="bot_token"
-                class="search-box"
-                style="flex: 1; max-width: 600px;"
-                placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
-                value=""
-                required
-            >
+    <form action="/settings/save-token" method="post" class="field" style="margin-bottom:1.5rem;">
+        <label class="form-label" for="bot_token">Telegram Bot Token</label>
+        <div class="form-inline">
+            <input type="text" id="bot_token" name="bot_token" class="search-box"
+                   style="flex:1; min-width:280px; max-width:600px;"
+                   placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz" required>
             <button type="submit" class="btn btn-primary">💾 Сохранить</button>
         </div>
         {% if token_masked %}
-        <p style="margin-top: 0.5rem; font-size: 0.8rem; color: var(--text-muted);">
-            Текущий токен: <code>{{ token_masked }}</code>
-        </p>
+        <p class="hint">Текущий токен: <code>{{ token_masked }}</code></p>
         {% endif %}
     </form>
 
-    <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
-        <button class="btn btn-primary" onclick="startBot()">▶️ Запустить бота</button>
-        <button class="btn btn-danger" onclick="stopBot()">⏹ Остановить бота</button>
-        <button class="btn" onclick="updateGit()" style="background: var(--bg-hover); color: var(--text);">🔄 Обновить с GitHub</button>
+    <div class="form-actions" style="margin-top:0;">
+        <button type="button" class="btn btn-primary" onclick="startBot()">▶️ Запустить бота</button>
+        <button type="button" class="btn btn-danger" onclick="stopBot()">⏹ Остановить бота</button>
+        <button type="button" class="btn" onclick="updateGit()">🔄 Обновить с GitHub</button>
     </div>
 
-    <div id="msg" style="margin-top: 1rem; font-size: 0.9rem;"></div>
+    <div id="msg" class="status-msg" role="status" aria-live="polite"></div>
 </div>
 
 <div class="card">
@@ -209,10 +202,15 @@ async function stopBot() {
 }
 
 function updateStatus(running) {
-    const dot = document.getElementById('status-dot');
+    // Цвет точки задаётся классом .ok/.down на строке статуса,
+    // а не инлайновым background — иначе тема его не переопределит.
+    const row = document.getElementById('status-row');
     const txt = document.getElementById('status-text');
-    dot.style.background = running ? 'var(--success)' : 'var(--danger)';
-    txt.textContent = running ? 'Бот работает' : 'Бот остановлен';
+    if (row) {
+        row.classList.toggle('ok', !!running);
+        row.classList.toggle('down', !running);
+    }
+    if (txt) txt.textContent = running ? 'Бот работает' : 'Бот остановлен';
 }
 
 // Poll status every 5s
