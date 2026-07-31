@@ -346,6 +346,24 @@ function setupFormValidation() {
     });
 }
 
+// ── Подтверждение действия через data-confirm ──
+// Внутри onclick="confirm('… {{ name }} …')" любой апостроф в имени
+// («Клинок O'Брайена») закрывает JS-строку и ломает обработчик.
+// В обычном атрибуте текст — это просто текст: кавычки экранирует
+// HTML-парсер, а JS его не разбирает.
+function setupConfirms() {
+    document.querySelectorAll('[data-confirm]').forEach(el => {
+        el.addEventListener('submit', function(e) {
+            if (!window.confirm(el.dataset.confirm)) e.preventDefault();
+        });
+        if (el.tagName !== 'FORM') {
+            el.addEventListener('click', function(e) {
+                if (!window.confirm(el.dataset.confirm)) e.preventDefault();
+            });
+        }
+    });
+}
+
 function setupAutosave() {
     document.querySelectorAll('form[data-autosave]').forEach(form => {
         const key = 'autosave:' + window.location.pathname + ':' + (form.action || '');
@@ -400,6 +418,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupFormValidation();
     setupAutosave();
     setupInlineCells();
+    setupConfirms();
 });
 
 (function initGlobalSearch() {

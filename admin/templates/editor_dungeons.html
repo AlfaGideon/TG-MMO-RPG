@@ -99,15 +99,15 @@
                                 data-pool="{{ tpl.mob_pool or '' }}"
                                 data-image="{{ tpl.image_url or '' }}"
                                 data-active="{{ '1' if tpl.is_active else '' }}">✏️</button>
-                        <form action="/editor/dungeons/{{ tpl.id }}/open-portal" method="post" onsubmit="return confirm('Открыть новый портал в случайном месте? Все игроки получат уведомление.')">
+                        <form action="/editor/dungeons/{{ tpl.id }}/open-portal" method="post" data-confirm="Открыть новый портал в случайном месте? Все игроки получат уведомление." >
                             <button type="submit" class="btn btn-sm btn-accent">🌀 {{ 'Открыть заново' if portal else 'Открыть портал' }}</button>
                         </form>
                         {% if is_open %}
-                        <form action="/editor/dungeons/{{ tpl.id }}/close-portal" method="post" onsubmit="return confirm('Закрыть портал для новых входов? Игроки внутри продолжат играть до смерти или выхода.')">
+                        <form action="/editor/dungeons/{{ tpl.id }}/close-portal" method="post" data-confirm="Закрыть портал для новых входов? Игроки внутри продолжат играть до смерти или выхода." >
                             <button type="submit" class="btn btn-sm btn-danger-soft">🚫 Закрыть портал</button>
                         </form>
                         {% endif %}
-                        <form action="/editor/dungeons/{{ tpl.id }}/delete" method="post" onsubmit="return confirm('Удалить шаблон подземелья «{{ tpl.name }}» полностью?')">
+                        <form action="/editor/dungeons/{{ tpl.id }}/delete" method="post" data-confirm="Удалить шаблон подземелья «{{ tpl.name }}» полностью?" >
                             <button type="submit" class="btn btn-danger btn-sm btn-icon" title="Удалить">🗑</button>
                         </form>
                     </div>
@@ -135,19 +135,19 @@
     <h3 id="dungeon-form-title">➕ Новый шаблон подземелья</h3>
     <form action="/editor/dungeons/new" method="post" id="dungeonForm">
         <div class="form-grid">
-            <div><label class="form-label">Название</label><input type="text" name="name" id="d_name" class="search-box" style="max-width:100%" required></div>
-            <div><label class="form-label">Размер сетки</label><input type="number" name="grid_size" id="d_grid" value="25" min="5" max="60" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">Этажей</label><input type="number" name="floors_count" id="d_floors" value="1" min="1" max="20" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">Мин. уровень</label><input type="number" name="min_level" id="d_lvl" value="1" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">Шанс стены (0-1)</label><input type="number" step="0.01" name="wall_chance" id="d_wall" value="0.22" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">Шанс сундука (0-1)</label><input type="number" step="0.01" name="chest_chance" id="d_chest" value="0.06" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">Шанс моба (0-1)</label><input type="number" step="0.01" name="mob_chance" id="d_mob" value="0.18" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">Мин. ур. моба</label><input type="number" name="mob_level_min" id="d_mlmin" value="1" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">Макс. ур. моба</label><input type="number" name="mob_level_max" id="d_mlmax" value="5" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">Пул мобов (через запятую)</label><input type="text" name="mob_pool" id="d_pool" class="search-box" style="max-width:100%" placeholder="Скелет-страж, Пещерный паук"></div>
-            <div><label class="form-label">URL картинки (фон)</label><input type="text" name="image_url" id="d_image" class="search-box" style="max-width:100%" placeholder="https://..."></div>
+            <div><label class="form-label">Название</label><input type="text" name="name" id="d_name" class="search-box" required></div>
+            <div><label class="form-label">Размер сетки</label><input type="number" name="grid_size" id="d_grid" value="25" min="5" max="60" class="search-box"></div>
+            <div><label class="form-label">Этажей</label><input type="number" name="floors_count" id="d_floors" value="1" min="1" max="20" class="search-box"></div>
+            <div><label class="form-label">Мин. уровень</label><input type="number" name="min_level" id="d_lvl" value="1" class="search-box"></div>
+            <div><label class="form-label">Шанс стены (0-1)</label><input type="number" step="0.01" name="wall_chance" id="d_wall" value="0.22" class="search-box"></div>
+            <div><label class="form-label">Шанс сундука (0-1)</label><input type="number" step="0.01" name="chest_chance" id="d_chest" value="0.06" class="search-box"></div>
+            <div><label class="form-label">Шанс моба (0-1)</label><input type="number" step="0.01" name="mob_chance" id="d_mob" value="0.18" class="search-box"></div>
+            <div><label class="form-label">Мин. ур. моба</label><input type="number" name="mob_level_min" id="d_mlmin" value="1" class="search-box"></div>
+            <div><label class="form-label">Макс. ур. моба</label><input type="number" name="mob_level_max" id="d_mlmax" value="5" class="search-box"></div>
+            <div><label class="form-label">Пул мобов (через запятую)</label><input type="text" name="mob_pool" id="d_pool" class="search-box" placeholder="Скелет-страж, Пещерный паук"></div>
+            <div><label class="form-label">URL картинки (фон)</label><input type="text" name="image_url" id="d_image" class="search-box" placeholder="https://..."></div>
             <div style="display:flex;align-items:flex-end;gap:0.5rem;">
-                <label style="font-size:0.85rem"><input type="checkbox" name="is_active" id="d_active" checked> Активен</label>
+                <label class="check-label"><input type="checkbox" name="is_active" id="d_active" checked> Активен</label>
             </div>
         </div>
         <div style="margin-top: 0.75rem;">

@@ -278,7 +278,7 @@
         </p>
         <div class="inline-form" style="margin-top:0.5rem;">
             <form action="/player/{{ char.id }}/reroll-stats" method="post" class="inline-form"
-                  onsubmit="return confirm('Перекатить статы прямо сейчас? Текущие значения будут потеряны.')">
+                  data-confirm="Перекатить статы прямо сейчас? Текущие значения будут потеряны." >
                 <input type="hidden" name="grant" value="0">
                 <button type="submit" class="btn btn-sm">🎲 Перекатить сейчас</button>
             </form>
@@ -297,7 +297,7 @@
     <div class="toolbar">
         <h3 style="margin-bottom:0;">🎒 Инвентарь ({{ inventory|length }})</h3>
         <form action="/player/{{ char.id }}/clear-inventory" method="post"
-              onsubmit="return confirm('Удалить ВЕСЬ инвентарь игрока? Это необратимо.')">
+              data-confirm="Удалить ВЕСЬ инвентарь игрока? Это необратимо." >
             <button type="submit" class="btn btn-danger btn-sm">🗑 Очистить всё</button>
         </form>
     </div>
@@ -366,7 +366,7 @@
                     <button type="submit" class="btn btn-sm">{{ '🚫 Снять' if inv.is_equipped else '✅ Надеть' }}</button>
                 </form>
                 <form action="/player/{{ char.id }}/inv/{{ inv.id }}/delete" method="post" style="display:inline"
-                      onsubmit="return confirm('Удалить предмет?')">
+                      data-confirm="Удалить предмет?" >
                     <button type="submit" class="btn btn-danger btn-sm">🗑</button>
                 </form>
             </div>
@@ -434,7 +434,7 @@
                 {% endfor %}
             </select>
             <input type="number" name="quantity" value="1" min="1" class="search-box" title="Количество">
-            <label style="font-size:0.8rem; display:flex; align-items:center; gap:0.3rem;">
+            <label class="check-label">
                 <input type="checkbox" name="roll_stats" value="1" checked> 🎲 Уникальные статы
             </label>
             <button type="submit" class="btn btn-primary">🎁 Выдать</button>
@@ -493,7 +493,7 @@
                             {% endfor %}
                         </select>
                     </div>
-                    <label style="font-size:0.8rem; display:flex; align-items:center; gap:0.3rem;">
+                    <label class="check-label">
                         <input type="checkbox" name="new_password" value="1"> 🎲 Новый пароль
                     </label>
                 </div>

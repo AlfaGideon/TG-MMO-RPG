@@ -31,11 +31,11 @@
 
     <div class="tabs">
         <a href="/editor/instances" class="tab-btn {% if not source %}active{% endif %}"
-           style="text-decoration:none;">Все</a>
+          >Все</a>
         {% for key, badge in badges.items() %}
         {% if by_source.get(key) %}
         <a href="/editor/instances?source={{ key }}"
-           class="tab-btn {% if source == key %}active{% endif %}" style="text-decoration:none;">
+           class="tab-btn {% if source == key %}active{% endif %}">
             {{ badge }} {{ source_labels.get(key, key) }} ({{ by_source.get(key) }})
         </a>
         {% endif %}

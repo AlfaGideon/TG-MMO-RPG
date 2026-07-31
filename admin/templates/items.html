@@ -23,7 +23,7 @@
         выбрасывает вместе с их полями. Чекбоксы строк привязаны к форме
         атрибутом form="itemsMassForm" — это разрешено HTML5. -#}
     <form action="/items/mass-action" method="post" id="itemsMassForm"
-          onsubmit="return confirm('Удалить выбранные предметы? Это сотрёт и все их экземпляры.')">
+          data-confirm="Удалить выбранные предметы? Это сотрёт и все их экземпляры." >
         <div class="mass-bar">
             <label class="check-label">
                 <input type="checkbox" class="row-check" id="selectAllItems"> Все
@@ -84,7 +84,7 @@
                         <form action="/item/{{ item.id }}/clone" method="post" title="Клонировать">
                             <button type="submit" class="btn btn-sm btn-icon">📋</button>
                         </form>
-                        <form action="/item/{{ item.id }}/delete" method="post" onsubmit="return confirm('Удалить предмет «{{ item.name }}»? Это сотрёт и все его экземпляры.')">
+                        <form action="/item/{{ item.id }}/delete" method="post" data-confirm="Удалить предмет «{{ item.name }}»? Это сотрёт и все его экземпляры." >
                             <button type="submit" class="btn btn-danger btn-sm btn-icon" title="Удалить">🗑</button>
                         </form>
                     </div>
@@ -110,9 +110,9 @@
     <h3>➕ Создать предмет</h3>
     <form action="/item/new" method="post" enctype="multipart/form-data">
         <div class="form-grid">
-            <div><label class="form-label">Название</label><input type="text" name="name" class="search-box" style="max-width:100%" required></div>
+            <div><label class="form-label">Название</label><input type="text" name="name" class="search-box" required></div>
             <div><label class="form-label">Тип</label>
-                <select name="item_type" class="search-box" style="max-width:100%">
+                <select name="item_type" class="search-box">
                     <option value="weapon">Оружие</option>
                     <option value="armor">Броня</option>
                     <option value="helmet">Шлем</option>
@@ -123,7 +123,7 @@
                 </select>
             </div>
             <div><label class="form-label">Редкость</label>
-                <select name="rarity" class="search-box" style="max-width:100%">
+                <select name="rarity" class="search-box">
                     <option value="common">Обычный</option>
                     <option value="uncommon">Необычный</option>
                     <option value="rare">Редкий</option>
@@ -131,24 +131,24 @@
                     <option value="legendary">Легендарный</option>
                 </select>
             </div>
-            <div><label class="form-label">Иконка</label><input type="text" name="icon" value="⚔️" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">Ур. требование</label><input type="number" name="level_requirement" value="1" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">Цена</label><input type="number" name="price" value="0" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">Сила</label><input type="number" name="bonus_strength" value="0" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">Ловкость</label><input type="number" name="bonus_agility" value="0" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">Интеллект</label><input type="number" name="bonus_intelligence" value="0" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">Выносливость</label><input type="number" name="bonus_endurance" value="0" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">Удача</label><input type="number" name="bonus_luck" value="0" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">HP</label><input type="number" name="bonus_hp" value="0" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">MP</label><input type="number" name="bonus_mp" value="0" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">Урон</label><input type="number" name="bonus_damage" value="0" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">Защита</label><input type="number" name="bonus_defense" value="0" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">Разброс статов</label><input type="number" name="stat_variance" value="0.15" step="0.01" min="0" max="0.6" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">Предел заточки</label><input type="number" name="max_upgrade_level" value="10" min="0" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">🖼 Файл картинки</label><input type="file" name="image" accept="image/*" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">URL картинки</label><input type="text" name="image_url" class="search-box" style="max-width:100%" placeholder="https://..."></div>
+            <div><label class="form-label">Иконка</label><input type="text" name="icon" value="⚔️" class="search-box"></div>
+            <div><label class="form-label">Ур. требование</label><input type="number" name="level_requirement" value="1" class="search-box"></div>
+            <div><label class="form-label">Цена</label><input type="number" name="price" value="0" class="search-box"></div>
+            <div><label class="form-label">Сила</label><input type="number" name="bonus_strength" value="0" class="search-box"></div>
+            <div><label class="form-label">Ловкость</label><input type="number" name="bonus_agility" value="0" class="search-box"></div>
+            <div><label class="form-label">Интеллект</label><input type="number" name="bonus_intelligence" value="0" class="search-box"></div>
+            <div><label class="form-label">Выносливость</label><input type="number" name="bonus_endurance" value="0" class="search-box"></div>
+            <div><label class="form-label">Удача</label><input type="number" name="bonus_luck" value="0" class="search-box"></div>
+            <div><label class="form-label">HP</label><input type="number" name="bonus_hp" value="0" class="search-box"></div>
+            <div><label class="form-label">MP</label><input type="number" name="bonus_mp" value="0" class="search-box"></div>
+            <div><label class="form-label">Урон</label><input type="number" name="bonus_damage" value="0" class="search-box"></div>
+            <div><label class="form-label">Защита</label><input type="number" name="bonus_defense" value="0" class="search-box"></div>
+            <div><label class="form-label">Разброс статов</label><input type="number" name="stat_variance" value="0.15" step="0.01" min="0" max="0.6" class="search-box"></div>
+            <div><label class="form-label">Предел заточки</label><input type="number" name="max_upgrade_level" value="10" min="0" class="search-box"></div>
+            <div><label class="form-label">🖼 Файл картинки</label><input type="file" name="image" accept="image/*" class="search-box"></div>
+            <div><label class="form-label">URL картинки</label><input type="text" name="image_url" class="search-box" placeholder="https://..."></div>
             <div style="display:flex; align-items:flex-end;">
-                <label style="font-size:0.85rem; display:flex; align-items:center; gap:0.35rem;">
+                <label class="check-label">
                     <input type="checkbox" name="is_unique_roll" value="true" checked> 🎲 Уникальные экземпляры
                 </label>
             </div>
@@ -188,7 +188,7 @@
                 </td>
                 <td>{{ 'без лимита' if si.stock < 0 else si.stock }}</td>
                 <td>
-                    <form action="/shop/{{ si.id }}/delete" method="post" onsubmit="return confirm('Убрать товар из лавки?')">
+                    <form action="/shop/{{ si.id }}/delete" method="post" data-confirm="Убрать товар из лавки?" >
                         <button type="submit" class="btn btn-danger btn-sm">🗑</button>
                     </form>
                 </td>

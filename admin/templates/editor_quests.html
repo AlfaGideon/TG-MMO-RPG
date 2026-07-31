@@ -68,7 +68,7 @@
                         <form action="/editor/quests/{{ q.id }}/clone" method="post" title="Клонировать">
                             <button type="submit" class="btn btn-sm btn-icon">📋</button>
                         </form>
-                        <form action="/editor/quests/{{ q.id }}/delete" method="post" onsubmit="return confirm('Удалить квест «{{ q.name }}»?')">
+                        <form action="/editor/quests/{{ q.id }}/delete" method="post" data-confirm="Удалить квест «{{ q.name }}»?" >
                             <button type="submit" class="btn btn-danger btn-sm btn-icon" title="Удалить">🗑</button>
                         </form>
                     </div>
@@ -89,40 +89,40 @@
     <form action="/editor/quests/new" method="post" id="questForm" enctype="multipart/form-data" data-validate data-autosave>
         <input type="hidden" name="quest_id" id="q_id" value="">
         <div class="form-grid">
-            <div><label class="form-label">Название</label><input type="text" name="name" id="q_name" class="search-box" style="max-width:100%" required></div>
+            <div><label class="form-label">Название</label><input type="text" name="name" id="q_name" class="search-box" required></div>
             <div><label class="form-label">Тип цели</label>
-                <select name="objective_type" id="q_type" class="search-box" style="max-width:100%">
+                <select name="objective_type" id="q_type" class="search-box">
                     <option value="kill">Убить</option>
                     <option value="collect">Собрать</option>
                     <option value="explore">Исследовать</option>
                     <option value="talk">Поговорить</option>
                 </select>
             </div>
-            <div><label class="form-label">Цель</label><input type="text" name="objective_target" id="q_target" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">Количество</label><input type="number" name="objective_count" id="q_count" value="1" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">Золото</label><input type="number" name="reward_gold" id="q_gold" value="0" class="search-box" style="max-width:100%"></div>
-            <div><label class="form-label">Опыт</label><input type="number" name="reward_exp" id="q_exp" value="0" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">Цель</label><input type="text" name="objective_target" id="q_target" class="search-box"></div>
+            <div><label class="form-label">Количество</label><input type="number" name="objective_count" id="q_count" value="1" class="search-box"></div>
+            <div><label class="form-label">Золото</label><input type="number" name="reward_gold" id="q_gold" value="0" class="search-box"></div>
+            <div><label class="form-label">Опыт</label><input type="number" name="reward_exp" id="q_exp" value="0" class="search-box"></div>
             <div><label class="form-label">Предмет-награда</label>
-                <select name="reward_item_id" id="q_item" class="search-box" style="max-width:100%">
+                <select name="reward_item_id" id="q_item" class="search-box">
                     <option value="">—</option>
                     {% for it in items %}
                     <option value="{{ it.id }}">{{ it.icon }} {{ it.name }}</option>
                     {% endfor %}
                 </select>
             </div>
-            <div><label class="form-label">Мин. уровень</label><input type="number" name="min_level" id="q_lvl" value="1" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">Мин. уровень</label><input type="number" name="min_level" id="q_lvl" value="1" class="search-box"></div>
             <div><label class="form-label">Локация</label>
-                <select name="location_id" id="q_loc" class="search-box" style="max-width:100%">
+                <select name="location_id" id="q_loc" class="search-box">
                     <option value="">—</option>
                     {% for loc in locations %}
                     <option value="{{ loc.id }}">{{ loc.name }}</option>
                     {% endfor %}
                 </select>
             </div>
-            <div><label class="form-label">NPC</label><input type="text" name="npc_name" id="q_npc" class="search-box" style="max-width:100%"></div>
+            <div><label class="form-label">NPC</label><input type="text" name="npc_name" id="q_npc" class="search-box"></div>
             <img id="questPreview" style="display:none; max-width:150px; max-height:150px; border-radius:8px; border:1px solid var(--border); margin-bottom:0.75rem;">
-            <div><label class="form-label">🖼 Файл картинки</label><input type="file" name="image" accept="image/*" class="search-box" style="max-width:100%" data-preview="#questPreview"></div>
-            <div><label class="form-label">URL картинки</label><input type="text" name="image_url" id="q_image_url" class="search-box" style="max-width:100%" placeholder="https://..."></div>
+            <div><label class="form-label">🖼 Файл картинки</label><input type="file" name="image" accept="image/*" class="search-box" data-preview="#questPreview"></div>
+            <div><label class="form-label">URL картинки</label><input type="text" name="image_url" id="q_image_url" class="search-box" placeholder="https://..."></div>
         </div>
         <div style="margin-top: 0.75rem;">
             <label class="form-label">Описание</label>

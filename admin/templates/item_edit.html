@@ -91,13 +91,13 @@
                     <input type="number" name="max_upgrade_level" value="{{ item.max_upgrade_level or 0 }}" min="0" class="search-box">
                 </div>
                 <div style="display:flex; align-items:flex-end;">
-                    <label style="font-size:0.85rem; display:flex; align-items:center; gap:0.35rem;">
+                    <label class="check-label">
                         <input type="checkbox" name="is_unique_roll" value="true" {% if item.is_unique_roll %}checked{% endif %}>
                         Уникальные экземпляры
                     </label>
                 </div>
                 <div style="display:flex; align-items:flex-end;">
-                    <label style="font-size:0.85rem; display:flex; align-items:center; gap:0.35rem;">
+                    <label class="check-label">
                         <input type="checkbox" name="is_sellable" value="true" {% if item.is_sellable %}checked{% endif %}>
                         Можно продать
                     </label>
@@ -114,12 +114,12 @@
         <fieldset class="field-group">
             <span class="group-title">🌟 Особый статус</span>
             <div class="field-row cols-2">
-                <label style="display:flex; align-items:center; gap:0.4rem; font-size:0.85rem;">
+                <label class="check-label">
                     <input type="checkbox" name="is_one_of_a_kind" value="true"
                            {% if item.is_one_of_a_kind %}checked{% endif %}>
                     🌟 Единственный в мире экземпляр
                 </label>
-                <label style="display:flex; align-items:center; gap:0.4rem; font-size:0.85rem;">
+                <label class="check-label">
                     <input type="checkbox" name="is_festive" value="true"
                            {% if item.is_festive %}checked{% endif %}>
                     🎄 Праздничный трофей

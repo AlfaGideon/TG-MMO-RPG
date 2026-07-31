@@ -12,7 +12,7 @@
     <button type="submit" class="btn">⏱ Воскресить всех</button>
 </form>
 <form action="/editor/spawns/reset" method="post" style="display:inline"
-      onsubmit="return confirm('Переставить всех мобов заново по карте?')">
+      data-confirm="Переставить всех мобов заново по карте?" >
     <button type="submit" class="btn btn-primary">♻️ Пересоздать</button>
 </form>
 {% endblock %}

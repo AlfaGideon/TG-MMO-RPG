@@ -103,7 +103,7 @@
                     <form action="/editor/mobs/{{ mob.id }}/clone" method="post" title="Клонировать">
                         <button type="submit" class="btn btn-sm btn-icon">📋</button>
                     </form>
-                    <form action="/editor/mobs/{{ mob.id }}/delete" method="post" onsubmit="return confirm('Удалить моба «{{ mob.name }}»? Его живые экземпляры тоже исчезнут.')">
+                    <form action="/editor/mobs/{{ mob.id }}/delete" method="post" data-confirm="Удалить моба «{{ mob.name }}»? Его живые экземпляры тоже исчезнут." >
                         <button type="submit" class="btn btn-danger btn-sm btn-icon" title="Удалить">🗑</button>
                     </form>
                     </div>
@@ -141,7 +141,7 @@
                         {% endfor %}
                     </select></div>
                 <div style="display:flex; align-items:flex-end;">
-                    <label style="font-size:0.85rem; display:flex; align-items:center; gap:0.35rem;">
+                    <label class="check-label">
                         <input type="checkbox" name="is_boss" id="m_boss"> 👑 Босс
                     </label>
                 </div>
@@ -195,7 +195,7 @@
                 <div><label class="form-label">Радиус бродяжничества</label>
                     <input type="number" name="roam_radius" id="m_radius" value="1" min="0" class="search-box"></div>
                 <div style="display:flex; align-items:flex-end;">
-                    <label style="font-size:0.85rem; display:flex; align-items:center; gap:0.35rem;">
+                    <label class="check-label">
                         <input type="checkbox" name="can_roam" id="m_roam" checked> 🚶 Может бродить
                     </label>
                 </div>

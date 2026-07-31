@@ -54,7 +54,7 @@
                         <button type="button" class="btn btn-primary btn-sm btn-icon" title="Редактировать"
                                 onclick="toggleRow('rec-{{ r.id }}')">✏️</button>
                         <form action="/editor/craft/{{ r.id }}/delete" method="post"
-                              onsubmit="return confirm('Удалить рецепт «{{ r.name }}»?')">
+                              data-confirm="Удалить рецепт «{{ r.name }}»?" >
                             <button type="submit" class="btn btn-danger btn-sm btn-icon" title="Удалить">🗑</button>
                         </form>
                     </div>
@@ -213,7 +213,7 @@
                     </form>
                 </td>
                 <td>
-                    <form action="/editor/craft/rules/{{ rule.id }}/delete" method="post" onsubmit="return confirm('Удалить правило?')">
+                    <form action="/editor/craft/rules/{{ rule.id }}/delete" method="post" data-confirm="Удалить правило?" >
                         <button type="submit" class="btn btn-danger btn-sm">🗑</button>
                     </form>
                 </td>

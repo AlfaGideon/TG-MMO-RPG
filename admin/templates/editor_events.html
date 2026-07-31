@@ -100,7 +100,7 @@
                         <a href="/item/{{ item.id }}/edit" class="btn btn-sm btn-icon" title="Редактировать">✏️</a>
                         {% if item.id in taken %}
                         <form action="/editor/events/reset-unique/{{ item.id }}" method="post"
-                              onsubmit="return confirm('Удалить существующий экземпляр «{{ item.name }}» и вернуть реликвию в розыгрыш? Владелец её потеряет.')">
+                              data-confirm="Удалить существующий экземпляр «{{ item.name }}» и вернуть реликвию в розыгрыш? Владелец её потеряет." >
                             <button type="submit" class="btn btn-danger btn-sm">♻️ Сбросить</button>
                         </form>
                         {% endif %}

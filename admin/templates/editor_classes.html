@@ -56,7 +56,7 @@
                         <button type="submit" class="btn btn-sm btn-icon">📋</button>
                     </form>
                     <form action="/editor/classes/{{ c.id }}/delete" method="post"
-                          onsubmit="return confirm({% if usage.get(c.key, 0) %}'Классом играют {{ usage.get(c.key) }} героев — он будет просто выключен. Продолжить?'{% else %}'Удалить класс?'{% endif %})">
+                          data-confirm="{% if usage.get(c.key, 0) %}Классом играют {{ usage.get(c.key) }} героев — он будет просто выключен. Продолжить?{% else %}Удалить класс «{{ c.name }}»?{% endif %}">
                         <button type="submit" class="btn btn-danger btn-sm btn-icon" title="Удалить">🗑</button>
                     </form>
                     </div>

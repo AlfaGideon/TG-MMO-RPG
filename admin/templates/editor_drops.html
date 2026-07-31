@@ -20,9 +20,9 @@
     </p>
 
     <div class="tabs">
-        <a href="/editor/drops?owner_type=mob" class="tab-btn {% if owner_type == 'mob' %}active{% endif %}" style="text-decoration:none;">👾 Из мобов</a>
-        <a href="/editor/drops?owner_type=chest" class="tab-btn {% if owner_type == 'chest' %}active{% endif %}" style="text-decoration:none;">📦 Из сундуков</a>
-        <a href="/editor/drops?owner_type=dungeon" class="tab-btn {% if owner_type == 'dungeon' %}active{% endif %}" style="text-decoration:none;">🕳 В подземельях</a>
+        <a href="/editor/drops?owner_type=mob" class="tab-btn {% if owner_type == 'mob' %}active{% endif %}">👾 Из мобов</a>
+        <a href="/editor/drops?owner_type=chest" class="tab-btn {% if owner_type == 'chest' %}active{% endif %}">📦 Из сундуков</a>
+        <a href="/editor/drops?owner_type=dungeon" class="tab-btn {% if owner_type == 'dungeon' %}active{% endif %}">🕳 В подземельях</a>
     </div>
 
     {% if owner_type == 'chest' %}
@@ -61,7 +61,7 @@
                         </form>
                     </td>
                     <td>
-                        <form action="/editor/drops/{{ e.id }}/delete" method="post" onsubmit="return confirm('Убрать из таблицы лута?')">
+                        <form action="/editor/drops/{{ e.id }}/delete" method="post" data-confirm="Убрать из таблицы лута?" >
                             <button type="submit" class="btn btn-danger btn-sm">🗑</button>
                         </form>
                     </td>

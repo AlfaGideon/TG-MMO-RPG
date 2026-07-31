@@ -1,8 +1,13 @@
 {% extends "base.html" %}
+{% import "macros.html" as macros %}
 
 {% block title %}{{ instance.uid }} — Shadow Lands{% endblock %}
 {% block page_title %}📖 {{ instance.badge() }} {{ instance.uid }}{% endblock %}
 {% block topbar_actions %}<a href="/editor/instances" class="btn">◀️ Назад</a>{% endblock %}
+
+{% block breadcrumbs %}
+{{ macros.crumbs([('Dashboard','/'), ('Контент','/content'), ('Экземпляры','/editor/instances'), (instance.uid, none)]) }}
+{% endblock %}
 
 {% block content %}
 <div class="card">

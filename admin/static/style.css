@@ -6,6 +6,10 @@
     --accent: #8b5cf6;
     --accent-hover: #7c3aed;
     --accent-soft: rgba(139, 92, 246, 0.15);
+    /* Тот же акцент, но для ТЕКСТА на тёмном фоне: заливка кнопок
+       должна остаться насыщенной (белый текст на ней), а надписи
+       акцентом нуждаются в более светлом тоне. */
+    --accent-text: #a78bfa;
     --text: #e2e8f0;
     --text-muted: #94a3b8;
     --danger: #ef4444;
@@ -23,7 +27,7 @@
     --rarity-uncommon-bg: rgba(34, 197, 94, 0.12);
     --rarity-rare: #3b82f6;
     --rarity-rare-bg: rgba(59, 130, 246, 0.12);
-    --rarity-epic: #a855f7;
+    --rarity-epic: #c084fc;
     --rarity-epic-bg: rgba(168, 85, 247, 0.12);
     --rarity-legendary: #f59e0b;
     --rarity-legendary-bg: rgba(245, 158, 11, 0.12);
@@ -37,9 +41,9 @@
     --school-lightning-bg: rgba(245, 158, 11, 0.12);
     --school-nature: #22c55e;
     --school-nature-bg: rgba(34, 197, 94, 0.12);
-    --school-arcane: #a855f7;
+    --school-arcane: #c084fc;
     --school-arcane-bg: rgba(168, 85, 247, 0.12);
-    --school-shadow: #8b5cf6;
+    --school-shadow: #a78bfa;
     --school-shadow-bg: rgba(139, 92, 246, 0.12);
     --school-holy: #fbbf24;
     --school-holy-bg: rgba(251, 191, 36, 0.12);
@@ -56,20 +60,42 @@
     --accent: #7c3aed;
     --accent-hover: #6d28d9;
     --accent-soft: rgba(124, 58, 237, 0.10);
+    /* На белом фоне тёмный акцент читается лучше светлого */
+    --accent-text: #6d28d9;
     --danger: #dc2626;
-    --success: #16a34a;
-    --warning: #d97706;
+    /* Зелёный и янтарный из Tailwind-600 давали на белом контраст
+       3.2–3.3 — ниже нормы AA (4.5) для мелкого текста бейджей. */
+    --success: #15803d;
+    --warning: #b45309;
 
     --rarity-common: #64748b;
     --rarity-common-bg: rgba(100, 116, 139, 0.10);
-    --rarity-uncommon: #16a34a;
-    --rarity-uncommon-bg: rgba(22, 163, 74, 0.10);
+    --rarity-uncommon: #15803d;
+    --rarity-uncommon-bg: rgba(21, 128, 61, 0.10);
     --rarity-rare: #2563eb;
     --rarity-rare-bg: rgba(37, 99, 235, 0.10);
     --rarity-epic: #9333ea;
     --rarity-epic-bg: rgba(147, 51, 234, 0.10);
-    --rarity-legendary: #d97706;
-    --rarity-legendary-bg: rgba(217, 119, 6, 0.10);
+    --rarity-legendary: #b45309;
+    --rarity-legendary-bg: rgba(180, 83, 9, 0.10);
+
+    /* Школы магии: неоновые оттенки тёмной темы на белой карточке
+       давали контраст 1.7–2.3 при норме 4.5 — бейджи «Лёд», «Свет»,
+       «Гроза» практически не читались. Здесь — затемнённые версии. */
+    --school-fire: #dc2626;
+    --school-fire-bg: rgba(220, 38, 38, 0.10);
+    --school-ice: #0369a1;
+    --school-ice-bg: rgba(3, 105, 161, 0.10);
+    --school-lightning: #b45309;
+    --school-lightning-bg: rgba(180, 83, 9, 0.10);
+    --school-nature: #15803d;
+    --school-nature-bg: rgba(21, 128, 61, 0.10);
+    --school-arcane: #9333ea;
+    --school-arcane-bg: rgba(147, 51, 234, 0.10);
+    --school-shadow: #7c3aed;
+    --school-shadow-bg: rgba(124, 58, 237, 0.10);
+    --school-holy: #a16207;
+    --school-holy-bg: rgba(161, 98, 7, 0.10);
 }
 
 * {
@@ -284,7 +310,7 @@ body.no-scroll { overflow: hidden; }
 
 .nav-link.active {
     background: var(--accent-soft);
-    color: var(--accent);
+    color: var(--accent-text);
 }
 
 .nav-icon {
@@ -322,7 +348,7 @@ body.no-scroll { overflow: hidden; }
 }
 
 .nav-group-link:hover { background: var(--bg-hover); color: var(--text); }
-.nav-group-link.active { color: var(--accent); }
+.nav-group-link.active { color: var(--accent-text); }
 
 .nav-group-chevron-btn {
     background: none;
@@ -381,7 +407,7 @@ body.no-scroll { overflow: hidden; }
 .nav-sublink:hover { background: var(--bg-hover); color: var(--text); }
 
 .nav-sublink.active {
-    color: var(--accent);
+    color: var(--accent-text);
     background: var(--accent-soft);
     font-weight: 600;
 }
@@ -419,7 +445,7 @@ body.no-scroll { overflow: hidden; }
 }
 
 .context-submenu a:hover { background: var(--bg-hover); color: var(--text); }
-.context-submenu a.active { color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+.context-submenu a.active { color: var(--accent-text); background: var(--accent-soft); font-weight: 600; }
 
 .sidebar-footer {
     padding: 1rem 0.9rem 1.1rem;
@@ -441,7 +467,7 @@ body.no-scroll { overflow: hidden; }
 .sidebar-clock .clock-time {
     font-size: 1.25rem;
     font-weight: 700;
-    color: var(--accent);
+    color: var(--accent-text);
     font-variant-numeric: tabular-nums;
     letter-spacing: 0.05em;
     line-height: 1.2;
@@ -556,7 +582,7 @@ body.no-scroll { overflow: hidden; }
     border-radius: 4px;
 }
 
-.breadcrumbs a:hover { color: var(--accent); text-decoration: underline; }
+.breadcrumbs a:hover { color: var(--accent-text); text-decoration: underline; }
 .breadcrumbs .sep { opacity: 0.45; }
 .breadcrumbs .current {
     color: var(--text);
@@ -635,7 +661,7 @@ body.no-scroll { overflow: hidden; }
     font-size: 0.65rem;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: var(--accent);
+    color: var(--accent-text);
     padding: 0.6rem 1rem 0.35rem;
 }
 
@@ -689,7 +715,7 @@ body.no-scroll { overflow: hidden; }
 
 .pagination .current {
     background: var(--accent-soft);
-    color: var(--accent);
+    color: var(--accent-text);
     border-color: var(--accent);
     font-weight: 600;
 }
@@ -766,7 +792,7 @@ body.no-scroll { overflow: hidden; }
 .stat-box .value {
     font-size: 1.9rem;
     font-weight: 700;
-    color: var(--accent);
+    color: var(--accent-text);
 }
 
 .stat-box .label {
@@ -831,7 +857,7 @@ body.no-scroll { overflow: hidden; }
 .content-card .content-count {
     font-size: 0.78rem;
     font-weight: 600;
-    color: var(--accent);
+    color: var(--accent-text);
     background: var(--accent-soft);
     padding: 0.2rem 0.6rem;
     border-radius: 999px;
@@ -972,8 +998,8 @@ td .btn { vertical-align: middle; }
     white-space: nowrap;
 }
 
-.sort-header:hover { color: var(--accent); }
-.sort-header.active { color: var(--accent); font-weight: 600; }
+.sort-header:hover { color: var(--accent-text); }
+.sort-header.active { color: var(--accent-text); font-weight: 600; }
 .sort-header .sort-inactive { opacity: 0.3; font-size: 0.7rem; }
 
 .empty-state {
@@ -1104,7 +1130,7 @@ td .btn { vertical-align: middle; }
 /* Мягкие акценты вместо inline style="background:var(--accent-soft)" */
 .btn-accent {
     background: var(--accent-soft);
-    color: var(--accent);
+    color: var(--accent-text);
     border-color: transparent;
 }
 
