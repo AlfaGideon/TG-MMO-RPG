@@ -5,9 +5,7 @@
 {% block page_title %}👥 Игроки и персонажи{% endblock %}
 
 {% block breadcrumbs %}
-<div class="breadcrumbs">
-    <a href="/">Dashboard</a><span class="sep">/</span><span class="current">Игроки</span>
-</div>
+{{ macros.crumbs([('Dashboard','/'), ('Игроки', none)]) }}
 {% endblock %}
 
 {% block content %}
@@ -19,20 +17,25 @@
 
     {{ macros.search_form('/players', q, 'Поиск по имени...') }}
 
+    {#- Форма массовых действий стоит рядом с таблицей, а не оборачивает
+        её: внутри строк есть свои формы и поля инлайн-правки. Чекбоксы
+        привязаны через form="playersMassForm" (HTML5). -#}
     <form action="/players/mass-action" method="post" id="playersMassForm" data-validate>
         <div class="mass-bar">
-            <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.85rem;color:var(--text-muted);cursor:pointer;">
+            <label class="check-label">
                 <input type="checkbox" class="row-check" id="selectAllPlayers"> Все
             </label>
             <span class="mass-count" id="playersMassCount">Выбрано: 0</span>
             <button type="submit" name="action" value="grant-vip" class="btn btn-primary btn-sm">👑 VIP {{ vip_days }} дней</button>
         </div>
+    </form>
 
         <div class="table-wrap">
         <table id="playersTable">
             <thead>
                 <tr>
-                    <th style="width:40px;"><input type="checkbox" class="row-check" id="selectAllPlayersHeader"></th>
+                    <th style="width:40px;"><input type="checkbox" class="row-check" id="selectAllPlayersHeader"
+                            form="playersMassForm" aria-label="Выбрать всех"></th>
                     <th>{{ macros.sort_link('ID', 'id', sort, order, '/players', q) }}</th>
                     <th>Telegram</th>
                     <th>{{ macros.sort_link('Имя', 'name', sort, order, '/players', q) }}</th>
@@ -49,23 +52,28 @@
             <tbody>
             {% for p in players %}
             <tr>
-                <td data-label="Выбрать"><input type="checkbox" name="ids" value="{{ p.id }}" class="row-check player-check"></td>
+                <td data-label="Выбрать"><input type="checkbox" name="ids" value="{{ p.id }}"
+                        class="row-check player-check" form="playersMassForm" aria-label="Выбрать {{ p.name }}"></td>
                 <td data-label="ID">{{ p.id }}</td>
                 <td data-label="Telegram">{{ p.user.telegram_id }}</td>
                 <td data-label="Имя">{{ p.name }}</td>
                 <td data-label="Класс">{{ p.character_class.value }}</td>
+                {#- Внутри таблицы уже есть внешняя <form> массовых действий,
+                    а вложенные <form> запрещены HTML: браузер их выбрасывает,
+                    и поля попадали в форму «выдать VIP». Поэтому инлайн-правка
+                    — это div, который отправляется через fetch. -#}
                 <td data-label="Ур.">
-                    <form action="/api/player/{{ p.id }}/inline" method="post" class="inline-form" onsubmit="return inlineSave(this)">
-                        <input type="hidden" name="field" value="level">
-                        <input type="number" name="value" value="{{ p.level }}" min="1" class="search-box" style="max-width:70px">
-                    </form>
+                    <div class="inline-form" data-inline-url="/api/player/{{ p.id }}/inline" data-inline-field="level">
+                        <input type="number" name="value" value="{{ p.level }}" min="1"
+                               class="search-box" style="max-width:70px" aria-label="Уровень {{ p.name }}">
+                    </div>
                 </td>
-                <td data-label="Опыт">{{ p.experience }}</td>
+                <td data-label="Опыт" class="num">{{ p.experience }}</td>
                 <td data-label="Золото">
-                    <form action="/api/player/{{ p.id }}/inline" method="post" class="inline-form" onsubmit="return inlineSave(this)">
-                        <input type="hidden" name="field" value="gold">
-                        <input type="number" name="value" value="{{ p.gold }}" min="0" class="search-box" style="max-width:90px">
-                    </form>
+                    <div class="inline-form" data-inline-url="/api/player/{{ p.id }}/inline" data-inline-field="gold">
+                        <input type="number" name="value" value="{{ p.gold }}" min="0"
+                               class="search-box" style="max-width:90px" aria-label="Золото {{ p.name }}">
+                    </div>
                 </td>
                 <td data-label="HP">{{ p.current_hp }}/{{ p.max_hp }}</td>
                 <td data-label="Локация">{{ p.location.name if p.location else '-' }}</td>
@@ -82,7 +90,6 @@
             </tbody>
         </table>
         </div>
-    </form>
 
     {{ macros.pagination(pagination, '/players', q) }}
 </div>
@@ -128,7 +135,7 @@
         const loc = p.location_name || p.location_id || '—';
         const isVip = p.is_vip ? '✅' : '—';
         tr.innerHTML = `
-            <td data-label="Выбрать"><input type="checkbox" name="ids" value="${id}" class="row-check player-check"></td>
+            <td data-label="Выбрать"><input type="checkbox" name="ids" value="${id}" class="row-check player-check" form="playersMassForm"></td>
             <td data-label="ID">${id}</td>
             <td data-label="Telegram">${p.telegram_id||'—'}</td>
             <td data-label="Имя">${name} <span style="font-size:0.7rem;color:var(--success)">• live</span></td>

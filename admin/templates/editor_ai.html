@@ -1,7 +1,12 @@
 {% extends "base.html" %}
+{% import "macros.html" as macros %}
 
 {% block title %}AI-мастерская — Shadow Lands{% endblock %}
 {% block page_title %}✨ AI-мастерская{% endblock %}
+
+{% block breadcrumbs %}
+{{ macros.crumbs([('Dashboard','/'), ('Контент','/content'), ('AI-мастерская', none)]) }}
+{% endblock %}
 
 {% block content %}
 {% if error %}
@@ -23,7 +28,7 @@
             «Память» длинная ровно настолько, насколько вы утверждаете канон.
         </p>
         <form id="ai-form">
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:.75rem;">
+            <div class="field-row cols-2">
                 <div>
                     <label class="ai-label">Что делаем</label>
                     <select name="kind" class="search-box" id="ai-kind">

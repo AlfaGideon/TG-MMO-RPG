@@ -5,87 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Shadow Lands Admin{% endblock %}</title>
     <link rel="stylesheet" href="/static/style.css">
-    <style>
-        .breadcrumbs {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            font-size: 0.78rem;
-            color: var(--text-muted);
-            margin-bottom: 1rem;
-            flex-wrap: wrap;
-        }
-        .breadcrumbs a {
-            color: var(--text-muted);
-            text-decoration: none;
-            transition: color 0.15s;
-        }
-        .breadcrumbs a:hover { color: var(--accent); }
-        .breadcrumbs .sep { opacity: 0.5; }
-        .breadcrumbs .current { color: var(--text); font-weight: 500; }
-
-        .search-modal-overlay {
-            position: fixed; inset: 0; background: rgba(0,0,0,0.7);
-            z-index: 100; display: none; align-items: flex-start; justify-content: center;
-            padding-top: 12vh;
-        }
-        .search-modal-overlay.open { display: flex; }
-        .search-modal {
-            width: min(560px, 92vw);
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
-            overflow: hidden;
-        }
-        .search-input-wrap {
-            display: flex; align-items: center; gap: 0.6rem;
-            padding: 0.85rem 1rem; border-bottom: 1px solid var(--border);
-        }
-        .search-input-wrap input {
-            flex: 1; background: transparent; border: none; color: var(--text);
-            font-size: 1rem; outline: none;
-        }
-        .search-shortcut {
-            font-size: 0.7rem; color: var(--text-muted); border: 1px solid var(--border);
-            padding: 0.15rem 0.4rem; border-radius: 6px;
-        }
-        .search-results { max-height: 60vh; overflow-y: auto; }
-        .search-category {
-            font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.08em;
-            color: var(--accent); padding: 0.6rem 1rem 0.35rem;
-        }
-        .search-result-row {
-            display: flex; align-items: center; justify-content: space-between;
-            padding: 0.65rem 1rem; color: var(--text); text-decoration: none;
-            border-bottom: 1px solid var(--border); transition: background 0.1s;
-        }
-        .search-result-row:hover, .search-result-row.active {
-            background: var(--bg-hover); color: var(--text);
-        }
-        .search-result-meta { font-size: 0.72rem; color: var(--text-muted); }
-        .search-empty { padding: 1.5rem; text-align: center; color: var(--text-muted); }
-
-        .pagination {
-            display: flex; align-items: center; justify-content: center;
-            gap: 0.35rem; margin-top: 1rem; flex-wrap: wrap;
-        }
-        .pagination a, .pagination span {
-            min-width: 2rem; height: 2rem; display: inline-flex;
-            align-items: center; justify-content: center; border-radius: 8px;
-            border: 1px solid var(--border); color: var(--text-muted);
-            text-decoration: none; font-size: 0.82rem;
-        }
-        .pagination a:hover { border-color: var(--accent); color: var(--text); }
-        .pagination .current { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); font-weight: 600; }
-        .pagination .disabled { opacity: 0.4; pointer-events: none; }
-
-        .list-toolbar {
-            display: flex; align-items: center; justify-content: space-between;
-            gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem;
-        }
-        .list-toolbar form { display: flex; align-items: center; gap: 0.5rem; }
-    </style>
 </head>
 <body>
 {% set path = request.path %}
@@ -189,7 +108,7 @@
                 <div class="clock-date" id="sidebarDate">--</div>
             </div>
             {% if role is none or role == 'admin' %}
-            <button onclick="updateGitHeader(this)" class="btn btn-primary" style="width: 100%; justify-content: center;">
+            <button type="button" onclick="updateGitHeader(this)" class="btn btn-primary btn-block">
                 🔄 Обновить с GitHub
             </button>
             {% endif %}
@@ -198,45 +117,69 @@
 
     <div class="main">
         <header class="topbar">
-            <button class="menu-toggle" onclick="toggleSidebar()">☰</button>
-            <div class="page-title">{% block page_title %}{% endblock %}</div>
+            <button type="button" class="menu-toggle" onclick="toggleSidebar()"
+                    aria-label="Меню" aria-expanded="false" aria-controls="layout">☰</button>
+            <h1 class="page-title">{% block page_title %}{% endblock %}</h1>
             <div class="topbar-actions">
-                <button type="button" class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Переключить тему">
+                <button type="button" class="theme-toggle" id="themeToggle" onclick="toggleTheme()"
+                        title="Переключить тему" aria-label="Переключить тему">
                     🌙
                 </button>
-                <button type="button" class="btn btn-sm" onclick="openSearchModal()" title="Поиск (Ctrl/Cmd+K)">
-                    🔍 Поиск <span class="search-shortcut" style="margin-left:0.3rem">Ctrl K</span>
+                <button type="button" class="btn btn-sm" onclick="openSearchModal()"
+                        title="Поиск (Ctrl/Cmd+K)" aria-label="Поиск">
+                    🔍 <span class="search-btn-label">Поиск</span>
+                    <span class="search-shortcut">Ctrl K</span>
                 </button>
                 {% block topbar_actions %}{% endblock %}
             </div>
         </header>
-        <div class="container">
+        <main class="container">
             {% block breadcrumbs %}{% endblock %}
             {% block content %}{% endblock %}
-        </div>
+        </main>
     </div>
 </div>
 
-<div class="search-modal-overlay" id="searchModal" onclick="closeSearchModal(event)">
+<div class="search-modal-overlay" id="searchModal" onclick="closeSearchModal(event)"
+     role="dialog" aria-modal="true" aria-label="Глобальный поиск">
     <div class="search-modal" onclick="event.stopPropagation()">
         <div class="search-input-wrap">
-            <span>🔍</span>
-            <input type="text" id="searchInput" placeholder="Поиск игроков, предметов, мобов, локаций..." autocomplete="off">
+            <span aria-hidden="true">🔍</span>
+            <input type="text" id="searchInput" autocomplete="off"
+                   aria-label="Поисковый запрос"
+                   placeholder="Поиск игроков, предметов, мобов, локаций...">
             <span class="search-shortcut">ESC</span>
         </div>
-        <div class="search-results" id="searchResults"></div>
+        <div class="search-results" id="searchResults" role="listbox" aria-label="Результаты поиска"></div>
     </div>
 </div>
 
 <script>
 function toggleSidebar(force) {
     const layout = document.getElementById('layout');
-    if (typeof force === 'boolean') {
-        layout.classList.toggle('sidebar-open', force);
-    } else {
-        layout.classList.toggle('sidebar-open');
-    }
+    const open = typeof force === 'boolean'
+        ? layout.classList.toggle('sidebar-open', force)
+        : layout.classList.toggle('sidebar-open');
+    const btn = document.querySelector('.menu-toggle');
+    if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    // Пока открыто мобильное меню — фон не должен прокручиваться
+    document.body.classList.toggle('no-scroll', open);
 }
+
+// Esc закрывает мобильное меню (раньше выйти можно было только тапом
+// по затемнению — на узком экране это неочевидно).
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && document.getElementById('layout').classList.contains('sidebar-open')) {
+        toggleSidebar(false);
+    }
+});
+
+// Переход по ссылке в меню на мобильном закрывает панель
+document.querySelectorAll('.sidebar-nav a').forEach(a => {
+    a.addEventListener('click', () => {
+        if (window.matchMedia('(max-width: 960px)').matches) toggleSidebar(false);
+    });
+});
 
 (function initTheme() {
     const saved = localStorage.getItem('admin-theme') || 'dark';
@@ -308,7 +251,6 @@ function setupImagePreviews() {
 
 async function inlineSave(form) {
     const data = new FormData(form);
-    const btn = form.querySelector('button[type=submit]');
     try {
         const r = await fetch(form.action, {method: 'POST', body: data});
         const json = await r.json();
@@ -323,6 +265,50 @@ async function inlineSave(form) {
         showToast('Ошибка сети', 'err');
     }
     return false;
+}
+
+// ── Инлайн-правка ячеек таблицы ──
+// Раньше каждая ячейка была <form> ВНУТРИ формы массовых действий.
+// Вложенные формы запрещены: браузер выкидывал внутреннюю, её поля
+// уходили во внешнюю, а Enter в поле «Уровень» отправлял массовое
+// действие (выдать VIP / удалить). Теперь это div + fetch.
+function setupInlineCells() {
+    document.querySelectorAll('[data-inline-url]').forEach(cell => {
+        const input = cell.querySelector('input, select');
+        if (!input) return;
+        const url = cell.dataset.inlineUrl;
+        const field = cell.dataset.inlineField;
+        let initial = input.value;
+
+        async function save() {
+            if (input.value === initial) return;
+            const body = new FormData();
+            body.append('field', field);
+            body.append('value', input.value);
+            try {
+                const r = await fetch(url, {method: 'POST', body});
+                const json = await r.json();
+                if (json.success) {
+                    initial = input.value;
+                    cell.classList.add('saved');
+                    setTimeout(() => cell.classList.remove('saved'), 1000);
+                    showToast('Сохранено');
+                } else {
+                    input.value = initial;
+                    showToast(json.error || 'Ошибка', 'err');
+                }
+            } catch (e) {
+                input.value = initial;
+                showToast('Ошибка сети', 'err');
+            }
+        }
+
+        input.addEventListener('blur', save);
+        input.addEventListener('keydown', e => {
+            if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+            if (e.key === 'Escape') { input.value = initial; input.blur(); }
+        });
+    });
 }
 
 function validateForm(form) {
@@ -357,6 +343,24 @@ function setupFormValidation() {
         form.addEventListener('submit', function(e) {
             if (!validateForm(form)) e.preventDefault();
         });
+    });
+}
+
+// ── Подтверждение действия через data-confirm ──
+// Внутри onclick="confirm('… {{ name }} …')" любой апостроф в имени
+// («Клинок O'Брайена») закрывает JS-строку и ломает обработчик.
+// В обычном атрибуте текст — это просто текст: кавычки экранирует
+// HTML-парсер, а JS его не разбирает.
+function setupConfirms() {
+    document.querySelectorAll('[data-confirm]').forEach(el => {
+        el.addEventListener('submit', function(e) {
+            if (!window.confirm(el.dataset.confirm)) e.preventDefault();
+        });
+        if (el.tagName !== 'FORM') {
+            el.addEventListener('click', function(e) {
+                if (!window.confirm(el.dataset.confirm)) e.preventDefault();
+            });
+        }
     });
 }
 
@@ -413,6 +417,8 @@ document.addEventListener('DOMContentLoaded', () => {
     setupImagePreviews();
     setupFormValidation();
     setupAutosave();
+    setupInlineCells();
+    setupConfirms();
 });
 
 (function initGlobalSearch() {
@@ -422,7 +428,10 @@ document.addEventListener('DOMContentLoaded', () => {
     let activeIndex = -1;
     let resultRows = [];
 
+    let lastFocused = null;
+
     window.openSearchModal = function() {
+        lastFocused = document.activeElement;
         modal.classList.add('open');
         input.value = '';
         input.focus();
@@ -433,6 +442,9 @@ document.addEventListener('DOMContentLoaded', () => {
     window.closeSearchModal = function(e) {
         if (e && e.target !== modal && e.type === 'click') return;
         modal.classList.remove('open');
+        // Возвращаем фокус туда, откуда открыли — иначе после Esc
+        // фокус улетал в начало страницы.
+        if (lastFocused && document.contains(lastFocused)) lastFocused.focus();
     };
 
     document.addEventListener('keydown', function(e) {

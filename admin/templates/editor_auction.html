@@ -1,7 +1,12 @@
 {% extends "base.html" %}
+{% import "macros.html" as macros %}
 
 {% block title %}Аукцион — Shadow Lands{% endblock %}
 {% block page_title %}⚖️ Аукцион{% endblock %}
+
+{% block breadcrumbs %}
+{{ macros.crumbs([('Dashboard','/'), ('Аукцион', none)]) }}
+{% endblock %}
 {% block topbar_actions %}<a href="/editor/instances" class="btn">🆔 Экземпляры</a>{% endblock %}
 
 {% block content %}
@@ -25,9 +30,9 @@
     </div>
 
     <div class="tabs">
-        <a href="/editor/auction?status=all" class="tab-btn {% if status == 'all' %}active{% endif %}" style="text-decoration:none;">Все</a>
+        <a href="/editor/auction?status=all" class="tab-btn {% if status == 'all' %}active{% endif %}">Все</a>
         {% for st in statuses %}
-        <a href="/editor/auction?status={{ st }}" class="tab-btn {% if status == st %}active{% endif %}" style="text-decoration:none;">
+        <a href="/editor/auction?status={{ st }}" class="tab-btn {% if status == st %}active{% endif %}">
             {{ {'active':'🛒 Активные','sold':'✅ Проданные','expired':'⌛ Просроченные','cancelled':'↩️ Снятые'}.get(st, st) }}
             ({{ counts.get(st, 0) }})
         </a>
@@ -44,35 +49,35 @@
         <tbody>
             {% for lot in lots %}
             <tr>
-                <td>{{ lot.id }}</td>
-                <td>
+                <td data-label="#">{{ lot.id }}</td>
+                <td data-label="Предмет">
                     {{ lot.item.icon if lot.item else '❔' }}
                     {{ lot.instance.display_name(lot.item) if lot.instance else '—' }}
                 </td>
-                <td>
+                <td data-label="ID">
                     {% if lot.instance %}
                     <a href="/instance/{{ lot.instance.id }}"><code>{{ lot.instance.badge() }}{{ lot.instance.uid }}</code></a>
-                    {% endif %}
+                    {% else %}—{% endif %}
                 </td>
-                <td><b>{{ lot.price }}</b> 🪙</td>
-                <td>
+                <td data-label="Цена" class="num"><b>{{ lot.price }}</b> 🪙</td>
+                <td data-label="Продавец">
                     {% if lot.is_npc_lot %}<span style="color:var(--text-muted)">🤖 Скупщик</span>
                     {% elif lot.seller %}<a href="/player/{{ lot.seller.id }}">{{ lot.seller.name }}</a>
                     {% else %}{{ lot.seller_name or '—' }}{% endif %}
                 </td>
-                <td>{% if lot.buyer %}<a href="/player/{{ lot.buyer.id }}">{{ lot.buyer.name }}</a>{% else %}—{% endif %}</td>
-                <td>
+                <td data-label="Покупатель">{% if lot.buyer %}<a href="/player/{{ lot.buyer.id }}">{{ lot.buyer.name }}</a>{% else %}—{% endif %}</td>
+                <td data-label="Статус">
                     <span class="badge badge-{{ {'active':'success','sold':'rare','expired':'common','cancelled':'danger'}.get(lot.status, 'common') }}">
                         {{ {'active':'на витрине','sold':'продан','expired':'просрочен','cancelled':'снят'}.get(lot.status, lot.status) }}
                     </span>
                 </td>
-                <td style="font-size:0.78rem; color:var(--text-muted);">
+                <td data-label="Создан" class="muted" style="font-size:0.78rem;">
                     {{ lot.created_at.strftime('%m-%d %H:%M') if lot.created_at else '—' }}
                 </td>
-                <td>
+                <td data-label="Действия">
                     {% if lot.status == 'active' %}
                     <form action="/editor/auction/{{ lot.id }}/cancel" method="post"
-                          onsubmit="return confirm('Снять лот и вернуть вещь продавцу?')">
+                          data-confirm="Снять лот и вернуть вещь продавцу?" >
                         <button type="submit" class="btn btn-danger btn-sm">↩️</button>
                     </form>
                     {% endif %}

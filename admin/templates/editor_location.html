@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "macros.html" as macros %}
 
 {% block title %}{{ location.name }} — Редактор — Shadow Lands{% endblock %}
 {% block page_title %}✏️ {{ location.name }} <span style="font-weight:400;color:var(--text-muted);font-size:0.85rem">— {{ location.grid_size }}×{{ location.grid_size }} • этажей {{ location.floors_count or 1 }}</span>{% endblock %}
@@ -10,12 +11,7 @@
 {% endblock %}
 
 {% block breadcrumbs %}
-<div class="breadcrumbs">
-    <a href="/">Dashboard</a><span class="sep">/</span>
-    <a href="/content">Контент</a><span class="sep">/</span>
-    <a href="/editor/locations">Локации</a><span class="sep">/</span>
-    <span class="current">{{ location.name }}</span>
-</div>
+{{ macros.crumbs([('Dashboard','/'), ('Контент','/content'), ('Локации','/editor/locations'), (location.name, none)]) }}
 {% endblock %}
 
 {% block content %}
@@ -171,20 +167,20 @@
         <!-- форма локации -->
         <div class="card" style="margin-bottom:1rem">
             <h3 style="margin-bottom:0.6rem">✏️ {{ location.name }}</h3>
-            <form action="/editor/location/{{ location.id }}/save" method="post" enctype="multipart/form-data" data-validate data-autosave style="display:grid;grid-template-columns:1fr 1fr;gap:0.8rem">
-                <div><label class="form-label">Название</label><input type="text" name="name" value="{{ location.name }}" class="search-box" style="max-width:100%" required></div>
+            <form action="/editor/location/{{ location.id }}/save" method="post" enctype="multipart/form-data" data-validate data-autosave class="form-grid">
+                <div><label class="form-label">Название</label><input type="text" name="name" value="{{ location.name }}" class="search-box" required></div>
                 <div><label class="form-label">Тип</label>
-                    <select name="location_type" class="search-box" style="max-width:100%">
+                    <select name="location_type" class="search-box">
                         <option value="safe" {% if location.location_type.value == 'safe' %}selected{% endif %}>Безопасная</option>
                         <option value="dangerous" {% if location.location_type.value == 'dangerous' %}selected{% endif %}>Опасная</option>
                         <option value="dungeon" {% if location.location_type.value == 'dungeon' %}selected{% endif %}>Подземелье</option>
                         <option value="boss" {% if location.location_type.value == 'boss' %}selected{% endif %}>Босс</option>
                     </select>
                 </div>
-                <div><label class="form-label">Мин. ур.</label><input type="number" name="min_level" value="{{ location.min_level }}" class="search-box" style="max-width:100%" min="1"></div>
-                <div><label class="form-label">Размер сетки</label><input type="number" name="grid_size" value="{{ location.grid_size }}" class="search-box" style="max-width:100%" min="5" max="25"></div>
-                <div><label class="form-label">Этажей (подуровни)</label><input type="number" name="floors_count" value="{{ location.floors_count or 1 }}" class="search-box" style="max-width:100%" min="1" max="10"></div>
-                <div style="display:flex;gap:0.4rem"><div style="flex:1"><label class="form-label">World X</label><input type="number" name="world_x" value="{{ location.world_x }}" class="search-box" style="max-width:100%" min="0" max="9"></div><div style="flex:1"><label class="form-label">World Y</label><input type="number" name="world_y" value="{{ location.world_y }}" class="search-box" style="max-width:100%" min="0" max="9"></div></div>
+                <div><label class="form-label">Мин. ур.</label><input type="number" name="min_level" value="{{ location.min_level }}" class="search-box" min="1"></div>
+                <div><label class="form-label">Размер сетки</label><input type="number" name="grid_size" value="{{ location.grid_size }}" class="search-box" min="5" max="25"></div>
+                <div><label class="form-label">Этажей (подуровни)</label><input type="number" name="floors_count" value="{{ location.floors_count or 1 }}" class="search-box" min="1" max="10"></div>
+                <div style="display:flex;gap:0.4rem"><div style="flex:1"><label class="form-label">World X</label><input type="number" name="world_x" value="{{ location.world_x }}" class="search-box" min="0" max="9"></div><div style="flex:1"><label class="form-label">World Y</label><input type="number" name="world_y" value="{{ location.world_y }}" class="search-box" min="0" max="9"></div></div>
                 <div style="grid-column:1/-1"><label class="form-label">Описание</label><textarea name="description" class="search-box" style="max-width:100%;width:100%;min-height:60px">{{ location.description }}</textarea></div>
                 <div style="grid-column:1/-1;display:flex;gap:0.6rem"><button type="submit" class="btn btn-primary">💾 Сохранить локацию</button><span class="hint" style="align-self:center">Смена размера/этажей мигрирует клетки, дороги и лестницы</span></div>
             </form>
@@ -302,18 +298,18 @@
         <p class="hint" style="margin-bottom:0.6rem">Дверь — одна клетка, которая телепортирует в другую локацию или на этаж. Укажи цель.</p>
         <form id="doorForm" onsubmit="return submitDoor(event)">
             <input type="hidden" name="cell_id" id="doorCellId">
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.6rem;margin-bottom:0.8rem">
+            <div class="field-row cols-2" style="margin-bottom:0.8rem">
                 <div><label class="form-label">Целевая локация</label>
-                    <select name="target_location_id" id="doorTargetLoc" class="search-box" style="max-width:100%">
+                    <select name="target_location_id" id="doorTargetLoc" class="search-box">
                         <option value="">— нет —</option>
                         {% for loc in all_locations %}
                         <option value="{{ loc.id }}">{{ loc.name }} [{{ loc.world_x }},{{ loc.world_y }}] {% if loc.id==location.id %}· этажи{% endif %}</option>
                         {% endfor %}
                     </select>
                 </div>
-                <div><label class="form-label">Этаж цели</label><input type="number" name="target_floor" id="doorFloor" class="search-box" style="max-width:100%" placeholder="0"></div>
-                <div><label class="form-label">X цели</label><input type="number" name="target_x" id="doorX" class="search-box" style="max-width:100%" placeholder="центр"></div>
-                <div><label class="form-label">Y цели</label><input type="number" name="target_y" id="doorY" class="search-box" style="max-width:100%" placeholder="центр"></div>
+                <div><label class="form-label">Этаж цели</label><input type="number" name="target_floor" id="doorFloor" class="search-box" placeholder="0"></div>
+                <div><label class="form-label">X цели</label><input type="number" name="target_x" id="doorX" class="search-box" placeholder="центр"></div>
+                <div><label class="form-label">Y цели</label><input type="number" name="target_y" id="doorY" class="search-box" placeholder="центр"></div>
             </div>
             <div style="display:flex;gap:0.5rem;justify-content:flex-end">
                 <button type="button" class="btn" onclick="closeDoorModal()">Отмена</button>

@@ -1,16 +1,12 @@
 {% extends "base.html" %}
+{% import "macros.html" as macros %}
 
 {% block title %}Диагностика {{ location.name }} — Shadow Lands{% endblock %}
 {% block page_title %}✅ Диагностика локации{% endblock %}
 {% block topbar_actions %}<a href="/editor/location/{{ location.id }}" class="btn">◀️ Назад</a>{% endblock %}
 
 {% block breadcrumbs %}
-<div class="breadcrumbs">
-    <a href="/">Dashboard</a><span class="sep">/</span>
-    <a href="/editor/locations">Локации</a><span class="sep">/</span>
-    <a href="/editor/location/{{ location.id }}">{{ location.name }}</a><span class="sep">/</span>
-    <span class="current">Диагностика</span>
-</div>
+{{ macros.crumbs([('Dashboard','/'), ('Контент','/content'), ('Локации','/editor/locations'), (location.name, '/editor/location/' ~ location.id), ('Диагностика', none)]) }}
 {% endblock %}
 
 {% block content %}

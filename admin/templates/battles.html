@@ -5,10 +5,7 @@
 {% block page_title %}⚔️ История боёв{% endblock %}
 
 {% block breadcrumbs %}
-<div class="breadcrumbs">
-    <a href="/">Dashboard</a><span class="sep">/</span>
-    <span class="current">Бои</span>
-</div>
+{{ macros.crumbs([('Dashboard','/'), ('Бои', none)]) }}
 {% endblock %}
 
 {% block content %}

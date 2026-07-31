@@ -1,7 +1,12 @@
 {% extends "base.html" %}
+{% import "macros.html" as macros %}
 
 {% block title %}Редактор локаций — Shadow Lands{% endblock %}
 {% block page_title %}🗺 Редактор локаций{% endblock %}
+
+{% block breadcrumbs %}
+{{ macros.crumbs([('Dashboard','/'), ('Контент','/content'), ('Локации', none)]) }}
+{% endblock %}
 {% block topbar_actions %}<a href="/editor/location/new" class="btn btn-primary">➕ Новая локация</a>{% endblock %}
 
 {% block content %}
@@ -24,13 +29,19 @@
         <tbody>
             {% for loc in locations %}
             <tr>
-                <td>{{ loc.id }}</td>
-                <td>{{ loc.name }}</td>
-                <td><span class="badge badge-{{ loc.location_type.value }}">{{ loc.location_type.value }}</span></td>
-                <td>{{ loc.min_level }}</td>
-                <td>{{ loc.grid_size }}x{{ loc.grid_size }}</td>
-                <td>
-                    <a href="/editor/location/{{ loc.id }}" class="btn btn-primary btn-sm">✏️ Редактировать</a>
+                <td data-label="ID">{{ loc.id }}</td>
+                <td data-label="Название"><b>{{ loc.name }}</b></td>
+                <td data-label="Тип">
+                    <span class="badge badge-{{ loc.location_type.value }}">
+                        {{ {'safe':'🛡 безопасная','dangerous':'⚠️ опасная','dungeon':'🕳 подземелье','boss':'👹 босс'}.get(loc.location_type.value, loc.location_type.value) }}
+                    </span>
+                </td>
+                <td data-label="Мин. ур." class="num">{{ loc.min_level }}</td>
+                <td data-label="Клеток" class="num">{{ loc.grid_size }}×{{ loc.grid_size }}</td>
+                <td data-label="Действия">
+                    <div class="row-actions">
+                        <a href="/editor/location/{{ loc.id }}" class="btn btn-primary btn-sm">✏️ Редактировать</a>
+                    </div>
                 </td>
             </tr>
             {% else %}

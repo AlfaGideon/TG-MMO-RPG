@@ -1,13 +1,11 @@
 {% extends "base.html" %}
+{% import "macros.html" as macros %}
 
 {% block title %}Контент — Shadow Lands{% endblock %}
 {% block page_title %}🧩 Контент мира{% endblock %}
 
 {% block breadcrumbs %}
-<div class="breadcrumbs">
-    <a href="/">Dashboard</a><span class="sep">/</span>
-    <span class="current">Контент</span>
-</div>
+{{ macros.crumbs([('Dashboard','/'), ('Контент', none)]) }}
 {% endblock %}
 
 {% block content %}
