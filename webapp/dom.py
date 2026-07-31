@@ -65,6 +65,15 @@ def bind_actions():
         fn = _actions.get(node.getAttribute("data-act"))
         if fn is None:
             return
+        # Не полагаемся на inline onclick: при делегировании событие всё
+        # равно всплывает до document даже после «Отмена». Подтверждение
+        # должно жить здесь, до вызова опасного действия.
+        text = node.getAttribute("data-confirm")
+        if text:
+            from js import window
+            if not window.confirm(text):
+                evt.preventDefault()
+                return
         evt.preventDefault()
         arg = node.getAttribute("data-arg") or ""
         try:
@@ -171,6 +180,21 @@ def wire_forms():
 
     for form in document.querySelectorAll("form[data-validate], form[data-autosave]"):
         setup(form)
+
+    # Экран публикаций: «как было» нужно только для типа «изменение».
+    upd_type = el("#updType")
+    if upd_type is not None:
+        def update_kind(evt=None):
+            is_change = upd_type.value == "change"
+            wrap, label = el("#updWasWrap"), el("#updBecameLabel")
+            if wrap is not None:
+                wrap.hidden = not is_change
+            if label is not None:
+                label.textContent = "Как стало" if is_change else "Описание новинки"
+        proxy = create_proxy(update_kind)
+        _proxies.append(proxy)
+        upd_type.addEventListener("change", proxy)
+        update_kind()
 
     # image previews
     for inp in document.querySelectorAll("input[type=file][data-preview]"):
