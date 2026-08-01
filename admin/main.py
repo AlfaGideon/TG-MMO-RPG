@@ -1870,10 +1870,14 @@ async def editor_location_new(
     world_y: int = Form(0),
     autolink: bool = Form(False),
     pick_spot: bool = Form(False),
+    layout: str = Form("standard"),
 ):
     guard(request, "manage_content")
     from core.seed import CELL_STORIES
     grid_size = max(5, min(25, grid_size))
+    if layout == "castle":
+        # Угловой замок 25×25: цитадели по углам с жителями, пустоши между ними.
+        grid_size = max(25, grid_size)
     async with async_session() as session:
         # Защита от коллизии на мировой карте: либо автоподбор свободной
         # клетки, либо явная ошибка — тихих наложений больше не бывает.
@@ -1904,8 +1908,14 @@ async def editor_location_new(
         await session.flush()
 
         # Клетки всех этажей: связность гарантирована (BFS от центра),
-        # лестницы между этажами — двусторонние.
-        await W.build_cells(session, loc, CELL_STORIES)
+        # лестницы между этажами — двусторонние. Угловой замок получает
+        # свою планировку с жителями по цитаделям.
+        if layout == "castle":
+            from core.seed import CASTLE_NPCS
+            await W.build_corner_castle(session, loc, CELL_STORIES,
+                                        npcs=CASTLE_NPCS)
+        else:
+            await W.build_cells(session, loc, CELL_STORIES)
 
         report = []
         if autolink:
@@ -4276,12 +4286,27 @@ async def editor_auction(request: Request, status: str = "active"):
             .where(AuctionLot.status == AuctionStatus.SOLD.value)
         ) or 0
 
+        # Экземпляры для админ-лота: продаваемые, не висящие на витрине.
+        busy_ids = select(AuctionLot.instance_id).where(
+            AuctionLot.status == AuctionStatus.ACTIVE.value)
+        from core.models import ItemInstance, Item
+        inst_rows = (await session.execute(
+            select(ItemInstance)
+            .options(selectinload(ItemInstance.item))
+            .where(ItemInstance.id.not_in(busy_ids))
+            .order_by(ItemInstance.id.desc())
+            .limit(150)
+        )).scalars().all()
+        instances = [i for i in inst_rows
+                     if i.item is not None and i.item.is_sellable]
+
     return templates.TemplateResponse(
         request, "editor_auction.html",
         {
             "lots": lots, "counts": counts, "status": status,
             "turnover": turnover,
             "statuses": [s.value for s in AuctionStatus],
+            "instances": instances,
         },
     )
 
@@ -4301,6 +4326,183 @@ async def auction_lot_cancel(request: Request, lot_id: int):
                 await _return_to_owner(session, lot, seller, event="unlisted")
             await session.commit()
     return RedirectResponse(url="/editor/auction", status_code=303)
+
+
+@app.post("/editor/auction/create")
+async def auction_lot_create(request: Request, instance_id: int = Form(1),
+                             price: int = Form(0)):
+    """Выставить лот от скупщика: вещь попадает на витрину из рук админа.
+
+    Так админ может разогреть аукцион редкими вещами (лоты скупщика) —
+    продажа идёт обычным путём, комиссия не взимается.
+    """
+    guard(request, "manage_content")
+    from core import auction as A
+    from core.history import record as history_record
+    from core.models import ItemInstance, Item
+
+    async with async_session() as session:
+        instance = await session.get(ItemInstance, instance_id)
+        if instance is None:
+            return RedirectResponse(url="/editor/auction?msg=Экземпляр+не+найден",
+                                    status_code=303)
+        item = await session.get(Item, instance.item_id)
+        if item is None or not item.is_sellable:
+            return RedirectResponse(
+                url="/editor/auction?msg=Этот+предмет+нельзя+продавать",
+                status_code=303)
+        busy = await session.scalar(
+            select(func.count(AuctionLot.id))
+            .where(AuctionLot.instance_id == instance.id)
+            .where(AuctionLot.status == AuctionStatus.ACTIVE.value)
+        )
+        if busy:
+            return RedirectResponse(
+                url="/editor/auction?msg=Экземпляр+уже+висит+на+витрине",
+                status_code=303)
+        low, high = A.price_bounds(instance, item)
+        price = max(low, min(high, int(price) if price else A.suggested_price(instance, item)))
+        lot = AuctionLot(
+            instance_id=instance.id, item_id=item.id,
+            seller_id=None, seller_name="Скупщик Молчун",
+            price=price, status=AuctionStatus.ACTIVE.value,
+            is_npc_lot=True,
+            expires_at=datetime.utcnow() + timedelta(hours=24),
+        )
+        session.add(lot)
+        instance.owner_character_id = None
+        await history_record(
+            session, instance, "listed", None,
+            detail="выставлен админом от скупщика", price=price)
+        await session.commit()
+    return RedirectResponse(url="/editor/auction", status_code=303)
+
+
+@app.post("/editor/auction/{lot_id}/remove")
+async def auction_lot_remove(request: Request, lot_id: int):
+    """Снять лот с витрины: вещь возвращается владельцу (лоту скупщика —
+    просто закрывается, вещь остаётся без владельца)."""
+    guard(request, "manage_content")
+    from core.auction import _claim_lot, _return_to_owner
+    async with async_session() as session:
+        lot = await session.get(AuctionLot, lot_id)
+        if lot and lot.status == AuctionStatus.ACTIVE.value:
+            # Атомарный захват: параллельный sweep/покупка не сработают дважды.
+            if await _claim_lot(session, lot, AuctionStatus.CANCELLED.value):
+                if not lot.is_npc_lot and lot.seller_id:
+                    seller = await session.get(Character, lot.seller_id)
+                    if seller is not None:
+                        await _return_to_owner(session, lot, seller, event="unlisted")
+            await session.commit()
+    return RedirectResponse(url="/editor/auction", status_code=303)
+
+
+# ═══════════════════════════════════════════════════════════
+# Бродячий торговец: состояние, витрина, запуск/остановка
+# ═══════════════════════════════════════════════════════════
+
+@app.get("/editor/merchant")
+async def editor_merchant(request: Request, msg: str = ""):
+    """Панель торговца: статус, локация, товары, запуск и наполнение."""
+    guard(request, "manage_content")
+    from core import merchant as M
+    from core.models import Location
+
+    async with async_session() as session:
+        state = await M.load(session)
+        await session.commit()
+        locations = (await session.execute(
+            select(Location).order_by(Location.id))).scalars().all()
+        wares = await M.wares(session) if state else []
+    merchant = state
+    return templates.TemplateResponse(request, "editor_merchant.html", {
+        "merchant": merchant, "wares": wares, "locations": locations,
+        "msg": msg,
+    })
+
+
+@app.post("/editor/merchant/activate")
+async def merchant_activate(request: Request, location_id: int = Form(1),
+                            hours: float = Form(6)):
+    """Запустить торговца в выбранной локации."""
+    guard(request, "manage_content")
+    from core import merchant as M
+    async with async_session() as session:
+        await M.activate(session, location_id, hours)
+        await session.commit()
+    return RedirectResponse(url="/editor/merchant?msg=Торговец+вышел+в+дорогу",
+                            status_code=303)
+
+
+@app.post("/editor/merchant/deactivate")
+async def merchant_deactivate(request: Request):
+    """Прогнать торговца (витрина сохраняется на будущее)."""
+    guard(request, "manage_content")
+    from core import merchant as M
+    async with async_session() as session:
+        await M.deactivate(session)
+        await session.commit()
+    return RedirectResponse(url="/editor/merchant?msg=Торговец+ушёл",
+                            status_code=303)
+
+
+@app.post("/editor/merchant/move")
+async def merchant_move(request: Request, location_id: int = Form(1)):
+    """Переместить торговца в другую локацию, не трогая витрину."""
+    guard(request, "manage_content")
+    from core import merchant as M
+    async with async_session() as session:
+        await M.set_location(session, location_id)
+        await session.commit()
+    return RedirectResponse(url="/editor/merchant?msg=Торговец+перешёл",
+                            status_code=303)
+
+
+@app.post("/editor/merchant/items/add")
+async def merchant_item_add(request: Request, item_id: int = Form(1),
+                            price: int = Form(10), qty: int = Form(1)):
+    guard(request, "manage_content")
+    from core import merchant as M
+    async with async_session() as session:
+        res = await M.add_item(session, item_id, price, qty)
+        await session.commit()
+    text = "Товар+добавлен" if res["ok"] else "Ошибка:+" + res["reason"].replace(" ", "+")
+    return RedirectResponse(url=f"/editor/merchant?msg={text}", status_code=303)
+
+
+@app.post("/editor/merchant/items/generate")
+async def merchant_items_generate(request: Request, count: int = Form(4)):
+    """Сгенерировать случайные диковинки из каталога предметов."""
+    guard(request, "manage_content")
+    from core import merchant as M
+    async with async_session() as session:
+        res = await M.generate_items(session, count)
+        await session.commit()
+    if not res["ok"]:
+        text = "Ошибка:+" + res["reason"].replace(" ", "+")
+    else:
+        text = f"Сгенерировано+товаров:+{res['count']}"
+    return RedirectResponse(url=f"/editor/merchant?msg={text}", status_code=303)
+
+
+@app.post("/editor/merchant/items/remove/{index}")
+async def merchant_item_remove(request: Request, index: int):
+    guard(request, "manage_content")
+    from core import merchant as M
+    async with async_session() as session:
+        await M.remove_item(session, index)
+        await session.commit()
+    return RedirectResponse(url="/editor/merchant?msg=Товар+убрано", status_code=303)
+
+
+@app.post("/editor/merchant/items/clear")
+async def merchant_items_clear(request: Request):
+    guard(request, "manage_content")
+    from core import merchant as M
+    async with async_session() as session:
+        await M.clear_items(session)
+        await session.commit()
+    return RedirectResponse(url="/editor/merchant?msg=Витрина+очищена", status_code=303)
 
 
 @app.post("/settings/festive-events")

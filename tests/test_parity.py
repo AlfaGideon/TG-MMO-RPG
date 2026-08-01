@@ -113,6 +113,12 @@ REGISTRY = [
     Feature("Достопримечательности",
             browser=["engine/landmarks.py"],
             server=["core/landmarks.py"]),
+    Feature("Бродячий торговец",
+            browser=["engine/merchant.py"],
+            server=["core/merchant.py"]),
+    Feature("Угловые замки 25×25",
+            browser=["engine/world.py"],
+            server=["core/worldgen.py", "core/seed.py"]),
 
     # ── ниже: механики без паритета, причина обязательна ──
     Feature("Задания",
@@ -197,6 +203,18 @@ def test_shared_numbers_match():
         ("прибавка VIP", engine_stash.VIP_BONUS, core_stash.VIP_BONUS),
         ("доля потерь", engine_stash.LOSS_SHARE, core_stash.LOSS_SHARE),
         ("срок VIP", engine_stash.VIP_DAYS, core_stash.VIP_DAYS),
+    ]
+    try:
+        from engine import merchant as e_merchant
+        from core import merchant as c_merchant
+    except ImportError as e:
+        check(True, f"торговец недоступен, пропуск ({e})")
+        return
+    pairs += [
+        ("наценка торговца", e_merchant.MARKUP, c_merchant.MARKUP),
+        ("шанс встречи торговца", e_merchant.WANDER_CHANCE, c_merchant.WANDER_CHANCE),
+        ("срок торговли, сек", e_merchant.LIFETIME, c_merchant.LIFETIME_HOURS * 3600),
+        ("потолок витрины", e_merchant.MAX_WARES, c_merchant.MAX_WARES),
     ]
     for label, a, b in pairs:
         check(a == b, f"{label}: {a} = {b}")

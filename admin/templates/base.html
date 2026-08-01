@@ -59,6 +59,9 @@
             <a href="/editor/auction" class="nav-link {% if path == '/editor/auction' %}active{% endif %}">
                 <span class="nav-icon">⚖️</span> Аукцион
             </a>
+            <a href="/editor/merchant" class="nav-link {% if path == '/editor/merchant' %}active{% endif %}">
+                <span class="nav-icon">🧳</span> Бродячий торговец
+            </a>
 
             {% if role is none or role == 'admin' %}
             <div class="nav-section-label">Контент мира</div>
@@ -252,6 +255,28 @@ function setupImagePreviews() {
     });
 }
 
+// Современная загрузка файлов: в «поле» рядом с квадратной кнопкой
+// показываем имя выбранного файла (см. input[type=file] в style.css).
+function setupUploadFields() {
+    document.querySelectorAll('input[type=file]').forEach(input => {
+        if (input.dataset.uploadBound) return;
+        input.dataset.uploadBound = '1';
+        input.addEventListener('change', function() {
+            const file = this.files && this.files[0];
+            if (file) {
+                const size = file.size > 1048576
+                    ? (file.size / 1048576).toFixed(1) + ' МБ'
+                    : Math.max(1, Math.round(file.size / 1024)) + ' КБ';
+                this.setAttribute('data-name', '📎 ' + file.name + ' · ' + size);
+                this.classList.add('has-file');
+            } else {
+                this.removeAttribute('data-name');
+                this.classList.remove('has-file');
+            }
+        });
+    });
+}
+
 async function inlineSave(form) {
     const data = new FormData(form);
     try {
@@ -418,6 +443,7 @@ function toggleGroup(id) {
 
 document.addEventListener('DOMContentLoaded', () => {
     setupImagePreviews();
+    setupUploadFields();
     setupFormValidation();
     setupAutosave();
     setupInlineCells();

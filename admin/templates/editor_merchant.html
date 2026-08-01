@@ -1,15 +1,152 @@
 {% extends "base.html" %}
+{% import "macros.html" as macros %}
+
 {% block title %}Бродячий торговец — Shadow Lands{% endblock %}
 {% block page_title %}🧳 Бродячий торговец{% endblock %}
+
+{% block breadcrumbs %}
+{{ macros.crumbs([('Dashboard','/'), ('Бродячий торговец', none)]) }}
+{% endblock %}
+
 {% block content %}
+{% if msg %}<div class="alert alert-info" style="margin-bottom:1rem;">{{ msg }}</div>{% endif %}
+
 <div class="card">
-<h2>🧳 Бродячий торговец</h2>
-<p>Добавляет предметы вручную или генерирует диковинки. Появляется автоматически или запускается админом. Игрокам не сообщается.</p>
-<table>
-<thead><tr><th>Предмет</th><th>Источник</th><th>Действие</th></tr></thead>
-<tbody>
-<tr><td>Диковинка</td><td>Генерация / Админ</td><td>—</td></tr>
-</tbody>
-</table>
+    <h2>🧳 Статус</h2>
+    <p class="section-sub">
+        Торговец появляется при путешествии игроков или запускается админом.
+        Игрокам заранее не сообщается — его можно встретить только на месте.
+    </p>
+    <div class="stats-grid" style="margin-bottom:1rem;">
+        <div class="stat-box">
+            <div class="stat-icon">{{ '🟢' if merchant and merchant.get('active') else '⚪' }}</div>
+            <div class="value">{{ 'торгует' if merchant and merchant.get('active') else 'не в деле' }}</div>
+            <div class="label">состояние</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-icon">📍</div>
+            <div class="value">
+                {% if merchant and merchant.get('location_id') %}
+                    {% set ml = locations | selectattr('id', 'equalto', merchant.get('location_id')) | first %}
+                    {{ ml.name if ml else merchant.get('location_id') }}
+                {% else %}—{% endif %}
+            </div>
+            <div class="label">локация</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-icon">⏳</div>
+            <div class="value">{{ merchant.get('expires_at', '—')[:16].replace('T', ' ') if merchant and merchant.get('expires_at') else '—' }}</div>
+            <div class="label">уйдёт не позднее</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-icon">🛒</div>
+            <div class="value">{{ wares | length }}</div>
+            <div class="label">товаров на витрине</div>
+        </div>
+    </div>
+
+    <div style="display:flex; gap:1rem; flex-wrap:wrap; align-items:flex-end;">
+        <form action="/editor/merchant/activate" method="post" style="display:flex; gap:.5rem; align-items:flex-end; flex-wrap:wrap;">
+            <div>
+                <label class="form-label">Локация</label>
+                <select name="location_id" class="search-box">
+                    {% for loc in locations %}
+                    <option value="{{ loc.id }}">{{ loc.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="form-label">Часов</label>
+                <input type="number" name="hours" value="6" min="1" max="72" class="search-box" style="width:90px;">
+            </div>
+            <button type="submit" class="btn btn-success">🚀 Запустить торговца</button>
+        </form>
+        <form action="/editor/merchant/move" method="post" style="display:flex; gap:.5rem; align-items:flex-end; flex-wrap:wrap;">
+            <div>
+                <label class="form-label">Перенести в</label>
+                <select name="location_id" class="search-box">
+                    {% for loc in locations %}
+                    <option value="{{ loc.id }}">{{ loc.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <button type="submit" class="btn">📍 Переместить</button>
+        </form>
+        <form action="/editor/merchant/deactivate" method="post"
+              data-confirm="Прогнать торговца? Витрина сохранится.">
+            <button type="submit" class="btn btn-danger">⏹ Прогнать</button>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <h2>🛒 Витрина</h2>
+    <p class="section-sub">
+        Диковинки добавляются вручную (по ID предмета) или генерируются из
+        каталога. Купленное уходит с витрины; когда торговец уходит и
+        возвращается, товары сохраняются, пока их не раскупят или не сменят.
+    </p>
+
+    <div style="display:flex; gap:1rem; flex-wrap:wrap; align-items:flex-end; margin-bottom:1rem;">
+        <form action="/editor/merchant/items/add" method="post" style="display:flex; gap:.5rem; align-items:flex-end; flex-wrap:wrap;">
+            <div>
+                <label class="form-label">ID предмета</label>
+                <input type="number" name="item_id" value="1" min="1" class="search-box" style="width:100px;">
+            </div>
+            <div>
+                <label class="form-label">Цена, 🪙</label>
+                <input type="number" name="price" value="50" min="1" class="search-box" style="width:110px;">
+            </div>
+            <div>
+                <label class="form-label">Кол-во</label>
+                <input type="number" name="qty" value="1" min="1" max="99" class="search-box" style="width:80px;">
+            </div>
+            <button type="submit" class="btn">➕ Добавить товар</button>
+        </form>
+        <form action="/editor/merchant/items/generate" method="post" style="display:flex; gap:.5rem; align-items:flex-end;">
+            <div>
+                <label class="form-label">Сколько</label>
+                <input type="number" name="count" value="4" min="1" max="8" class="search-box" style="width:80px;">
+            </div>
+            <button type="submit" class="btn">🎲 Сгенерировать диковинки</button>
+        </form>
+        <form action="/editor/merchant/items/clear" method="post"
+              data-confirm="Очистить всю витрину?">
+            <button type="submit" class="btn btn-danger btn-sm">🧹 Очистить</button>
+        </form>
+    </div>
+
+    <div class="table-wrap">
+    <table>
+        <thead><tr><th>#</th><th>Предмет</th><th>ID</th><th>Цена</th><th>Осталось</th><th></th></tr></thead>
+        <tbody>
+            {% for w in wares %}
+            <tr>
+                <td data-label="#">#{{ loop.index0 }}</td>
+                <td data-label="Предмет">{{ w.item.icon }} <b>{{ w.item.name }}</b>
+                    <span class="muted" style="font-size:.78rem;">{{ w.item.item_type }}</span>
+                </td>
+                <td data-label="ID"><code>{{ w.item.id }}</code></td>
+                <td data-label="Цена" class="num"><b>{{ w.price }}</b> 🪙</td>
+                <td data-label="Осталось" class="num">{{ w.qty }}</td>
+                <td data-label="Действия">
+                    <form action="/editor/merchant/items/remove/{{ loop.index0 }}" method="post"
+                          data-confirm="Убрать товар с витрины?">
+                        <button type="submit" class="btn btn-danger btn-sm">🗑</button>
+                    </form>
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6">
+                <div class="empty-state">
+                    <div class="empty-icon">🧳</div>
+                    <div>Витрина пуста.</div>
+                    <span class="hint">Добавьте товар вручную или сгенерируйте диковинки.</span>
+                </div>
+            </td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
 </div>
 {% endblock %}

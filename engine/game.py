@@ -2,8 +2,8 @@
 import random
 
 from engine import (adminbot, adminroute, behavior, cataclysm, combat, data,
-                    explore, hero, inventory, items, mapview, respawn, rules,
-                    shop, social, stash, texts, trade, world)
+                    explore, hero, inventory, items, mapview, merchant,
+                    respawn, rules, shop, social, stash, texts, trade, world)
 from engine.models import Reply
 
 
@@ -214,7 +214,12 @@ class Game:
         if alarm:
             rows.insert(0, [("🌋 Что происходит?", "disaster")])
         here = mapview.others_here(self.store, p, p.loc, p.x, p.y)
-        return Reply(text=texts.cell_view(p, cell, alarm, here), keyboard=rows)
+        reply = Reply(text=texts.cell_view(p, cell, alarm, here), keyboard=rows)
+        if merchant.at(self.store, p.loc):
+            reply.text = (f"🧳 <b>Здесь стоит {merchant.MERCHANT_NAME}!</b>\n\n"
+                          + reply.text)
+            reply.keyboard.append([("🧳 Торговец", "merchant")])
+        return reply
 
     do_wall = lambda self, p, arg="": Reply(alert="Туда нельзя пройти.")
 
@@ -232,6 +237,7 @@ class Game:
             p.floor = 0
         social.on_enter(p, p.loc)
         mapview.mark_visited(p)
+        merchant.roll(self.store, p)
         return self.do_world(p)
 
     def do_go(self, p, d):
@@ -261,6 +267,8 @@ class Game:
         mapview.mark_visited(p)
         cataclysm.auto(self.store)           # мир может тряхнуть на ходу
         respawn.tick(self.store)             # твари и сундуки возвращаются
+        if target.link:
+            merchant.roll(self.store, p)     # на новой земле можно встретить торговца
         cell = self._cell(p)
         rate = min(0.98, 0.75 * cataclysm.effects(self.store, p.loc)["mob_rate"])
         # Твари живут своей жизнью: бродят и сами решают напасть. В беду
@@ -376,6 +384,10 @@ class Game:
     do_sellbag = lambda self, p, arg="0": shop.sell_list(p, arg or 0)
     do_sellc = lambda self, p, arg: shop.sell_card(p, arg)
     do_sells = lambda self, p, arg: shop.sell_here(p, arg)
+    # ── бродячий торговец (engine/merchant.py) ──────────────
+    do_merchant = lambda self, p, arg="0": merchant.view(self.store, p, arg or 0)
+    do_mcard = lambda self, p, arg: merchant.card(self.store, p, arg)
+    do_mbuy = lambda self, p, arg: merchant.buy(self.store, p, arg)
     do_noop = lambda self, p, arg="": Reply(alert="")
 
     # ── топ ─────────────────────────────────────────────────

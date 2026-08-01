@@ -18,6 +18,30 @@
         Непроданный лот возвращается владельцу через сутки.
     </p>
 
+    <h3 style="margin-top:.5rem;">🛠 Выставить лот от скупщика</h3>
+    <p class="section-sub">
+        Админ разогревает рынок: редкая вещь попадает на витрину как лот
+        скупщика (комиссия не взимается). Цена по умолчанию — оценочная.
+    </p>
+    <form action="/editor/auction/create" method="post"
+          style="display:flex; gap:.5rem; align-items:flex-end; flex-wrap:wrap; margin-bottom:1rem;">
+        <div style="flex:1; min-width:260px;">
+            <label class="form-label">Экземпляр (не на витрине)</label>
+            <select name="instance_id" class="search-box" style="width:100%;">
+                {% for inst in instances %}
+                <option value="{{ inst.id }}">
+                    {{ inst.badge() }}{{ inst.uid }} — {{ inst.display_name(inst.item) }} ({{ inst.item.rarity }})
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label class="form-label">Цена, 🪙 (0 = оценочная)</label>
+            <input type="number" name="price" value="0" min="0" class="search-box" style="width:130px;">
+        </div>
+        <button type="submit" class="btn">🏷 Выставить</button>
+    </form>
+
     <div class="stats-grid" style="margin-bottom:1rem;">
         <div class="stat-box"><div class="stat-icon">🛒</div>
             <div class="value">{{ counts.get('active', 0) }}</div><div class="label">на витрине</div></div>
@@ -76,10 +100,17 @@
                 </td>
                 <td data-label="Действия">
                     {% if lot.status == 'active' %}
-                    <form action="/editor/auction/{{ lot.id }}/cancel" method="post"
-                          data-confirm="Снять лот и вернуть вещь продавцу?" >
-                        <button type="submit" class="btn btn-danger btn-sm">↩️</button>
-                    </form>
+                        {% if lot.is_npc_lot %}
+                        <form action="/editor/auction/{{ lot.id }}/remove" method="post"
+                              data-confirm="Снять лот скупщика с витрины?">
+                            <button type="submit" class="btn btn-danger btn-sm">🗑</button>
+                        </form>
+                        {% else %}
+                        <form action="/editor/auction/{{ lot.id }}/cancel" method="post"
+                              data-confirm="Снять лот и вернуть вещь продавцу?" >
+                            <button type="submit" class="btn btn-danger btn-sm">↩️</button>
+                        </form>
+                        {% endif %}
                     {% endif %}
                 </td>
             </tr>

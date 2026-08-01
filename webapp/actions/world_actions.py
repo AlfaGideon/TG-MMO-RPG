@@ -180,10 +180,11 @@ def place_loc(app, loc_idx, wx, wy):
 
 def _reseam(app, grid):
     """Снять старые швы и пересшить мир по сетке одной дверью на границу."""
+    sizes = app.store.settings.get("world_sizes", {})
     for c in app.store.world.values():
         if c.link:
             c.link = ()
-    W._link_by_grid(app.store.world, grid)
+    W._link_by_grid(app.store.world, grid, sizes)
     app.store.save()
     app.bot.game.world = app.store.world
 

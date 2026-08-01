@@ -18,6 +18,8 @@ class Store:
         # а не при рендере страницы, иначе бот их не увидит.
         self.settings.setdefault("dungeon_templates", default_dungeons())
         self.settings.setdefault("world_grid", dict(world.DEFAULT_GRID))
+        # Размеры сеток локаций (угловые замки 25×25) — хранятся рядом с сеткой.
+        self.settings.setdefault("world_sizes", dict(world.DEFAULT_SIZES))
         # Катаклизмы: живут в настройках, поэтому их видят и бот, и панель.
         self.settings.setdefault("seeds", {})
         self.settings.setdefault("cataclysms", [])
@@ -45,8 +47,10 @@ class Store:
                 self.players, self.world = {}, {}
         self.sync_locations()
         # Сетка мира должна существовать до первой генерации, иначе мир
-        # соберётся цепочкой, а панель покажет другую раскладку.
+        # соберётся цепочкой, а панель покажет другую раскладку. То же для
+        # размеров сеток локаций (угловые замки 25×25).
         self.settings.setdefault("world_grid", dict(world.DEFAULT_GRID))
+        self.settings.setdefault("world_sizes", dict(world.DEFAULT_SIZES))
         expected_floors = self.settings.get("location_floors", {}) or {}
         missing_floor = any(
             int(n or 1) > 1 and not any(
@@ -111,7 +115,8 @@ class Store:
         self.settings["cataclysms"] = []      # бедствия старого мира не переносим
         self.world = world.generate(self.settings["seed"], grid=grid,
                                     seeds=self.seeds(),
-                                    floors=self.settings.get("location_floors", {}))
+                                    floors=self.settings.get("location_floors", {}),
+                                    sizes=self.settings.get("world_sizes", {}))
         self.save()
 
     def add_location(self, name, desc, ltype, min_level, wx, wy, floors=1):
@@ -135,10 +140,17 @@ class Store:
         self.settings.setdefault("location_floors", {})[str(li)] = f
         sd = self.seeds()
         rnd = random.Random(sd["terrain"] + li * 7919)
-        batch, _ = world.gen_cells(li, rnd, story_rnd=random.Random(sd["stories"] + li))
+        sizes = self.settings.setdefault("world_sizes", dict(world.DEFAULT_SIZES))
+        if world.is_castle(data.LOCATIONS, li):
+            sizes[str(li)] = 25
+            batch, _ = world.gen_castle_cells(
+                li, rnd, 25, story_rnd=random.Random(sd["stories"] + li))
+        else:
+            batch, _ = world.gen_cells(li, rnd,
+                                       story_rnd=random.Random(sd["stories"] + li))
         for c in batch:
             self.world[c.key] = c
-        report = world.link_new_location(self.world, li, grid)
+        report = world.link_new_location(self.world, li, grid, sizes)
         if f > 1:
             # Пересобираем только при создании многоэтажной локации: так
             # лестницы появляются сразу, а обычное добавление сохраняет
@@ -237,6 +249,11 @@ class Store:
         grid.pop(str(li), None)
         self.settings["world_grid"] = {
             str(int(k) - 1 if int(k) > li else k): v for k, v in grid.items()}
+        # размеры сеток (угловые замки) — реиндексация как у сетки
+        sizes_map = self.settings.get("world_sizes", {})
+        sizes_map.pop(str(li), None)
+        self.settings["world_sizes"] = {
+            str(int(k) - 1 if int(k) > li else k): v for k, v in sizes_map.items()}
         # подуровни
         floors_map = self.settings.get("location_floors", {})
         floors_map.pop(str(li), None)

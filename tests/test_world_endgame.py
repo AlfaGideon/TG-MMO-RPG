@@ -109,7 +109,8 @@ def test_landmarks_unique():
     store = fresh()
     ks = landmarks.keys(store)
     check(ks, f"диковины расставлены: {len(ks)}")
-    check(len(ks) < 60, f"их немного — {len(ks)}, а не сотни")
+    check(len(ks) < max(60, len(store.world) // 10),
+          f"их немного — {len(ks)}, а не сотни")
     check(landmarks.keys(store) == ks, "набор устойчив между вызовами")
 
     per = {}

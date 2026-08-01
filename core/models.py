@@ -209,7 +209,7 @@ class Character(Base):
     offline_protected = Column(Boolean, default=False)
     image_url = Column(String(512), nullable=True)
 
-    # Фракции: очки репутации в JSON {"guard": 12, ...} — три силы, счёт
+    # Фракции: очки репутации в JSON {"guard": 12, ...} — четыре силы, счёт
     # ведётся так же, как в engine/factions.py.
     reputation = Column(Text, default="")
     # Раны после гибели: до этого времени статы порезаны.

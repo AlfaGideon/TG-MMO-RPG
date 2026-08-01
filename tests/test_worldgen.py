@@ -226,6 +226,65 @@ async def main():
                               .where(Location.id == victim.id))
         check(left == 0, "локация удалена из БД")
 
+    print("\n— Угловой замок 25×25 с замками 10×10 по углам —")
+    async with Session() as s:
+        castle = Location(name="Замок Испытаний", description="т", location_type=LocationType.SAFE,
+                          min_level=1, grid_size=25, floors_count=1, world_x=0, world_y=7)
+        s.add(castle)
+        await s.flush()
+        npcs = [
+            [("Комендант", "Стой.", "storyteller"), ("Лекарь", "Лечу.", "healer")],
+            [("Дозорный", "Тихо.", "storyteller")],
+            [("Казначей", "Денег нет.", "merchant")],
+            [("Паладин", "Свет.", "storyteller")],
+        ]
+        await W.build_corner_castle(s, castle, CELL_STORIES,
+                                    rng=random.Random(11), npcs=npcs)
+        await s.commit()
+        cells = (await s.execute(
+            select(Cell).where(Cell.location_id == castle.id))).scalars().all()
+        check(len(cells) == 625, f"25×25 = 625 клеток ({len(cells)})")
+        village = [c for c in cells if c.tile_type == "village"]
+        check(len(village) >= 400,
+              f"четыре замка 10×10 по углам (village: {len(village)})")
+        # 25 = 10 + 5 + 10: угловые кварталы 0-9 и 15-24
+        blocks = [((0, 9), (0, 9)), ((0, 9), (15, 24)),
+                  ((15, 24), (0, 9)), ((15, 24), (15, 24))]
+        for (x0, x1), (y0, y1) in blocks:
+            block = [c for c in cells
+                     if x0 <= c.x <= x1 and y0 <= c.y <= y1]
+            check(len(block) == 100 and all(c.tile_type == "village" for c in block),
+                  f"замок {x0},{y0}–{x1},{y1} — 10×10 village")
+        npc_cells = [c for c in cells if c.has_npc]
+        check(len(npc_cells) == 5, f"жители расставлены по замкам ({len(npc_cells)})")
+        check(all(c.tile_type == "village" for c in npc_cells),
+              "жители живут внутри замков")
+        # все четыре замка достижимы из центра
+        cx, cy = W.center_of(25)
+        by_pos = {(c.x, c.y): c for c in cells}
+        seen, q = {(cx, cy)}, [(cx, cy)]
+        while q:
+            x, y = q.pop(0)
+            for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                n = (x + dx, y + dy)
+                c = by_pos.get(n)
+                if c and c.is_passable and n not in seen:
+                    seen.add(n)
+                    q.append(n)
+        for (x0, x1), (y0, y1) in blocks:
+            reachable = any((x, y) in seen for x in range(x0, x1 + 1)
+                            for y in range(y0, y1 + 1))
+            check(reachable, f"замок ({x0},{y0})–({x1},{y1}) достижим")
+        # шов с соседом работает и для 25×25: одна дверь в центре границы
+        nb = await make_loc(s, "Сосед Замка", 1, 7)
+        await W.link_pair(s, castle, nb, "e")
+        await s.commit()
+        seam = await W.cell_at(s, castle.id, 12, 24)
+        check(seam.target_location_id == nb.id and seam.target_x == 5
+              and seam.target_y == 1, "дверь 25×25 ведёт в зеркальную клетку")
+        check(await passable_path(s, castle, 12, 12, 12, 24),
+              "от центра замка прорублена дорога до ворот")
+
     print("\n" + "=" * 46)
     if FAILED:
         print(f"❌ ПРОВАЛЕНО {len(FAILED)}")

@@ -143,43 +143,79 @@ input:not([type="checkbox"]):not([type="radio"]):hover,
 select:hover,
 textarea:hover { border-color: var(--text-muted); }
 
+/* ── Загрузка файлов: квадратная кнопка + поле с именем файла ──
+   Иконка-квадрат слева, справа — «поле», в которое JS вписывает имя
+   выбранного файла (data-name). Превью картинок — как раньше, через
+   data-preview. */
 input[type="file"] {
     color: transparent;
-    font-size: 0.8rem;
+    font-size: 0;
     max-width: 100%;
     padding: 0;
     border: none;
     background: transparent;
     position: relative;
+    display: inline-block;
+    cursor: pointer;
+    vertical-align: middle;
 }
 
 input[type="file"]::before {
-    content: "➕ Загрузить картинку";
+    content: "🖼";
+    font-size: 1.25rem;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 0.5rem;
-    padding: 0.7rem 1.1rem;
-    border-radius: 8px;
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
     border: 1px dashed var(--border);
     background: var(--bg-hover);
-    color: var(--text);
     cursor: pointer;
-    font-size: 0.85rem;
-    font-weight: 500;
-    min-width: 220px;
-    transition: border-color 0.2s, background 0.2s, color 0.2s;
+    transition: border-color 0.2s, background 0.2s, transform 0.1s;
+    vertical-align: middle;
+}
+
+input[type="file"]::after {
+    content: "Выбрать файл…";
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    display: inline-block;
+    margin-left: 0.55rem;
+    padding: 0.62rem 0.8rem;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg-input);
+    min-width: 190px;
+    max-width: 100%;
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: middle;
+    transition: border-color 0.2s, color 0.2s;
 }
 
 input[type="file"]:hover::before {
     border-color: var(--accent);
     background: var(--accent-soft);
-    color: var(--accent-text);
+    transform: translateY(-1px);
 }
 
-input[type="file"]:focus::before {
+input[type="file"]:active::before {
+    transform: scale(0.94);
+}
+
+input[type="file"]:focus-visible::before {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
+}
+
+input[type="file"].has-file::after {
+    content: attr(data-name);
+    color: var(--accent-text);
+    border-color: var(--accent);
+    background: var(--accent-soft);
 }
 
 input[type="checkbox"], input[type="radio"] {
