@@ -49,6 +49,8 @@
     "engine/merchant.py",
     "engine/game.py",
     "engine/storage.py",
+    "engine/currency.py",
+    "engine/stats.py",
     "webapp/html.py",
     "webapp/backend.py",
     "webapp/dom.py",

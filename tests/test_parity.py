@@ -119,8 +119,18 @@ REGISTRY = [
     Feature("Угловые замки 25×25",
             browser=["engine/world.py"],
             server=["core/worldgen.py", "core/seed.py"]),
+    Feature("Расширенные статы и Gear Score",
+            browser=["engine/stats.py"],
+            server=["core/stats.py"]),
 
     # ── ниже: механики без паритета, причина обязательна ──
+    Feature("Трёхвалютная экономика",
+            browser=["engine/currency.py"],
+            server=[],
+            todo="у Character уже есть колонки bronze/silver/gold, но "
+                 "движок пока начисляет и тратит единый gold — перенос "
+                 "экономики на конвертацию 1:100 запланирован"),
+
     Feature("Задания",
             browser=["engine/quests.py"],
             server=["core/models.py"],

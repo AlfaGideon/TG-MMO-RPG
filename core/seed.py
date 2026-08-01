@@ -337,7 +337,10 @@ async def seed_database():
 
         # Seed quests
         quests = [
-            Quest(name="Первые шаги", description="Убей 3 болотных зомби в Тёмном Лесу.", objective_type="kill", objective_target="Болотный зомби", objective_count=3, reward_bronze=120, silver=8, gold=2, reward_exp=30, min_level=1, location_id=2),
+            # Награда — в единой валюте (gold), как у остальных квестов и
+            # всего движка: 120 бронзы + 8 серебра + 2 золота новой системы
+            # ≈ 2 золотых; основная награда тут — опыт.
+            Quest(name="Первые шаги", description="Убей 3 болотных зомби в Тёмном Лесу.", objective_type="kill", objective_target="Болотный зомби", objective_count=3, reward_gold=2, reward_exp=30, min_level=1, location_id=2),
             Quest(name="Охота на воргов", description="Убей 2 лесных ворга.", objective_type="kill", objective_target="Лесной ворг", objective_count=2, reward_gold=80, reward_exp=50, min_level=2, location_id=2),
             Quest(name="Сбор трав", description="Принеси лекарю 5 лечебных трав.", objective_type="collect", objective_target="Лечебная трава", objective_count=5, reward_gold=30, reward_exp=20, min_level=1, location_id=1, npc_name="Лекарь Мира"),
         ]
