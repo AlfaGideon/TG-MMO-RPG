@@ -1,6 +1,7 @@
 import os
 import shutil
 import random
+import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 
@@ -35,7 +36,28 @@ from core.enums import (
 )
 from admin.config import settings
 from admin import auth as webauth
+from admin.logs import install_log_buffer
 from bot.runner import bot_runner
+
+
+class _QuietAccessFilter(logging.Filter):
+    """Не засоряем консоль опросами панели (GET /api/bot/status каждые 5с)."""
+
+    _quiet = ("/api/bot/status",)
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            msg = record.getMessage()
+        except Exception:
+            return True
+        return not any(q in msg for q in self._quiet)
+
+
+# Фильтр вешаем и на случай прямого запуска «uvicorn admin.main:app»:
+# в launch.py access-логи выключены целиком (access_log=False).
+logging.getLogger("uvicorn.access").addFilter(_QuietAccessFilter())
+# Буфер консольных логов для вкладки «📜 Логи».
+install_log_buffer()
 
 
 @asynccontextmanager
@@ -1637,6 +1659,36 @@ async def api_proxy_check(request: Request, telegram_proxy_url: str = Form("")):
     guard(request, "manage_settings")
     from bot.proxy import check_proxy
     return await check_proxy(telegram_proxy_url.strip())
+
+
+# ── Логи консоли ──────────────────────────────────────────
+
+@app.get("/logs")
+async def logs_page(request: Request):
+    """Вкладка «Логи»: последние записи консоли сервера (кольцевой буфер)."""
+    guard(request, "view_dash")
+    return templates.TemplateResponse(request, "logs.html", {})
+
+
+@app.get("/api/logs")
+async def api_logs(request: Request, level: str = "", limit: int = 500):
+    """JSON-выборка логов для автоподгрузки вкладки.
+
+    level — минимальный уровень (ERROR/WARNING/INFO), limit — до 2000 записей.
+    """
+    guard(request, "view_dash")
+    from admin.logs import log_buffer
+    return {"records": log_buffer.snapshot(
+        level=level, limit=max(1, min(limit, 2000)))}
+
+
+@app.post("/api/logs/clear")
+async def api_logs_clear(request: Request):
+    """Очистить буфер логов в памяти (консоль не трогаем)."""
+    guard(request, "settings")
+    from admin.logs import log_buffer
+    log_buffer.clear()
+    return {"ok": True}
 
 
 # ── Dashboard Quick Actions ────────────────────────────────

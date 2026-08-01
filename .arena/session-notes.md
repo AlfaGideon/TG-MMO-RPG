@@ -226,3 +226,36 @@ by other getUpdates request`.
   конфликт → остановка с объяснением, единичный конфликт → продолжение).
   В `test_bugfixes.py` обновлён страж `await callback.message.edit_text` →
   `await safe_edit_text` (тест резал исходник dungeon.py по этой строке).
+
+## 2026-08-01 — Тихие access-логи, вкладка «Логи» в админке, разбор launch.py
+
+Запрос пользователя: (1) подтвердил — переходы работают, значит проблема в
+обработчиках (так и есть: переходы идут через show_cell → send_or_edit_photo
+(фото-aware), а «осмотреться» звал edit_text; прошлая правка safe_edit_text
+закрыла все 53 таких места); (2) убрать спам «GET /api/bot/status ... 200 OK»
+из консоли; (3) добавить консольные логи в админку; (4) разобраться с launch.py.
+
+- **Тихие access-логи**: в launch.py `uvicorn.run(..., access_log=False)` +
+  `logging.getLogger("uvicorn.access").disabled = True` — консоль больше не
+  печатает HTTP-запросы панели (в т.ч. опрос /api/bot/status каждые 5с),
+  остаются ошибки и сообщения бота. Дополнительно в admin/main.py фильтр
+  `_QuietAccessFilter` на uvicorn.access для случая прямого запуска
+  «uvicorn admin.main:app» — отбрасывает /api/bot/status.
+- **Вкладка «📜 Логи»**: `admin/logs.py` — кольцевой буфер (2000 записей)
+  стандартного logging (RingBufferHandler + install_log_buffer: root + aiogram*,
+  uvicorn*, aiohttp, sqlalchemy, launcher; root поднимается до INFO, чтобы
+  записи были видны даже при прямом uvicorn без basicConfig). Страница
+  `/logs` (guard view_dash) в sidebar «Система», автообновление каждые 4с,
+  фильтры по уровню (Все/Ошибки/Предупреждения/Инфо), кнопка «Очистить»
+  (`POST /api/logs/clear`, guard settings), рендер через textContent (XSS-safe).
+  `GET /api/logs?level=&limit=` — JSON для автоподгрузки.
+- **launch.py не удалять**: run.bat запускает именно `python launch.py` —
+  это единая точка входа сервера (админка + бот в одном процессе). Токен бота
+  берётся из настроек админки (AppSetting bot_token), автостарт бота делает
+  lifespan в admin/main.py. Удалён МЁРТВЫЙ `try_start_bot_from_db` из
+  launch.py (нигде не вызывался, только путал: «зачем launch.py и где токен»).
+  Docstring launch.py переписан: что делает, где токен, как поднять бота без
+  панели (python -m bot.main). run.bat дополнен пояснениями.
+- Тесты: `tests/test_admin_logs.py` (фильтр /api/bot/status, страница /logs,
+  /api/logs, clear; уровень ERROR проверяется по записям, т.к. httpx-клиент
+  TestClient сам логирует свои запросы — артефакт теста), в run_all.py.
