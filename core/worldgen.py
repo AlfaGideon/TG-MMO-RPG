@@ -245,6 +245,75 @@ async def _carve_single(session, loc, direction, mid):
             open_(x, mid)
 
 
+# ═══════════════════════════════════════════════════════════
+# Угловые замки: 25×25, замки по углам, NPC внутри, мобы снаружи
+# ═══════════════════════════════════════════════════════════
+
+async def build_corner_castle(session, loc, stories, rng=None):
+    """Генерирует угловую локацию 25×25 с замками по углам.
+    Замки — стены в углах сетки (0,0), (0,24), (24,0), (24,24).
+    Внутри замков — безопасные клетки с NPC. Остальное — мобы.
+    """
+    rng = rng or random
+    size = max(25, int(loc.grid_size or 25))
+    cx, cy = size // 2, size // 2
+    castles = [(0, 0), (0, size - 1), (size - 1, 0), (size - 1, size - 1)]
+    for floor in range(max(1, loc.floors_count or 1)):
+        cells = []
+        for x in range(size):
+            for y in range(size):
+                is_castle = (x, y) in castles
+                is_center = abs(x - cx) <= 3 and abs(y - cy) <= 3
+                border = x == 0 or x == size - 1 or y == 0 or y == size - 1
+                if is_castle:
+                    wall = False
+                    tile = "village"
+                    name_s, desc_s = ("Замок-угол", "Каменные стены Ордена. Здесь безопасно.", tile)
+                elif is_center:
+                    wall = False
+                    tile = "grass"
+                    name_s, desc_s = ("Центральная площадь", "Площадь Ордена с патрулями.", tile)
+                elif border:
+                    is_door = (x == cx and y in (0, size - 1)) or (y == cy and x in (0, size - 1))
+                    wall = not is_door
+                    tile = "wall" if wall else "road"
+                    name_s, desc_s = (f"Граница {x},{y}", ("Дверь" if is_door else "Стена"), tile)
+                else:
+                    wall = rng.random() < 0.25
+                    tile = "grass" if not wall else "wall"
+                    name_s, desc_s = (f"Пустошь {x},{y}", "Опасная земля. Здесь мобы." if not wall else "Скала.", tile)
+                cell = Cell(
+                    location_id=loc.id, x=x, y=y, floor=floor,
+                    name=name_s, description=desc_s,
+                    is_passable=not wall or is_castle or is_center or ((x == cx or y == cy) and border),
+                    tile_type=tile,
+                )
+                session.add(cell)
+                cells.append(cell)
+        passable = {(c.x, c.y): c for c in cells if c.is_passable}
+        start = (cx, cy)
+        if start not in passable:
+            for c in cells:
+                if (c.x, c.y) == start:
+                    c.is_passable = True; c.tile_type = "grass"; passable[start] = c; break
+        seen, queue = {start}, deque([start])
+        while queue:
+            xx, yy = queue.popleft()
+            for dx, dy in ((-1,0),(1,0),(0,-1),(0,1)):
+                n = (xx+dx, yy+dy)
+                if n in passable and n not in seen:
+                    seen.add(n); queue.append(n)
+        for c in cells:
+            if c.is_passable and (c.x, c.y) in castles:
+                c.tile_type = "village"
+    await session.flush()
+
+
+# ═══════════════════════════════════════════════════════════
+# Соседи по миру — одиночные двери (уже исправлено выше)
+# ═══════════════════════════════════════════════════════════
+
+
 # Обратная совместимость
 async def _carve_to_border(session, loc, direction, gates):
     mid = loc.grid_size // 2
@@ -252,14 +321,15 @@ async def _carve_to_border(session, loc, direction, gates):
 
 
 async def autolink(session, loc):
-    """Связывает loc со всеми соседями по мировой карте. Отчёт по направлениям."""
+    """Связывает loc со всеми соседями по мировой карте. Одиночная дверь в центре границы."""
     report = []
     for d in ("n", "e", "s", "w"):
         nb = await neighbor(session, loc, d)
         if not nb:
             continue
+        await unlink_others(session, loc)
         gates = await link_pair(session, loc, nb, d)
-        report.append(f"🔗 {DIR_NAMES[d]} ↔ {nb.name} ({gates} переход)")
+        report.append(f"🔗 {DIR_NAMES[d]} ↔ {nb.name} ({gates} дверь)")
     if not report:
         report.append("Соседей на мировой карте нет — связывать не с кем.")
     return report
