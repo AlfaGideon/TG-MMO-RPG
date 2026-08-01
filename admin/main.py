@@ -2310,17 +2310,22 @@ async def editor_world(request: Request):
         )
         pop_by_loc = {row[1]: row[0] for row in result.all()}
         
-        # Загружаем сид из настроек
+        # Загружаем сид из настроек (если мир ещё не сеялся — None, тогда
+        # генератор подберёт случайный).
         seed_setting = await session.scalar(select(AppSetting).where(AppSetting.key == "seed"))
-        seed = int(seed_setting.value) if seed_setting else 1337
+        seed = int(seed_setting.value) if seed_setting and (seed_setting.value or "").strip() else None
+
+        # Сохранённые «любимые» сиды — чтобы вернуться к понравившемуся миру.
+        from core.seed import get_saved_seeds
+        saved_seeds = await get_saved_seeds(session)
 
     grid = {(loc.world_x, loc.world_y): loc for loc in locations if 0 <= loc.world_x < WORLD_GRID_SIZE and 0 <= loc.world_y < WORLD_GRID_SIZE}
 
-    # Свежий сид создаёт 36 локаций по ободу + 4 угловых замка + стартовые
-    # земли (~41). Существенно меньше — значит мир сеялся ещё старой версией
-    # (5 локаций) и не обновился: seed_database() не пересоздаёт непустой мир.
+    # Свежий сид создаёт ровно 36 локаций (4 угловых замка + 32 свободных).
+    # Существенно меньше — значит мир сеялся ещё старой версией (5 локаций) и
+    # не обновился: seed_database() не пересоздаёт непустой мир.
     loc_count = len(locations)
-    world_outdated = loc_count < 20
+    world_outdated = loc_count < 30
 
     return templates.TemplateResponse(
         request,
@@ -2329,6 +2334,7 @@ async def editor_world(request: Request):
             "locations": locations, "grid": grid, "grid_range": range(WORLD_GRID_SIZE),
             "world_grid_size": WORLD_GRID_SIZE, "pop_by_loc": pop_by_loc,
             "seed": seed, "loc_count": loc_count, "world_outdated": world_outdated,
+            "saved_seeds": saved_seeds,
         },
     )
 
@@ -2503,12 +2509,46 @@ async def editor_world_relink(request: Request):
 
 
 @app.post("/editor/world/regen")
-async def editor_world_regen(request: Request, seed: int = Form(...)):
-    """Полностью пересоздать мир на сервере под новым сидом."""
+async def editor_world_regen(request: Request, seed: str = Form(""), randomize: str = Form("")):
+    """Пересоздать мир на сервере.
+
+    `randomize` — подобрать случайный сид («живой мир», без ручного числа).
+    Иначе берётся `seed` из формы; если и он пуст — тоже случайный.
+    """
     guard(request, "manage_content")
     from core.seed import recreate_world_on_server
-    await recreate_world_on_server(seed)
-    return RedirectResponse(url="/editor/world", status_code=303)
+
+    use_seed = None
+    if not randomize and seed and str(seed).strip():
+        try:
+            use_seed = int(seed)
+        except ValueError:
+            use_seed = None
+    await recreate_world_on_server(use_seed)
+    return RedirectResponse(url="/editor/world?regen=1", status_code=303)
+
+
+@app.post("/editor/world/seed/save")
+async def editor_world_seed_save(request: Request, label: str = Form("")):
+    """Сохранить текущий сид в «любимые», чтобы переиспользовать потом."""
+    guard(request, "manage_content")
+    from core.seed import add_saved_seed
+
+    async with async_session() as session:
+        seed_row = await session.scalar(select(AppSetting).where(AppSetting.key == "seed"))
+        current = int(seed_row.value) if seed_row and (seed_row.value or "").strip() else None
+    if current:
+        await add_saved_seed(current, label)
+    return RedirectResponse(url="/editor/world#saved", status_code=303)
+
+
+@app.post("/editor/world/seed/delete")
+async def editor_world_seed_delete(request: Request, seed: int = Form(...)):
+    """Убрать сид из сохранённых."""
+    guard(request, "manage_content")
+    from core.seed import delete_saved_seed
+    await delete_saved_seed(seed)
+    return RedirectResponse(url="/editor/world#saved", status_code=303)
 
 
 # ── Mobs Editor ────────────────────────────────────────────

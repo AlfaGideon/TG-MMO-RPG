@@ -14,6 +14,14 @@ LOCATION_IMAGES = {
     5: "https://raw.githubusercontent.com/AlfaGideon/TG-MMO-RPG/main/admin/static/loc5_boss.jpg",
 }
 
+# Образ сгенерированной локации по её типу.
+LOC_IMAGE_BY_TYPE = {
+    LocationType.SAFE: LOCATION_IMAGES[1],
+    LocationType.DANGEROUS: LOCATION_IMAGES[2],
+    LocationType.DUNGEON: LOCATION_IMAGES[4],
+    LocationType.BOSS: LOCATION_IMAGES[5],
+}
+
 CELL_STORIES = [
     ("Тёмная поляна", "Ты выходишь на поляну, где трава почернела от проклятия...", "grass"),
     ("Старый дуб", "Древний дуб, старше самого королевства...", "forest"),
@@ -79,7 +87,7 @@ CELL_STORIES = [
     ("Разрушенная башня", "Остатки сторожевой башни...", "wall"),
     ("Заросший канал", "Каменный канал, когда-то ведший в город...", "water"),
     ("Каменный мостик", "Мостик через бездну...", "road"),
-    ("Поляна мертвецов", "Все деревья здесь мёртвы, но стоят...", "forest"),
+    ("Поляна мертвецов", "Все деревья здесь мёртвые, но стоят...", "forest"),
     ("Старый курган", "Холм, искусственно насыпанный тысячи лет назад...", "wall"),
     ("Топь с огоньками", "Болото, где над каждой лужей парит огонёк...", "water"),
     ("Разбитый щит", "Щит королевской гвардии, расколотый пополам...", "road"),
@@ -136,79 +144,216 @@ CASTLE_NPCS = [
 ]
 
 
+# ════════════════════════════════════════════════════════════════
+# Процедурная генерация «живого мира»
+#
+# На мировой карте 10×10 захардкоржены только четыре угловые клетки:
+#   (0,0) (9,0) (0,9) (9,9) — четыре замка-цитадели.
+# Остальные 32 локации генерируются свободно по сиду: позиции, имена,
+# тип и уровень. Сид тоже подбирается свободно (случайно), а понравившийся
+# можно сохранить в админке и переиспользовать.
+# ════════════════════════════════════════════════════════════════
+
+# Угловые замки-цитадели: (имя, описание, x, y). Только они зафиксированы.
+CORNER_CASTLES = [
+    ("Замок Рассвета", "Белые башни Ордена на северо-западе. Безопасная зона с NPC.", 0, 0),
+    ("Замок Теней", "Чёрные шпили на северо-востоке. Безопасная зона с NPC.", 9, 0),
+    ("Замок Глубин", "Древний форт на юго-западе. Безопасная зона с NPC.", 0, 9),
+    ("Замок Пепла", "Обожжённые стены на юго-востоке. Безопасная зона с NPC.", 9, 9),
+]
+CORNER_NAMES = {name for name, *_ in CORNER_CASTLES}
+CORNER_CELLS = {(x, y) for _, _, x, y in CORNER_CASTLES}
+
+# Сколько свободных локаций генерировать (помимо 4 угловых замков).
+FREE_LOCATIONS = 32
+WORLD_GRID = 10
+_CENTER = (WORLD_GRID - 1) / 2.0  # 4.5
+
+# Имена свободных локаций: корень (номинатив) + определение (генитив).
+# Так имя остаётся грамматически чистым при любом роде корня:
+# «Болото Тумана», «Курган Костей», «Развалины Теней».
+_NAME_ROOTS = [
+    "Болото", "Лес", "Бор", "Чаща", "Пуща", "Топь", "Пустошь", "Развалины",
+    "Форпост", "Острог", "Крепость", "Сторожка", "Рудник", "Шахта", "Катакомбы",
+    "Склеп", "Грот", "Пещера", "Ущелье", "Овраг", "Урочище", "Перевал", "Курган",
+    "Могильник", "Погост", "Кладбище", "Озеро", "Заводь", "Пруд", "Источник",
+    "Гряда", "Утёс", "Плато", "Низина", "Долина", "Падь", "Дол", "Перекрёсток",
+    "Тропа", "Брод", "Мыс", "Остров", "Холм", "Гать", "Яр", "Вершь",
+]
+_NAME_MODIFIERS = [
+    "Тумана", "Теней", "Костей", "Пепла", "Эха", "Ветров", "Отчаяния", "Шёпотов",
+    "Памяти", "Тьмы", "Льда", "Крови", "Погибели", "Забвения", "Скорби", "Гнева",
+    "Пустоты", "Молчания", "Снов", "Бездны", "Воронов", "Волков", "Пауков", "Червей",
+    "Рассвета", "Полуночи", "Слёз", "Обета", "Пепелища", "Грозы", "Золы", "Грибов",
+    "Колдовства", "Стужи", "Проклятых", "Забытых", "Древних", "Упавших", "Седых",
+    "Багровых", "Молчащих", "Спящих",
+]
+
+# Атмосферные подписи по типу локации — короткая «душа» места.
+_DESC_BY_TYPE = {
+    LocationType.SAFE: [
+        "Здесь ещё можно перевести дух: дымок над крышами, голоса, тепло очага.",
+        "Редкий угол, где тьма пока не добралась. Люди живут, как умеют.",
+        "Тихое место среди погибшего мира. Сторожа не спят, но и не нападают.",
+    ],
+    LocationType.DANGEROUS: [
+        "Тропы здесь помнят крики. Каждый шаг — за чьим-то вниманием.",
+        "Земля дышит опасностью: следы, шорохи, чужие глаза в кустах.",
+        "Сюда заходят за добычей и не все возвращаются. Будь начеку.",
+    ],
+    LocationType.DUNGEON: [
+        "Под ногами — тьма и камень. Где-то внизу ждёт то, что не любит свет.",
+        "Сырые своды хранят старое зло. Факел чадит, эхо чужое.",
+        "Глубокое нутро земли, полное костей и забытой жажды.",
+    ],
+    LocationType.BOSS: [
+        "Воздух здесь тяжёлый и чужой. Дальше дороги нет — только бой.",
+        "Это логово чего-то древнего и голодного. Назад пути не будет.",
+        "Земля дрожит под ногами: здесь гнездится беда всего мира.",
+    ],
+}
+
+
+def _gen_name(rng: random.Random, used: set) -> str:
+    """Уникальное название из корня и генитива. Без нумерации «Тракт 1, 2…»."""
+    for _ in range(300):
+        name = f"{rng.choice(_NAME_ROOTS)} {rng.choice(_NAME_MODIFIERS)}"
+        if name not in used:
+            used.add(name)
+            return name
+    # Исчерпали комбинации — добавляем уточняющий корень.
+    base = rng.choice(_NAME_ROOTS)
+    extra = rng.choice(_NAME_ROOTS)
+    candidate = f"{base} {extra}"
+    while candidate in used:
+        candidate = f"{base} у {extra}"
+        extra = rng.choice(_NAME_ROOTS)
+    used.add(candidate)
+    return candidate
+
+
+def _dist_to_center(x: int, y: int) -> float:
+    """Расстояние Чебышёва от центра карты — мера «глубины» локации."""
+    return max(abs(x - _CENTER), abs(y - _CENTER))
+
+
+def _tier_for_cell(x: int, y: int, rng: random.Random):
+    """Тип и мин. уровень локации по удалённости от центра.
+
+    В центре — безопасные стартовые земли, к краям — всё злее и глубже,
+    на самых обочинах — подземелья и логова боссов. Так мир живой:
+    новичку есть куда прийти, а эндгейм — на окраинах.
+    """
+    d = _dist_to_center(x, y)
+    if d <= 1.5:
+        return LocationType.SAFE, 1
+    if d <= 2.5:
+        return LocationType.DANGEROUS, rng.randint(1, 3)
+    if d <= 3.5:
+        lt = LocationType.DUNGEON if rng.random() < 0.4 else LocationType.DANGEROUS
+        return lt, rng.randint(4, 6)
+    # край карты — глубокие подземелья и редкие логова боссов
+    lt = LocationType.BOSS if rng.random() < 0.25 else LocationType.DUNGEON
+    return lt, rng.randint(7, 10)
+
+
 async def seed_database():
+    """Засеять мир с нуля.
+
+    4 угловых замка захардкоржены, 32 локации генерируются свободно по сиду.
+    Сид берётся из настроек, а если его нет — подбирается случайно
+    (а не зашитое число): мир каждый раз новый, пока не понравится.
+    """
     async with async_session() as session:
         result = await session.execute(select(Location))
         if result.scalars().first():
             return
 
-        # Мир: карта 10×10, по краям 36 локаций — 4 угловых замка 25×25
-        # (внутри — четыре замка 10×10 по углам) и 32 опасных тракта между
-        # ними; внутри кольца — стартовые земли и Логово Пожирателя.
-        # Координаты совпадают с engine/world.py DEFAULT_GRID.
-        # Мировая карта 10×10: по краям 36 локаций — 4 угловых замка 25×25
-        # (внутри — четыре замка 10×10 по углам) и 32 опасных тракта между
-        # ними; внутри кольца — стартовые земли и Логово Пожирателя.
-        # Координаты совпадают с engine/world.py DEFAULT_GRID.
-        LOCATIONS_PLAN = [
-            # (имя, описание, тип, мин.уровень, wx, wy, grid_size, картинка)
-            # ── стартовые земли (внутри кольца) ──
-            ("Погост Костров", "Безопасная деревня среди болот...", LocationType.SAFE, 1, 4, 4, 10, LOCATION_IMAGES[1]),
-            ("Тёмный Лес", "Старые дубы скрывают глаза нежити...", LocationType.DANGEROUS, 1, 5, 4, 10, LOCATION_IMAGES[2]),
-            ("Заброшенная Крепость", "Каменные стены помнят времена...", LocationType.DANGEROUS, 3, 5, 5, 10, LOCATION_IMAGES[3]),
-            ("Катакомбы Павших", "Глубокие подземелья под храмом...", LocationType.DUNGEON, 5, 4, 5, 10, LOCATION_IMAGES[4]),
-            ("Логово Пожирателя", "Расщелина в скалах...", LocationType.BOSS, 10, 3, 4, 10, LOCATION_IMAGES[5]),
-            # ── угловые замки 25×25 по углам мировой карты ──
-            ("Замок Рассвета", "Белые башни Ордена на северо-западе. Безопасная зона с NPC.", LocationType.SAFE, 1, 0, 0, 25, None),
-            ("Замок Теней", "Чёрные шпили на северо-востоке. Безопасная зона с NPC.", LocationType.SAFE, 1, 9, 0, 25, None),
-            ("Замок Глубин", "Древний форт на юго-западе. Безопасная зона с NPC.", LocationType.SAFE, 1, 0, 9, 25, None),
-            ("Замок Пепла", "Обожжённые стены на юго-востоке. Безопасная зона с NPC.", LocationType.SAFE, 1, 9, 9, 25, None),
-        ]
-        # ── опасные тракты по краям карты: 8 на каждую сторону ──
-        _TRAKT_DESC = {
-            "Северного": "Мёрзлые пустоши северного края. Снег скрывает тропы...",
-            "Восточного": "Пепельные земли, где ветер носит золу...",
-            "Южного": "Топи и гнилые болота южного предела...",
-            "Западного": "Скалистые осыпи западного края...",
-        }
-        _NORTH = [(1 + i, 0) for i in range(8)]
-        _EAST = [(9, 1 + i) for i in range(8)]
-        _SOUTH = [(8 - i, 9) for i in range(8)]
-        _WEST = [(0, 8 - i) for i in range(8)]
-        for (edge, desc), coords in zip(_TRAKT_DESC.items(),
-                                        (_NORTH, _EAST, _SOUTH, _WEST)):
-            for i, (wx, wy) in enumerate(coords, start=1):
-                LOCATIONS_PLAN.append(
-                    (f"Тракт {edge} Предела {i}", desc,
-                     LocationType.DANGEROUS, 3, wx, wy, 10, None))
+        # ── Сид: из настроек или случайный (раньше был зашит 1337) ──
+        seed_row = await session.scalar(select(AppSetting).where(AppSetting.key == "seed"))
+        if not seed_row or not (seed_row.value or "").strip():
+            seed = random.randint(1, 2_000_000_000)
+            if seed_row:
+                seed_row.value = str(seed)
+            else:
+                session.add(AppSetting(key="seed", value=str(seed)))
+                await session.flush()
+        else:
+            seed = int(seed_row.value)
+        rng = random.Random(seed)
+
+        # ── 32 свободные локации на случайных клетках (кроме углов) ──
+        free_cells = [(x, y) for x in range(WORLD_GRID) for y in range(WORLD_GRID)
+                      if (x, y) not in CORNER_CELLS]
+        rng.shuffle(free_cells)
+        chosen = free_cells[:FREE_LOCATIONS]
+
+        used_names = set()
+        generated = []
+        for (x, y) in chosen:
+            lt, ml = _tier_for_cell(x, y, rng)
+            generated.append({
+                "x": x, "y": y, "type": lt, "min_level": ml,
+                "name": _gen_name(rng, used_names),
+            })
+
+        # Стартовая земля = ближайшая к центру из сгенерированных.
+        # Принудительно безопасная, 1 уровень — туда приходят новички
+        # (location_id=1, клетка 5×5 — см. bot/handlers/start.py).
+        spawn_gen = min(generated, key=lambda g: _dist_to_center(g["x"], g["y"]))
+        spawn_gen["type"] = LocationType.SAFE
+        spawn_gen["min_level"] = 1
+
+        # ── Сборка объектов: СНАЧАЛА стартовая (id=1), затем замки, затем остальные ──
+        def _desc(g):
+            return rng.choice(_DESC_BY_TYPE.get(g["type"], _DESC_BY_TYPE[LocationType.DANGEROUS]))
+
         locations = []
-        for name, desc, lt, ml, wx, wy, gs, img in LOCATIONS_PLAN:
-            floors = 2 if name.startswith("Замок") else 1
-            locations.append(Location(
-                name=name, description=desc, location_type=lt, min_level=ml,
-                image_url=img, world_x=wx, world_y=wy, grid_size=gs, floors_count=floors
-            ))
+        spawn_loc = Location(
+            name=spawn_gen["name"], description=_desc(spawn_gen),
+            location_type=LocationType.SAFE, min_level=1,
+            world_x=spawn_gen["x"], world_y=spawn_gen["y"],
+            grid_size=10, floors_count=1,
+            image_url=LOC_IMAGE_BY_TYPE[LocationType.SAFE],
+        )
+        locations.append(spawn_loc)
+
+        corner_locs = []
+        for cname, cdesc, cx, cy in CORNER_CASTLES:
+            loc = Location(
+                name=cname, description=cdesc, location_type=LocationType.SAFE,
+                min_level=1, world_x=cx, world_y=cy, grid_size=25, floors_count=2,
+            )
+            locations.append(loc)
+            corner_locs.append(loc)
+
+        gen_locs = []
+        for g in generated:
+            if g is spawn_gen:
+                continue
+            loc = Location(
+                name=g["name"], description=_desc(g), location_type=g["type"],
+                min_level=g["min_level"], world_x=g["x"], world_y=g["y"],
+                grid_size=10, floors_count=1,
+                image_url=LOC_IMAGE_BY_TYPE.get(g["type"]),
+            )
+            locations.append(loc)
+            gen_locs.append(loc)
+
         session.add_all(locations)
         await session.flush()
 
-        # Get seed from settings
-        seed_row = await session.scalar(select(AppSetting).where(AppSetting.key == "seed"))
-        if not seed_row:
-            seed_row = AppSetting(key="seed", value="1337")
-            session.add(seed_row)
-            await session.flush()
-        seed = int(seed_row.value or 1337)
-
+        # ── Клетки локаций ──
         for loc in locations:
-            if loc.name.startswith("Замок"):
+            if loc.name in CORNER_NAMES:
                 await W.build_corner_castle(session, loc, CELL_STORIES,
-                                            rng=random.Random(seed + loc.id),
-                                            npcs=None)
+                                            rng=random.Random(seed + loc.id), npcs=None)
                 await W.ensure_stairs(session, loc)
             else:
-                await W.build_cells(session, loc, CELL_STORIES, rng=random.Random(seed + loc.id))
+                await W.build_cells(session, loc, CELL_STORIES,
+                                    rng=random.Random(seed + loc.id))
 
-        # Seed NPCs for each of the 4 starting castle locations
+        # ── NPC угловых замков (по имени, как и раньше) ──
         CASTLE_NPCS_MAP = {
             "Замок Рассвета": [
                 ("Инквизитор Эдуард", "Свет Рассвета рассеет любую тьму. Веришь ли ты в спасение?", "storyteller"),
@@ -235,133 +380,121 @@ async def seed_database():
                 ("Летописец Пепла Морган", "Всё, что добыто на поле боя, записывается здесь. Мы проводим честные аукционы.", "auctioneer"),
             ],
         }
-
-        for loc in locations:
+        for loc in corner_locs:
             npc_list = CASTLE_NPCS_MAP.get(loc.name)
-            if npc_list:
-                result = await session.execute(
-                    select(Cell).where(Cell.location_id == loc.id).where(Cell.floor == 0).where(Cell.is_passable == True).where(Cell.tile_type == "village")
-                )
-                safe_cells = result.scalars().all()
-                rng = random.Random(seed + loc.id)
-                rng.shuffle(safe_cells)
-                for i, (npc_name, dialogue, npc_type) in enumerate(npc_list):
-                    if i >= len(safe_cells):
-                        break
-                    cell = safe_cells[i]
-                    cell.has_npc = True
-                    cell.npc_name = npc_name
-                    cell.npc_dialogue = dialogue
-                    cell.npc_type = npc_type
-
-        # Бесшовные швы: пересборка по фактическому соседству на мировой
-        # карте (общие функции — в worldgen; одна дверь на границу).
-        await W.relink_all(session)
-
-        # Жители деревни — заказчики заданий и торговец.
-        result = await session.execute(
-            select(Cell).where(Cell.location_id == locations[0].id).where(Cell.is_passable == True)
-        )
-        safe_cells = result.scalars().all()
-        if len(safe_cells) >= 3:
-            npcs = [
-                ("Старейшина Григор", "Добро пожаловать в Погост, странник...", "storyteller"),
-                ("Торговец Варн", "У меня есть всё, что нужно выжившему...", "merchant"),
-                ("Лекарь Мира", "Ты ранен? Я могу исцелить...", "quest_giver"),
-            ]
-            for i, (npc_name, dialogue, npc_type) in enumerate(npcs):
-                cell = safe_cells[i * 3]
+            if not npc_list:
+                continue
+            result = await session.execute(
+                select(Cell).where(Cell.location_id == loc.id).where(Cell.floor == 0)
+                .where(Cell.is_passable == True).where(Cell.tile_type == "village")
+            )
+            safe_cells = result.scalars().all()
+            cell_rng = random.Random(seed + loc.id)
+            cell_rng.shuffle(safe_cells)
+            for i, (npc_name, dialogue, npc_type) in enumerate(npc_list):
+                if i >= len(safe_cells):
+                    break
+                cell = safe_cells[i]
                 cell.has_npc = True
                 cell.npc_name = npc_name
                 cell.npc_dialogue = dialogue
                 cell.npc_type = npc_type
 
-        # Сундуки — в опасных землях: стартовые (2-4) и тракты (10-13).
-        danger_ids = [locations[i].id for i in (1, 2, 3, 9, 10, 11, 12)]
-        result = await session.execute(
-            select(Cell).where(Cell.location_id.in_(danger_ids)).where(Cell.is_passable == True)
-        )
-        danger_cells = result.scalars().all()
-        for cell in random.sample(danger_cells, min(12, len(danger_cells))):
-            cell.has_chest = True
+        # ── Бесшовные швы по фактическому соседству на карте ──
+        await W.relink_all(session)
 
-        # Мобы: стартовые земли + опасные тракты (локации 2-4 и 10-13).
+        # ── Жители стартовой деревни: заказчики заданий и торговец ──
+        result = await session.execute(
+            select(Cell).where(Cell.location_id == spawn_loc.id).where(Cell.is_passable == True)
+        )
+        spawn_cells = result.scalars().all()
+        if len(spawn_cells) >= 3:
+            starters = [
+                ("Старейшина Григор", "Добро пожаловать, странник. Тут мы ещё держимся.", "storyteller"),
+                ("Торговец Варн", "У меня есть всё, что нужно выжившему. Золото при тебе?", "merchant"),
+                ("Лекарь Мира", "Ты ранен? Я могу исцелить — было бы чем заплатить.", "quest_giver"),
+            ]
+            for i, (npc_name, dialogue, npc_type) in enumerate(starters):
+                cell = spawn_cells[i * 3]
+                cell.has_npc = True
+                cell.npc_name = npc_name
+                cell.npc_dialogue = dialogue
+                cell.npc_type = npc_type
+
+        # ── Опасные земли (для сундуков и бместа мобов) ──
+        danger_locs = [l for l in gen_locs
+                       if l.location_type in (LocationType.DANGEROUS, LocationType.DUNGEON, LocationType.BOSS)]
+        danger_ids = [l.id for l in danger_locs]
+
+        # Сундуки — в опасных землях.
+        if danger_ids:
+            result = await session.execute(
+                select(Cell).where(Cell.location_id.in_(danger_ids)).where(Cell.is_passable == True)
+            )
+            danger_cells = result.scalars().all()
+            for cell in rng.sample(danger_cells, min(12, len(danger_cells))):
+                cell.has_chest = True
+
+        # ── Мобы: распределяем по локациям согласно уровню (без привязки к индексам) ──
         mobs_data = [
-            {"name": "Помойная крыса", "desc": "Размером с собаку и вдвое наглее...", "level": 1, "hp": 18, "dmg": 3, "def": 0, "gold": 3, "exp": 6, "loc": locations[0].id},
-            {"name": "Болотный зомби", "desc": "Медлительный труп...", "level": 1, "hp": 25, "dmg": 4, "def": 1, "gold": 5, "exp": 10, "loc": locations[1].id},
-            {"name": "Лесной ворг", "desc": "Крупный волк с чёрной шерстью...", "level": 2, "hp": 40, "dmg": 7, "def": 2, "gold": 8, "exp": 18, "loc": locations[1].id},
-            {"name": "Скелет-воин", "desc": "Ожившие останки павшего солдата...", "level": 3, "hp": 50, "dmg": 8, "def": 3, "gold": 12, "exp": 25, "loc": locations[2].id},
-            {"name": "Гнолл-грабитель", "desc": "Гибрид человека и гиены...", "level": 4, "hp": 65, "dmg": 10, "def": 3, "gold": 15, "exp": 35, "loc": locations[2].id},
-            {"name": "Пещерный тролль", "desc": "Громадина с каменной кожей...", "level": 6, "hp": 100, "dmg": 14, "def": 6, "gold": 25, "exp": 60, "loc": locations[3].id},
-            {"name": "Теневой призрак", "desc": "Нематериальная сущность из кошмаров...", "level": 7, "hp": 80, "dmg": 18, "def": 2, "gold": 30, "exp": 70, "loc": locations[3].id},
-            {"name": "Культист Бездны", "desc": "Ждал этого дня всю жизнь...", "level": 9, "hp": 95, "dmg": 22, "def": 4, "gold": 45, "exp": 110, "loc": locations[4].id},
-            {"name": "Порождение бездны", "desc": "У него слишком много суставов...", "level": 10, "hp": 130, "dmg": 24, "def": 6, "gold": 55, "exp": 130, "loc": locations[4].id},
-            {"name": "Страж расщелины", "desc": "Стоит здесь дольше, чем существует королевство...", "level": 11, "hp": 180, "dmg": 23, "def": 12, "gold": 70, "exp": 160, "loc": locations[4].id},
-            {"name": "Разбойник с большой дороги", "desc": "Считает путников кормовой базой...", "level": 4, "hp": 60, "dmg": 9, "def": 3, "gold": 14, "exp": 30, "loc": locations[9].id},
-            {"name": "Северный канюк", "desc": "Кружит над трактом в ожидании добычи...", "level": 5, "hp": 70, "dmg": 12, "def": 2, "gold": 17, "exp": 36, "loc": locations[10].id},
-            {"name": "Скальный хищник", "desc": "Гнездится в осыпях вдоль дороги...", "level": 5, "hp": 75, "dmg": 11, "def": 5, "gold": 16, "exp": 34, "loc": locations[33].id},
-            {"name": "Тёмный следопыт", "desc": "Идёт по следу тише, чем думает жертва...", "level": 6, "hp": 85, "dmg": 14, "def": 3, "gold": 19, "exp": 40, "loc": locations[34].id},
-            {"name": "Пепельный волк", "desc": "Шерсть серая, как зола...", "level": 6, "hp": 80, "dmg": 13, "def": 3, "gold": 18, "exp": 38, "loc": locations[17].id},
-            {"name": "Чернокнижник пепла", "desc": "Поднимает пепельных духов над кострищами...", "level": 7, "hp": 90, "dmg": 16, "def": 5, "gold": 22, "exp": 46, "loc": locations[18].id},
-            {"name": "Могильный страж", "desc": "Держит меч даже после смерти...", "level": 7, "hp": 110, "dmg": 15, "def": 8, "gold": 24, "exp": 50, "loc": locations[25].id},
-            {"name": "Гниющий великан", "desc": "Каждый шаг оставляет яму...", "level": 8, "hp": 130, "dmg": 18, "def": 7, "gold": 28, "exp": 60, "loc": locations[26].id},
-            # ── остальные тракты по краям мировой карты ──
-            {"name": "Ледяной падальщик", "desc": "Обедает тем, что замёрзло до него...", "level": 4, "hp": 62, "dmg": 10, "def": 3, "gold": 15, "exp": 32, "loc": locations[11].id},
-            {"name": "Вьюжный призрак", "desc": "Появляется из метели...", "level": 5, "hp": 72, "dmg": 12, "def": 2, "gold": 17, "exp": 36, "loc": locations[12].id},
-            {"name": "Мёрзлый зомби", "desc": "Тело промёрзло насквозь...", "level": 4, "hp": 68, "dmg": 9, "def": 4, "gold": 14, "exp": 30, "loc": locations[13].id},
-            {"name": "Снежный волк", "desc": "Шерсть белая, глаза — льдинки...", "level": 5, "hp": 78, "dmg": 13, "def": 3, "gold": 18, "exp": 38, "loc": locations[14].id},
-            {"name": "Костяной странник", "desc": "Идёт по северному тракту без остановки...", "level": 6, "hp": 95, "dmg": 15, "def": 5, "gold": 21, "exp": 44, "loc": locations[15].id},
-            {"name": "Северный упырь", "desc": "Согревается чужой кровью...", "level": 6, "hp": 88, "dmg": 16, "def": 4, "gold": 22, "exp": 46, "loc": locations[16].id},
-            {"name": "Пепельный хищник", "desc": "Затаивается в золе...", "level": 5, "hp": 74, "dmg": 12, "def": 3, "gold": 17, "exp": 36, "loc": locations[19].id},
-            {"name": "Зольный дух", "desc": "Клубок пепла с углями вместо глаз...", "level": 6, "hp": 82, "dmg": 15, "def": 3, "gold": 20, "exp": 42, "loc": locations[20].id},
-            {"name": "Обожжённый скелет", "desc": "Кости оплавились, но держатся...", "level": 4, "hp": 66, "dmg": 11, "def": 3, "gold": 14, "exp": 30, "loc": locations[21].id},
-            {"name": "Гарпия-падальщица", "desc": "Кружит над трактом, высматривая слабых...", "level": 5, "hp": 70, "dmg": 14, "def": 2, "gold": 18, "exp": 38, "loc": locations[22].id},
-            {"name": "Чернокнижник золы", "desc": "Читает судьбы по пеплу...", "level": 7, "hp": 92, "dmg": 17, "def": 5, "gold": 23, "exp": 48, "loc": locations[23].id},
-            {"name": "Пепельный страж", "desc": "Стоит на перекрёстке с тех пор, как сгорел город...", "level": 6, "hp": 100, "dmg": 14, "def": 7, "gold": 21, "exp": 44, "loc": locations[24].id},
-            {"name": "Топяной змей", "desc": "Скользит по болоту так, что рябь не расходится...", "level": 5, "hp": 76, "dmg": 12, "def": 3, "gold": 17, "exp": 36, "loc": locations[27].id},
-            {"name": "Болотный упырь", "desc": "Живёт в трясине и пахнет ею...", "level": 6, "hp": 90, "dmg": 15, "def": 5, "gold": 21, "exp": 44, "loc": locations[28].id},
-            {"name": "Трясинный голем", "desc": "Слеплен из грязи, корней и костей...", "level": 7, "hp": 120, "dmg": 16, "def": 8, "gold": 25, "exp": 52, "loc": locations[29].id},
-            {"name": "Цапля-мертвяк", "desc": "Стоит на одной ноге, пока жертва не подойдёт...", "level": 5, "hp": 68, "dmg": 13, "def": 2, "gold": 17, "exp": 36, "loc": locations[30].id},
-            {"name": "Гнилой латник", "desc": "Броня держит форму лучше, чем владелец...", "level": 6, "hp": 105, "dmg": 14, "def": 7, "gold": 21, "exp": 44, "loc": locations[31].id},
-            {"name": "Южный кровосос", "desc": "Пьёт у спящих у костра...", "level": 7, "hp": 85, "dmg": 18, "def": 3, "gold": 24, "exp": 50, "loc": locations[32].id},
-            {"name": "Скальный копейщик", "desc": "Обороняет осыпь, которой никто не грозит...", "level": 5, "hp": 80, "dmg": 12, "def": 6, "gold": 17, "exp": 36, "loc": locations[35].id},
-            {"name": "Осыпной голем", "desc": "Собран из камней, что падали и не разбились...", "level": 6, "hp": 110, "dmg": 15, "def": 8, "gold": 21, "exp": 44, "loc": locations[36].id},
-            {"name": "Горный тролль-одиночка", "desc": "Изгнан из стаи за уродство...", "level": 7, "hp": 130, "dmg": 17, "def": 8, "gold": 26, "exp": 54, "loc": locations[37].id},
-            {"name": "Пещерный паук", "desc": "Сеть натянута поперёк ущелья...", "level": 4, "hp": 58, "dmg": 10, "def": 2, "gold": 13, "exp": 28, "loc": locations[38].id},
-            {"name": "Западный разбойник", "desc": "Грабит караваны, которых давно не было...", "level": 5, "hp": 72, "dmg": 11, "def": 3, "gold": 16, "exp": 34, "loc": locations[39].id},
-            {"name": "Камнекожий страж", "desc": "Кожа вросла в камень...", "level": 6, "hp": 115, "dmg": 13, "def": 9, "gold": 22, "exp": 46, "loc": locations[40].id},
-            # Угловые замки: пустоши между замками 10×10 кишат тварью
-            {"name": "Обезумевший паломник", "desc": "Шёл к свету — дошёл не туда...", "level": 3, "hp": 50, "dmg": 8, "def": 2, "gold": 11, "exp": 22, "loc": locations[5].id},
-            {"name": "Тварь из замкового рва", "desc": "Вода в рвах давно не вода...", "level": 4, "hp": 65, "dmg": 10, "def": 4, "gold": 14, "exp": 30, "loc": locations[5].id},
-            {"name": "Чёрный ворон", "desc": "Крупнее орла и умнее, чем кажется...", "level": 3, "hp": 45, "dmg": 9, "def": 1, "gold": 10, "exp": 21, "loc": locations[6].id},
-            {"name": "Теневой прислужник", "desc": "Слуга, которого тьма забрала целиком...", "level": 4, "hp": 60, "dmg": 11, "def": 3, "gold": 13, "exp": 28, "loc": locations[6].id},
-            {"name": "Глубинная тварь", "desc": "Выползла из склепов под замком...", "level": 4, "hp": 70, "dmg": 10, "def": 5, "gold": 15, "exp": 32, "loc": locations[7].id},
-            {"name": "Плесневелый страж", "desc": "Доспех пророс грибницей насквозь...", "level": 5, "hp": 85, "dmg": 12, "def": 6, "gold": 17, "exp": 36, "loc": locations[7].id},
-            {"name": "Пепельный голем", "desc": "Слеплен из золы и злобы...", "level": 5, "hp": 95, "dmg": 13, "def": 7, "gold": 18, "exp": 38, "loc": locations[8].id},
-            {"name": "Гарпия пепла", "desc": "Её крик слышен за стенами цитадели...", "level": 6, "hp": 80, "dmg": 15, "def": 3, "gold": 20, "exp": 42, "loc": locations[8].id},
+            {"name": "Помойная крыса", "desc": "Размером с собаку и вдвое наглее...", "level": 1, "hp": 18, "dmg": 3, "def": 0, "gold": 3, "exp": 6},
+            {"name": "Болотный зомби", "desc": "Медлительный труп...", "level": 1, "hp": 25, "dmg": 4, "def": 1, "gold": 5, "exp": 10},
+            {"name": "Лесной ворг", "desc": "Крупный волк с чёрной шерстью...", "level": 2, "hp": 40, "dmg": 7, "def": 2, "gold": 8, "exp": 18},
+            {"name": "Скелет-воин", "desc": "Ожившие останки павшего солдата...", "level": 3, "hp": 50, "dmg": 8, "def": 3, "gold": 12, "exp": 25},
+            {"name": "Гнолл-грабитель", "desc": "Гибрид человека и гиены...", "level": 4, "hp": 65, "dmg": 10, "def": 3, "gold": 15, "exp": 35},
+            {"name": "Разбойник с большой дороги", "desc": "Считает путников кормовой базой...", "level": 4, "hp": 60, "dmg": 9, "def": 3, "gold": 14, "exp": 30},
+            {"name": "Ледяной падальщик", "desc": "Обедает тем, что замёрзло до него...", "level": 4, "hp": 62, "dmg": 10, "def": 3, "gold": 15, "exp": 32},
+            {"name": "Северный канюк", "desc": "Кружит в ожидании добычи...", "level": 5, "hp": 70, "dmg": 12, "def": 2, "gold": 17, "exp": 36},
+            {"name": "Снежный волк", "desc": "Шерсть белая, глаза — льдинки...", "level": 5, "hp": 78, "dmg": 13, "def": 3, "gold": 18, "exp": 38},
+            {"name": "Гарпия-падальщица", "desc": "Кружит, высматривая слабых...", "level": 5, "hp": 70, "dmg": 14, "def": 2, "gold": 18, "exp": 38},
+            {"name": "Топяной змей", "desc": "Скользит так, что рябь не расходится...", "level": 5, "hp": 76, "dmg": 12, "def": 3, "gold": 17, "exp": 36},
+            {"name": "Тёмный следопыт", "desc": "Идёт по следу тише, чем думает жертва...", "level": 6, "hp": 85, "dmg": 14, "def": 3, "gold": 19, "exp": 40},
+            {"name": "Пещерный тролль", "desc": "Громадина с каменной кожей...", "level": 6, "hp": 100, "dmg": 14, "def": 6, "gold": 25, "exp": 60},
+            {"name": "Костяной странник", "desc": "Идёт без остановки к неведомой цели...", "level": 6, "hp": 95, "dmg": 15, "def": 5, "gold": 21, "exp": 44},
+            {"name": "Могильный страж", "desc": "Держит меч даже после смерти...", "level": 7, "hp": 110, "dmg": 15, "def": 8, "gold": 24, "exp": 50},
+            {"name": "Теневой призрак", "desc": "Нематериальная сущность из кошмаров...", "level": 7, "hp": 80, "dmg": 18, "def": 2, "gold": 30, "exp": 70},
+            {"name": "Чернокнижник пепла", "desc": "Поднимает пепельных духов над кострищами...", "level": 7, "hp": 92, "dmg": 17, "def": 5, "gold": 23, "exp": 48},
+            {"name": "Гниющий великан", "desc": "Каждый шаг оставляет яму...", "level": 8, "hp": 130, "dmg": 18, "def": 7, "gold": 28, "exp": 60},
+            {"name": "Трясинный голем", "desc": "Слеплен из грязи, корней и костей...", "level": 7, "hp": 120, "dmg": 16, "def": 8, "gold": 25, "exp": 52},
+            {"name": "Культист Бездны", "desc": "Ждал этого дня всю жизнь...", "level": 9, "hp": 95, "dmg": 22, "def": 4, "gold": 45, "exp": 110},
+            {"name": "Порождение бездны", "desc": "У него слишком много суставов...", "level": 10, "hp": 130, "dmg": 24, "def": 6, "gold": 55, "exp": 130},
+            {"name": "Камнекожий страж", "desc": "Кожа вросла в камень...", "level": 6, "hp": 115, "dmg": 13, "def": 9, "gold": 22, "exp": 46},
+            {"name": "Горный тролль-одиночка", "desc": "Изгнан из стаи за уродство...", "level": 7, "hp": 130, "dmg": 17, "def": 8, "gold": 26, "exp": 54},
+            {"name": "Страж расщелины", "desc": "Стоит здесь дольше, чем существует королевство...", "level": 11, "hp": 180, "dmg": 23, "def": 12, "gold": 70, "exp": 160},
         ]
+
+        def _loc_for_level(lvl: int):
+            """Локация под моба данного уровня: близкая по мин. уровню."""
+            if not danger_locs:
+                return spawn_loc
+            cands = [l for l in danger_locs if l.min_level - 1 <= lvl <= l.min_level + 2]
+            if not cands:
+                cands = danger_locs
+            return rng.choice(cands)
 
         created_mobs = []
         for md in mobs_data:
+            loc = _loc_for_level(md["level"])
             mob = Mob(
                 name=md["name"], description=md["desc"], level=md["level"],
                 hp=md["hp"], damage=md["dmg"], defense=md["def"],
                 gold_reward=md["gold"], exp_reward=md["exp"],
-                location_id=md["loc"],
+                location_id=loc.id,
             )
             session.add(mob)
-            created_mobs.append((mob, md["loc"]))
+            created_mobs.append((mob, loc.id))
         await session.flush()
 
+        # Расставить мобов по клеткам их локаций.
         for mob, loc_id in created_mobs:
             result = await session.execute(
                 select(Cell).where(Cell.location_id == loc_id).where(Cell.is_passable == True)
             )
             cells = result.scalars().all()
             if cells:
-                target = random.choice(cells)
-                target.mob_id = mob.id
+                random.Random(seed + mob.id).choice(cells).mob_id = mob.id
 
+        # ── Предметы и лавка (без привязки к локациям) ──
         items = [
             Item(name="Ржавый меч", description="Клинок, который видел лучшие дни...", item_type=ItemType.WEAPON, rarity=ItemRarity.COMMON, price=20, bonus_damage=3, icon="🗡"),
             Item(name="Дубинка гнолла", description="Тяжёлая палка с вбитым гвоздём...", item_type=ItemType.WEAPON, rarity=ItemRarity.COMMON, price=35, bonus_damage=5, icon="🏏"),
@@ -390,29 +523,101 @@ async def seed_database():
         ]
         session.add_all(shop_items)
 
-        # Seed quests
+        # ── Задания: привязка к реальным локациям по месту мобов ──
+        # Кого убивать — туда и ведёт задание (не к зашитому индексу).
+        mob_loc = {mob.name: loc_id for mob, loc_id in created_mobs}
+        kill_loc_id = mob_loc.get("Болотный зомби") or mob_loc.get("Лесной ворг")
+        if not kill_loc_id:
+            kill_loc_id = (sorted(danger_locs, key=lambda l: (l.min_level, l.id))[0].id
+                           if danger_locs else spawn_loc.id)
+
         quests = [
-            # Награда — в единой валюте (gold), как у остальных квестов и
-            # всего движка: 120 бронзы + 8 серебра + 2 золота новой системы
-            # ≈ 2 золотых; основная награда тут — опыт.
-            Quest(name="Первые шаги", description="Убей 3 болотных зомби в Тёмном Лесу.", objective_type="kill", objective_target="Болотный зомби", objective_count=3, reward_gold=2, reward_exp=30, min_level=1, location_id=2),
-            Quest(name="Охота на воргов", description="Убей 2 лесных ворга.", objective_type="kill", objective_target="Лесной ворг", objective_count=2, reward_gold=80, reward_exp=50, min_level=2, location_id=2),
-            Quest(name="Сбор трав", description="Принеси лекарю 5 лечебных трав.", objective_type="collect", objective_target="Лечебная трава", objective_count=5, reward_gold=30, reward_exp=20, min_level=1, location_id=1, npc_name="Лекарь Мира"),
+            Quest(name="Первые шаги", description="Убей 3 болотных зомби в ближайших опасных землях.",
+                  objective_type="kill", objective_target="Болотный зомби", objective_count=3,
+                  reward_gold=2, reward_exp=30, min_level=1, location_id=kill_loc_id),
+            Quest(name="Охота на воргов", description="Убей 2 лесных воргов.",
+                  objective_type="kill", objective_target="Лесной ворг", objective_count=2,
+                  reward_gold=80, reward_exp=50, min_level=2, location_id=mob_loc.get("Лесной ворг", kill_loc_id)),
+            Quest(name="Сбор трав", description="Принеси лекарю 5 лечебных трав.",
+                  objective_type="collect", objective_target="Лечебная трава", objective_count=5,
+                  reward_gold=30, reward_exp=20, min_level=1, location_id=spawn_loc.id, npc_name="Лекарь Мира"),
         ]
         session.add_all(quests)
 
         await session.commit()
-        print("Database seeded: 41 locations (36 on the map rim, corner "
-              "castles 25×25), quests, and seamless links.")
+        print(f"Database seeded: {len(locations)} locations "
+              f"(4 corner castles + {FREE_LOCATIONS} procedurally generated, "
+              f"seed {seed}), quests, items and seamless links.")
 
 
-async def recreate_world_on_server(seed: int):
-    """Полностью пересоздать мир по новому сиду на сервере."""
-    from core.models import Grave, DungeonRun, MobSpawn, Cell, Location, AppSetting, Character
-    from sqlalchemy import delete, update
-    
+SAVED_SEEDS_KEY = "saved_seeds"
+
+
+async def get_saved_seeds(session=None) -> list:
+    """Сохранённые «любимые» сиды: [{'seed','label','saved_at'}]."""
+    import json
+    own = session is None
+    if own:
+        async with async_session() as session:
+            row = await session.scalar(select(AppSetting).where(AppSetting.key == SAVED_SEEDS_KEY))
+    else:
+        row = await session.scalar(select(AppSetting).where(AppSetting.key == SAVED_SEEDS_KEY))
+    try:
+        return json.loads(row.value) if row and row.value else []
+    except (ValueError, TypeError):
+        return []
+
+
+async def add_saved_seed(seed: int, label: str = "") -> list:
+    import json
+    from datetime import datetime
+    label = (label or "").strip()[:64]
     async with async_session() as session:
-        # Обновляем сид
+        seeds = await get_saved_seeds(session)
+        # Не дублируем один и тот же сид — обновляем подпись.
+        seeds = [s for s in seeds if int(s.get("seed")) != int(seed)]
+        seeds.insert(0, {"seed": int(seed), "label": label,
+                         "saved_at": datetime.utcnow().isoformat(timespec="seconds")})
+        seeds = seeds[:50]  # лимит архива
+        row = await session.scalar(select(AppSetting).where(AppSetting.key == SAVED_SEEDS_KEY))
+        if row:
+            row.value = json.dumps(seeds, ensure_ascii=False)
+        else:
+            session.add(AppSetting(key=SAVED_SEEDS_KEY,
+                                   value=json.dumps(seeds, ensure_ascii=False)))
+        await session.commit()
+        return seeds
+
+
+async def delete_saved_seed(seed: int) -> list:
+    import json
+    async with async_session() as session:
+        seeds = await get_saved_seeds(session)
+        seeds = [s for s in seeds if int(s.get("seed")) != int(seed)]
+        row = await session.scalar(select(AppSetting).where(AppSetting.key == SAVED_SEEDS_KEY))
+        if row:
+            row.value = json.dumps(seeds, ensure_ascii=False)
+        else:
+            session.add(AppSetting(key=SAVED_SEEDS_KEY,
+                                   value=json.dumps(seeds, ensure_ascii=False)))
+        await session.commit()
+        return seeds
+
+
+async def recreate_world_on_server(seed=None):
+    """Полностью пересоздать мир по новому сиду.
+
+    seed=None — подобрать случайно («живой мир», без ручного числа).
+    seed=int — пересоздать под конкретный (например, из сохранённых).
+    """
+    from core.models import Grave, DungeonRun, MobSpawn, Cell, Location, Character
+    from sqlalchemy import update
+
+    if seed is None:
+        seed = random.randint(1, 2_000_000_000)
+    seed = int(seed)
+
+    async with async_session() as session:
         seed_row = await session.scalar(select(AppSetting).where(AppSetting.key == "seed"))
         if not seed_row:
             seed_row = AppSetting(key="seed", value=str(seed))
@@ -429,14 +634,13 @@ async def recreate_world_on_server(seed: int):
         await session.execute(delete(Location))
         await session.flush()
 
-        # Сбрасываем игроков на спавн
+        # Сбрасываем игроков на спавн (location_id=1 — стартовая земля)
         await session.execute(
             update(Character)
             .values(location_id=1, cell_id=None, floor=0)
         )
         await session.flush()
         await session.commit()
-    
-    # Теперь заново вызываем оригинальный seed_database(), который
-    # перегенерирует весь мир под новым сидом.
+
+    # Заново сеем мир — locations теперь пусто, seed_database отработает.
     await seed_database()

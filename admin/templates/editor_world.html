@@ -17,14 +17,14 @@
 <div class="card" style="border-color:var(--danger,#ef4444);background:rgba(239,68,68,.06)">
     <h2 style="margin-top:0;color:var(--danger,#ef4444)">⚠️ Похоже, мир устарел — локаций всего {{ loc_count }}</h2>
     <p class="section-sub">
-        Свежий сид строит карту 10×10 с ~41 локацией (36 по ободу + 4 угловых
-        замка + стартовые земли). Сейчас локаций заметно меньше — скорее всего,
-        база сеялась ещё старой версией (5 локаций), а
-        <code>seed_database()</code> не пересоздаёт уже непустой мир. Перезапуск
-        сервера тут не поможет: нужен <b>пересоздание мира</b>.
+        Свежий мир строит <b>36 локаций</b>: 4 угловых замка-цитадели
+        ((0,0), (9,0), (0,9), (9,9)) + 32 свободно сгенерированных земли с
+        живыми названиями. Сейчас локаций заметно меньше — скорее всего, база
+        сеялась ещё старой версией (5 локаций), а <code>seed_database()</code>
+        не пересоздаёт уже непустой мир. Перезапуск сервера тут не поможет —
+        нужно <b>пересоздать мир</b>.
     </p>
-    <p class="section-sub"><b>Как починить:</b> внизу страницы — «🎲 Сиды мира» → ввести seed (текущий {{ seed }}) → «Перегенерировать мир».
-    Ручные правки клеток сотрутся, игроки вернутся на спавн, но карта станет актуальной (10×10, все силы и жизнь мира подхватятся).</p>
+    <p class="section-sub"><b>Как починить:</b> внизу страницы — «🎲 Сиды мира» → «🎲 Сгенерировать случайный мир» (сид подберётся сам). Ручные правки клеток сотрутся, игроки вернутся на спавн, но карта станет живой и актуальной.</p>
 </div>
 {% endif %}
 <style>
@@ -194,16 +194,80 @@
     </form>
 </div>
 
-<div class="card">
+<div class="card" id="saved">
     <h2>🎲 Сиды мира</h2>
-    <p class="section-sub">Базовый сид задаёт мир целиком. Перегенерация сотрет ручные правки клеток, сбросит позиции игроков на спавн и пересоздаст мир под введённым сидом.</p>
-    <form action="/editor/world/regen" method="post" style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:flex-end;">
+    <p class="section-sub">
+        Сид задаёт весь мир целиком. Угловые замки ((0,0), (9,0), (0,9), (9,9))
+        зафиксированы, остальные 32 локации генерируются свободно по сиду —
+        позиции, типы, уровни и живые названия. Перегенерация сотрёт ручные
+        правки клеток и вернёт игроков на спавн.
+    </p>
+
+    <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:flex-end;margin-bottom:0.8rem">
+        <form action="/editor/world/regen" method="post" style="display:inline">
+            <button type="submit" name="randomize" value="1" class="btn btn-primary"
+                    onclick="return confirm('🎲 Сгенерировать новый случайный мир? Сид подберётся сам. Текущий мир будет заменён, игроки вернутся на спавн.')">
+                🎲 Сгенерировать случайный мир
+            </button>
+        </form>
+        <span class="muted" style="align-self:center">или ввести конкретный сид вручную →</span>
+    </div>
+
+    <form action="/editor/world/regen" method="post" style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:flex-end;">
         <div>
-            <label class="form-label">🌍 Базовый seed</label>
-            <input type="number" name="seed" id="seedInput" value="{{ seed }}" class="search-box" style="max-width:180px" required>
+            <label class="form-label">🌍 Конкретный seed</label>
+            <input type="number" name="seed" id="seedInput"
+                   value="{{ seed if seed is not none else '' }}"
+                   class="search-box" style="max-width:180px" placeholder="напр. 1337">
         </div>
-        <button type="submit" class="btn btn-danger" onclick="return confirm('⚠️ Перегенерировать мир? Все ручные правки клеток будут потеряны, игроки вернутся на спавн.')">🎲 Перегенерировать мир</button>
+        <button type="submit" class="btn btn-danger"
+                onclick="return confirm('♻️ Пересоздать мир под этим сидом? Текущий мир будет заменён, игроки вернутся на спавн.')">
+            ♻️ Пересоздать под этот сид
+        </button>
     </form>
+
+    {% if seed is not none %}
+    <form action="/editor/world/seed/save" method="post"
+          style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:flex-end;margin-top:0.8rem">
+        <div>
+            <label class="form-label">⭐ Сохранить текущий сид ({{ seed }})</label>
+            <input type="text" name="label" class="search-box" style="max-width:280px"
+                   placeholder="подпись, напр. «лесное кольцо» (необязательно)">
+        </div>
+        <button type="submit" class="btn">⭐ В избранное</button>
+    </form>
+    {% endif %}
+
+    {% if saved_seeds %}
+    <h3 style="margin-top:1.2rem">⭐ Сохранённые сиды</h3>
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Seed</th><th>Подпись</th><th>Когда сохранён</th><th></th></tr></thead>
+            <tbody>
+            {% for s in saved_seeds %}
+                <tr>
+                    <td><code>{{ s.seed }}</code>{% if s.seed == seed %} <span class="badge badge-success">текущий</span>{% endif %}</td>
+                    <td>{{ s.label or '—' }}</td>
+                    <td class="muted">{{ s.saved_at[:10] if s.saved_at else '—' }}</td>
+                    <td style="white-space:nowrap">
+                        <form action="/editor/world/regen" method="post" style="display:inline">
+                            <input type="hidden" name="seed" value="{{ s.seed }}">
+                            <button type="submit" class="btn btn-sm">♻️ Применить</button>
+                        </form>
+                        <form action="/editor/world/seed/delete" method="post" style="display:inline"
+                              data-confirm="Убрать этот сид из сохранённых?">
+                            <input type="hidden" name="seed" value="{{ s.seed }}">
+                            <button type="submit" class="btn btn-danger btn-sm">🗑</button>
+                        </form>
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="muted" style="margin-top:0.9rem">Понравившийся сид пока не сохранён. Сгенерируйте мир и нажмите «⭐ В избранное» — он останется в этом списке для будущих миров.</p>
+    {% endif %}
 </div>
 
 <!-- Модалка создания -->
