@@ -13,13 +13,15 @@ def main_menu_keyboard(has_character: bool = False, is_admin: bool = False,
         builder.button(text="🧙 Профиль", callback_data="profile")
         builder.button(text="🎒 Инвентарь", callback_data="inventory")
         builder.button(text="🌍 Карта мира", callback_data="world_map")
-        builder.button(text="🏪 Лавка", callback_data="shop")
         builder.button(text="👥 Пати", callback_data="party_menu")
         builder.button(text="🧭 Репутация", callback_data="reputation")
         builder.button(text="🏆 Топ", callback_data="leaderboard")
-        builder.button(text="🗿 Подземелье", callback_data="dungeon_menu")
         builder.button(text="⚖️ Аукцион", callback_data="auction_menu")
+        # Лавка торговца — только у NPC на клетке: за товаром надо дойти.
+        # Подземелье и лавка лекаря носятся с собой лишь у VIP.
         if is_vip:
+            builder.button(text="🗿 Подземелье", callback_data="dungeon_menu")
+            builder.button(text="⚗️ Лавка лекаря", callback_data="healer_shop")
             builder.button(
                 text="🌙 Вернуться в мир" if offline else "🌙 Я офлайн",
                 callback_data="offline_resume" if offline else "offline_toggle",
@@ -114,6 +116,66 @@ def back_to_main_keyboard():
     return builder.as_markup()
 
 
+def continue_keyboard(extra: list | None = None, with_inspect: bool = True):
+    """Экран после действия в мире: вернуться к тому, чем игрок занимался.
+
+    Раньше после разговора с NPC, изучения диковины, боя или отдыха
+    единственной кнопкой было «В главное меню» — игрока выбрасывало из
+    прогулки по карте, и путь приходилось начинать заново. Теперь главная
+    кнопка возвращает на клетку, а меню остаётся дополнительным выходом.
+    """
+    builder = InlineKeyboardBuilder()
+    rows = []
+    for text, data in (extra or []):
+        builder.button(text=text, callback_data=data)
+        rows.append(1)
+    builder.button(text="🧭 Продолжить путь", callback_data="back_to_cell")
+    rows.append(1)
+    if with_inspect:
+        builder.button(text="🔍 Осмотреться", callback_data="inspect")
+        builder.button(text="🏠 Меню", callback_data="main_menu")
+        rows.append(2)
+    else:
+        builder.button(text="🏠 Меню", callback_data="main_menu")
+        rows.append(1)
+    builder.adjust(*rows)
+    return builder.as_markup()
+
+
+def profile_book_keyboard(page: int, total: int, titles: list):
+    """Листалка «книги о герое»: развороты вместо одной длинной простыни."""
+    builder = InlineKeyboardBuilder()
+    rows = []
+
+    nav = 0
+    if page > 0:
+        builder.button(text="⬅️ Пред.", callback_data=f"profile_page:{page - 1}")
+        nav += 1
+    if page + 1 < total:
+        builder.button(text="След. ➡️", callback_data=f"profile_page:{page + 1}")
+        nav += 1
+    if nav:
+        rows.append(nav)
+
+    # Быстрый переход на любой разворот — закладки книги.
+    tabs = 0
+    for idx, title in enumerate(titles):
+        if idx == page:
+            continue
+        builder.button(text=title, callback_data=f"profile_page:{idx}")
+        tabs += 1
+    if tabs:
+        rows.append(2 if tabs > 1 else 1)
+        if tabs > 2:
+            rows[-1] = 2
+            rows.append(tabs - 2)
+
+    builder.button(text="🏠 Меню", callback_data="main_menu")
+    rows.append(1)
+    builder.adjust(*rows)
+    return builder.as_markup()
+
+
 def help_menu_keyboard():
     builder = InlineKeyboardBuilder()
     builder.button(text="🔵 📢 Обновления и изменения", callback_data="bot_updates")
@@ -133,7 +195,8 @@ def back_to_help_keyboard():
 
 def cell_movement_keyboard(can_dirs: dict, dungeon_template_id: int | None = None,
                            dir_labels: dict | None = None,
-                           current_transition_label: str | None = None):
+                           current_transition_label: str | None = None,
+                           is_vip: bool = False):
     """
     3x3 grid: 8 directions + center inspect.
     can_dirs: {'nw': bool, 'n': bool, 'ne': bool, 'w': bool, 'e': bool,
@@ -182,9 +245,15 @@ def cell_movement_keyboard(can_dirs: dict, dungeon_template_id: int | None = Non
     builder.button(text="🏕 Отдохнуть", callback_data="rest")
     builder.button(text="🎒 Инвентарь", callback_data="inventory")
     builder.button(text="🗺 Карта", callback_data="show_map")
-    builder.button(text="🗿 Подземелье", callback_data="dungeon_menu")
+    if is_vip:
+        # Обычный герой попадает в подземелье только через портал на клетке —
+        # кнопка «в кармане» это VIP-удобство.
+        builder.button(text="🗿 Подземелье", callback_data="dungeon_menu")
+        rows.extend([2, 2])
+    else:
+        rows.extend([2, 1])
     builder.button(text="◀️ Меню", callback_data="main_menu")
-    rows.extend([2, 2, 1])
+    rows.append(1)
 
     builder.adjust(*rows)
     return builder.as_markup()
@@ -241,64 +310,121 @@ def combat_keyboard():
     return builder.as_markup()
 
 
-def inventory_keyboard(items: list, page: int = 0, per_page: int = 6):
+def inventory_hub_keyboard(counts: dict):
+    """Три отделения снаряжения героя вместо одной свалки.
+
+    Карман переживает гибель, сумка — нет, надетое считается отдельно;
+    внутри сумки предметы и материалы тоже разведены, потому что руда и
+    шкуры забивали список и мешали найти оружие.
+    """
     builder = InlineKeyboardBuilder()
-    start = page * per_page
-    end = start + per_page
-    page_items = items[start:end]
-
-    for inv_item in page_items:
-        eq = "✅ " if inv_item.is_equipped else ""
-        icon = inv_item.item.icon if inv_item.item else "❔"
-        name = inv_item.display_name()
-        qty = f" ×{inv_item.quantity}" if (inv_item.quantity or 1) > 1 else ""
-        # Значок способа получения прямо в списке — видно происхождение вещи
-        inst = inv_item.instance if inv_item.instance_id else None
-        badge = f"{inst.badge()} " if inst else ""
-        builder.button(
-            text=f"{eq}{badge}{icon} {name}{qty}",
-            callback_data=f"item:{inv_item.id}"
-        )
-
-    nav_buttons = []
-    if page > 0:
-        nav_buttons.append(("⬅️", f"inv_page:{page - 1}"))
-    if end < len(items):
-        nav_buttons.append(("➡️", f"inv_page:{page + 1}"))
-
-    for text, data in nav_buttons:
-        builder.button(text=text, callback_data=data)
-
-    builder.button(text="◀️ Назад", callback_data="main_menu")
+    builder.button(text=f"🛡 Снаряжение ({counts.get('gear', 0)})",
+                   callback_data="inv_sec:gear:0")
+    builder.button(text=f"🎒 Сумка · предметы ({counts.get('bag', 0)})",
+                   callback_data="inv_sec:bag:0")
+    builder.button(text=f"🧱 Сумка · материалы ({counts.get('mat', 0)})",
+                   callback_data="inv_sec:mat:0")
+    builder.button(
+        text=f"🔒 Карман ({counts.get('stash', 0)}/{counts.get('stash_cap', 0)})",
+        callback_data="inv_sec:stash:0")
+    builder.button(text="🏠 Меню", callback_data="main_menu")
     builder.adjust(1)
     return builder.as_markup()
 
 
-def item_action_keyboard(inv_item_id: int, is_equipped: bool,
-                         can_equip: bool = True, can_use: bool = False,
-                         can_sell: bool = False, in_stash: bool = False,
-                         can_stash: bool = False):
+def inventory_section_keyboard(items: list, section: str, page: int = 0,
+                               per_page: int = 6):
+    """Список одного отделения. Открытие вещи ведёт в книгу предметов."""
     builder = InlineKeyboardBuilder()
+    start = page * per_page
+    chunk = items[start:start + per_page]
+
+    for idx, inv_item in enumerate(chunk, start=start):
+        eq = "✅ " if inv_item.is_equipped else ""
+        icon = inv_item.item.icon if inv_item.item else "❔"
+        qty = f" ×{inv_item.quantity}" if (inv_item.quantity or 1) > 1 else ""
+        inst = inv_item.instance if inv_item.instance_id else None
+        badge = f"{inst.badge()} " if inst else ""
+        builder.button(
+            text=f"{eq}{badge}{icon} {inv_item.display_name()}{qty}",
+            callback_data=f"inv_book:{section}:{idx}",
+        )
+    rows = [1] * len(chunk)
+
+    nav = 0
+    if page > 0:
+        builder.button(text="⬅️", callback_data=f"inv_sec:{section}:{page - 1}")
+        nav += 1
+    if start + per_page < len(items):
+        builder.button(text="➡️", callback_data=f"inv_sec:{section}:{page + 1}")
+        nav += 1
+    if nav:
+        rows.append(nav)
+
+    builder.button(text="◀️ К отделениям", callback_data="inventory")
+    rows.append(1)
+    builder.adjust(*rows)
+    return builder.as_markup()
+
+
+def item_book_keyboard(inv_item_id: int, section: str, index: int, total: int,
+                       is_equipped: bool = False, can_equip: bool = False,
+                       can_use: bool = False, can_sell: bool = False,
+                       in_stash: bool = False, can_stash: bool = False):
+    """Книга предметов: карточка вещи + листание соседних страниц."""
+    builder = InlineKeyboardBuilder()
+    rows = []
+
+    actions = 0
     if can_equip and not in_stash:
         if is_equipped:
             builder.button(text="🟡 🚫 Снять", callback_data=f"unequip:{inv_item_id}")
         else:
             builder.button(text="🟢 ✅ Экипировать", callback_data=f"equip:{inv_item_id}")
+        actions += 1
     if can_use and not in_stash:
         builder.button(text="🔵 🧪 Использовать", callback_data=f"use:{inv_item_id}")
+        actions += 1
     if can_sell and not is_equipped and not in_stash:
         builder.button(text="🟣 ⚖️ На аукцион", callback_data=f"auction_sell:{inv_item_id}")
-    # Защищённый карман: вещь оттуда не теряется при гибели.
+        actions += 1
     if in_stash:
         builder.button(text="🟢 🎒 Достать из кармана",
                        callback_data=f"stash_take:{inv_item_id}")
+        actions += 1
     elif can_stash:
         builder.button(text="🟢 🔒 Убрать в карман",
                        callback_data=f"stash_put:{inv_item_id}")
-    if not in_stash:
+        actions += 1
+    if not in_stash and not is_equipped:
         builder.button(text="🔴 🗑 Выбросить", callback_data=f"drop:{inv_item_id}")
-    builder.button(text="◀️ Назад", callback_data="inventory")
-    builder.adjust(2)
+        actions += 1
+    if actions:
+        rows.append(2 if actions > 1 else 1)
+        if actions > 2:
+            rows[-1] = 2
+            left = actions - 2
+            while left > 0:
+                rows.append(min(2, left))
+                left -= 2
+
+    nav = 0
+    if index > 0:
+        builder.button(text="⬅️ Пред.",
+                       callback_data=f"inv_book:{section}:{index - 1}")
+        nav += 1
+    if index + 1 < total:
+        builder.button(text="След. ➡️",
+                       callback_data=f"inv_book:{section}:{index + 1}")
+        nav += 1
+    if nav:
+        rows.append(nav)
+
+    builder.button(text="◀️ К списку",
+                   callback_data=f"inv_sec:{section}:{index // 6}")
+    builder.button(text="🎒 К отделениям", callback_data="inventory")
+    rows.extend([1, 1])
+    builder.adjust(*rows)
     return builder.as_markup()
 
 
@@ -528,15 +654,40 @@ def upgrade_item_keyboard(inv_item_id: int, can_upgrade: bool, station: str):
     return builder.as_markup()
 
 
-def shop_keyboard(shop_items: list):
+def shop_book_keyboard(shop_item, page: int, total: int, can_buy: bool,
+                       page_cb: str = "shop_page", back_cb: str = "back_to_cell",
+                       back_text: str = "◀️ Уйти"):
+    """Витрина-книга: одна страница — один товар с описанием и историей.
+
+    Список из десятка строк ничего не рассказывал о предмете; чтобы понять,
+    что покупаешь, приходилось гадать по названию. Книга показывает карточку
+    целиком, а листание идёт стрелками.
+    """
     builder = InlineKeyboardBuilder()
-    for si in shop_items:
-        builder.button(
-            text=f"{si.item.icon} {si.item.name} — {si.price}🪙",
-            callback_data=f"buy:{si.id}"
-        )
-    builder.button(text="◀️ Назад", callback_data="main_menu")
-    builder.adjust(1)
+    rows = []
+    if shop_item is not None:
+        if can_buy:
+            builder.button(
+                text=f"🟢 💰 Купить за {shop_item.price}🪙",
+                callback_data=f"buy:{shop_item.id}",
+            )
+        else:
+            builder.button(text="🔒 Не по карману", callback_data="noop")
+        rows.append(1)
+
+    nav = 0
+    if page > 0:
+        builder.button(text="⬅️ Пред.", callback_data=f"{page_cb}:{page - 1}")
+        nav += 1
+    if page + 1 < total:
+        builder.button(text="След. ➡️", callback_data=f"{page_cb}:{page + 1}")
+        nav += 1
+    if nav:
+        rows.append(nav)
+
+    builder.button(text=back_text, callback_data=back_cb)
+    rows.append(1)
+    builder.adjust(*rows)
     return builder.as_markup()
 
 

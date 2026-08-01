@@ -98,6 +98,109 @@ SLOT_LABELS = {
 }
 
 
+PROFILE_PAGES = [
+    ("summary", "📇 Кто ты"),
+    ("stats", "📊 Характеристики"),
+    ("gear", "🛡 Снаряжение"),
+    ("journey", "🗺 Путь"),
+]
+
+
+def profile_page_text(character, page: int, class_def=None, combat=None,
+                      affinities=None, extra=None):
+    """Одна страница «книги о герое».
+
+    Единым полотном профиль не помещался в экран телефона: игрок скроллил
+    простыню из статов, снаряжения и лора. Разбили на короткие развороты —
+    каждый читается целиком без прокрутки.
+    """
+    extra = extra or {}
+    total = len(PROFILE_PAGES)
+    page = max(0, min(page, total - 1))
+    key, title = PROFILE_PAGES[page]
+
+    icon = (class_def.icon if class_def else None) or "👤"
+    class_label = class_def.name if class_def else str(character.character_class)
+    base = character.effective_stats()
+    stats = combat or {}
+    bonus = stats.get("bonus", {})
+
+    head = (f"📖 <b>Книга о герое</b> — {title} "
+            f"<i>({page + 1}/{total})</i>\n"
+            f"{icon} <b>{character.name}</b>, ур. {character.level}\n"
+            "━━━━━━━━━━━━━━━")
+
+    if key == "summary":
+        max_hp = stats.get("max_hp", base["max_hp"])
+        max_mp = stats.get("max_mp", base["max_mp"])
+        vip = " 👑 VIP" if getattr(character, "is_vip", False) else ""
+        party = (f"\n👥 Пати: <b>{character.party.name}</b>"
+                 if character.party else "\n👥 Пати: <i>один в поле</i>")
+        body = [
+            f"Класс: <b>{class_label}</b>{vip}",
+            f"⭐ Опыт: {character.experience}/{character.level * 100}",
+            f"🪙 Золото: <b>{character.gold}</b>{party}",
+            "",
+            f"❤️ HP: {character.current_hp}/{max_hp}",
+            _bar(character.current_hp, max_hp, "🟥", "⬛"),
+            f"💙 MP: {character.current_mp}/{max_mp}",
+            _bar(character.current_mp, max_mp, "🟦", "⬛"),
+            "",
+            "<b>━━ Магический дар ━━</b>",
+            affinity_line(affinities or []),
+        ]
+    elif key == "stats":
+        def stat_line(emoji, label, skey):
+            total_v = stats.get(skey, base.get(skey, 0))
+            extra_v = bonus.get(skey, 0)
+            plus = f" <i>(+{extra_v} от вещей)</i>" if extra_v else ""
+            return f"{emoji} {label}: <b>{total_v}</b>{plus}"
+
+        body = [
+            stat_line("💪", "Сила", "strength"),
+            stat_line("🏃", "Ловкость", "agility"),
+            stat_line("🧠", "Интеллект", "intelligence"),
+            stat_line("🛡", "Выносливость", "endurance"),
+            stat_line("🍀", "Удача", "luck"),
+            "",
+            "<b>━━ Бой ━━</b>",
+            f"⚔️ Урон от оружия: <b>+{stats.get('damage', 0)}</b>",
+            f"🛡 Защита от брони: <b>+{stats.get('defense', 0)}</b>",
+        ]
+    elif key == "gear":
+        by_slot = {}
+        for inv in stats.get("gear", []):
+            if inv.item:
+                by_slot[inv.item.item_type.value] = inv
+        body = []
+        for slot, label in SLOT_LABELS.items():
+            inv = by_slot.get(slot)
+            if inv is None:
+                body.append(f"{label}: <i>пусто</i>")
+            else:
+                uid = inv.instance.uid if inv.instance else ""
+                uid_str = f"\n   <code>{uid}</code>" if uid else ""
+                body.append(f"{label}: <b>{inv.display_name()}</b>{uid_str}")
+        body += ["", f"🎒 Всего в сумке: <b>{extra.get('bag_count', 0)}</b>",
+                 f"🔒 В кармане: <b>{extra.get('stash_count', 0)}</b>"]
+    else:  # journey
+        cell = character.cell
+        loc = character.location.name if character.location else "Неизвестно"
+        body = [
+            f"🗺 Локация: <b>{loc}</b>",
+            (f"📍 Клетка: {cell.name} ({cell.x},{cell.y})"
+             if cell else "📍 Клетка: <i>неизвестно</i>"),
+            "",
+            f"🧭 Исследовано клеток: <b>{extra.get('visited', 0)}</b>",
+            f"🌍 Открыто локаций: <b>{extra.get('locations_seen', 0)}</b>",
+            f"⚔️ Побед в боях: <b>{extra.get('victories', 0)}</b>",
+            "",
+            "<i>Книга дописывается сама — с каждым шагом по Теневым Землям.</i>",
+        ]
+
+    return head + "\n" + "\n".join(body)
+
+
 def profile_text(character, class_def=None, combat=None, affinities=None):
     """Профиль героя: база + бонусы от надетых уникальных предметов."""
     icon = (class_def.icon if class_def else None) or "👤"
@@ -301,6 +404,86 @@ def loot_text(inv_items) -> str:
     lines = ["🎁 <b>Добыча:</b>"]
     for inv in inv_items:
         lines.append("• " + item_line(inv, show_uid=True))
+    return "\n".join(lines)
+
+
+TYPE_LABELS = {
+    "weapon": "⚔️ Оружие", "armor": "🦺 Броня", "helmet": "🪖 Шлем",
+    "boots": "👢 Сапоги", "accessory": "💍 Аксессуар",
+    "consumable": "🧪 Расходник", "material": "🧱 Материал",
+}
+
+BONUS_LABELS = {
+    "bonus_strength": "💪 Сила", "bonus_agility": "🏃 Ловкость",
+    "bonus_intelligence": "🧠 Интеллект", "bonus_endurance": "🛡 Выносливость",
+    "bonus_luck": "🍀 Удача", "bonus_hp": "❤️ HP", "bonus_mp": "💙 MP",
+    "bonus_damage": "⚔️ Урон", "bonus_defense": "🛡 Защита",
+}
+
+# Короткие «легенды» по типам вещей: у шаблонов из админки описание часто
+# одностройное, а книге нужен кусочек истории, а не только цифры.
+TYPE_LORE = {
+    "weapon": "Оружие в Теневых Землях переживает своих хозяев. "
+              "Каждая зарубка на нём — чья-то последняя ошибка.",
+    "armor": "Броню здесь не полируют: слой копоти и старой крови "
+             "считается лучшим оберегом, чем любая молитва.",
+    "helmet": "Голову берегут больше прочего — из тех, кто пренебрёг шлемом, "
+              "мало кто вернулся рассказать об этом.",
+    "boots": "Дороги Теневых Земель длиннее, чем кажутся. "
+             "Сапоги изнашиваются раньше, чем клинок тупится.",
+    "accessory": "Мелочи, которые носят у сердца: половина из них — "
+                 "обереги, другая половина — чужие долги.",
+    "consumable": "Знахарское ремесло уцелело там, где пала магия. "
+                  "Пахнет дурно, но действует.",
+    "material": "Сырьё для тех, у кого есть время и наковальня. "
+                "Само по себе бесполезно, в умелых руках — незаменимо.",
+}
+
+
+def item_book_text(item, page: int, total: int, header: str = "📖 Книга предметов",
+                   price: int | None = None, stock: int | None = None,
+                   owned: int = 0, note: str = "") -> str:
+    """Страница книги про предмет-шаблон (лавка, справочник материалов).
+
+    В отличие от `item_detail_text`, работает с шаблоном `Item`, а не с
+    экземпляром в сумке: у товара на прилавке ещё нет ни ID, ни истории
+    владельцев, зато есть описание, назначение и цена.
+    """
+    type_v = getattr(item.item_type, "value", str(item.item_type))
+    rarity_v = getattr(item.rarity, "value", str(item.rarity))
+
+    lines = [
+        f"{header} — страница <b>{page + 1}</b> из <b>{total}</b>",
+        "",
+        f"{item.icon or '❔'} <b>{item.name}</b>",
+        f"{TYPE_LABELS.get(type_v, type_v)} · "
+        f"{RARITY_ICONS.get(rarity_v, '⚪')} <code>{rarity_v}</code>"
+        + (f" · нужен ур. {item.level_requirement}"
+           if (item.level_requirement or 1) > 1 else ""),
+        "",
+        f"<i>{item.description}</i>",
+    ]
+
+    lore = TYPE_LORE.get(type_v)
+    if lore:
+        lines += ["", f"📜 <i>{lore}</i>"]
+
+    bonuses = item.base_bonuses() if hasattr(item, "base_bonuses") else {}
+    rows = [f"{label} +{bonuses[field]}"
+            for field, label in BONUS_LABELS.items() if bonuses.get(field)]
+    lines += ["", "<b>Свойства:</b>\n" + ("\n".join(rows) if rows
+                                          else "<i>без бонусов</i>")]
+
+    if price is not None:
+        stock_note = ""
+        if stock is not None and stock >= 0:
+            stock_note = (f" · осталось <b>{stock}</b> шт."
+                          if stock else " · <b>распродано</b>")
+        lines += ["", f"🪙 Цена: <b>{price}</b>{stock_note}"]
+    if owned:
+        lines.append(f"🎒 У тебя уже есть: <b>{owned}</b> шт.")
+    if note:
+        lines += ["", note]
     return "\n".join(lines)
 
 

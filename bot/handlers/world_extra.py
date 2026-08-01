@@ -19,7 +19,7 @@ from core import landmarks as core_landmarks
 from core import worldevents as core_events
 from core.database import async_session
 from core.models import Character, User
-from bot.keyboards.inline import main_menu_keyboard
+from bot.keyboards.inline import continue_keyboard, main_menu_keyboard
 from bot.utils.edit import safe_edit_text
 
 router = Router()
@@ -41,6 +41,16 @@ async def _character(session, telegram_id):
 
 
 def _back_keyboard():
+    """Итог мирового действия: вернуться к прогулке, а не в меню.
+
+    Диковины и надгробия находят прямо на клетке — выбрасывать после них
+    игрока в главное меню значит обрывать вылазку на полпути.
+    """
+    return continue_keyboard()
+
+
+def _menu_keyboard():
+    """Для экранов, открытых из меню (репутация): назад в меню."""
     builder = InlineKeyboardBuilder()
     builder.button(text="◀️ Меню", callback_data="main_menu")
     return builder.as_markup()
@@ -59,7 +69,7 @@ async def reputation(callback: CallbackQuery):
     await safe_edit_text(
         callback,
         text,
-        reply_markup=_back_keyboard(),
+        reply_markup=_menu_keyboard(),
         parse_mode="HTML",
     )
 

@@ -114,8 +114,11 @@
     </div>
 
     <div class="world-100" id="worldGrid">
-        {% for wx in grid_range %}
-            {% for wy in grid_range %}
+        {# Ряд карты — это одна «широта» (world_y), а колонка — world_x:
+           так строка локаций вдоль оси X выглядит горизонтальной, как в
+           core/worldgen.DIRS (x — восток, y — юг) и на карте у игрока. #}
+        {% for wy in grid_range %}
+            {% for wx in grid_range %}
                 {% set loc = grid.get((wx, wy)) %}
                 {% if loc %}
                 <div class="world-cell loc-cell {% if (loc.floors_count or 1) > 1 %}multi-floor{% endif %}"

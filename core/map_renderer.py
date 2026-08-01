@@ -202,42 +202,142 @@ LOC_TYPE_COLORS = {
 LOC_TYPE_ICONS = {"safe": "🛡", "dangerous": "⚠", "dungeon": "💀", "boss": "👹"}
 
 
+def _fit_font(size: int):
+    for path in (
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    ):
+        if os.path.exists(path):
+            try:
+                return ImageFont.truetype(path, size)
+            except Exception:
+                pass
+    return ImageFont.load_default()
+
+
+def _wrap(draw, text: str, font, max_w: int, max_lines: int = 2) -> list:
+    """Перенос названия локации по словам под ширину плитки."""
+    words = (text or "").split()
+    lines, cur = [], ""
+    for word in words:
+        probe = f"{cur} {word}".strip()
+        if draw.textlength(probe, font=font) <= max_w or not cur:
+            cur = probe
+        else:
+            lines.append(cur)
+            cur = word
+            if len(lines) == max_lines:
+                break
+    if cur and len(lines) < max_lines:
+        lines.append(cur)
+    if not lines:
+        return [""]
+    # Если не влезло — обрезаем последнюю строку многоточием.
+    while draw.textlength(lines[-1], font=font) > max_w and len(lines[-1]) > 1:
+        lines[-1] = lines[-1][:-1]
+    if len(" ".join(lines)) < len(text or ""):
+        lines[-1] = lines[-1].rstrip() + "…"
+    return lines
+
+
+def world_bounds(locations, world_grid_size: int, pad: int = 0):
+    """Прямоугольник мировой карты, реально занятый локациями (+рамка).
+
+    Раньше карта всегда рисовалась во всю сетку 10×10, и пять стартовых
+    локаций терялись крошечной полоской в море тумана — из-за чего строка
+    вдоль оси X выглядела «неправильно повёрнутой». Обрезаем пустоту.
+    """
+    xs = [l.world_x for l in locations
+          if 0 <= l.world_x < world_grid_size and 0 <= l.world_y < world_grid_size]
+    ys = [l.world_y for l in locations
+          if 0 <= l.world_x < world_grid_size and 0 <= l.world_y < world_grid_size]
+    if not xs:
+        return 0, 0, min(world_grid_size, 3) - 1, min(world_grid_size, 3) - 1
+    x0 = max(0, min(xs) - pad)
+    y0 = max(0, min(ys) - pad)
+    x1 = min(world_grid_size - 1, max(xs) + pad)
+    y1 = min(world_grid_size - 1, max(ys) + pad)
+    return x0, y0, x1, y1
+
+
 def render_world_map(locations, visited_ids: set, current_loc_id: int,
-                     world_grid_size: int, output_path: str, cell_px: int = 64) -> str:
+                     world_grid_size: int, output_path: str, cell_px: int = 128) -> str:
     """Мировая карта: сетка локаций с туманом войны по посещённости.
 
-    Посещённые локации окрашены по типу и подписаны, текущая обведена,
-    непосещённые скрыты туманом. world_x — горизонталь, world_y — вертикаль.
+    Ось world_x — горизонталь (запад→восток), world_y — вертикаль
+    (север→юг): та же система координат, что в `core/worldgen.DIRS`
+    и в сетке админ-панели. Рисуем только занятую часть мира, поэтому
+    ряд локаций вдоль X читается как настоящий ряд, а не как полоска
+    пикселей в углу пустого поля.
     """
-    size = world_grid_size * cell_px
-    img = Image.new("RGB", (size, size), FOG_COLOR)
-    draw = ImageDraw.Draw(img)
-    try:
-        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 12)
-    except Exception:
-        font = ImageFont.load_default()
+    locations = list(locations)
+    x0, y0, x1, y1 = world_bounds(locations, world_grid_size)
+    cols, rows = (x1 - x0 + 1), (y1 - y0 + 1)
 
+    # Плитки не должны получаться микроскопическими на широком мире.
+    cell_px = max(72, min(cell_px, 1600 // max(cols, rows)))
+    width, height = cols * cell_px, rows * cell_px
+    img = Image.new("RGB", (width, height), FOG_COLOR)
+    draw = ImageDraw.Draw(img)
+
+    name_font = _fit_font(max(11, cell_px // 9))
+    icon_font = _fit_font(max(14, cell_px // 5))
+
+    placed = {}
     for loc in locations:
-        if not (0 <= loc.world_x < world_grid_size and 0 <= loc.world_y < world_grid_size):
+        if not (x0 <= loc.world_x <= x1 and y0 <= loc.world_y <= y1):
             continue
-        px, py = loc.world_x * cell_px, loc.world_y * cell_px
-        box = [px + 2, py + 2, px + cell_px - 3, py + cell_px - 3]
+        placed[(loc.world_x, loc.world_y)] = loc
+
+    # Дороги между соседями — мир читается как связная карта, а не как плитки.
+    for (wx, wy), loc in placed.items():
+        for dx, dy in ((1, 0), (0, 1)):
+            nb = placed.get((wx + dx, wy + dy))
+            if nb is None:
+                continue
+            if loc.id not in visited_ids and nb.id not in visited_ids:
+                continue
+            ax = (wx - x0) * cell_px + cell_px // 2
+            ay = (wy - y0) * cell_px + cell_px // 2
+            bx = (wx + dx - x0) * cell_px + cell_px // 2
+            by = (wy + dy - y0) * cell_px + cell_px // 2
+            draw.line([ax, ay, bx, by], fill=(80, 84, 92), width=max(2, cell_px // 24))
+
+    for (wx, wy), loc in placed.items():
+        px, py = (wx - x0) * cell_px, (wy - y0) * cell_px
+        pad = max(3, cell_px // 16)
+        box = [px + pad, py + pad, px + cell_px - pad, py + cell_px - pad]
         if loc.id in visited_ids:
             color = LOC_TYPE_COLORS.get(loc.location_type.value, (60, 65, 70))
-            draw.rectangle(box, fill=color, outline=(90, 95, 100))
-            name = loc.name
-            if len(name) > 9:
-                name = name[:8] + "…"
-            draw.text((px + 6, py + cell_px // 2 - 6), name,
-                      fill=(235, 235, 235), font=font,
-                      stroke_width=1, stroke_fill=(0, 0, 0))
+            draw.rectangle(box, fill=color, outline=(120, 126, 134), width=2)
+            lines = _wrap(draw, loc.name, name_font, cell_px - 2 * pad - 6)
+            line_h = max(12, cell_px // 8)
+            total_h = line_h * len(lines)
+            ty = py + cell_px // 2 - total_h // 2 + line_h // 3
+            for line in lines:
+                tw = draw.textlength(line, font=name_font)
+                draw.text((px + cell_px // 2 - tw / 2, ty), line,
+                          fill=(240, 240, 240), font=name_font,
+                          stroke_width=2, stroke_fill=(0, 0, 0))
+                ty += line_h
+            lvl = f"ур. {loc.min_level or 1}+"
+            lw = draw.textlength(lvl, font=name_font)
+            draw.text((px + cell_px // 2 - lw / 2, py + cell_px - pad - line_h - 2),
+                      lvl, fill=(215, 215, 215), font=name_font,
+                      stroke_width=2, stroke_fill=(0, 0, 0))
+            # Тип локации — цветная полоска сверху: emoji в TTF-шрифте
+            # Pillow не рисует (выходит пустой прямоугольник).
+            draw.rectangle([px + pad, py + pad, px + cell_px - pad,
+                            py + pad + max(4, cell_px // 20)],
+                           fill=tuple(min(255, c + 60) for c in color))
         else:
             draw.rectangle(box, fill=(28, 30, 36), outline=(55, 58, 66))
-            draw.text((px + cell_px // 2 - 5, py + cell_px // 2 - 9), "?",
-                      fill=(90, 93, 100), font=font)
+            qw = draw.textlength("?", font=icon_font)
+            draw.text((px + cell_px // 2 - qw / 2, py + cell_px // 2 - cell_px // 10),
+                      "?", fill=(95, 98, 106), font=icon_font)
         if loc.id == current_loc_id:
-            draw.rectangle([px + 1, py + 1, px + cell_px - 2, py + cell_px - 2],
-                           outline=PLAYER_RING, width=3)
+            draw.rectangle([px + 2, py + 2, px + cell_px - 3, py + cell_px - 3],
+                           outline=PLAYER_RING, width=max(3, cell_px // 24))
 
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
     img.save(output_path, "PNG")
