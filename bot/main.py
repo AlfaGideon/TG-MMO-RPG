@@ -17,7 +17,7 @@ async def main():
     # Try to read token from env for standalone mode
     from bot.config import settings
     if settings.BOT_TOKEN:
-        await bot_runner.start(settings.BOT_TOKEN)
+        await bot_runner.start(settings.BOT_TOKEN, settings.TELEGRAM_PROXY_URL)
         # Keep running
         while bot_runner.is_running():
             await asyncio.sleep(1)

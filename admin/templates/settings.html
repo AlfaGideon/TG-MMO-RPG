@@ -35,6 +35,30 @@
         {% endif %}
     </form>
 
+    <form action="/settings/save-telegram-proxy" method="post" class="field" style="margin-bottom:1.5rem;">
+        <label class="form-label" for="telegram_proxy_url">Telegram proxy для бота (Tor / SOCKS5)</label>
+        <div class="form-inline">
+            <input type="text" id="telegram_proxy_url" name="telegram_proxy_url" class="search-box"
+                   style="flex:1; min-width:280px; max-width:600px;"
+                   placeholder="socks5://127.0.0.1:9050"
+                   value="{{ telegram_proxy_url }}">
+            <button type="submit" class="btn btn-primary">💾 Сохранить прокси</button>
+        </div>
+        <p class="hint">
+            Оставь пустым для прямого подключения. Для Tor обычно подходит
+            <code>socks5://127.0.0.1:9050</code>, для Tor Browser —
+            <code>socks5://127.0.0.1:9150</code>. Прокси используется <b>только ботом</b>
+            для связи с Telegram; админ-панель открывай в обычном Chrome/Edge.
+        </p>
+        {% if telegram_proxy_masked %}
+        <p class="hint">Текущий прокси: <code>{{ telegram_proxy_masked }}</code></p>
+        {% endif %}
+    </form>
+
+    {% if bot_error %}
+    <p class="hint" style="color: var(--danger);">Последняя ошибка бота: <code>{{ bot_error }}</code></p>
+    {% endif %}
+
     <div class="form-actions" style="margin-top:0;">
         <button type="button" class="btn btn-primary" onclick="startBot()">▶️ Запустить бота</button>
         <button type="button" class="btn btn-danger" onclick="stopBot()">⏹ Остановить бота</button>

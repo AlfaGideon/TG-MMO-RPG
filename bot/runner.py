@@ -4,6 +4,7 @@ from typing import Optional
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
+from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
 
 from bot.handlers import routers
@@ -24,35 +25,65 @@ class BotRunner:
         self._spawn_tick_task: Optional[asyncio.Task] = None
         self._bg_tasks: set = set()      # ссылки на fire-and-forget задачи
         self._running = False
+        self.last_error: Optional[str] = None
+        self.proxy_url: str = ""
 
     def is_running(self) -> bool:
         return self._running and self._task is not None and not self._task.done()
 
-    async def start(self, token: str) -> bool:
+    def _ensure_dispatcher(self):
+        if self.dp is not None:
+            return
+
+        self.dp = Dispatcher()
+        # Свежий LRU update_id на каждый старт — после рестарта Telegram
+        # может прислать старые id, но offset уже сдвинут, а если нет —
+        # лучше один раз обработать, чем проглотить «как будто дубль».
+        reset_deduper()
+        # aiogram 3: wrap_middlewares делает reversed() — первый
+        # зарегистрированный middleware = самый внешний (идёт первым).
+        # Снаружи внутрь: дедуп → сериализация → БД → офлайн → handler.
+        for event_type in (self.dp.message, self.dp.callback_query):
+            event_type.middleware(DedupUpdateMiddleware())
+            event_type.middleware(SerializeUserMiddleware())
+            event_type.middleware(DBSessionMiddleware())
+            event_type.middleware(OfflineProtectionMiddleware())
+        for router in routers:
+            self.dp.include_router(router)
+
+    async def _close_current_bot(self):
+        if self.bot:
+            try:
+                await self.bot.session.close()
+            except Exception:
+                pass
+            self.bot = None
+
+    async def start(self, token: str, proxy_url: str = "") -> bool:
         if self.is_running():
             logger.info("Bot already running")
             return False
 
+        # После сетевой ошибки polling мог остановиться сам, не проходя через
+        # ручной stop(). Закрываем старую HTTP-сессию, но Dispatcher оставляем:
+        # aiogram Router нельзя прикрепить к новому Dispatcher повторно. Именно
+        # это давало ошибку «Router is already attached ...» при следующем старте.
+        await self._close_current_bot()
+
+        proxy_url = (proxy_url or "").strip()
         try:
-            self.bot = Bot(
-                token=token,
-                default=DefaultBotProperties(parse_mode=ParseMode.HTML)
-            )
-            self.dp = Dispatcher()
-            # Свежий LRU update_id на каждый старт — после рестарта Telegram
-            # может прислать старые id, но offset уже сдвинут, а если нет —
-            # лучше один раз обработать, чем проглотить «как будто дубль».
+            bot_kwargs = {
+                "token": token,
+                "default": DefaultBotProperties(parse_mode=ParseMode.HTML),
+            }
+            if proxy_url:
+                bot_kwargs["session"] = AiohttpSession(proxy=proxy_url)
+
+            self.bot = Bot(**bot_kwargs)
+            self.proxy_url = proxy_url
+            self.last_error = None
             reset_deduper()
-            # aiogram 3: wrap_middlewares делает reversed() — первый
-            # зарегистрированный middleware = самый внешний (идёт первым).
-            # Снаружи внутрь: дедуп → сериализация → БД → офлайн → handler.
-            for event_type in (self.dp.message, self.dp.callback_query):
-                event_type.middleware(DedupUpdateMiddleware())
-                event_type.middleware(SerializeUserMiddleware())
-                event_type.middleware(DBSessionMiddleware())
-                event_type.middleware(OfflineProtectionMiddleware())
-            for router in routers:
-                self.dp.include_router(router)
+            self._ensure_dispatcher()
 
             self._running = True
             self._task = asyncio.create_task(self._poll())
@@ -67,12 +98,18 @@ class BotRunner:
             cleanup.add_done_callback(self._bg_tasks.discard)
             self._portal_sweep_task = asyncio.create_task(self._portal_sweep_loop())
             self._spawn_tick_task = asyncio.create_task(self._spawn_tick_loop())
-            logger.info("Bot started")
+            if proxy_url:
+                logger.info("Bot started via Telegram proxy")
+            else:
+                logger.info("Bot started")
             return True
         except Exception as e:
+            self.last_error = str(e)
             logger.error(f"Failed to start bot: {e}")
             self._running = False
+            await self._close_current_bot()
             return False
+
 
     async def _notify_resume_on_start(self):
         """Fire-and-forget: right after (re)starting, nudge players whose
@@ -164,13 +201,27 @@ class BotRunner:
         except asyncio.CancelledError:
             pass
         except Exception as e:
+            self.last_error = str(e)
             logger.error(f"Bot polling error: {e}")
         finally:
             self._running = False
+            # Если polling упал сам (например, сеть/Telegram недоступны),
+            # фоновые циклы не должны ожить повторно при следующем старте.
+            for task in (self._portal_sweep_task, self._spawn_tick_task):
+                if task and not task.done():
+                    task.cancel()
+            self._portal_sweep_task = None
+            self._spawn_tick_task = None
+            await self._close_current_bot()
 
     async def stop(self) -> bool:
         if not self.is_running():
             logger.info("Bot not running")
+            for task in list(self._bg_tasks):
+                if task and not task.done():
+                    task.cancel()
+            self._bg_tasks.clear()
+            await self._close_current_bot()
             return False
 
         self._running = False
