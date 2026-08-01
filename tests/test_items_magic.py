@@ -142,17 +142,20 @@ async def scenario():
         own = await auction.buy_lot(s, seller, lot)
         check(not own["ok"], "свой лот купить нельзя")
 
-        poor = await make_char(9003, "Бедняк", gold=1)
+        poor = await make_char(9003, "Бедняк", gold=0)
+        poor.silver = 0
+        poor.bronze = 0
         await s.commit()
         no_gold = await auction.buy_lot(s, poor, lot)
         check(not no_gold["ok"], "без золота купить нельзя")
 
-        seller_gold, buyer_gold = seller.gold, buyer.gold
+        from engine.currency import total_in_bronze
+        seller_gold, buyer_gold = total_in_bronze(seller), total_in_bronze(buyer)
         out = await auction.buy_lot(s, buyer, lot)
         await s.commit()
         check(out["ok"], "покупка прошла")
-        check(buyer.gold == buyer_gold - lot.price, "с покупателя списана цена")
-        check(seller.gold == seller_gold + out["payout"], "продавец получил выплату")
+        check(total_in_bronze(buyer) == buyer_gold - lot.price, "с покупателя списана цена")
+        check(total_in_bronze(seller) == seller_gold + out["payout"], "продавец получил выплату")
         check(out["payout"] < lot.price, "комиссия удержана")
         check(lot.status == "sold", "лот помечен проданным")
 
@@ -183,11 +186,12 @@ async def scenario():
         market = auction.suggested_price(inv2.instance, dagger)
         check(0 < quote < market, f"скупщик даёт меньше рынка ({quote} < {market})")
 
-        gold_before = buyer.gold
+        from engine.currency import total_in_bronze
+        gold_before = total_in_bronze(buyer)
         npc = await auction.npc_buy(s, buyer, inv2)
         await s.commit()
         check(npc["ok"], "скупщик выкупил вещь")
-        check(buyer.gold == gold_before + quote, "деньги пришли сразу")
+        check(total_in_bronze(buyer) == gold_before + quote, "деньги пришли сразу")
         npc_lots = [l for l in await auction.active_lots(s) if l.is_npc_lot]
         check(bool(npc_lots), "вещь перевыставлена скупщиком")
         check(npc_lots[0].price > quote, "скупщик перепродаёт с наценкой")

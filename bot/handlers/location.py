@@ -420,6 +420,25 @@ async def inspect_cell(callback: CallbackQuery):
                      else grave.owner_name or "чужая")
             found.append(f"🪦 Надгробие ({whose}) — {grave.gold} 🪙")
 
+        # Другие игроки на клетке
+        result_others = await session.execute(
+            select(Character)
+            .where(Character.location_id == cell.location_id)
+            .where(Character.cell_id == cell.id)
+            .where(Character.floor == (cell.floor or 0))
+            .where(Character.id != character.id)
+            .where(Character.stats_locked == True)
+        )
+        other_chars = result_others.scalars().all()
+        has_others = len(other_chars) > 0
+        if has_others:
+            import core.factions as core_factions
+            names_list = []
+            for oc in other_chars:
+                f_icon = core_factions.FACTIONS.get(core_factions.allegiance(oc), ("", ""))[0] or "👤"
+                names_list.append(f"{f_icon} <b>{oc.name}</b> (ур. {oc.level})")
+            found.append("👥 <b>Другие герои здесь:</b>\n" + ", ".join(names_list))
+
         if found:
             lines.append("\n" + "\n".join(found))
         else:
@@ -434,6 +453,7 @@ async def inspect_cell(callback: CallbackQuery):
                 is_auctioneer=cell.npc_type == "auctioneer",
                 has_landmark=has_landmark,
                 has_grave=grave is not None,
+                has_players=has_others,
             ),
             parse_mode="HTML",
         )
@@ -779,7 +799,8 @@ async def open_chest(callback: CallbackQuery):
         tier = max(1, cell.chest_tier or 1)
         base_gold = random.randint(5 * tier, 25 * tier)
         gold = apply_vip_chest_gold(base_gold, character)
-        character.gold += gold
+        from engine.currency import add_currency, CONVERSION
+        add_currency(character, bronze=gold)
 
         # Уникальный лут: статы предметов катаются в момент открытия
         loot = await give_chest_loot(session, character, cell.location_id, tier)
@@ -800,9 +821,20 @@ async def open_chest(callback: CallbackQuery):
         except Exception:
             pass
 
-        text = f"📦 <b>Сундук открыт!</b>\n\nВнутри ты нашёл {gold}🪙 золота."
+        def fmt_b(val):
+            g_v = val // (CONVERSION * CONVERSION)
+            rem = val % (CONVERSION * CONVERSION)
+            s_v = rem // CONVERSION
+            b_v = rem % CONVERSION
+            parts = []
+            if g_v > 0: parts.append(f"{g_v}🪙")
+            if s_v > 0: parts.append(f"{s_v}🥈")
+            if b_v > 0 or not parts: parts.append(f"{b_v}🪙")
+            return " ".join(parts)
+
+        text = f"📦 <b>Сундук открыт!</b>\n\nВнутри ты нашёл {fmt_b(gold)}."
         if is_vip_active(character) and gold != base_gold:
-            text += f" <i>(+{gold - base_gold} бонус VIP)</i>"
+            text += f" <i>(+{fmt_b(gold - base_gold)} бонус VIP)</i>"
         if loot:
             text += "\n\n" + loot_text(loot)
         else:
@@ -878,6 +910,8 @@ async def show_cell(callback, character, location, session):
         text += ("\n\n🧳 <b>Здесь стоит бродячий торговец!</b> "
                  "<i>«Свежие диковинки — дёшево, только до заката!»</i>")
 
+    is_basement = bool(location.name.startswith("Замок") and character.floor == 1)
+
     # Use custom cell/location image if provided and valid
     custom_img = cell.image_url or location.image_url
     if custom_img and get_photo_input(custom_img):
@@ -886,7 +920,8 @@ async def show_cell(callback, character, location, session):
             text,
             reply_markup=cell_movement_keyboard(can_dirs, portal_template_id, dir_labels,
                                    transition_label, is_vip=vip,
-                                   has_merchant=has_merchant),
+                                   has_merchant=has_merchant,
+                                   is_castle_basement=is_basement),
             image_url=custom_img,
         )
         return
@@ -901,7 +936,8 @@ async def show_cell(callback, character, location, session):
     img_path = ensure_cell_image(cell, cells, cell.x, cell.y)
     kb = cell_movement_keyboard(can_dirs, portal_template_id, dir_labels,
                                    transition_label, is_vip=vip,
-                                   has_merchant=has_merchant)
+                                   has_merchant=has_merchant,
+                                   is_castle_basement=is_basement)
 
     await send_or_edit_photo(
         callback,
@@ -930,3 +966,178 @@ async def _active_portal_template_id(session, cell: Cell):
         await close_portal(session, template)
         await session.commit()
     return None
+
+
+@router.callback_query(F.data == "dig_tunnel")
+async def dig_tunnel_menu(callback: CallbackQuery):
+    async with async_session() as session:
+        result = await session.execute(
+            select(User).where(User.telegram_id == callback.from_user.id)
+        )
+        user = result.scalar_one_or_none()
+        result = await session.execute(
+            select(Character)
+            .where(Character.user_id == user.id)
+            .options(selectinload(Character.location), selectinload(Character.cell))
+        )
+        character = result.scalar_one_or_none()
+        if not character or not character.cell:
+            await callback.answer("Ошибка: персонаж не найден.", show_alert=True)
+            return
+
+        loc = character.location
+        if not loc.name.startswith("Замок") or character.floor != 1:
+            await callback.answer("Эта функция доступна только в подвалах стартовых замков.", show_alert=True)
+            return
+
+        # Neighbors config (enmity by circle)
+        neighbors = {
+            "Замок Рассвета": [("Замок Теней", "cult"), ("Замок Глубин", "scavengers")],
+            "Замок Теней": [("Замок Рассвета", "order"), ("Замок Пепла", "guard")],
+            "Замок Пепла": [("Замок Теней", "cult"), ("Замок Глубин", "scavengers")],
+            "Замок Глубин": [("Замок Рассвета", "order"), ("Замок Пепла", "guard")],
+        }
+
+        targets = neighbors.get(loc.name, [])
+        from aiogram.utils.keyboard import InlineKeyboardBuilder
+        builder = InlineKeyboardBuilder()
+
+        lines = [
+            "⛏️ <b>Подземные подкопы и диверсии</b>\n\n"
+            "Здесь, в глубоких подвалах замка, ты можешь прокопать секретные подземные ходы "
+            "к замкам соседних враждебных фракций, чтобы устраивать неожиданные рейды и диверсии!\n\n"
+            "Копать можно к двум соседним замкам (по кругу вражды). Диагональный союзник неприкосновен.\n\n"
+            "<b>Стоимость прокопки:</b>\n"
+            "• 🧱 Железный лом ×10\n"
+            "• 🧱 Стальной слиток ×5\n"
+            "• 🪙 500 бронзы (авторазмен)\n\n"
+            "<b>Доступные направления:</b>\n"
+        ]
+
+        for target_name, faction_key in targets:
+            target_loc_res = await session.execute(
+                select(Location).where(Location.name == target_name)
+            )
+            target_loc = target_loc_res.scalar_one_or_none()
+            is_dug = False
+            if target_loc:
+                link_exists = await session.scalar(
+                    select(Cell)
+                    .where(Cell.location_id == loc.id)
+                    .where(Cell.floor == 1)
+                    .where(Cell.target_location_id == target_loc.id)
+                )
+                is_dug = link_exists is not None
+
+            if is_dug:
+                lines.append(f"✅ Подкоп к <b>{target_name}</b> — <b>ПРОКОПАН</b> (ищи клетку 🚪 на этаже)")
+            else:
+                lines.append(f"❌ Подкоп к <b>{target_name}</b> — закрыт")
+                if target_loc:
+                    builder.button(text=f"⛏️ Копать к {target_name}", callback_data=f"dig_to:{character.id}:{target_loc.id}")
+
+        builder.button(text="◀️ Назад", callback_data="back_to_cell")
+        builder.adjust(1)
+
+        await safe_edit_text(
+            callback,
+            "\n".join(lines),
+            reply_markup=builder.as_markup(),
+            parse_mode="HTML"
+        )
+
+
+@router.callback_query(F.data.startswith("dig_to:"))
+async def dig_to_callback(callback: CallbackQuery):
+    parts = callback.data.split(":")
+    char_id, target_loc_id = int(parts[1]), int(parts[2])
+
+    async with async_session() as session:
+        character = await session.get(Character, char_id)
+        if character is None:
+            await callback.answer("Персонаж не найден.", show_alert=True)
+            return
+
+        target_loc = await session.get(Location, target_loc_id)
+        if not target_loc:
+            await callback.answer("Цель не найдена.", show_alert=True)
+            return
+
+        loc = character.location
+
+        from core.crafting import _count_material, _consume_material
+        from engine.currency import total_in_bronze, deduct_currency
+
+        iron_have = await _count_material(session, character.id, 0)
+        steel_have = await _count_material(session, character.id, 3)
+        gold_have = total_in_bronze(character)
+
+        if iron_have < 10 or steel_have < 5 or gold_have < 500:
+            await callback.answer(
+                f"Недостаточно ресурсов!\n"
+                f"Требуется:\n"
+                f"• Железный лом: {iron_have}/10\n"
+                f"• Стальной слиток: {steel_have}/5\n"
+                f"• Бронза: {gold_have}/500",
+                show_alert=True
+            )
+            return
+
+        link_exists = await session.scalar(
+            select(Cell)
+            .where(Cell.location_id == loc.id)
+            .where(Cell.floor == 1)
+            .where(Cell.target_location_id == target_loc.id)
+        )
+        if link_exists:
+            await callback.answer("Этот подкоп уже прокопан!", show_alert=True)
+            return
+
+        loc_cells_res = await session.execute(
+            select(Cell)
+            .where(Cell.location_id == loc.id)
+            .where(Cell.floor == 1)
+            .where(Cell.is_passable == True)
+            .where(Cell.target_location_id.is_(None))
+        )
+        loc_cells = loc_cells_res.scalars().all()
+
+        target_cells_res = await session.execute(
+            select(Cell)
+            .where(Cell.location_id == target_loc.id)
+            .where(Cell.floor == 1)
+            .where(Cell.is_passable == True)
+            .where(Cell.target_location_id.is_(None))
+        )
+        target_cells = target_cells_res.scalars().all()
+
+        if not loc_cells or not target_cells:
+            await callback.answer("Ошибка: нет подходящих свободных клеток для подкопа.", show_alert=True)
+            return
+
+        import random
+        cell_a = random.choice(loc_cells)
+        cell_b = random.choice(target_cells)
+
+        await _consume_material(session, character.id, 0, 10)
+        await _consume_material(session, character.id, 3, 5)
+        deduct_currency(character, 500)
+
+        cell_a.target_location_id = target_loc.id
+        cell_a.target_x, cell_a.target_y, cell_a.target_floor = cell_b.x, cell_b.y, 1
+        cell_a.name = f"Подкоп в {target_loc.name}"
+        cell_a.description = f"Секретный подземный ход, прорытый твоими диверсантами к соседям."
+
+        cell_b.target_location_id = loc.id
+        cell_b.target_x, cell_b.target_y, cell_b.target_floor = cell_a.x, cell_a.y, 1
+        cell_b.name = f"Подкоп из {loc.name}"
+        cell_b.description = f"Секретный подземный ход диверсантов из враждебного замка."
+
+        # Award reputation
+        import core.factions as core_factions
+        core_factions.award(character, "grave_looted")
+
+        await session.commit()
+
+    await callback.answer("Подкоп успешно прокопан! Проход открыт!", show_alert=True)
+    await dig_tunnel_menu(callback)

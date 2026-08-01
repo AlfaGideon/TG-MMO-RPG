@@ -211,8 +211,9 @@ async def buy_lot(session, buyer: Character, lot: AuctionLot) -> dict:
         return {"ok": False, "reason": "Лот уже продан или снят."}
     if lot.seller_id == buyer.id:
         return {"ok": False, "reason": "Нельзя купить собственный лот."}
-    if buyer.gold < lot.price:
-        return {"ok": False, "reason": f"Не хватает {lot.price - buyer.gold}🪙."}
+    from engine.currency import total_in_bronze, deduct_currency, add_currency
+    if total_in_bronze(buyer) < lot.price:
+        return {"ok": False, "reason": f"Не хватает {lot.price - total_in_bronze(buyer)}🪙."}
 
     instance = await session.get(ItemInstance, lot.instance_id)
     item = await session.get(Item, lot.item_id)
@@ -231,14 +232,14 @@ async def buy_lot(session, buyer: Character, lot: AuctionLot) -> dict:
     if not await _claim_lot(session, lot, AuctionStatus.SOLD.value):
         return {"ok": False, "reason": "Лот уже продан или снят."}
 
-    buyer.gold -= lot.price
+    deduct_currency(buyer, lot.price)
 
     # Продавцу — деньги за вычетом комиссии
     payout = max(1, int(lot.price * (1 - COMMISSION)))
     if lot.seller_id and not lot.is_npc_lot:
         seller = await session.get(Character, lot.seller_id)
         if seller is not None:
-            seller.gold += payout
+            add_currency(seller, bronze=payout)
 
     lot.status = AuctionStatus.SOLD.value
     lot.buyer_id = buyer.id
@@ -311,7 +312,8 @@ async def npc_buy(session, character, inv_item: InventoryItem) -> dict:
         return {"ok": False, "reason": "Этот предмет нельзя продавать."}
 
     price = await npc_quote(session, inv_item)
-    character.gold += price
+    from engine.currency import add_currency
+    add_currency(character, bronze=price)
 
     await session.delete(inv_item)
     instance.owner_character_id = None

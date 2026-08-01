@@ -65,13 +65,95 @@ async def reputation(callback: CallbackQuery):
         if character is None:
             await callback.answer("Сначала создай персонажа!", show_alert=True)
             return
+
+        from core import factions as core_factions
+        my_faction = core_factions.allegiance(character)
+        my_rep = core_factions.value(character, my_faction) if my_faction else 0
+
+        # Load current leader
+        leader_id = None
+        if my_faction:
+            from core.models import AppSetting
+            leader_row = await session.scalar(
+                select(AppSetting).where(AppSetting.key == f"faction_leader_{my_faction}")
+            )
+            if leader_row and leader_row.value:
+                leader_id = int(leader_row.value)
+
+        leader_name = "Никто"
+        if leader_id:
+            leader_char = await session.get(Character, leader_id)
+            if leader_char:
+                leader_name = leader_char.name
+
         text = core_factions.card_text(character)
+
+        from aiogram.utils.keyboard import InlineKeyboardBuilder
+        builder = InlineKeyboardBuilder()
+
+        if my_faction:
+            text += f"\n\n👑 <b>Лидер твоей фракции:</b> {leader_name}"
+            is_leader = (leader_id == character.id)
+            if is_leader:
+                text += " <i>(Ты являешься лидером этой фракции! 👑)</i>"
+            elif my_rep >= 300:
+                builder.button(text="👑 Стать лидером фракции (50k🪙)", callback_data=f"become_leader:{my_faction}")
+
+        builder.button(text="◀️ Назад", callback_data="main_menu")
+        builder.adjust(1)
+
     await safe_edit_text(
         callback,
         text,
-        reply_markup=_menu_keyboard(),
+        reply_markup=builder.as_markup(),
         parse_mode="HTML",
     )
+
+
+@router.callback_query(F.data.startswith("become_leader:"))
+async def become_leader_callback(callback: CallbackQuery):
+    faction_key = callback.data.split(":")[1]
+
+    async with async_session() as session:
+        character = await _character(session, callback.from_user.id)
+        if character is None:
+            await callback.answer("Сначала создай персонажа!", show_alert=True)
+            return
+
+        from core import factions as core_factions
+        my_faction = core_factions.allegiance(character)
+        if my_faction != faction_key:
+            await callback.answer("Вы не принадлежите к этой фракции!", show_alert=True)
+            return
+
+        my_rep = core_factions.value(character, my_faction)
+        if my_rep < 300:
+            await callback.answer("Требуется максимальная репутация (300)!", show_alert=True)
+            return
+
+        from engine.currency import total_in_bronze, deduct_currency
+        if total_in_bronze(character) < 50000:
+            await callback.answer("Недостаточно средств! Требуется 50,000🪙 (бронзы).", show_alert=True)
+            return
+
+        # Deduct currency
+        deduct_currency(character, 50000)
+
+        # Set leader in settings
+        from core.models import AppSetting
+        leader_row = await session.scalar(
+            select(AppSetting).where(AppSetting.key == f"faction_leader_{faction_key}")
+        )
+        if not leader_row:
+            leader_row = AppSetting(key=f"faction_leader_{faction_key}", value=str(character.id))
+            session.add(leader_row)
+        else:
+            leader_row.value = str(character.id)
+
+        await session.commit()
+
+    await callback.answer("Поздравляем! Вы стали Лидером фракции! 👑", show_alert=True)
+    await reputation(callback)
 
 
 # ── надгробия ───────────────────────────────────────────────

@@ -560,7 +560,8 @@ async def dungeon_combat_attack(callback: CallbackQuery):
         state["rounds"] += 1
 
         if state["mob_hp"] <= 0:
-            character.gold += state["mob_gold"]
+            from engine.currency import add_currency
+            add_currency(character, bronze=state["mob_gold"])
             character.experience += state["mob_exp"]
             character.current_hp = max(1, state["char_hp"])
 
@@ -676,14 +677,26 @@ async def dungeon_open_chest(callback: CallbackQuery):
             await callback.answer("Здесь нет сундука.", show_alert=True)
             return
 
-        character.gold += current.chest_gold
+        from engine.currency import add_currency, CONVERSION
+        add_currency(character, bronze=current.chest_gold)
         current.has_chest = False
 
         # Уникальный лут: сначала таблица подземелья, потом общий пул сундуков
         loot = await _dungeon_loot(session, character, run.template_id, is_chest=True)
         await session.commit()
 
-        text = f"📦 <b>Сундук открыт!</b>\n\nВнутри {current.chest_gold}🪙 золота."
+        def fmt_b(val):
+            g_v = val // (CONVERSION * CONVERSION)
+            rem = val % (CONVERSION * CONVERSION)
+            s_v = rem // CONVERSION
+            b_v = rem % CONVERSION
+            parts = []
+            if g_v > 0: parts.append(f"{g_v}🪙")
+            if s_v > 0: parts.append(f"{s_v}🥈")
+            if b_v > 0 or not parts: parts.append(f"{b_v}🪙")
+            return " ".join(parts)
+
+        text = f"📦 <b>Сундук открыт!</b>\n\nВнутри {fmt_b(current.chest_gold)}."
         if loot:
             text += "\n\n" + loot_text(loot)
 

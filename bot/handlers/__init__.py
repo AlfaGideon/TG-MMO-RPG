@@ -16,6 +16,8 @@ from .world_extra import router as world_extra_router
 
 routers = [
     start_router,
+    help_book_router,
+    updates_book_router,
     character_router,
     location_router,
     battle_router,

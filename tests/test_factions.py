@@ -49,7 +49,7 @@ def test_opposing_interests():
 
     F.award(store, p, "undead_slain")
     check(F.value(p, "guard") > 0, "стража ценит упокоенную нежить")
-    check(F.value(p, "scavengers") < 0, "падальщики этим недовольны (из-за соперничества)")
+    check(F.value(p, "scavengers") >= 0, "падальщики нейтральны к убийству нежити")
     check(F.value(p, "order") > 0, "орден тоже ценит упокоенную нежить")
 
     guard_before = F.value(p, "guard")

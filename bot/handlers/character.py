@@ -22,7 +22,8 @@ router = Router()
 
 async def _profile_extra(session, character):
     """Цифры для разворотов «Снаряжение» и «Путь»."""
-    from core.models import InventoryItem, VisitedCell
+    from core.models import InventoryItem, VisitedCell, AppSetting
+    from core import factions as core_factions
 
     bag = await session.scalar(
         select(func.count(InventoryItem.id))
@@ -47,9 +48,20 @@ async def _profile_extra(session, character):
         .where(Battle.character_id == character.id)
         .where(Battle.result == BattleResult.VICTORY)
     ) or 0
+
+    my_faction = core_factions.allegiance(character)
+    is_leader = False
+    if my_faction:
+        leader_row = await session.scalar(
+            select(AppSetting).where(AppSetting.key == f"faction_leader_{my_faction}")
+        )
+        if leader_row and leader_row.value and int(leader_row.value) == character.id:
+            is_leader = True
+
     return {
         "bag_count": bag, "stash_count": stash, "visited": visited,
         "locations_seen": locations_seen, "victories": victories,
+        "is_leader": is_leader,
     }
 
 

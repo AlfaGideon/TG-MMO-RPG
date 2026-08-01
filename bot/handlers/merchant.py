@@ -49,15 +49,29 @@ async def _render_book(callback: CallbackQuery, page: int):
         if not state or int(state.get("location_id") or 0) != character.location_id:
             await callback.answer("🧳 Торговца здесь нет — он ушёл.", show_alert=True)
             return
+        from engine.currency import total_in_bronze, currency_str, CONVERSION
         page = max(0, min(page, len(wares) - 1))
         ware = wares[page]
         sold_out = ware["qty"] <= 0
-        affordable = character.gold >= ware["price"]
-        note = f"💰 У тебя: <b>{character.gold}</b>🪙"
+        affordable = total_in_bronze(character) >= ware["price"]
+        note = f"💰 У тебя: <b>{currency_str(character)}</b>"
         if sold_out:
             note += "\n<i>Этот товар уже разобрали.</i>"
         elif not affordable:
-            note += f"\n<i>Не хватает {ware['price'] - character.gold}🪙.</i>"
+            missing = ware["price"] - total_in_bronze(character)
+            g_val = missing // (CONVERSION * CONVERSION)
+            remainder = missing % (CONVERSION * CONVERSION)
+            s_val = remainder // CONVERSION
+            b_val = remainder % CONVERSION
+            missing_parts = []
+            if g_val > 0:
+                missing_parts.append(f"{g_val}🪙")
+            if s_val > 0:
+                missing_parts.append(f"{s_val}🥈")
+            if b_val > 0 or not missing_parts:
+                missing_parts.append(f"{b_val}🪙")
+            missing_str = " ".join(missing_parts)
+            note += f"\n<i>Не хватает {missing_str}.</i>"
         text = item_book_text(
             ware["item"], page, len(wares),
             header="🧳 Бродячий торговец",

@@ -307,7 +307,7 @@ def render_world_map(locations, visited_ids: set, current_loc_id: int,
         px, py = (wx - x0) * cell_px, (wy - y0) * cell_px
         pad = max(3, cell_px // 16)
         box = [px + pad, py + pad, px + cell_px - pad, py + cell_px - pad]
-        if loc.id in visited_ids:
+        if True:  # loc.id in visited_ids: (всегда раскрываем карту, чтобы видеть все 36+ локаций)
             color = LOC_TYPE_COLORS.get(loc.location_type.value, (60, 65, 70))
             draw.rectangle(box, fill=color, outline=(120, 126, 134), width=2)
             lines = _wrap(draw, loc.name, name_font, cell_px - 2 * pad - 6)

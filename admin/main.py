@@ -486,7 +486,7 @@ async def players_mass_action(
                                 "• 🗺️ Быстрый полёт везде\n"
                                 "• ⚖️ Без комиссии на аукционе\n"
                                 "• 🔥 Ежедневный бонус!\n\n"
-                                "<i>Статус уже активен. Все подробности — в меню «👑 VIP».</i>"
+                                "<i>Статус уже активен. Все подробности — в разделе «❓ Помощь» (страница 5: «👑 VIP и обновления»).</i>"
                             ),
                             parse_mode="HTML"
                         )
@@ -1054,7 +1054,7 @@ async def player_grant_vip(request: Request, char_id: int, vip_days: int = Form(
                             "• 🗺️ Быстрый полёт везде\n"
                             "• ⚖️ Без комиссии на аукционе\n"
                             "• 🔥 Ежедневный бонус!\n\n"
-                            "<i>Статус уже активен. Все подробности — в меню «👑 VIP».</i>"
+                            "<i>Статус уже активен. Все подробности — в разделе «❓ Помощь» (страница 5: «👑 VIP и обновления»).</i>"
                         ),
                         parse_mode="HTML"
                     )
@@ -2258,6 +2258,10 @@ async def editor_world(request: Request):
             .group_by(Character.location_id)
         )
         pop_by_loc = {row[1]: row[0] for row in result.all()}
+        
+        # Загружаем сид из настроек
+        seed_setting = await session.scalar(select(AppSetting).where(AppSetting.key == "seed"))
+        seed = int(seed_setting.value) if seed_setting else 1337
 
     grid = {(loc.world_x, loc.world_y): loc for loc in locations if 0 <= loc.world_x < WORLD_GRID_SIZE and 0 <= loc.world_y < WORLD_GRID_SIZE}
 
@@ -2267,6 +2271,7 @@ async def editor_world(request: Request):
         {
             "locations": locations, "grid": grid, "grid_range": range(WORLD_GRID_SIZE),
             "world_grid_size": WORLD_GRID_SIZE, "pop_by_loc": pop_by_loc,
+            "seed": seed,
         },
     )
 
@@ -2438,6 +2443,15 @@ async def editor_world_relink(request: Request):
         pairs = await W.relink_all(session)
         await session.commit()
     return RedirectResponse(url=f"/editor/world?relinked={pairs}", status_code=303)
+
+
+@app.post("/editor/world/regen")
+async def editor_world_regen(request: Request, seed: int = Form(...)):
+    """Полностью пересоздать мир на сервере под новым сидом."""
+    guard(request, "manage_content")
+    from core.seed import recreate_world_on_server
+    await recreate_world_on_server(seed)
+    return RedirectResponse(url="/editor/world", status_code=303)
 
 
 # ── Mobs Editor ────────────────────────────────────────────

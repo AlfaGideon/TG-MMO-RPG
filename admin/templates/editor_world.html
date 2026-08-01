@@ -180,6 +180,18 @@
     </form>
 </div>
 
+<div class="card">
+    <h2>🎲 Сиды мира</h2>
+    <p class="section-sub">Базовый сид задаёт мир целиком. Перегенерация сотрет ручные правки клеток, сбросит позиции игроков на спавн и пересоздаст мир под введённым сидом.</p>
+    <form action="/editor/world/regen" method="post" style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:flex-end;">
+        <div>
+            <label class="form-label">🌍 Базовый seed</label>
+            <input type="number" name="seed" id="seedInput" value="{{ seed }}" class="search-box" style="max-width:180px" required>
+        </div>
+        <button type="submit" class="btn btn-danger" onclick="return confirm('⚠️ Перегенерировать мир? Все ручные правки клеток будут потеряны, игроки вернутся на спавн.')">🎲 Перегенерировать мир</button>
+    </form>
+</div>
+
 <!-- Модалка создания -->
 <div class="modal-overlay" id="createModal" onclick="if(event.target===this)closeCreateModal()">
     <div class="modal-box">

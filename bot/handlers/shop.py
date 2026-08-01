@@ -92,17 +92,31 @@ async def _render_book(callback: CallbackQuery, page: int, healer: bool):
             )
             return
 
+        from engine.currency import total_in_bronze, currency_str, CONVERSION
         page = max(0, min(page, len(items) - 1))
         shop_item = items[page]
         owned = await _owned(session, character, shop_item.item_id)
         sold_out = shop_item.stock == 0
-        affordable = character.gold >= shop_item.price
+        affordable = total_in_bronze(character) >= shop_item.price
 
-        note = f"💰 У тебя: <b>{character.gold}</b>🪙"
+        note = f"💰 У тебя: <b>{currency_str(character)}</b>"
         if sold_out:
             note += "\n<i>Этот товар уже разобрали.</i>"
         elif not affordable:
-            note += f"\n<i>Не хватает {shop_item.price - character.gold}🪙.</i>"
+            missing = shop_item.price - total_in_bronze(character)
+            g_val = missing // (CONVERSION * CONVERSION)
+            remainder = missing % (CONVERSION * CONVERSION)
+            s_val = remainder // CONVERSION
+            b_val = remainder % CONVERSION
+            missing_parts = []
+            if g_val > 0:
+                missing_parts.append(f"{g_val}🪙")
+            if s_val > 0:
+                missing_parts.append(f"{s_val}🥈")
+            if b_val > 0 or not missing_parts:
+                missing_parts.append(f"{b_val}🪙")
+            missing_str = " ".join(missing_parts)
+            note += f"\n<i>Не хватает {missing_str}.</i>"
 
         text = item_book_text(
             shop_item.item, page, len(items), header=header,
@@ -161,8 +175,9 @@ async def buy_item(callback: CallbackQuery):
             await callback.answer("Товар не найден.", show_alert=True)
             return
 
-        if character.gold < shop_item.price:
-            await callback.answer("Недостаточно золота!", show_alert=True)
+        from engine.currency import total_in_bronze, deduct_currency
+        if total_in_bronze(character) < shop_item.price:
+            await callback.answer("Недостаточно средств!", show_alert=True)
             return
 
         if shop_item.stock == 0:
@@ -170,7 +185,7 @@ async def buy_item(callback: CallbackQuery):
             return
 
         healer = shop_item.item.item_type in HEALER_TYPES
-        character.gold -= shop_item.price
+        deduct_currency(character, shop_item.price)
         if shop_item.stock > 0:
             shop_item.stock -= 1
 

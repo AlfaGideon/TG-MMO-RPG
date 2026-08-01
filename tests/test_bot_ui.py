@@ -237,7 +237,7 @@ def test_item_book_text():
     check("Клинок, видевший" in text, "есть описание предмета")
     check("📜" in text, "есть кусочек истории/лора")
     check("⚔️ Урон +3" in text, "перечислены свойства")
-    check("Цена: <b>20</b>" in text and "осталось <b>3</b>" in text,
+    check("Цена: <b>20🪙</b>" in text and "осталось <b>3</b>" in text,
           "видна цена и остаток на прилавке")
     check(len(text) < 1024, f"страница влезает в подпись ({len(text)})")
 

@@ -12,6 +12,7 @@ from core.models import User, Character, Cell, Battle, AdminMessage, VisitedCell
 from bot.keyboards.inline import (
     main_menu_keyboard, class_select_keyboard, confirm_class_keyboard,
     back_to_main_keyboard, reroll_keyboard, help_menu_keyboard, back_to_help_keyboard,
+    faction_select_keyboard,
 )
 from bot.utils.texts import WELCOME_TEXT, class_description_text, reroll_text
 from bot.utils.photos import send_or_edit_photo
@@ -163,38 +164,6 @@ async def handle_text(message: Message, state: FSMContext):
                 "📨 <b>Сообщение отправлено администратору.</b>",
                 parse_mode="HTML",
             )
-
-
-@router.callback_query(F.data == "bot_updates")
-async def bot_updates_handler(callback: CallbackQuery, state: FSMContext):
-    await state.clear()
-    async with async_session() as session:
-        result = await session.execute(
-            select(GameUpdate).order_by(GameUpdate.created_at.desc()).limit(15)
-        )
-        updates = result.scalars().all()
-
-    if not updates:
-        text = (
-            "📢 <b>Обновления игры</b>\n\n"
-            "Пока нет записанных обновлений. Следите за новостями в ближайшее время!"
-        )
-    else:
-        text = "📢 <b>Обновления и изменения игры</b>\n\n"
-        # Один экран Telegram ограничен 4096 символами. Показываем самые
-        # свежие записи и безопасно экранируем текст, который ввёл админ.
-        for i, up in enumerate(updates[:8], 1):
-            date_str = up.created_at.strftime('%d.%m.%Y') if up.created_at else ''
-            title = escape(up.title or '')
-            text += f"{i}. <b>{title}</b> ({date_str})\n"
-            if up.change_type == "change":
-                text += f"   ❌ <i>Было:</i> {escape(up.was_text or '')}\n"
-                text += f"   ✅ <i>Стало:</i> {escape(up.became_text or '')}\n\n"
-            else:
-                text += f"   ⭐ {escape(up.became_text or '')}\n\n"
-
-    await safe_edit_text(callback, text, reply_markup=back_to_help_keyboard(), parse_mode="HTML")
-    await callback.answer()
 
 
 @router.callback_query(F.data == "bot_suggest")
@@ -499,8 +468,8 @@ async def reroll_stats(callback: CallbackQuery):
     if locked:
         await safe_edit_text(
             callback,
-            reroll_text(character, cls_def, base, rolled, affinities, final=True),
-            reply_markup=main_menu_keyboard(has_character=True),
+            FACTION_SELECT_TEXT,
+            reply_markup=faction_select_keyboard(char_id),
             parse_mode="HTML",
         )
         return
@@ -541,67 +510,147 @@ async def accept_stats(callback: CallbackQuery):
 
     await safe_edit_text(
         callback,
-        reroll_text(character, cls_def, base, rolled, affinities, final=True),
-        reply_markup=main_menu_keyboard(has_character=True),
+        FACTION_SELECT_TEXT,
+        reply_markup=faction_select_keyboard(char_id),
         parse_mode="HTML",
     )
 
 
-@router.callback_query(F.data == "help")
-async def help_handler(callback: CallbackQuery, state: FSMContext):
-    await state.clear()
-    # Beautiful help book - page 1
-    text = (
-        "📜 <b>Помощь и Информация по игре</b>\n\n"
-        "<b>Основные команды:</b>\n"
-        "• Профиль — статы, экипировка по слотам и золото\n"
-        "• Бой — охота на монстров (осмотрись на клетке и ищи 👾)\n"
-        "• Инвентарь — надеть, использовать, выбросить\n"
-        "• Лавка — покупка снаряжения\n"
-        "• Подземелье — процедурные данжи (соло)\n\n"
-        "<b>🆔 Уникальные предметы:</b>\n"
-        "У каждой вещи свой ID и свои статы — два одинаковых меча всё равно "
-        "разные. Смотри «Качество»: чем выше процент, тем удачнее экземпляр.\n"
-        "Значок перед ID говорит, откуда вещь: ⚔️ выбита в бою, 📦 из сундука, "
-        "🕳 из подземелья, 🔨 скована, 🏪 куплена, 🔁 с аукциона, "
-        "🎄 праздничная, 🌟 единственная в мире.\n\n"
-        "<b>📖 История:</b>\n"
-        "У именных вещей есть летопись — видно, кто её добыл и через сколько "
-        "рук она прошла. Ресурсы истории не имеют.\n\n"
-        "<b>⚖️ Аукцион:</b>\n"
-        "Продавай вещи другим игрокам или сразу скупщику — он даст меньше, "
-        "зато немедленно. Непроданный лот вернётся через сутки.\n\n"
-        "<b>🔮 Магия:</b>\n"
-        "Шесть школ: 🔥 огонь, ❄️ лёд, ⚡ гроза, 🌑 тьма, 🌿 природа, ✨ свет. "
-        "Дар бросается при создании героя — от полного его отсутствия до двух "
-        "школ сразу. Чем сильнее дар, тем мощнее «✨ Умение» в бою.\n\n"
-        "<b>🔨 Ремесло:</b>\n"
-        "Найди на карте кузнеца, алхимика или ювелира. Он скуёт вещь по рецепту "
-        "из твоих материалов и заточит то, что уже носишь. Заточка растит статы, "
-        "но при неудаче ресурсы сгорают.\n\n"
-        "<b>👾 Монстры:</b>\n"
-        "Мобы ходят по карте и восстанавливаются со временем. Слабые могут "
-        "забредать в опасные земли, а вот сильные к новичкам не заходят.\n\n"
-        "<b>⚖️ Фракционный баланс:</b>\n"
-        "Четыре силы связаны <b>по кругу вражды</b> (соседи — враги) и <b>по диагонали союза</b> (диагональ — союзники):\n"
-        "🛡 <b>Стража Погоста</b> ↔ 💰 <b>Гильдия падальщиков</b>   (враги по кругу)\n"
-        "💰 <b>Гильдия падальщиков</b> ↔ 🌑 <b>Культ Пожирателя</b>   (враги по кругу)\n"
-        "🌑 <b>Культ Пожирателя</b> ↔ ⚜️ <b>Орден Рассвета</b>   (враги по кругу)\n"
-        "⚜️ <b>Орден Рассвета</b> ↔ 🛡 <b>Стража Погоста</b>   (союзники по диагонали)\n"
-        "Помогая одной фракции, ты портишь репутацию у её соперника по кругу — быть другом для всех невозможно!\n\n"
-        "<b>🛠️ Проделанная работа (Последние крупные обновления):</b>\n"
-        "• 💰 <b>Трёхвалютная система</b>: бронза 🪙, серебро 🥈, золото 🪙. Автоконвертация 10→1. Все награды, магазины и сундуки теперь работают с тремя валютами.\n"
-        "• 🗺️ <b>Новые локации мира</b>: 4 угловых замка (25×25) + 32 опасных тракта = <b>36 локаций</b> на карте 10×10 (внутренние заменены).\n"
-        "1. 🎒 <b>Защищенный карман (Stash):</b> Ценные вещи теперь можно прятать в карман. При гибели героя вещи из сумки остаются на месте смерти в виде надгробия (их можно вернуть в течение суток), а скрытые в кармане вещи всегда уцелевают с героем.\n"
-        "2. 🕳️ <b>Процедурные подземелья (Dungeons):</b> Запущены глубокие опасные лабиринты. Порталы в них открываются случайно по всему миру. Внутри ждут сундуки, тайники и элитные враги.\n"
-        "3. 🌋 <b>Мировые катаклизмы:</b> Реализованы случайные и управляемые администраторами события (землетрясения, туманы, метеоритный дождь) и призывы грозных Мировых Боссов, победа над которыми приносит ценнейшую добычу всем участникам.\n"
-        "4. 👑 <b>VIP-статус:</b> Реализована полноценная VIP-система. Владельцы VIP получают +50% золота, +30% опыта, бонус к качеству лута, бесплатный аукцион, расширенный карман и моментальные путешествия во все открытые земли.\n\n"
-        "<b>Советы:</b>\n"
-        "— Мир бесшовный: иди к краю локации, чтобы попасть в соседнюю\n"
-        "— Отдыхай, чтобы восстановить здоровье\n"
-        "— Не выбрасывай хлам: лом, шкуры и кости нужны для крафта\n"
-        "— Сундуки со временем наполняются заново\n"
-        "— Пиши админу простым сообщением в бот\n\n"
-        "<i>Удачи в Теневых Землях...</i>"
+FACTION_SELECT_TEXT = """
+🌍 <b>Выбери свою стартовую фракцию</b>
+
+Твой герой готов к путешествию, но сперва выбери к какому из четырёх Великих Замков примкнуть. Каждый выбор даёт уникальные стартовые бонусы:
+
+🛡 <b>Стража Погоста</b> (на юго-востоке)
+• Стартовая локация: <b>Замок Пепла</b>
+• Бонус характеристик: <b>+3 Выносливость</b> ❤️
+• Стартовая репутация: <b>+50</b> у Стражи
+• Награда: <b>100🪙</b>
+
+💰 <b>Гильдия падальщиков</b> (на юго-западе)
+• Стартовая локация: <b>Замок Глубин</b>
+• Бонус характеристик: <b>+2 Удача, +1 Ловкость</b> 🍀🏃
+• Стартовая репутация: <b>+50</b> у Гильдии
+• Награда: <b>200🪙</b>
+
+🌑 <b>Культ Пожирателя</b> (на северо-востоке)
+• Стартовая локация: <b>Замок Теней</b>
+• Бонус характеристик: <b>+3 Интеллект</b> 🧠
+• Стартовая репутация: <b>+50</b> у Культа
+• Награда: <b>100🪙 + Осколок души</b>
+
+⚜️ <b>Орден Рассвета</b> (на северо-законе)
+• Стартовая локация: <b>Замок Рассвета</b>
+• Бонус характеристик: <b>+2 Сила, +1 Выносливость</b> 💪🛡
+• Стартовая репутация: <b>+50</b> у Ордена
+• Награда: <b>100🪙</b>
+
+<i>Твой выбор определит стартовую позицию и начальный расклад сил в мире. Выбирай мудро!</i>
+"""
+
+
+@router.callback_query(F.data.startswith("start_faction:"))
+async def start_faction_callback(callback: CallbackQuery):
+    parts = callback.data.split(":")
+    char_id = int(parts[1])
+    faction_key = parts[2]
+
+    faction_to_loc = {
+        "guard": "Замок Пепла",
+        "scavengers": "Замок Глубин",
+        "cult": "Замок Теней",
+        "order": "Замок Рассвета",
+    }
+    loc_name = faction_to_loc.get(faction_key)
+
+    async with async_session() as session:
+        character = await session.get(Character, char_id)
+        if character is None:
+            await callback.answer("Персонаж не найден.", show_alert=True)
+            return
+
+        loc_res = await session.execute(
+            select(Location).where(Location.name == loc_name)
+        )
+        loc = loc_res.scalar_one_or_none()
+        if not loc:
+            loc_res = await session.execute(
+                select(Location).where(Location.id == 1)
+            )
+            loc = loc_res.scalar_one()
+
+        cell_res = await session.execute(
+            select(Cell).where(Cell.location_id == loc.id).where(Cell.is_passable == True)
+        )
+        cells = cell_res.scalars().all()
+        if cells:
+            center = loc.grid_size // 2
+            spawn_cell = min(cells, key=lambda c: (c.x - center)**2 + (c.y - center)**2)
+        else:
+            spawn_cell = None
+
+        character.location_id = loc.id
+        character.cell_id = spawn_cell.id if spawn_cell else None
+        character.floor = 0
+
+        # Apply starting bonuses
+        from engine.currency import add_currency
+        if faction_key == "guard":
+            character.endurance += 3
+            add_currency(character, bronze=100)
+            bonus_desc = "+3 Выносливость ❤️, 100🪙"
+        elif faction_key == "scavengers":
+            character.luck += 2
+            character.agility += 1
+            add_currency(character, bronze=200)
+            bonus_desc = "+2 Удача 🍀, +1 Ловкость 🏃, 200🪙"
+        elif faction_key == "cult":
+            character.intelligence += 3
+            add_currency(character, bronze=100)
+            from core.models import Item, InventoryItem
+            soul_item_res = await session.execute(
+                select(Item).where(Item.name == "Осколок души")
+            )
+            soul_item = soul_item_res.scalar_one_or_none()
+            if soul_item:
+                session.add(InventoryItem(
+                    character_id=character.id,
+                    item_id=soul_item.id,
+                    quantity=1
+                ))
+            bonus_desc = "+3 Интеллект 🧠, 100🪙, Осколок души 💎"
+        elif faction_key == "order":
+            character.strength += 2
+            character.endurance += 1
+            add_currency(character, bronze=100)
+            bonus_desc = "+2 Сила 💪, +1 Выносливость 🛡, 100🪙"
+
+        # Initial reputation
+        import core.factions as core_factions
+        reputation = {faction_key: 50}
+        core_factions.save(character, reputation)
+
+        if spawn_cell:
+            session.add(VisitedCell(
+                character_id=character.id,
+                location_id=loc.id,
+                floor=0,
+                x=spawn_cell.x,
+                y=spawn_cell.y,
+            ))
+
+        await session.commit()
+        loc_name_full = loc.name
+
+    await safe_edit_text(
+        callback,
+        f"🎉 <b>Твой путь начинается!</b>\n\n"
+        f"Ты примкнул к фракции <b>{core_factions.FACTIONS[faction_key][1]}</b> и стартуешь в локации <b>{loc_name_full}</b>.\n\n"
+        f"🎁 Получены стартовые бонусы:\n"
+        f"• Репутация: <b>+50</b> (звание «Знакомый»)\n"
+        f"• Бонусы: <b>{bonus_desc}</b>\n\n"
+        f"<i>Удачи в Теневых Землях! Нажмите кнопку ниже, чтобы продолжить путь...</i>",
+        reply_markup=main_menu_keyboard(has_character=True),
+        parse_mode="HTML"
     )
-    await safe_edit_text(callback, text, reply_markup=help_menu_keyboard(), parse_mode="HTML")
+    await callback.answer("Герой успешно создан!", show_alert=True)

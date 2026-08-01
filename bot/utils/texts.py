@@ -142,12 +142,13 @@ def profile_page_text(character, page: int, class_def=None, combat=None,
         max_hp = stats.get("max_hp", base["max_hp"])
         max_mp = stats.get("max_mp", base["max_mp"])
         vip = " 👑 VIP" if getattr(character, "is_vip", False) else ""
+        leader_suffix = " 👑 Лидер фракции" if extra.get("is_leader", False) else ""
         party = (f"\n👥 Пати: <b>{character.party.name}</b>"
                  if character.party else "\n👥 Пати: <i>один в поле</i>")
         body = [
-            f"Класс: <b>{class_label}</b>{vip}",
+            f"Класс: <b>{class_label}</b>{vip}{leader_suffix}",
             f"⭐ Опыт: {character.experience}/{character.level * 100}",
-            f"🪙 Золото: <b>{character.gold}</b>{party}",
+            f"💰 Валюта: <b>{currency_str(character)}</b>{party}",
             "",
             f"❤️ HP: {character.current_hp}/{max_hp}",
             _bar(character.current_hp, max_hp, "🟥", "⬛"),
@@ -240,7 +241,7 @@ def profile_text(character, class_def=None, combat=None, affinities=None):
         f"{icon} <b>{character.name}</b> | Ур. {character.level}",
         f"Класс: <b>{class_label}</b>",
         f"⭐ Опыт: {character.experience}/{character.level * 100}",
-        f"🪙 Золото: <b>{character.gold}</b>{party_info}",
+        f"💰 Валюта: <b>{currency_str(character)}</b>{party_info}",
         "",
         f"❤️ HP: {character.current_hp}/{max_hp}",
         hp_bar,
@@ -487,7 +488,20 @@ def item_book_text(item, page: int, total: int, header: str = "📖 Книга �
         if stock is not None and stock >= 0:
             stock_note = (f" · осталось <b>{stock}</b> шт."
                           if stock else " · <b>распродано</b>")
-        lines += ["", f"🪙 Цена: <b>{price}</b>{stock_note}"]
+        from engine.currency import CONVERSION
+        g_val = price // (CONVERSION * CONVERSION)
+        remainder = price % (CONVERSION * CONVERSION)
+        s_val = remainder // CONVERSION
+        b_val = remainder % CONVERSION
+        price_parts = []
+        if g_val > 0:
+            price_parts.append(f"{g_val}🪙")
+        if s_val > 0:
+            price_parts.append(f"{s_val}🥈")
+        if b_val > 0 or not price_parts:
+            price_parts.append(f"{b_val}🪙")
+        price_str = " ".join(price_parts)
+        lines += ["", f"💰 Цена: <b>{price_str}</b>{stock_note}"]
     if owned:
         lines.append(f"🎒 У тебя уже есть: <b>{owned}</b> шт.")
     if note:

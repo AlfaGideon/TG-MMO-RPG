@@ -126,10 +126,11 @@ async def main():
         await M.add_item(s, 1, price=200, qty=1)
         await M.add_item(s, 2, price=40, qty=1)
         await s.commit()
-        gold0 = hero.gold
+        from engine.currency import total_in_bronze
+        gold0 = total_in_bronze(hero)
         res = await M.buy(s, hero, 0)
         await s.commit()
-        check(res["ok"] and hero.gold == gold0 - 100, "золото списано")
+        check(res["ok"] and total_in_bronze(hero) == gold0 - 100, "золото списано")
         inv = (await s.execute(
             select(InventoryItem).where(InventoryItem.character_id == hero.id))).scalars().all()
         check(len(inv) == 1 and inv[0].item_id == 1, "предмет в сумке")
@@ -138,8 +139,10 @@ async def main():
         check(not res["ok"] and "раскупили" in res["reason"], "распроданное не продаётся")
         res = await M.buy(s, hero, 1)
         await s.commit()
-        check(res["ok"] and hero.gold == gold0 - 130, "вторая покупка прошла")
-        hero.gold = 5
+        check(res["ok"] and total_in_bronze(hero) == gold0 - 130, "вторая покупка прошла")
+        hero.gold = 0
+        hero.silver = 0
+        hero.bronze = 5
         await s.commit()
         res = await M.buy(s, hero, 3)
         check(not res["ok"] and "Не хватает" in res["reason"], "не хватает золота — отказ")

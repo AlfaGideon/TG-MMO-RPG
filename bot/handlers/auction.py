@@ -44,7 +44,8 @@ async def auction_menu(callback: CallbackQuery):
 
         lots = await auction.active_lots(session)
         mine = await auction.my_lots(session, character.id)
-        gold = character.gold
+        from engine.currency import currency_str
+        gold = currency_str(character)
 
     await send_or_edit_photo(callback,
         "⚖️ <b>Аукцион Теневых Земель</b>\n\n"
@@ -53,7 +54,7 @@ async def auction_menu(callback: CallbackQuery):
         "сразу — дешевле, зато сейчас. Всё записано, вон, гляди.\n\n"
         f"🛒 Лотов на витрине: <b>{len(lots)}</b>\n"
         f"📋 Твоих лотов: <b>{len(mine)}</b> из {auction.MAX_ACTIVE_LOTS}\n"
-        f"🪙 У тебя золота: <b>{gold}</b>\n\n"
+        f"💰 У тебя: <b>{gold}</b>\n\n"
         f"<i>Комиссия аукциона — {int(auction.COMMISSION * 100)} %. "
         f"Непроданный лот вернётся через сутки.</i>",
         reply_markup=auction_menu_keyboard(len(mine)),
@@ -76,12 +77,13 @@ async def auction_browse(callback: CallbackQuery):
         await session.commit()
         lots = await auction.active_lots(session, exclude_seller_id=character.id)
         mine = await auction.my_lots(session, character.id)
-        gold = character.gold
+        from engine.currency import currency_str
+        gold = currency_str(character)
 
     if lots:
         body = (
             f"Чужих лотов: <b>{len(lots)}</b> | Твоих: <b>{len(mine)}</b> | "
-            f"У тебя: <b>{gold}</b>🪙\n\n"
+            f"У тебя: <b>{gold}</b>\n\n"
             "<i>Значок перед ценой — способ добычи вещи. "
             "🔁 значит, что она уже меняла хозяев. Твои лоты здесь скрыты — "
             "они доступны в разделе «Мои лоты».</i>"
@@ -89,7 +91,7 @@ async def auction_browse(callback: CallbackQuery):
     else:
         body = (
             f"Чужих лотов: <b>0</b> | Твоих: <b>{len(mine)}</b> | "
-            f"У тебя: <b>{gold}</b>🪙\n\n"
+            f"У тебя: <b>{gold}</b>\n\n"
             "<i>На общей витрине сейчас нет чужих лотов. "
             "Твои активные продажи смотри в разделе «Мои лоты».</i>"
         )
@@ -153,9 +155,23 @@ async def auction_lot_view(callback: CallbackQuery):
     if bonuses:
         lines += ["<b>Бонусы:</b> " + ", ".join(bonuses), ""]
 
+    from engine.currency import currency_str, total_in_bronze, CONVERSION
+    g_val = lot.price // (CONVERSION * CONVERSION)
+    remainder = lot.price % (CONVERSION * CONVERSION)
+    s_val = remainder // CONVERSION
+    b_val = remainder % CONVERSION
+    price_parts = []
+    if g_val > 0:
+        price_parts.append(f"{g_val}🪙")
+    if s_val > 0:
+        price_parts.append(f"{s_val}🥈")
+    if b_val > 0 or not price_parts:
+        price_parts.append(f"{b_val}🪙")
+    price_str = " ".join(price_parts)
+
     lines += [
         f"👤 Продавец: <b>{lot.seller_name or 'Скупщик'}</b>",
-        f"💰 Цена: <b>{lot.price}</b>🪙 (у тебя {character.gold}🪙)",
+        f"💰 Цена: <b>{price_str}</b> (у тебя {currency_str(character)})",
     ]
     if item.level_requirement and item.level_requirement > 1:
         lines.append(f"⭐ Требуется уровень: {item.level_requirement}")
@@ -166,7 +182,7 @@ async def auction_lot_view(callback: CallbackQuery):
     is_mine = lot.seller_id == character.id
     can_buy = (
         not is_mine
-        and character.gold >= lot.price
+        and total_in_bronze(character) >= lot.price
         and character.level >= (item.level_requirement or 1)
     )
 
@@ -217,6 +233,18 @@ async def auction_buy(callback: CallbackQuery):
         await callback.answer(outcome["reason"], show_alert=True)
         return
 
+    from engine.currency import CONVERSION, currency_str
+    def fmt_b(val):
+        g_v = val // (CONVERSION * CONVERSION)
+        rem = val % (CONVERSION * CONVERSION)
+        s_v = rem // CONVERSION
+        b_v = rem % CONVERSION
+        parts = []
+        if g_v > 0: parts.append(f"{g_v}🪙")
+        if s_v > 0: parts.append(f"{s_v}🥈")
+        if b_v > 0 or not parts: parts.append(f"{b_v}🪙")
+        return " ".join(parts)
+
     if seller_tg:
         try:
             from bot.runner import bot_runner
@@ -225,8 +253,8 @@ async def auction_buy(callback: CallbackQuery):
                     chat_id=seller_tg,
                     text=(
                         f"💰 <b>Твой лот продан!</b>\n\n"
-                        f"{name} ушёл за {price}🪙.\n"
-                        f"На руки: <b>{seller_payout}</b>🪙 "
+                        f"{name} ушёл за {fmt_b(price)}.\n"
+                        f"На руки: <b>{fmt_b(seller_payout)}</b> "
                         f"(комиссия {int(auction.COMMISSION * 100)} %)."
                     ),
                     parse_mode="HTML",
@@ -238,8 +266,8 @@ async def auction_buy(callback: CallbackQuery):
         f"✅ <b>Покупка состоялась</b>\n\n"
         f"{name}\n"
         f"🆔 <code>{uid}</code>\n\n"
-        f"Списано: <b>{price}</b>🪙\n"
-        f"Осталось: <b>{character.gold}</b>🪙\n\n"
+        f"Списано: <b>{fmt_b(price)}</b>\n"
+        f"Осталось: <b>{currency_str(character)}</b>\n\n"
         f"<i>Вещь легла в сумку вместе со своей историей.</i>",
         reply_markup=auction_menu_keyboard(),
         parse_mode="HTML",
@@ -358,9 +386,21 @@ async def auction_list(callback: CallbackQuery):
         await callback.answer(outcome["reason"], show_alert=True)
         return
 
+    from engine.currency import CONVERSION
+    def fmt_b(val):
+        g_v = val // (CONVERSION * CONVERSION)
+        rem = val % (CONVERSION * CONVERSION)
+        s_v = rem // CONVERSION
+        b_v = rem % CONVERSION
+        parts = []
+        if g_v > 0: parts.append(f"{g_v}🪙")
+        if s_v > 0: parts.append(f"{s_v}🥈")
+        if b_v > 0 or not parts: parts.append(f"{b_v}🪙")
+        return " ".join(parts)
+
     await send_or_edit_photo(callback,
         f"📢 <b>Лот выставлен</b>\n\n"
-        f"{name} — <b>{price}</b>🪙\n\n"
+        f"{name} — <b>{fmt_b(price)}</b>\n\n"
         f"<i>Молчун вписывает строку в гроссбух. "
         f"Если не купят за сутки, вещь вернётся к тебе.</i>",
         reply_markup=auction_listed_keyboard(len(mine)),
@@ -390,16 +430,29 @@ async def auction_npc_sell(callback: CallbackQuery):
         name = inv.display_name()
         outcome = await auction.npc_buy(session, character, inv)
         await session.commit()
-        gold = character.gold
+        from engine.currency import currency_str
+        gold = currency_str(character)
 
     if not outcome["ok"]:
         await callback.answer(outcome["reason"], show_alert=True)
         return
 
+    from engine.currency import CONVERSION
+    def fmt_b(val):
+        g_v = val // (CONVERSION * CONVERSION)
+        rem = val % (CONVERSION * CONVERSION)
+        s_v = rem // CONVERSION
+        b_v = rem % CONVERSION
+        parts = []
+        if g_v > 0: parts.append(f"{g_v}🪙")
+        if s_v > 0: parts.append(f"{s_v}🥈")
+        if b_v > 0 or not parts: parts.append(f"{b_v}🪙")
+        return " ".join(parts)
+
     await send_or_edit_photo(callback,
         f"⚡ <b>Продано скупщику</b>\n\n"
-        f"{name} → <b>{outcome['price']}</b>🪙\n"
-        f"Теперь у тебя: <b>{gold}</b>🪙\n\n"
+        f"{name} → <b>{fmt_b(outcome['price'])}</b>\n"
+        f"Теперь у тебя: <b>{gold}</b>\n\n"
         f"<i>Молчун сдувает пыль с вещи и ставит её на витрину. "
         f"История предмета остаётся с ним.</i>",
         reply_markup=auction_menu_keyboard(),

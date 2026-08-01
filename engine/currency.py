@@ -43,6 +43,23 @@ def currency_str(p):
     g = getattr(p, "gold", 0)
     return f"{b}🪙 {s}🥈 {g}🪙"
 
+def deduct_currency(p, cost_bronze):
+    """Вычитает стоимость в бронзе из баланса игрока с учетом трех валют."""
+    if not hasattr(p, "bronze"):
+        if getattr(p, "gold", 0) >= cost_bronze:
+            p.gold -= cost_bronze
+            return True
+        return False
+    total = total_in_bronze(p)
+    if total < cost_bronze:
+        return False
+    new_total = total - cost_bronze
+    p.gold = new_total // (CONVERSION * CONVERSION)
+    remainder = new_total % (CONVERSION * CONVERSION)
+    p.silver = remainder // CONVERSION
+    p.bronze = remainder % CONVERSION
+    return True
+
 def get_conversion_rate():
     """Текущий курс (для админки)."""
     return CONVERSION

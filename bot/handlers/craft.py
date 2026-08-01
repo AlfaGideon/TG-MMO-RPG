@@ -72,6 +72,7 @@ async def craft_menu(callback: CallbackQuery):
         recipes = await recipes_for_station(session, station)
         npc_name = character.cell.npc_name if character.cell else "Ремесленник"
 
+    from engine.currency import currency_str
     title = STATION_TITLES.get(station, STATION_TITLES[CraftStation.ANY.value])
     await safe_edit_text(
         callback,
@@ -80,7 +81,7 @@ async def craft_menu(callback: CallbackQuery):
         f"— Могу сковать вещь по рецепту или заточить то, что у тебя уже есть. "
         f"Материалы твои, работа моя.\n\n"
         f"📜 Доступно рецептов: <b>{len(recipes)}</b>\n"
-        f"🪙 У тебя золота: <b>{character.gold}</b>",
+        f"💰 У тебя: <b>{currency_str(character)}</b>",
         reply_markup=craft_menu_keyboard(station),
         parse_mode="HTML",
     )
@@ -141,8 +142,20 @@ def _recipe_text(recipe: CraftRecipe, status: dict, character) -> str:
             f"{mark} {ing.item.icon} {ing.item.name} — {have}/{ing.quantity}"
         )
 
-    gold_mark = "✅" if character.gold >= (recipe.gold_cost or 0) else "❌"
-    lines.append(f"{gold_mark} 🪙 Золото — {character.gold}/{recipe.gold_cost or 0}")
+    from engine.currency import total_in_bronze, currency_str, CONVERSION
+    def fmt_b(val):
+        g_v = val // (CONVERSION * CONVERSION)
+        rem = val % (CONVERSION * CONVERSION)
+        s_v = rem // CONVERSION
+        b_v = rem % CONVERSION
+        parts = []
+        if g_v > 0: parts.append(f"{g_v}🪙")
+        if s_v > 0: parts.append(f"{s_v}🥈")
+        if b_v > 0 or not parts: parts.append(f"{b_v}🪙")
+        return " ".join(parts)
+
+    gold_mark = "✅" if total_in_bronze(character) >= (recipe.gold_cost or 0) else "❌"
+    lines.append(f"{gold_mark} 💰 Стоимость — {currency_str(character)}/{fmt_b(recipe.gold_cost or 0)}")
     lvl_mark = "✅" if character.level >= (recipe.min_level or 1) else "❌"
     lines.append(f"{lvl_mark} ⭐ Уровень — {character.level}/{recipe.min_level or 1}")
 
@@ -320,10 +333,22 @@ def _upgrade_text(inv_item, cost, character) -> str:
         lines.append("🏆 <b>Предмет заточен до предела.</b>")
         return "\n".join(lines)
 
-    gold_ok = "✅" if character.gold >= cost["gold"] else "❌"
+    from engine.currency import total_in_bronze, currency_str, CONVERSION
+    def fmt_b(val):
+        g_v = val // (CONVERSION * CONVERSION)
+        rem = val % (CONVERSION * CONVERSION)
+        s_v = rem // CONVERSION
+        b_v = rem % CONVERSION
+        parts = []
+        if g_v > 0: parts.append(f"{g_v}🪙")
+        if s_v > 0: parts.append(f"{s_v}🥈")
+        if b_v > 0 or not parts: parts.append(f"{b_v}🪙")
+        return " ".join(parts)
+
+    gold_ok = "✅" if total_in_bronze(character) >= cost["gold"] else "❌"
     lines += [
         f"<b>Улучшить до +{cost['next_level']}:</b>",
-        f"{gold_ok} 🪙 Золото — {character.gold}/{cost['gold']}",
+        f"{gold_ok} 💰 Стоимость — {currency_str(character)}/{fmt_b(cost['gold'])}",
     ]
     if cost["material"] is not None and cost["material_qty"]:
         lines.append(
