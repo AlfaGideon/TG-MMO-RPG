@@ -2321,11 +2321,12 @@ async def editor_world(request: Request):
 
     grid = {(loc.world_x, loc.world_y): loc for loc in locations if 0 <= loc.world_x < WORLD_GRID_SIZE and 0 <= loc.world_y < WORLD_GRID_SIZE}
 
-    # Свежий сид создаёт ровно 36 локаций (4 угловых замка + 32 свободных).
-    # Существенно меньше — значит мир сеялся ещё старой версией (5 локаций) и
-    # не обновился: seed_database() не пересоздаёт непустой мир.
+    # Свежий сид заполняет всю карту 10×10 = 100 локаций
+    # (4 замка + 4 башни + 4 входа + 4-клеточная цитадель + 84 свободных).
+    # Существенно меньше — значит мир сеялся старой версией и не обновился:
+    # seed_database() не пересоздаёт непустой мир.
     loc_count = len(locations)
-    world_outdated = loc_count < 30
+    world_outdated = loc_count < 90
 
     return templates.TemplateResponse(
         request,

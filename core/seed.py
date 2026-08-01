@@ -164,8 +164,51 @@ CORNER_CASTLES = [
 CORNER_NAMES = {name for name, *_ in CORNER_CASTLES}
 CORNER_CELLS = {(x, y) for _, _, x, y in CORNER_CASTLES}
 
-# Сколько свободных локаций генерировать (помимо 4 угловых замков).
-FREE_LOCATIONS = 32
+# Первый угол — стартовая земля (id=1), куда приходят новички.
+SPAWN_CASTLE_NAME = CORNER_CASTLES[0][0]
+
+# Многоэтажные башни: (имя, описание, x, y). Этажи идут ВВЕРХ.
+TOWERS = [
+    ("Башня Ворона", "Северо-западная башня. Винтовая лестница уходит ввысь, и с каждым этажом — злее.", 2, 2),
+    ("Башня Пепла", "Северо-восточная башня. Гарпии вьют гнёзда под самой крышей.", 7, 2),
+    ("Башня Бездны", "Юго-западная башня. Из недр тянет холодом и шёпотом.", 2, 7),
+    ("Башня Шторма", "Юго-восточная башня. Молнии бьют в шпиль даже в ясный день.", 7, 7),
+]
+TOWER_NAMES = {name for name, *_ in TOWERS}
+TOWER_CELLS = {(x, y) for _, _, x, y in TOWERS}
+TOWER_FLOORS = 4   # наземных этажей вверх (0..3)
+
+# Входы в крепость (по диагонали к ней): единственный путь в центр.
+GATEHOUSES = [
+    ("Северо-западные врата", "Каменный проём в стене цитадели. Дальше — только бой.", 3, 3),
+    ("Северо-восточные врата", "Кованые ворота, покрытые рунами тьмы.", 6, 3),
+    ("Юго-западные врата", "Расколотые створки. За ними дышит что-то огромное.", 3, 6),
+    ("Юго-восточные врата", "Чёрный провал, из которого не возвращаются.", 6, 6),
+]
+GATEHOUSE_NAMES = {name for name, *_ in GATEHOUSES}
+GATEHOUSE_CELLS = {(x, y) for _, _, x, y in GATEHOUSES}
+
+# Центральная крепость — 4 клетки как единый босс-эндгейм.
+FORTRESS = [
+    ("Цитадель Погибели: Северо-запад", "Сердце гибнущего мира. Здесь гнездится беда всего королевства.", 4, 4),
+    ("Цитадель Погибели: Северо-восток", "Тронный зал осквернён. Воздух густой, как сироп.", 5, 4),
+    ("Цитадель Погибели: Юго-запад", "Бездонный колодец под полом. Смотри под ноги.", 4, 5),
+    ("Цитадель Погибели: Юго-восток", "Алтарь, на котором приносили миры. Бейся или беги.", 5, 5),
+]
+FORTRESS_NAMES = {name for name, *_ in FORTRESS}
+FORTRESS_CELLS = {(x, y) for _, _, x, y in FORTRESS}
+FORTRESS_LEVEL = 12
+
+# Вход в крепость — строго по диагонали: ворота → крыло цитадели.
+GATE_TO_FORT = {(3, 3): (4, 4), (6, 3): (5, 4), (3, 6): (4, 5), (6, 6): (5, 5)}
+
+# Все зафиксированные клетки (остальные 84 — свободная генерация по сиду).
+FIXED_CELLS = CORNER_CELLS | TOWER_CELLS | GATEHOUSE_CELLS | FORTRESS_CELLS
+
+# Подземелья под стартовыми локациями (угловыми замками): этажи ВНИЗ.
+# Отрицательные этажи: −1 — первый подземный, −2 — второй и т.д.
+UNDERGROUND_DEPTH = 2
+
 WORLD_GRID = 10
 _CENTER = (WORLD_GRID - 1) / 2.0  # 4.5
 
@@ -238,23 +281,150 @@ def _dist_to_center(x: int, y: int) -> float:
 
 
 def _tier_for_cell(x: int, y: int, rng: random.Random):
-    """Тип и мин. уровень локации по удалённости от центра.
+    """Тип и мин. уровень СВОБОДНОЙ локации по близости к центру.
 
-    В центре — безопасные стартовые земли, к краям — всё злее и глубже,
-    на самых обочинах — подземелья и логова боссов. Так мир живой:
-    новичку есть куда прийти, а эндгейм — на окраинах.
+    Чем ближе к центральной крепости — тем выше опасность; углы — безопасны.
+    (На зафиксированные клетки-башни/ворота/цитадель этот градиент не влияет —
+    их тип и уровень заданы явно.)
     """
     d = _dist_to_center(x, y)
-    if d <= 1.5:
-        return LocationType.SAFE, 1
-    if d <= 2.5:
-        return LocationType.DANGEROUS, rng.randint(1, 3)
-    if d <= 3.5:
-        lt = LocationType.DUNGEON if rng.random() < 0.4 else LocationType.DANGEROUS
-        return lt, rng.randint(4, 6)
-    # край карты — глубокие подземелья и редкие логова боссов
-    lt = LocationType.BOSS if rng.random() < 0.25 else LocationType.DUNGEON
-    return lt, rng.randint(7, 10)
+    if d <= 1.5:      # внутреннее кольцо, вплотную к цитадели — эндгейм
+        return LocationType.DUNGEON, rng.randint(9, 11)
+    if d <= 2.5:      # среднее кольцо
+        lt = LocationType.DUNGEON if rng.random() < 0.5 else LocationType.DANGEROUS
+        return lt, rng.randint(6, 8)
+    if d <= 3.5:      # внешнее кольцо
+        lt = LocationType.DANGEROUS if rng.random() < 0.75 else LocationType.SAFE
+        return lt, rng.randint(3, 5)
+    # самые окраины, у самых углов — спокойнее, для новичков
+    lt = LocationType.SAFE if rng.random() < 0.4 else LocationType.DANGEROUS
+    return lt, rng.randint(1, 3)
+
+
+# ── Подземелья под локацией: этажи ВНИЗ (−1, −2, …) ──────────
+_UNDER_STORIES = [
+    ("Сырой коридор", "Стены покрыты слизью; факел чадит.", "cave"),
+    ("Склеп", "Гробы стоят вдоль стен, некоторые открыты.", "cave"),
+    ("Костница", "Кости под ногами хрустят при каждом шаге.", "cave"),
+    ("Затопленный зал", "Вода по щиколотку, в ней что-то шевелится.", "water"),
+    ("Разлом", "В провал уходит лестница; дно не видно.", "wall"),
+    ("Катакомбы", "Ряды ниш в стенах уходят во тьму.", "cave"),
+]
+
+
+async def build_underground(session, loc, depth: int, rng: random.Random):
+    """Пристраивает к локации подземные этажи −1..−depth.
+
+    Каждая клетка этажа получает тему из `_UNDER_STORIES`, связность
+    гарантируется от центра, лестницы связывают 0↔−1↔…↔−depth. Механика
+    этажей (Cell.floor, target_floor) работает с любым целым, в т.ч.
+    отрицательным — см. bot/handlers/location.py.
+    """
+    size = int(loc.grid_size or 10)
+    cx, cy = W.center_of(size)
+    stories = _UNDER_STORIES
+    idx = rng.randint(0, len(stories) - 1)
+    for floor in range(-1, -depth - 1, -1):
+        cells = []
+        for x in range(size):
+            for y in range(size):
+                border = x in (0, size - 1) or y in (0, size - 1)
+                wall = border or (rng.random() < 0.22 and (x, y) != (cx, cy))
+                name_s, desc_s, tile = stories[idx % len(stories)]
+                idx += 1
+                cell = Cell(
+                    location_id=loc.id, x=x, y=y, floor=floor,
+                    name=name_s, description=desc_s,
+                    is_passable=not wall,
+                    tile_type=tile if not wall else "wall",
+                )
+                session.add(cell)
+                cells.append(cell)
+        W.ensure_connectivity(cells, size)
+        # лестница вниз: с текущего этажа на следующий (более глубокий)
+        src = await W.cell_at(session, loc.id, cx, cy, floor)
+        dst = await W.cell_at(session, loc.id, cx, cy, floor - 1)
+        if src:
+            src.is_passable = True
+            src.tile_type = "road"
+            src.target_location_id = loc.id
+            src.target_x, src.target_y, src.target_floor = cx, cy, floor - 1
+        if dst:
+            dst.is_passable = True
+            dst.tile_type = "road"
+            dst.target_location_id = loc.id
+            dst.target_x, dst.target_y, dst.target_floor = cx, cy, floor
+    # лестница с наземного этажа (0) на первый подземный (−1)
+    entry = await W.cell_at(session, loc.id, cx, cy, 0)
+    below = await W.cell_at(session, loc.id, cx, cy, -1)
+    if entry and below:
+        entry.is_passable = True
+        entry.tile_type = "road"
+        entry.target_location_id = loc.id
+        entry.target_x, entry.target_y, entry.target_floor = cx, cy, -1
+    await session.flush()
+
+
+async def _seal_fortress_and_link_gates(session):
+    """Запечатать центральную крепость: вход только по диагонали из ворот.
+
+    relink_all связывает ортогональных соседей, поэтому клетки цитадели
+    получили бы обычные двери снаружи. Удаляем все переходы, ведущие
+    в цитадель/из неё, кроме внутренних (цитадель↔цитадель) и ворот.
+    Затем добавляем диагональные переходы ворота↔крыло цитадели.
+    """
+    fortress = {loc.id: loc for loc in (await session.execute(
+        select(Location).where(Location.name.in_(FORTRESS_NAMES))
+    )).scalars().all()}
+    gatehouses = {loc.id: loc for loc in (await session.execute(
+        select(Location).where(Location.name.in_(GATEHOUSE_NAMES))
+    )).scalars().all()}
+    fort_by_cell = {(l.world_x, l.world_y): l for l in fortress.values()}
+    gate_by_cell = {(l.world_x, l.world_y): l for l in gatehouses.values()}
+    fort_ids = set(fortress)
+    gate_ids = set(gatehouses)
+
+    # 1) Снести все двери снаружи в цитадель и из цитадели наружу
+    #    (кроме внутренних и тех, что пойдут от ворот).
+    into_fort = (await session.execute(
+        select(Cell).where(Cell.target_location_id.in_(fort_ids))
+    )).scalars().all()
+    for c in into_fort:
+        if c.location_id not in fort_ids and c.location_id not in gate_ids:
+            c.target_location_id = None
+            c.target_x = c.target_y = c.target_floor = None
+    out_of_fort = (await session.execute(
+        select(Cell).where(Cell.location_id.in_(fort_ids))
+        .where(Cell.target_location_id.isnot(None))
+    )).scalars().all()
+    for c in out_of_fort:
+        if c.target_location_id not in fort_ids and c.target_location_id not in gate_ids:
+            c.target_location_id = None
+            c.target_x = c.target_y = c.target_floor = None
+
+    # 2) Диагональные переходы: ворота ↔ крыло цитадели (двусторонние).
+    for (gx, gy), (fx, fy) in GATE_TO_FORT.items():
+        gate = gate_by_cell.get((gx, gy))
+        fort = fort_by_cell.get((fx, fy))
+        if not gate or not fort:
+            continue
+        g_cell = await W.cell_at(session, gate.id, (gate.grid_size or 10) // 2,
+                                 (gate.grid_size or 10) // 2, 0)
+        f_cell = await W.cell_at(session, fort.id, (fort.grid_size or 10) // 2,
+                                 (fort.grid_size or 10) // 2, 0)
+        if g_cell:
+            g_cell.is_passable = True
+            g_cell.tile_type = "portal"
+            g_cell.target_location_id = fort.id
+            g_cell.target_x = g_cell.target_y = (fort.grid_size or 10) // 2
+            g_cell.target_floor = 0
+        if f_cell:
+            f_cell.is_passable = True
+            f_cell.tile_type = "portal"
+            f_cell.target_location_id = gate.id
+            f_cell.target_x = f_cell.target_y = (gate.grid_size or 10) // 2
+            f_cell.target_floor = 0
+    await session.flush()
 
 
 async def seed_database():
@@ -282,42 +452,14 @@ async def seed_database():
             seed = int(seed_row.value)
         rng = random.Random(seed)
 
-        # ── 32 свободные локации на случайных клетках (кроме углов) ──
-        free_cells = [(x, y) for x in range(WORLD_GRID) for y in range(WORLD_GRID)
-                      if (x, y) not in CORNER_CELLS]
-        rng.shuffle(free_cells)
-        chosen = free_cells[:FREE_LOCATIONS]
-
-        used_names = set()
-        generated = []
-        for (x, y) in chosen:
-            lt, ml = _tier_for_cell(x, y, rng)
-            generated.append({
-                "x": x, "y": y, "type": lt, "min_level": ml,
-                "name": _gen_name(rng, used_names),
-            })
-
-        # Стартовая земля = ближайшая к центру из сгенерированных.
-        # Принудительно безопасная, 1 уровень — туда приходят новички
-        # (location_id=1, клетка 5×5 — см. bot/handlers/start.py).
-        spawn_gen = min(generated, key=lambda g: _dist_to_center(g["x"], g["y"]))
-        spawn_gen["type"] = LocationType.SAFE
-        spawn_gen["min_level"] = 1
-
-        # ── Сборка объектов: СНАЧАЛА стартовая (id=1), затем замки, затем остальные ──
-        def _desc(g):
-            return rng.choice(_DESC_BY_TYPE.get(g["type"], _DESC_BY_TYPE[LocationType.DANGEROUS]))
+        # ── Сборка локаций: порядок важен для id ──
+        # Первым идёт стартовый угловой замок (id=1, клетка 5×5 — туда приходят
+        # новички, см. bot/handlers/start.py). Затем остальные замки, башни,
+        # ворота, 4 клетки цитадели и 84 свободные земли.
+        def _desc(lt):
+            return rng.choice(_DESC_BY_TYPE.get(lt, _DESC_BY_TYPE[LocationType.DANGEROUS]))
 
         locations = []
-        spawn_loc = Location(
-            name=spawn_gen["name"], description=_desc(spawn_gen),
-            location_type=LocationType.SAFE, min_level=1,
-            world_x=spawn_gen["x"], world_y=spawn_gen["y"],
-            grid_size=10, floors_count=1,
-            image_url=LOC_IMAGE_BY_TYPE[LocationType.SAFE],
-        )
-        locations.append(spawn_loc)
-
         corner_locs = []
         for cname, cdesc, cx, cy in CORNER_CASTLES:
             loc = Location(
@@ -326,19 +468,54 @@ async def seed_database():
             )
             locations.append(loc)
             corner_locs.append(loc)
+        spawn_loc = corner_locs[0]  # Замок Рассвета — стартовая земля (id=1)
 
-        gen_locs = []
-        for g in generated:
-            if g is spawn_gen:
-                continue
+        tower_locs = []
+        for tname, tdesc, tx, ty in TOWERS:
             loc = Location(
-                name=g["name"], description=_desc(g), location_type=g["type"],
-                min_level=g["min_level"], world_x=g["x"], world_y=g["y"],
-                grid_size=10, floors_count=1,
-                image_url=LOC_IMAGE_BY_TYPE.get(g["type"]),
+                name=tname, description=tdesc, location_type=LocationType.DUNGEON,
+                min_level=8, world_x=tx, world_y=ty, grid_size=10, floors_count=TOWER_FLOORS,
+                image_url=LOC_IMAGE_BY_TYPE[LocationType.DUNGEON],
             )
             locations.append(loc)
-            gen_locs.append(loc)
+            tower_locs.append(loc)
+
+        gate_locs = []
+        for gname, gdesc, gx, gy in GATEHOUSES:
+            loc = Location(
+                name=gname, description=gdesc, location_type=LocationType.DUNGEON,
+                min_level=10, world_x=gx, world_y=gy, grid_size=10, floors_count=1,
+                image_url=LOC_IMAGE_BY_TYPE[LocationType.DUNGEON],
+            )
+            locations.append(loc)
+            gate_locs.append(loc)
+
+        fort_locs = []
+        for fname, fdesc, fx, fy in FORTRESS:
+            loc = Location(
+                name=fname, description=fdesc, location_type=LocationType.BOSS,
+                min_level=FORTRESS_LEVEL, world_x=fx, world_y=fy, grid_size=12, floors_count=1,
+                image_url=LOC_IMAGE_BY_TYPE[LocationType.BOSS],
+            )
+            locations.append(loc)
+            fort_locs.append(loc)
+
+        # 84 свободные клетки — всё, что не зафиксировано (углы/башни/ворота/цитадель).
+        used_names = set(CORNER_NAMES) | set(TOWER_NAMES) | set(GATEHOUSE_NAMES) | set(FORTRESS_NAMES)
+        gen_locs = []
+        for x in range(WORLD_GRID):
+            for y in range(WORLD_GRID):
+                if (x, y) in FIXED_CELLS:
+                    continue
+                lt, ml = _tier_for_cell(x, y, rng)
+                loc = Location(
+                    name=_gen_name(rng, used_names), description=_desc(lt),
+                    location_type=lt, min_level=ml,
+                    world_x=x, world_y=y, grid_size=10, floors_count=1,
+                    image_url=LOC_IMAGE_BY_TYPE.get(lt),
+                )
+                locations.append(loc)
+                gen_locs.append(loc)
 
         session.add_all(locations)
         await session.flush()
@@ -352,6 +529,13 @@ async def seed_database():
             else:
                 await W.build_cells(session, loc, CELL_STORIES,
                                     rng=random.Random(seed + loc.id))
+                if loc.name in TOWER_NAMES:
+                    await W.ensure_stairs(session, loc)  # лестницы между этажами башни
+
+        # ── Подземелья под стартовыми локациями (угловыми замками): вниз −1, −2 …
+        for loc in corner_locs:
+            await build_underground(session, loc, UNDERGROUND_DEPTH,
+                                    random.Random(seed + loc.id + 7919))
 
         # ── NPC угловых замков (по имени, как и раньше) ──
         CASTLE_NPCS_MAP = {
@@ -402,27 +586,34 @@ async def seed_database():
 
         # ── Бесшовные швы по фактическому соседству на карте ──
         await W.relink_all(session)
+        # Запечатать центральную крепость: вход только по диагонали из ворот.
+        await _seal_fortress_and_link_gates(session)
 
-        # ── Жители стартовой деревни: заказчики заданий и торговец ──
+        # ── Жители стартового замка: заказчик заданий, торговец и лекарь ──
         result = await session.execute(
-            select(Cell).where(Cell.location_id == spawn_loc.id).where(Cell.is_passable == True)
+            select(Cell).where(Cell.location_id == spawn_loc.id).where(Cell.floor == 0)
+            .where(Cell.is_passable == True).where(Cell.tile_type == "village")
+            .where(Cell.has_npc == False)
         )
         spawn_cells = result.scalars().all()
-        if len(spawn_cells) >= 3:
-            starters = [
-                ("Старейшина Григор", "Добро пожаловать, странник. Тут мы ещё держимся.", "storyteller"),
-                ("Торговец Варн", "У меня есть всё, что нужно выжившему. Золото при тебе?", "merchant"),
-                ("Лекарь Мира", "Ты ранен? Я могу исцелить — было бы чем заплатить.", "quest_giver"),
-            ]
-            for i, (npc_name, dialogue, npc_type) in enumerate(starters):
-                cell = spawn_cells[i * 3]
-                cell.has_npc = True
-                cell.npc_name = npc_name
-                cell.npc_dialogue = dialogue
-                cell.npc_type = npc_type
+        cell_rng = random.Random(seed + spawn_loc.id + 1)
+        cell_rng.shuffle(spawn_cells)
+        starters = [
+            ("Старейшина Григор", "Добро пожаловать в Замок Рассвета, странник. Тут мы ещё держимся.", "storyteller"),
+            ("Торговец Варн", "У меня есть всё, что нужно выжившему. Золото при тебе?", "merchant"),
+            ("Лекарь Мира", "Ты ранен? Я могу исцелить — было бы чем заплатить.", "quest_giver"),
+        ]
+        for i, (npc_name, dialogue, npc_type) in enumerate(starters):
+            if i >= len(spawn_cells):
+                break
+            cell = spawn_cells[i]
+            cell.has_npc = True
+            cell.npc_name = npc_name
+            cell.npc_dialogue = dialogue
+            cell.npc_type = npc_type
 
         # ── Опасные земли (для сундуков и бместа мобов) ──
-        danger_locs = [l for l in gen_locs
+        danger_locs = [l for l in (gen_locs + tower_locs + gate_locs + fort_locs)
                        if l.location_type in (LocationType.DANGEROUS, LocationType.DUNGEON, LocationType.BOSS)]
         danger_ids = [l.id for l in danger_locs]
 
@@ -461,6 +652,7 @@ async def seed_database():
             {"name": "Камнекожий страж", "desc": "Кожа вросла в камень...", "level": 6, "hp": 115, "dmg": 13, "def": 9, "gold": 22, "exp": 46},
             {"name": "Горный тролль-одиночка", "desc": "Изгнан из стаи за уродство...", "level": 7, "hp": 130, "dmg": 17, "def": 8, "gold": 26, "exp": 54},
             {"name": "Страж расщелины", "desc": "Стоит здесь дольше, чем существует королевство...", "level": 11, "hp": 180, "dmg": 23, "def": 12, "gold": 70, "exp": 160},
+            {"name": "Пожиратель миров", "desc": "Сердце цитадели. Древнее зло, ради которого гибнет мир.", "level": 12, "hp": 280, "dmg": 29, "def": 15, "gold": 150, "exp": 350, "boss": True},
         ]
 
         def _loc_for_level(lvl: int):
@@ -474,12 +666,15 @@ async def seed_database():
 
         created_mobs = []
         for md in mobs_data:
-            loc = _loc_for_level(md["level"])
+            if (md.get("boss") or md["level"] >= 11) and fort_locs:
+                loc = rng.choice(fort_locs)  # эндгейм — в центральную крепость
+            else:
+                loc = _loc_for_level(md["level"])
             mob = Mob(
                 name=md["name"], description=md["desc"], level=md["level"],
                 hp=md["hp"], damage=md["dmg"], defense=md["def"],
                 gold_reward=md["gold"], exp_reward=md["exp"],
-                location_id=loc.id,
+                location_id=loc.id, is_boss=bool(md.get("boss")),
             )
             session.add(mob)
             created_mobs.append((mob, loc.id))
@@ -507,21 +702,25 @@ async def seed_database():
             Item(name="Зелье здоровья", description="Красная жидкость с запахом трав...", item_type=ItemType.CONSUMABLE, rarity=ItemRarity.COMMON, price=10, icon="🧪"),
             Item(name="Зелье маны", description="Синяя субстанция...", item_type=ItemType.CONSUMABLE, rarity=ItemRarity.COMMON, price=10, icon="🧪"),
         ]
-        session.add_all(items)
-        await session.flush()
+        # Каталог предметов и лавку создаём только при первом засеве —
+        # при перегенерации мира они уже есть (на них ссылается инвентарь).
+        have_items = await session.scalar(select(Item.id).limit(1))
+        if not have_items:
+            session.add_all(items)
+            await session.flush()
 
-        shop_items = [
-            ShopItem(item_id=1, price=20, stock=-1),
-            ShopItem(item_id=2, price=35, stock=5),
-            ShopItem(item_id=4, price=25, stock=-1),
-            ShopItem(item_id=5, price=25, stock=-1),
-            ShopItem(item_id=6, price=40, stock=3),
-            ShopItem(item_id=7, price=15, stock=-1),
-            ShopItem(item_id=8, price=60, stock=1),
-            ShopItem(item_id=9, price=10, stock=-1),
-            ShopItem(item_id=10, price=10, stock=-1),
-        ]
-        session.add_all(shop_items)
+            shop_items = [
+                ShopItem(item_id=1, price=20, stock=-1),
+                ShopItem(item_id=2, price=35, stock=5),
+                ShopItem(item_id=4, price=25, stock=-1),
+                ShopItem(item_id=5, price=25, stock=-1),
+                ShopItem(item_id=6, price=40, stock=3),
+                ShopItem(item_id=7, price=15, stock=-1),
+                ShopItem(item_id=8, price=60, stock=1),
+                ShopItem(item_id=9, price=10, stock=-1),
+                ShopItem(item_id=10, price=10, stock=-1),
+            ]
+            session.add_all(shop_items)
 
         # ── Задания: привязка к реальным локациям по месту мобов ──
         # Кого убивать — туда и ведёт задание (не к зашитому индексу).
@@ -546,8 +745,9 @@ async def seed_database():
 
         await session.commit()
         print(f"Database seeded: {len(locations)} locations "
-              f"(4 corner castles + {FREE_LOCATIONS} procedurally generated, "
-              f"seed {seed}), quests, items and seamless links.")
+              f"(4 castles + 4 towers + 4 gates + 4-cell fortress + "
+              f"{len(gen_locs)} free; underground under castles; "
+              f"seed {seed}).")
 
 
 SAVED_SEEDS_KEY = "saved_seeds"
@@ -610,7 +810,8 @@ async def recreate_world_on_server(seed=None):
     seed=None — подобрать случайно («живой мир», без ручного числа).
     seed=int — пересоздать под конкретный (например, из сохранённых).
     """
-    from core.models import Grave, DungeonRun, MobSpawn, Cell, Location, Character
+    from core.models import (Grave, DungeonRun, MobSpawn, Cell, Location, Character,
+                             Mob, Quest, CharacterQuest, DropEntry)
     from sqlalchemy import update
 
     if seed is None:
@@ -626,10 +827,17 @@ async def recreate_world_on_server(seed=None):
             seed_row.value = str(seed)
         await session.flush()
 
-        # Очищаем мир
+        # Очищаем мир целиком: геометрию (cells/locations), привязанный к ней
+        # контент (mobs/quests/их лут/спавны/надгробия/забеги) и прогресс
+        # заданий у игроков (локации и мобы сменились — старые квесты всё равно
+        # не разрешимы). Каталог предметов и инвентарь игроков не трогаем.
+        await session.execute(delete(DropEntry).where(DropEntry.owner_type == "mob"))
+        await session.execute(delete(CharacterQuest))
+        await session.execute(delete(Quest))
         await session.execute(delete(Grave))
         await session.execute(delete(DungeonRun))
         await session.execute(delete(MobSpawn))
+        await session.execute(delete(Mob))
         await session.execute(delete(Cell))
         await session.execute(delete(Location))
         await session.flush()
