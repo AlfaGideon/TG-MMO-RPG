@@ -16,6 +16,14 @@ Base = declarative_base()
 
 
 async def init_db():
+    # На SQLite один create_all не чинит старые базы (не добавляет новые
+    # колонки в существующие таблицы) — поэтому все точки входа гоняют
+    # полный раннер миграций. Ленивый импорт: core.migrations тянет
+    # core.models, а тот — этот модуль.
+    if DATABASE_URL.startswith("sqlite"):
+        from core.migrations import run_migrations
+        await run_migrations()
+        return
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 

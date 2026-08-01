@@ -1,12 +1,87 @@
+import enum
+import logging
 import os
 from sqlalchemy import text
 from core.database import engine, DATABASE_URL
 from core.models import Base
 
+logger = logging.getLogger("migrations")
+
+
+def _sqlite_type_for(column) -> str:
+    """Тип колонки так, как его рендерит SQLite-диалект (VARCHAR(32), DATETIME...)."""
+    from sqlalchemy.dialects import sqlite
+    try:
+        return column.type.compile(dialect=sqlite.dialect())
+    except Exception:
+        # Экзотические типы без компиляции под SQLite — SQLite всё равно
+        # хранит что угодно (type affinity), безопасный fallback — TEXT.
+        return "TEXT"
+
+
+def _default_literal(column):
+    """Скалярный default колонки в виде SQL-литерала для ADD COLUMN.
+
+    SQLite при ALTER TABLE ... ADD COLUMN разрешает только константные
+    DEFAULT, поэтому вычисляемые/серверные значения (func.now() и т.п.)
+    пропускаем: ORM сам проставит их при вставке, а старые строки
+    получат NULL в такой колонке.
+    """
+    default = column.default
+    if default is None or not getattr(default, "is_scalar", False):
+        return None
+    value = default.arg
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return "1" if value else "0"
+    if isinstance(value, enum.Enum):
+        # SQLAlchemy SQLEnum хранит ИМЯ члена ("SAFE"), а не значение.
+        return "'" + str(value.name).replace("'", "''") + "'"
+    if isinstance(value, (int, float)):
+        return repr(value)
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+async def _sync_missing_columns(conn, tables: set) -> list:
+    """Добирает в уже существующие таблицы ВСЕ колонки из моделей,
+    которых в базе не хватает.
+
+    Раньше каждую новую колонку прописывали в этой функции руками — и
+    любое забытое поле (как characters.bronze) роняло запуск со старой
+    базой. Теперь это универсальный проход по Base.metadata: что есть в
+    моделях, но нет в таблице — создаётся через ALTER TABLE с дефолтом
+    из модели. Ручные миграции ниже остаются для случаев, где нужна ещё
+    и правка данных (например, lower() у character_class).
+    """
+    added = []
+    for table_name, table in Base.metadata.tables.items():
+        if table_name not in tables:
+            continue  # целиком новые таблицы создаст create_all ниже
+        result = await conn.execute(text(f"PRAGMA table_info({table_name})"))
+        existing = {row[1] for row in result.fetchall()}
+        for column in table.columns:
+            if column.name in existing:
+                continue
+            ddl = (
+                f"ALTER TABLE {table_name} ADD COLUMN "
+                f"{column.name} {_sqlite_type_for(column)}"
+            )
+            literal = _default_literal(column)
+            if literal is not None:
+                ddl += f" DEFAULT {literal}"
+            await conn.execute(text(ddl))
+            added.append(f"{table_name}.{column.name}")
+    return added
+
 
 async def run_migrations():
     """Simple migration runner for SQLite."""
     if not DATABASE_URL.startswith("sqlite"):
+        # На Postgres таблицы как минимум должны существовать (колонками
+        # там тоже управляет create_all на свежих базах).
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
         return
 
     async with engine.begin() as conn:
@@ -268,6 +343,14 @@ async def run_migrations():
                     await conn.execute(
                         text(f"ALTER TABLE character_classes ADD COLUMN {col} {ddl}")
                     )
+
+        # Универсальный добор колонок по моделям — страховка от «no such
+        # column» на старых базах: любое поле, забытое в ручных миграциях
+        # выше (или добавленное в модель в будущем), будет создано само.
+        added = await _sync_missing_columns(conn, tables)
+        if added:
+            logger.info("Auto-migrated columns: %s", ", ".join(added))
+            print(f"🔧 Миграция БД: добавлены колонки: {', '.join(added)}")
 
         # Create new tables if not exist
         await conn.run_sync(Base.metadata.create_all)
