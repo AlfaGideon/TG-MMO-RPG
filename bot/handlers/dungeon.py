@@ -201,6 +201,19 @@ async def dungeon_menu(callback: CallbackQuery):
         )
         run = result.scalar_one_or_none()
 
+        # Меню подземелья «в кармане» — VIP-удобство. Обычный герой
+        # попадает внутрь только через портал на клетке, поэтому кнопки
+        # у него нет; прямой колбэк тоже закрываем, чтобы старое
+        # сообщение с кнопкой не осталось лазейкой.
+        from core.vip import is_vip_active
+        if run is None and not is_vip_active(character):
+            await callback.answer(
+                "🗿 Подземелье открывается только у портала на карте. "
+                "Носить вход с собой могут лишь VIP.",
+                show_alert=True,
+            )
+            return
+
         if run:
             current = await _current_cell(session, run)
             can_dirs = await _get_can_dirs(session, run, current)

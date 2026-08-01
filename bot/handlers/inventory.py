@@ -11,7 +11,8 @@ from core.models import (User, Character, InventoryItem, Item, ItemInstance,
 from core.enums import ItemType
 from core.stats import combat_stats
 from bot.keyboards.inline import (
-    inventory_keyboard, item_action_keyboard, main_menu_keyboard,
+    inventory_hub_keyboard, inventory_section_keyboard, item_book_keyboard,
+    main_menu_keyboard,
 )
 from bot.utils.texts import item_detail_text, item_line
 from bot.utils.photos import send_or_edit_photo
@@ -86,8 +87,44 @@ def inventory_text(items, stats: dict) -> str:
     return "\n".join(lines)
 
 
+SECTIONS = {
+    "gear": "🛡 Снаряжение",
+    "bag": "🎒 Сумка · предметы",
+    "mat": "🧱 Сумка · материалы",
+    "stash": "🔒 Карман",
+}
+
+SECTION_HINTS = {
+    "gear": "Надетое остаётся с тобой даже после гибели.",
+    "bag": "Содержимое сумки частично теряется при гибели героя.",
+    "mat": "Сырьё для ремесла: само по себе бесполезно, в кузне — незаменимо.",
+    "stash": "Защищённый карман: эти вещи переживут смерть. "
+             "Перекладывать можно только в безопасных землях.",
+}
+
+
+def split_sections(items) -> dict:
+    """Разложить инвентарь по отделениям: снаряжение / предметы / материалы / карман.
+
+    Одна общая простыня мешала: надетое, руда и спрятанное в карман шли
+    вперемешку, и найти нужное оружие было делом случая.
+    """
+    buckets = {"gear": [], "bag": [], "mat": [], "stash": []}
+    for inv in items:
+        if inv.in_stash:
+            buckets["stash"].append(inv)
+        elif inv.is_equipped:
+            buckets["gear"].append(inv)
+        elif inv.item is not None and inv.item.item_type == ItemType.MATERIAL:
+            buckets["mat"].append(inv)
+        else:
+            buckets["bag"].append(inv)
+    return buckets
+
+
 @router.callback_query(F.data == "inventory")
-async def inventory(callback: CallbackQuery, page: int = 0):
+async def inventory(callback: CallbackQuery):
+    """Главный экран сумки: три отделения + материалы отдельной полкой."""
     async with async_session() as session:
         character = await _character_of(session, callback.from_user.id)
         if not character:
@@ -95,77 +132,161 @@ async def inventory(callback: CallbackQuery, page: int = 0):
             return
 
         items = await load_inventory(session, character.id)
-        if not items:
-            await safe_edit_text(callback, "🎒 <b>Инвентарь</b>\n\nТвоя сумка пуста...",
-                reply_markup=main_menu_keyboard(has_character=True),
-                parse_mode="HTML",
-            )
-            return
-
+        buckets = split_sections(items)
         stats = await combat_stats(session, character)
-        pocket = await stash_summary(session, character)
+        cap = await stash_core.capacity(session, character)
+
+    counts = {k: len(v) for k, v in buckets.items()}
+    counts["stash_cap"] = cap
+
+    lines = [
+        "🎒 <b>Снаряжение героя</b>",
+        f"Всего вещей: <b>{len(items)}</b>",
+        "",
+        f"⚔️ Урон от снаряжения: <b>+{stats['damage']}</b> | "
+        f"🛡 Защита: <b>+{stats['defense']}</b>",
+    ]
+    extras = []
+    for key, label in (
+        ("strength", "💪"), ("agility", "🏃"), ("intelligence", "🧠"),
+        ("endurance", "🛡"), ("luck", "🍀"), ("max_hp", "❤️"), ("max_mp", "💙"),
+    ):
+        if stats["bonus"].get(key):
+            extras.append(f"{label} +{stats['bonus'][key]}")
+    if extras:
+        lines.append("Бонусы: " + " ".join(extras))
+    lines += [
+        "",
+        "Выбери отделение:",
+        "<i>🎒 сумка теряется при гибели, 🔒 карман — нет.</i>",
+    ]
 
     await safe_edit_text(
         callback,
-        inventory_text(items, stats)
-        + f"\n\n{pocket}\n<i>🎒 Сумка теряется при гибели, 🔒 карман — нет.</i>",
-        reply_markup=inventory_keyboard(items, page=page),
+        "\n".join(lines),
+        reply_markup=inventory_hub_keyboard(counts),
         parse_mode="HTML",
     )
 
 
-@router.callback_query(F.data.startswith("inv_page:"))
-async def inventory_page(callback: CallbackQuery):
-    page = int(callback.data.split(":")[1])
-    await inventory(callback, page=page)
+@router.callback_query(F.data.startswith("inv_sec:"))
+async def inventory_section(callback: CallbackQuery):
+    _, section, raw_page = callback.data.split(":")
+    page = int(raw_page)
+    if section not in SECTIONS:
+        await callback.answer("Неизвестное отделение.", show_alert=True)
+        return
 
-
-@router.callback_query(F.data.startswith("item:"))
-async def item_detail(callback: CallbackQuery):
-    inv_id = int(callback.data.split(":")[1])
     async with async_session() as session:
-        result = await session.execute(
-            select(InventoryItem)
-            .where(InventoryItem.id == inv_id)
-            .options(
-                selectinload(InventoryItem.item),
-                selectinload(InventoryItem.instance),
-            )
-        )
-        inv_item = result.scalar_one_or_none()
-        if not inv_item:
-            await callback.answer("Предмет не найден.", show_alert=True)
+        character = await _character_of(session, callback.from_user.id)
+        if not character:
+            await callback.answer("Сначала создай персонажа!", show_alert=True)
+            return
+        items = await load_inventory(session, character.id)
+        bucket = split_sections(items)[section]
+        cap = await stash_core.capacity(session, character)
+
+    title = SECTIONS[section]
+    if section == "stash":
+        title += f" ({len(bucket)}/{cap})"
+    else:
+        title += f" ({len(bucket)})"
+
+    if not bucket:
+        text = f"<b>{title}</b>\n\n<i>Здесь пока пусто.</i>"
+    else:
+        text = (f"<b>{title}</b>\n<i>{SECTION_HINTS[section]}</i>\n\n"
+                + "\n".join("• " + item_line(inv) for inv in bucket[page * 6:page * 6 + 6])
+                + "\n\nОткрой вещь, чтобы прочитать её страницу в книге.")
+
+    await safe_edit_text(
+        callback,
+        text,
+        reply_markup=inventory_section_keyboard(bucket, section, page=page),
+        parse_mode="HTML",
+    )
+
+
+@router.callback_query(F.data.startswith("inv_book:"))
+async def inventory_book(callback: CallbackQuery):
+    """Книга предметов: карточка вещи с описанием, историей и листанием."""
+    _, section, raw_index = callback.data.split(":")
+    index = int(raw_index)
+    if section not in SECTIONS:
+        await callback.answer("Неизвестное отделение.", show_alert=True)
+        return
+
+    async with async_session() as session:
+        character = await _character_of(session, callback.from_user.id)
+        if not character:
+            await callback.answer("Сначала создай персонажа!", show_alert=True)
             return
 
+        items = await load_inventory(session, character.id)
+        bucket = split_sections(items)[section]
+        if not bucket:
+            await callback.answer("Отделение пусто.", show_alert=True)
+            return
+        index = max(0, min(index, len(bucket) - 1))
+        inv_item = bucket[index]
         item = inv_item.item
-        # Летопись есть только у именных вещей
+
         rows = await history.load(session, inv_item.instance_id) \
             if inv_item.instance_id else []
-        text = item_detail_text(inv_item, rows)
-        can_equip = item.item_type in EQUIPPABLE
-        can_use = item.item_type == ItemType.CONSUMABLE
-        can_sell = bool(inv_item.instance_id) and item.is_sellable
+        head = (f"📖 <b>{SECTIONS[section]}</b> — страница "
+                f"<b>{index + 1}</b> из <b>{len(bucket)}</b>\n"
+                "━━━━━━━━━━━━━━━\n")
+        text = head + item_detail_text(inv_item, rows)
 
-        # Защищённый карман: убирать можно только в безопасных землях.
-        character = await _character_of(session, callback.from_user.id)
-        can_stash = False
-        if character is not None:
-            location = await session.get(Location, character.location_id)
-            can_stash = (stash_core.safe_here(location)
-                         and await stash_core.free_slots(session, character) > 0)
+        # У материалов истории владельцев нет — даём хотя бы назначение.
+        if item is not None and item.item_type == ItemType.MATERIAL:
+            text += ("\n\n🔨 <i>Материал: отнеси ремесленнику — "
+                     "из такого куются вещи с собственной судьбой.</i>")
+
+        can_equip = item is not None and item.item_type in EQUIPPABLE
+        can_use = item is not None and item.item_type == ItemType.CONSUMABLE
+        can_sell = bool(inv_item.instance_id) and item is not None and item.is_sellable
+
+        location = await session.get(Location, character.location_id)
+        can_stash = (stash_core.safe_here(location)
+                     and await stash_core.free_slots(session, character) > 0)
         if inv_item.in_stash:
             text += "\n\n🔒 <i>В защищённом кармане — не теряется при гибели.</i>"
+        elif not stash_core.safe_here(location):
+            text += "\n\n<i>Карман открывается только в безопасных землях.</i>"
 
     await send_or_edit_photo(
         callback,
         text,
-        reply_markup=item_action_keyboard(
-            inv_item.id, inv_item.is_equipped,
+        reply_markup=item_book_keyboard(
+            inv_item.id, section, index, len(bucket),
+            is_equipped=bool(inv_item.is_equipped),
             can_equip=can_equip, can_use=can_use, can_sell=can_sell,
             in_stash=bool(inv_item.in_stash), can_stash=can_stash,
         ),
-        image_url=item.image_url,
+        image_url=item.image_url if item else None,
     )
+
+
+@router.callback_query(F.data.startswith("item:"))
+async def item_detail(callback: CallbackQuery):
+    """Старые сообщения с `item:<id>` — ведём в книгу нужного отделения."""
+    inv_id = int(callback.data.split(":")[1])
+    async with async_session() as session:
+        character = await _character_of(session, callback.from_user.id)
+        if not character:
+            await callback.answer("Сначала создай персонажа!", show_alert=True)
+            return
+        items = await load_inventory(session, character.id)
+        buckets = split_sections(items)
+
+    for section, bucket in buckets.items():
+        for idx, inv in enumerate(bucket):
+            if inv.id == inv_id:
+                callback.data = f"inv_book:{section}:{idx}"
+                await inventory_book(callback)
+                return
+    await callback.answer("Предмет не найден.", show_alert=True)
 
 
 @router.callback_query(F.data.startswith("stash_put:"))
@@ -257,7 +378,8 @@ async def equip_item(callback: CallbackQuery):
         await session.commit()
 
     await callback.answer(f"Экипировано: {name}")
-    await inventory(callback)
+    # Остаёмся на странице вещи: надел — сразу видишь обновлённую карточку.
+    await item_detail(callback)
 
 
 @router.callback_query(F.data.startswith("unequip:"))
@@ -269,7 +391,7 @@ async def unequip_item(callback: CallbackQuery):
             inv_item.is_equipped = False
             await session.commit()
     await callback.answer("Предмет снят.")
-    await inventory(callback)
+    await item_detail(callback)
 
 
 @router.callback_query(F.data.startswith("use:"))

@@ -9,16 +9,51 @@ from core.database import async_session
 from core.stats import combat_stats
 from core.vip import is_vip_active, offline_protected
 from core.models import User, Character, Battle
-from bot.keyboards.inline import main_menu_keyboard, leaderboard_keyboard
-from bot.utils.texts import profile_text
+from core.enums import BattleResult
+from bot.keyboards.inline import (leaderboard_keyboard, main_menu_keyboard,
+                                  profile_book_keyboard)
+from bot.utils.texts import PROFILE_PAGES, profile_page_text
 from bot.utils.photos import send_or_edit_photo
 from bot.utils.edit import safe_edit_text
 
 router = Router()
 
 
-@router.callback_query(F.data == "profile")
-async def profile(callback: CallbackQuery):
+async def _profile_extra(session, character):
+    """Цифры для разворотов «Снаряжение» и «Путь»."""
+    from core.models import InventoryItem, VisitedCell
+
+    bag = await session.scalar(
+        select(func.count(InventoryItem.id))
+        .where(InventoryItem.character_id == character.id)
+        .where(InventoryItem.in_stash == False)  # noqa: E712
+    ) or 0
+    stash = await session.scalar(
+        select(func.count(InventoryItem.id))
+        .where(InventoryItem.character_id == character.id)
+        .where(InventoryItem.in_stash == True)  # noqa: E712
+    ) or 0
+    visited = await session.scalar(
+        select(func.count(VisitedCell.id))
+        .where(VisitedCell.character_id == character.id)
+    ) or 0
+    locations_seen = await session.scalar(
+        select(func.count(func.distinct(VisitedCell.location_id)))
+        .where(VisitedCell.character_id == character.id)
+    ) or 0
+    victories = await session.scalar(
+        select(func.count(Battle.id))
+        .where(Battle.character_id == character.id)
+        .where(Battle.result == BattleResult.VICTORY)
+    ) or 0
+    return {
+        "bag_count": bag, "stash_count": stash, "visited": visited,
+        "locations_seen": locations_seen, "victories": victories,
+    }
+
+
+async def _show_profile(callback: CallbackQuery, page: int = 0):
+    """Профиль как книга: короткие развороты вместо простыни текста."""
     async with async_session() as session:
         result = await session.execute(
             select(User).where(User.telegram_id == callback.from_user.id)
@@ -45,16 +80,30 @@ async def profile(callback: CallbackQuery):
         cls_def = await get_class(session, character.character_class)
         stats = await combat_stats(session, character)
         affinities = await magic.get_affinities(session, character.id)
+        extra = await _profile_extra(session, character)
+
+        total = len(PROFILE_PAGES)
+        page = max(0, min(page, total - 1))
+        text = profile_page_text(character, page, cls_def, stats, affinities,
+                                 extra)
 
         await send_or_edit_photo(
             callback,
-            profile_text(character, cls_def, stats, affinities),
-            reply_markup=main_menu_keyboard(
-                has_character=True, is_vip=is_vip_active(character),
-                offline=offline_protected(character),
-            ),
+            text,
+            reply_markup=profile_book_keyboard(
+                page, total, [title for _, title in PROFILE_PAGES]),
             image_url=character.image_url,
         )
+
+
+@router.callback_query(F.data == "profile")
+async def profile(callback: CallbackQuery):
+    await _show_profile(callback, 0)
+
+
+@router.callback_query(F.data.startswith("profile_page:"))
+async def profile_page(callback: CallbackQuery):
+    await _show_profile(callback, int(callback.data.split(":")[1]))
 
 
 @router.callback_query(F.data == "leaderboard")

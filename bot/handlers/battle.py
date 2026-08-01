@@ -13,7 +13,7 @@ from core.models import User, Character, Mob, Battle, Cell, MobSpawn
 from core.enums import BattleResult
 from core.spawns import kill_spawn, spawn_at_cell
 from core.stats import attack_power, combat_stats, damage_reduction
-from bot.keyboards.inline import combat_keyboard, main_menu_keyboard
+from bot.keyboards.inline import combat_keyboard, continue_keyboard
 from bot.utils.texts import (
     battle_start_text, battle_round_text, victory_text, defeat_text, loot_text,
 )
@@ -96,7 +96,7 @@ async def battle_menu(callback: CallbackQuery):
             f"Ты находишься в: {character.location.name}\n"
             f"❤️ HP: {character.current_hp}/{character.max_hp}\n\n"
             f"Осмотрись на клетке, чтобы найти врагов.",
-            reply_markup=main_menu_keyboard(has_character=True),
+            reply_markup=continue_keyboard(),
             parse_mode="HTML",
         )
 
@@ -249,7 +249,7 @@ async def _finish_victory(callback, session, character, mob, spawn, state):
     await safe_edit_text(
         callback,
         text,
-        reply_markup=main_menu_keyboard(has_character=True),
+        reply_markup=continue_keyboard(),
         parse_mode="HTML",
     )
 
@@ -325,7 +325,7 @@ async def combat_attack(callback: CallbackQuery):
             await safe_edit_text(
                 callback,
                 defeat_text() + note,
-                reply_markup=main_menu_keyboard(has_character=True),
+                reply_markup=continue_keyboard(),
                 parse_mode="HTML",
             )
             return
@@ -378,7 +378,7 @@ async def combat_defend(callback: CallbackQuery):
             await safe_edit_text(
                 callback,
                 defeat_text() + note,
-                reply_markup=main_menu_keyboard(has_character=True),
+                reply_markup=continue_keyboard(),
                 parse_mode="HTML",
             )
             return
@@ -467,7 +467,7 @@ async def combat_skill(callback: CallbackQuery):
             await safe_edit_text(
                 callback,
                 defeat_text(),
-                reply_markup=main_menu_keyboard(has_character=True),
+                reply_markup=continue_keyboard(),
                 parse_mode="HTML",
             )
             return
@@ -512,7 +512,7 @@ async def combat_flee(callback: CallbackQuery):
             await session.commit()
 
     await safe_edit_text(callback, "🏃 Ты сбежал с поля боя. Жизнь дороже чести...",
-        reply_markup=main_menu_keyboard(has_character=True),
+        reply_markup=continue_keyboard(),
     )
 
 
@@ -536,7 +536,7 @@ async def rest(callback: CallbackQuery):
         f"Ты отдохнул у костра.\n"
         f"❤️ +{heal} HP | 💙 +{mp_restore} MP\n\n"
         f"Текущее здоровье: {character.current_hp}/{character.max_hp}",
-        reply_markup=main_menu_keyboard(has_character=True),
+        reply_markup=continue_keyboard(),
         parse_mode="HTML",
     )
 

@@ -9,11 +9,12 @@ from core.database import async_session
 from core.loot import give_chest_loot
 from core.models import User, Character, Location, Cell, VisitedCell
 from core.spawns import spawn_at_cell
+from core.vip import is_vip_active
 from core.map_renderer import ensure_cell_image, render_player_map, get_player_map_path
 from bot.keyboards.inline import (
     cell_movement_keyboard, inspect_keyboard,
-    main_menu_keyboard, back_to_main_keyboard, map_view_keyboard,
-    travel_keyboard,
+    main_menu_keyboard, map_view_keyboard,
+    travel_keyboard, continue_keyboard,
 )
 from bot.utils.texts import location_text, cell_text, loot_text
 from bot.utils.photos import send_or_edit_photo, get_photo_input
@@ -546,7 +547,6 @@ async def world_map(callback: CallbackQuery):
                    f"📍 Ты здесь: <b>{character.location.name}</b>")
 
         # Быстрый travel — обычные только в safe, VIP в любые посещённые
-        from core.vip import is_vip_active
         if is_vip_active(character):
             travel_targets = [
                 l for l in locations
@@ -590,8 +590,6 @@ async def travel_to(callback: CallbackQuery):
     """Быстрое перемещение в посещённую локацию (VIP — в любую, обычные — только safe)."""
     from core.enums import LocationType
     from core import worldops as WO
-    from core.vip import is_vip_active
-
     loc_id = int(callback.data.split(":")[1])
     async with async_session() as session:
         result = await session.execute(
@@ -659,19 +657,35 @@ async def travel_to(callback: CallbackQuery):
 
 @router.callback_query(F.data == "back_to_cell")
 async def back_to_cell(callback: CallbackQuery):
+    """Возврат туда, где игрок стоял, — основной способ «продолжить путь».
+
+    Если героя или клетки почему-то нет (не создан персонаж, битые данные),
+    честно показываем меню, а не оставляем игрока с мёртвой кнопкой.
+    """
     async with async_session() as session:
         result = await session.execute(
             select(User).where(User.telegram_id == callback.from_user.id)
         )
         user = result.scalar_one_or_none()
-        result = await session.execute(
-            select(Character)
-            .where(Character.user_id == user.id)
-            .options(selectinload(Character.location), selectinload(Character.cell))
-        )
-        character = result.scalar_one_or_none()
+        character = None
+        if user is not None:
+            result = await session.execute(
+                select(Character)
+                .where(Character.user_id == user.id)
+                .options(selectinload(Character.location), selectinload(Character.cell))
+            )
+            character = result.scalar_one_or_none()
         if character and character.cell:
             await show_cell(callback, character, character.location, session)
+            return
+
+    from bot.utils.texts import WELCOME_TEXT
+    await safe_edit_text(
+        callback,
+        WELCOME_TEXT,
+        reply_markup=main_menu_keyboard(has_character=bool(character)),
+        parse_mode="HTML",
+    )
 
 
 @router.callback_query(F.data == "talk_npc")
@@ -753,7 +767,7 @@ async def open_chest(callback: CallbackQuery):
             return
         cell.chest_respawn_at = new_respawn
 
-        from core.vip import apply_vip_chest_gold, is_vip_active
+        from core.vip import apply_vip_chest_gold
         tier = max(1, cell.chest_tier or 1)
         base_gold = random.randint(5 * tier, 25 * tier)
         gold = apply_vip_chest_gold(base_gold, character)
@@ -786,10 +800,12 @@ async def open_chest(callback: CallbackQuery):
         else:
             text += "\n\n<i>Больше в нём ничего не оказалось.</i>"
 
+        # Сундук открыт — игрок продолжает прогулку с той же клетки,
+        # а не возвращается в главное меню.
         await safe_edit_text(
             callback,
             text,
-            reply_markup=back_to_main_keyboard(),
+            reply_markup=continue_keyboard(),
             parse_mode="HTML",
         )
 
@@ -837,6 +853,7 @@ async def show_cell(callback, character, location, session):
 
     transition_label, transition_hint = _current_transition(cell, location)
     portal_template_id = await _active_portal_template_id(session, cell)
+    vip = is_vip_active(character)
     text = cell_text(
         cell, location.name, portal_active=bool(portal_template_id),
         floor=character.floor or 0, total_floors=location.floors_count or 1,
@@ -849,7 +866,8 @@ async def show_cell(callback, character, location, session):
         await send_or_edit_photo(
             callback,
             text,
-            reply_markup=cell_movement_keyboard(can_dirs, portal_template_id, dir_labels, transition_label),
+            reply_markup=cell_movement_keyboard(can_dirs, portal_template_id, dir_labels,
+                                   transition_label, is_vip=vip),
             image_url=custom_img,
         )
         return
@@ -862,7 +880,8 @@ async def show_cell(callback, character, location, session):
     cells = result.scalars().all()
 
     img_path = ensure_cell_image(cell, cells, cell.x, cell.y)
-    kb = cell_movement_keyboard(can_dirs, portal_template_id, dir_labels, transition_label)
+    kb = cell_movement_keyboard(can_dirs, portal_template_id, dir_labels,
+                                   transition_label, is_vip=vip)
 
     await send_or_edit_photo(
         callback,
