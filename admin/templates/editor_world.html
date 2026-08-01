@@ -13,6 +13,20 @@
 {% endblock %}
 
 {% block content %}
+{% if world_outdated %}
+<div class="card" style="border-color:var(--danger,#ef4444);background:rgba(239,68,68,.06)">
+    <h2 style="margin-top:0;color:var(--danger,#ef4444)">⚠️ Похоже, мир устарел — локаций всего {{ loc_count }}</h2>
+    <p class="section-sub">
+        Свежий сид строит карту 10×10 с ~41 локацией (36 по ободу + 4 угловых
+        замка + стартовые земли). Сейчас локаций заметно меньше — скорее всего,
+        база сеялась ещё старой версией (5 локаций), а
+        <code>seed_database()</code> не пересоздаёт уже непустой мир. Перезапуск
+        сервера тут не поможет: нужен <b>пересоздание мира</b>.
+    </p>
+    <p class="section-sub"><b>Как починить:</b> внизу страницы — «🎲 Сиды мира» → ввести seed (текущий {{ seed }}) → «Перегенерировать мир».
+    Ручные правки клеток сотрутся, игроки вернутся на спавн, но карта станет актуальной (10×10, все силы и жизнь мира подхватятся).</p>
+</div>
+{% endif %}
 <style>
 .world-toolbar{display:flex;gap:0.6rem;flex-wrap:wrap;align-items:center;margin-bottom:1rem}
 .world-100{

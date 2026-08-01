@@ -131,6 +131,40 @@
         {% endfor %}
     </div>
 </div>
+
+<div class="card" id="factions">
+    <h3>🧭 Силы и репутация</h3>
+    <p class="section-sub">
+        Четыре силы с противоположными интересами. Админ задаёт очки напрямую —
+        злоба соперника при этом не начисляется (это ручная правка). В игре
+        репутация даёт скидку у торговцев, меняет реплики жителей и влияет на
+        частоту катаклизмов.
+    </p>
+    {% if rep_allegiance %}
+    <p style="margin-bottom:0.75rem;">
+        {% set af = rep_rows | selectattr('key','equalto', rep_allegiance) | first %}
+        Присяга: <b>{{ af.icon }} {{ af.name }}</b> · {{ af.rank_icon }} {{ af.rank_title }}
+    </p>
+    {% else %}
+    <p style="margin-bottom:0.75rem; color:var(--text-muted);">Герой пока ни к одной силе не прибился (нужно ≥30 очков у одной из них).</p>
+    {% endif %}
+    <form action="/player/{{ char.id }}/reputation" method="post" class="inline-form" style="flex-direction:column;align-items:stretch;gap:0.5rem">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:0.6rem">
+            {% for r in rep_rows %}
+            <div style="background:var(--bg-dark);border:1px solid var(--border);border-radius:8px;padding:0.6rem">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.3rem">
+                    <b>{{ r.icon }} {{ r.name }}</b>
+                    <span class="badge">{{ r.rank_icon }} {{ r.rank_title }}</span>
+                </div>
+                <div class="muted" style="font-size:0.72rem;margin-bottom:0.4rem">{{ r.motto }} · соперник: {{ r.foe_name }}</div>
+                <label class="form-label">Очки ({{ rep_min }}…{{ rep_max }})</label>
+                <input type="number" name="{{ r.key }}" value="{{ r.value }}" min="{{ rep_min }}" max="{{ rep_max }}" class="search-box" style="max-width:140px">
+            </div>
+            {% endfor %}
+        </div>
+        <div><button type="submit" class="btn btn-primary">💾 Сохранить репутацию</button></div>
+    </form>
+</div>
 </div>
 
 <!-- ══════════════ ХАРАКТЕРИСТИКИ ══════════════ -->
