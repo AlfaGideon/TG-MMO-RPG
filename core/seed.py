@@ -403,27 +403,63 @@ async def _seal_fortress_and_link_gates(session):
             c.target_x = c.target_y = c.target_floor = None
 
     # 2) Диагональные переходы: ворота ↔ крыло цитадели (двусторонние).
+    #    Портал ставим в УГЛУ локации, обращённом к центру карты:
+    #    ворота (3,3) → угловая клетка (9,9); ворота (6,6) → (0,0).
+    def _corner_toward(src, dst, grid):
+        """Угол сетки src, ближайший к dst (в координатах клеток).
+
+        world_x — восток (= cell y), world_y — юг (= cell x):
+        поэтому cell x (север↔юг) берём из world_y, cell y (запад↔восток) — из world_x.
+        """
+        sx, sy = src
+        dx, dy = dst
+        cx = (grid - 1) if dy > sy else 0
+        cy = (grid - 1) if dx > sx else 0
+        return cx, cy
+
+    async def _carve_to_corner(loc, cx, cy):
+        """Дорога от центра локации к угловой клетке-порталу (cx, cy)."""
+        result = await session.execute(
+            select(Cell).where(Cell.location_id == loc.id).where(Cell.floor == 0)
+        )
+        cells = {(c.x, c.y): c for c in result.scalars().all()}
+        ccx, ccy = W.center_of(loc.grid_size)
+
+        def open_(x, y):
+            c = cells.get((x, y))
+            if c and not c.is_passable:
+                c.is_passable = True
+                c.tile_type = "road"
+
+        for x in range(min(ccx, cx), max(ccx, cx) + 1):
+            open_(x, cy)
+        for y in range(min(ccy, cy), max(ccy, cy) + 1):
+            open_(cx, y)
+
     for (gx, gy), (fx, fy) in GATE_TO_FORT.items():
         gate = gate_by_cell.get((gx, gy))
         fort = fort_by_cell.get((fx, fy))
         if not gate or not fort:
             continue
-        g_cell = await W.cell_at(session, gate.id, (gate.grid_size or 10) // 2,
-                                 (gate.grid_size or 10) // 2, 0)
-        f_cell = await W.cell_at(session, fort.id, (fort.grid_size or 10) // 2,
-                                 (fort.grid_size or 10) // 2, 0)
+        gg = gate.grid_size or 10
+        fg = fort.grid_size or 12
+        # угол ворот → к цитадели; угол цитадели → к воротам
+        gcx, gcy = _corner_toward((gx, gy), (fx, fy), gg)
+        fcx, fcy = _corner_toward((fx, fy), (gx, gy), fg)
+        await _carve_to_corner(gate, gcx, gcy)
+        await _carve_to_corner(fort, fcx, fcy)
+        g_cell = await W.cell_at(session, gate.id, gcx, gcy, 0)
+        f_cell = await W.cell_at(session, fort.id, fcx, fcy, 0)
         if g_cell:
             g_cell.is_passable = True
             g_cell.tile_type = "portal"
             g_cell.target_location_id = fort.id
-            g_cell.target_x = g_cell.target_y = (fort.grid_size or 10) // 2
-            g_cell.target_floor = 0
+            g_cell.target_x, g_cell.target_y, g_cell.target_floor = fcx, fcy, 0
         if f_cell:
             f_cell.is_passable = True
             f_cell.tile_type = "portal"
             f_cell.target_location_id = gate.id
-            f_cell.target_x = f_cell.target_y = (gate.grid_size or 10) // 2
-            f_cell.target_floor = 0
+            f_cell.target_x, f_cell.target_y, f_cell.target_floor = gcx, gcy, 0
     await session.flush()
 
 
