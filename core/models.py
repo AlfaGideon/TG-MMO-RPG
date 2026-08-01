@@ -178,13 +178,49 @@ class Character(Base):
     character_class = Column(ClassKeyType, nullable=False)
     level = Column(Integer, default=1)
     experience = Column(Integer, default=0)
-    gold = Column(Integer, default=50)
+    # Три валюты: бронза (мелочь), серебро, золото
+    bronze = Column(Integer, default=120)
+    silver = Column(Integer, default=8)
+    gold = Column(Integer, default=2)
 
     strength = Column(Integer, default=10)
     agility = Column(Integer, default=10)
     intelligence = Column(Integer, default=10)
     endurance = Column(Integer, default=10)
     luck = Column(Integer, default=10)
+
+    # === Новые расширенные статы (Gear Score, Ловкость, Криты, Дропы и т.д.) ===
+    gear_score = Column(Integer, default=0)
+    damage_reduction = Column(Float, default=0.0)
+    dexterity = Column(Integer, default=10)           # Ловкость
+    crit_chance = Column(Float, default=5.0)
+    crit_damage = Column(Float, default=50.0)
+    double_hit_chance = Column(Float, default=0.0)
+    double_damage_chance = Column(Float, default=0.0)
+    dodge_chance = Column(Float, default=0.0)
+    block_chance = Column(Float, default=0.0)
+    water_conversion = Column(Float, default=0.0)
+    poison_conversion = Column(Float, default=0.0)
+    life_on_hit = Column(Integer, default=0)
+    life_on_kill = Column(Integer, default=0)
+    thorns_damage = Column(Integer, default=0)
+    pet_damage_mult = Column(Float, default=1.0)
+    exp_gain_mult = Column(Float, default=1.0)
+    gold_gain_mult = Column(Float, default=1.0)
+    item_drop_chance = Column(Float, default=0.0)
+    material_drop_chance = Column(Float, default=0.0)
+    rune_drop_chance = Column(Float, default=0.0)
+    ruby_drop_chance = Column(Float, default=0.0)
+    extra_kill_chance = Column(Float, default=0.0)
+
+    # === Дополнительные 7 статов (полный комплект) ===
+    attack_damage_min = Column(Integer, default=10)
+    attack_damage_max = Column(Integer, default=15)
+    effective_drop_mult = Column(Float, default=1.0)
+    effective_material_mult = Column(Float, default=1.0)
+    effective_rune_mult = Column(Float, default=1.0)
+    effective_ruby_mult = Column(Float, default=1.0)
+    pet_damage = Column(Integer, default=0)
 
     max_hp = Column(Integer, default=100)
     current_hp = Column(Integer, default=100)
@@ -1027,3 +1063,13 @@ class PlayerSuggestion(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     character = relationship("Character")
+
+
+class GameSettings(Base):
+    """Глобальные настройки игры (в т.ч. курс валют)."""
+    __tablename__ = "game_settings"
+
+    id = Column(Integer, primary_key=True)
+    key = Column(String(64), unique=True, nullable=False)
+    value = Column(Text, default="")
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())

@@ -1,4 +1,6 @@
 from .start import router as start_router
+from .help_book import router as help_book_router
+from .updates_book import router as updates_book_router
 from .character import router as character_router
 from .location import router as location_router
 from .battle import router as battle_router

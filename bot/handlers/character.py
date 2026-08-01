@@ -7,6 +7,7 @@ from core import magic
 from core.classes import get_class
 from core.database import async_session
 from core.stats import combat_stats
+from engine.stats import calculate_gear_score, get_russian_stat_name
 from core.vip import is_vip_active, offline_protected
 from core.models import User, Character, Battle
 from core.enums import BattleResult
@@ -138,8 +139,16 @@ async def leaderboard_view(callback: CallbackQuery):
     medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
     for idx, (char, user) in enumerate(rows, 1):
         name = user.username or user.first_name or "Безымянный"
-        val = char.level if sort_by == "level" else char.gold
-        icon = "⭐" if sort_by == "level" else "🪙"
+        if sort_by == "level":
+            val = char.level
+            icon = "⭐"
+        else:
+            # Show 3 currencies
+            b = getattr(char, "bronze", 0)
+            s = getattr(char, "silver", 0)
+            g = getattr(char, "gold", 0)
+            val = f"{b}🪙{s}🥈{g}🪙"
+            icon = ""
         lines.append(f"{medals[idx-1]} {name} — {val}{icon}")
 
     await safe_edit_text(callback, "\n".join(lines),
