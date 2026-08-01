@@ -51,8 +51,8 @@ SPITE = 0.5                 # какая доля прироста уходит 
 # За что дают репутацию: событие -> {фракция: сколько}. Отрицательные
 # дельты — тематическая неприязнь (добавляется к SPITE-соперничеству).
 DEEDS = {
-    "undead_slain": {"guard": 2, "order": 2, "cult": -2},  # культ нежить защищает
-    "beast_slain": {"guard": 1, "order": 1},               # убил зверя
+    "undead_slain": {"guard": 2, "order": 2, "cult": 2, "scavengers": 2},  # все фракции одобряют защиту земель
+    "beast_slain": {"guard": 1, "order": 1, "cult": 1, "scavengers": 1},               # убил зверя
     "grave_looted": {"scavengers": 4, "guard": -2, "order": -2},
     "chest_opened": {"scavengers": 1},               # вскрыл сундук
     "quest_done": {"guard": 3, "order": 2},          # выполнил задание жителя

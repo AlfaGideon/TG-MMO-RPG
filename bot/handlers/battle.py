@@ -56,8 +56,10 @@ async def _lose_bag(session, character):
     for inv in lost:
         await session.delete(inv)
 
-    gold_lost = character.gold // 5
-    character.gold -= gold_lost
+    from engine.currency import total_in_bronze, deduct_currency
+    total_b = total_in_bronze(character)
+    gold_lost = total_b // 5
+    deduct_currency(character, gold_lost)
     grave = await core_death.bury(session, character, gold_lost, item_ids)
     core_death.wound(character)
 
@@ -181,7 +183,8 @@ async def _finish_victory(callback, session, character, mob, spawn, state):
     gold = apply_vip_gold(base_gold, character)
     exp = apply_vip_exp(base_exp, character)
 
-    character.gold += gold
+    from engine.currency import add_currency
+    add_currency(character, bronze=gold)
     character.experience += exp
 
     # Фракции: за нежить хвалит стража, за зверьё — тоже, но меньше.

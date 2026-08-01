@@ -231,14 +231,15 @@ async def buy(session, character: Character, index: int) -> dict:
     if ware.get("qty", 0) <= 0:
         return {"ok": False, "reason": "Этот товар уже раскупили."}
     price = int(ware["price"])
-    if character.gold < price:
+    from engine.currency import total_in_bronze, deduct_currency
+    if total_in_bronze(character) < price:
         return {"ok": False,
-                "reason": f"Не хватает {price - character.gold}🪙."}
+                "reason": f"Не хватает {price - total_in_bronze(character)}🪙."}
     item = await session.get(Item, int(ware["item_id"]))
     if item is None:
         return {"ok": False, "reason": "Предмет потерялся — торговец убрал его с витрины."}
 
-    character.gold -= price
+    deduct_currency(character, price)
     ware["qty"] -= 1
     await save(session, state)
 

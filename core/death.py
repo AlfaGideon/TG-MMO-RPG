@@ -99,7 +99,8 @@ async def claim(session, character, grave):
 
     taken_gold = gold if own else gold // 2
     taken_items = items if own else items[:len(items) // 2]
-    character.gold += taken_gold
+    from engine.currency import add_currency
+    add_currency(character, bronze=taken_gold)
     for item_id in taken_items:
         session.add(InventoryItem(character_id=character.id,
                                   item_id=int(item_id), quantity=1))

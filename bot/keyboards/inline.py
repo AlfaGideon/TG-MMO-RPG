@@ -37,7 +37,8 @@ def admin_panel_keyboard(login_url: str = ""):
     builder = InlineKeyboardBuilder()
     builder.button(text="🔑 Показать пароль", callback_data="admin_password")
     if login_url:
-        builder.button(text="🌐 Открыть панель", url=login_url)
+        from aiogram.types import WebAppInfo
+        builder.button(text="🌐 Открыть панель", web_app=WebAppInfo(url=login_url))
     builder.button(text="◀️ В главное меню", callback_data="main_menu")
     builder.adjust(1)
     return builder.as_markup()
@@ -197,7 +198,8 @@ def cell_movement_keyboard(can_dirs: dict, dungeon_template_id: int | None = Non
                            dir_labels: dict | None = None,
                            current_transition_label: str | None = None,
                            is_vip: bool = False,
-                           has_merchant: bool = False):
+                           has_merchant: bool = False,
+                           is_castle_basement: bool = False):
     """
     3x3 grid: 8 directions + center inspect.
     can_dirs: {'nw': bool, 'n': bool, 'ne': bool, 'w': bool, 'e': bool,
@@ -246,6 +248,10 @@ def cell_movement_keyboard(can_dirs: dict, dungeon_template_id: int | None = Non
         builder.button(text="🧳 Торговец", callback_data="merchant_menu")
         rows.append(1)
 
+    if is_castle_basement:
+        builder.button(text="⛏️ Прокопать подкоп", callback_data="dig_tunnel")
+        rows.append(1)
+
     # Actions
     builder.button(text="🏕 Отдохнуть", callback_data="rest")
     builder.button(text="🎒 Инвентарь", callback_data="inventory")
@@ -277,6 +283,7 @@ def travel_keyboard(safe_locations: list):
     builder = InlineKeyboardBuilder()
     for loc in safe_locations[:8]:
         builder.button(text=f"🏠 {loc.name}", callback_data=f"travel:{loc.id}")
+    builder.button(text="⚖️ Силы фракций", callback_data="reputation")
     builder.button(text="◀️ Назад", callback_data="back_to_cell")
     builder.adjust(1)
     return builder.as_markup()
@@ -313,10 +320,13 @@ def merchant_book_keyboard(ware, page: int, total: int, can_buy: bool):
 
 def inspect_keyboard(has_mob: bool, has_npc: bool, has_chest: bool,
                      is_crafter: bool = False, is_auctioneer: bool = False,
-                     has_landmark: bool = False, has_grave: bool = False):
+                     has_landmark: bool = False, has_grave: bool = False,
+                     has_players: bool = False):
     builder = InlineKeyboardBuilder()
     if has_mob:
         builder.button(text="⚔️ Атаковать", callback_data="cell_attack")
+    if has_players:
+        builder.button(text="⚔️ Напасть на игрока", callback_data="pvp_select")
     if has_landmark:
         builder.button(text="❇️ Изучить", callback_data="study_landmark")
     if has_grave:
@@ -776,5 +786,15 @@ def dungeon_combat_keyboard():
     builder = InlineKeyboardBuilder()
     builder.button(text="🔴 ⚔️ Атаковать", callback_data="dungeon_combat_attack")
     builder.button(text="⚪ 🏃 Сбежать", callback_data="dungeon_flee")
+    builder.adjust(2)
+    return builder.as_markup()
+
+
+def faction_select_keyboard(char_id: int):
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🛡 Стража Погоста", callback_data=f"start_faction:{char_id}:guard")
+    builder.button(text="💰 Гильдия падальщиков", callback_data=f"start_faction:{char_id}:scavengers")
+    builder.button(text="🌑 Культ Пожирателя", callback_data=f"start_faction:{char_id}:cult")
+    builder.button(text="⚜️ Орден Рассвета", callback_data=f"start_faction:{char_id}:order")
     builder.adjust(2)
     return builder.as_markup()

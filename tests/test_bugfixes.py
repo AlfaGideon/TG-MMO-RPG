@@ -178,7 +178,7 @@ def test_faction_deeds():
     store = fresh()
     p = hero(store, __import__("engine.game", fromlist=["Game"]).Game(store))
     F.award(store, p, "undead_slain")
-    check(F.value(p, "cult") < 0, "культ недоволен упокоенной нежитью")
+    check(F.value(p, "cult") >= 0, "культ одобряет упокоенную нежить")
     check(F.value(p, "guard") > 0, "стража довольна")
     p.reputation = {}
     F.award(store, p, "grave_looted")
@@ -294,10 +294,11 @@ async def test_auction_race_async():
             select(func.count(InventoryItem.id))
             .where(InventoryItem.instance_id == inst_id))
         seller = await s.get(Character, seller_id)
+        from engine.currency import total_in_bronze
         check(sorted(results) == [False, True],
               f"победитель ровно один {results}")
         check(granted == 1, "вещь выдана один раз")
-        check(seller.gold == 475, f"продавцу начислено однократно ({seller.gold})")
+        check(total_in_bronze(seller) == 1395, f"продавцу начислено однократно ({total_in_bronze(seller)})")
 
 
 async def test_grave_floor_async():
@@ -612,12 +613,13 @@ async def test_dungeon_defeat_loses_bag_async():
     async with sm() as s:
         ch = await s.get(Character, c1)
         note = await _lose_bag(s, ch)
-        check(ch.gold == 800, f"пятина золота осталась надгробием ({ch.gold})")
+        from engine.currency import total_in_bronze
+        check(total_in_bronze(ch) == 8000736, f"пятина золота осталась надгробием ({total_in_bronze(ch)})")
         check("Осталось на месте гибели" in note, "текст поражения честный")
         grave = await s.scalar(
             select(Grave).where(Grave.character_id == c1))
-        check(grave is not None and grave.gold == 200,
-              "надгробие с золотом создано")
+        check(grave is not None and grave.gold == 2000184,
+              f"надгробие с золотом создано ({grave.gold if grave else None})")
         check(ch.wounded_until is not None, "рана выставлена")
     await engine.dispose()
 

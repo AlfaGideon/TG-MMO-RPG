@@ -78,6 +78,7 @@ async def _consume_material(session, character_id: int, item_id: int, amount: in
 
 async def check_recipe(session, character, recipe: CraftRecipe) -> dict:
     """Что не хватает для крафта. Возвращает сводку для UI."""
+    from engine.currency import total_in_bronze
     missing = []
     for ing in recipe.ingredients:
         have = await _count_material(session, character.id, ing.item_id)
@@ -85,14 +86,15 @@ async def check_recipe(session, character, recipe: CraftRecipe) -> dict:
             missing.append({
                 "item": ing.item, "need": ing.quantity or 1, "have": have,
             })
+    gold_bal = total_in_bronze(character)
     return {
         "can_craft": (
             not missing
-            and character.gold >= (recipe.gold_cost or 0)
+            and gold_bal >= (recipe.gold_cost or 0)
             and character.level >= (recipe.min_level or 1)
         ),
         "missing": missing,
-        "needs_gold": max(0, (recipe.gold_cost or 0) - character.gold),
+        "needs_gold": max(0, (recipe.gold_cost or 0) - gold_bal),
         "needs_level": max(0, (recipe.min_level or 1) - character.level),
     }
 
@@ -112,7 +114,8 @@ async def craft(session, character, recipe: CraftRecipe) -> dict:
 
     for ing in recipe.ingredients:
         await _consume_material(session, character.id, ing.item_id, ing.quantity or 1)
-    character.gold -= recipe.gold_cost or 0
+    from engine.currency import deduct_currency
+    deduct_currency(character, recipe.gold_cost or 0)
 
     if random.random() > (recipe.success_chance or 1.0):
         await session.flush()
@@ -198,8 +201,9 @@ async def upgrade(session, character, inv_item: InventoryItem) -> dict:
     if cost is None:
         return {"ok": False, "reason": "Предмет достиг предела заточки."}
 
-    if character.gold < cost["gold"]:
-        return {"ok": False, "reason": f"Не хватает {cost['gold'] - character.gold} золота."}
+    from engine.currency import total_in_bronze, deduct_currency
+    if total_in_bronze(character) < cost["gold"]:
+        return {"ok": False, "reason": f"Не хватает {cost['gold'] - total_in_bronze(character)} золота."}
 
     if cost["material"] is not None and cost["material_qty"] > 0:
         have = await _count_material(session, character.id, cost["material"].id)
@@ -215,7 +219,7 @@ async def upgrade(session, character, inv_item: InventoryItem) -> dict:
             session, character.id, cost["material"].id, cost["material_qty"]
         )
 
-    character.gold -= cost["gold"]
+    deduct_currency(character, cost["gold"])
 
     if random.random() > cost["chance"]:
         await session.flush()

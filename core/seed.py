@@ -1,8 +1,8 @@
 import random
 from collections import deque
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from core.database import async_session
-from core.models import Location, Mob, Item, ShopItem, Cell, Quest
+from core.models import Location, Mob, Item, ShopItem, Cell, Quest, AppSetting
 from core.enums import LocationType, ItemType, ItemRarity
 from core import worldgen as W
 
@@ -181,23 +181,78 @@ async def seed_database():
                 LOCATIONS_PLAN.append(
                     (f"Тракт {edge} Предела {i}", desc,
                      LocationType.DANGEROUS, 3, wx, wy, 10, None))
-        locations = [
-            Location(name=name, description=desc, location_type=lt, min_level=ml,
-                     image_url=img, world_x=wx, world_y=wy, grid_size=gs)
-            for name, desc, lt, ml, wx, wy, gs, img in LOCATIONS_PLAN
-        ]
+        locations = []
+        for name, desc, lt, ml, wx, wy, gs, img in LOCATIONS_PLAN:
+            floors = 2 if name.startswith("Замок") else 1
+            locations.append(Location(
+                name=name, description=desc, location_type=lt, min_level=ml,
+                image_url=img, world_x=wx, world_y=wy, grid_size=gs, floors_count=floors
+            ))
         session.add_all(locations)
         await session.flush()
 
-        castle_idx = 0
+        # Get seed from settings
+        seed_row = await session.scalar(select(AppSetting).where(AppSetting.key == "seed"))
+        if not seed_row:
+            seed_row = AppSetting(key="seed", value="1337")
+            session.add(seed_row)
+            await session.flush()
+        seed = int(seed_row.value or 1337)
+
         for loc in locations:
             if loc.name.startswith("Замок"):
                 await W.build_corner_castle(session, loc, CELL_STORIES,
-                                            rng=random.Random(42 + loc.id),
-                                            npcs=CASTLE_NPCS[castle_idx % len(CASTLE_NPCS)])
-                castle_idx += 1
+                                            rng=random.Random(seed + loc.id),
+                                            npcs=None)
+                await W.ensure_stairs(session, loc)
             else:
-                await W.build_cells(session, loc, CELL_STORIES)
+                await W.build_cells(session, loc, CELL_STORIES, rng=random.Random(seed + loc.id))
+
+        # Seed NPCs for each of the 4 starting castle locations
+        CASTLE_NPCS_MAP = {
+            "Замок Рассвета": [
+                ("Инквизитор Эдуард", "Свет Рассвета рассеет любую тьму. Веришь ли ты в спасение?", "storyteller"),
+                ("Интендант Бенедикт", "Орден снабжает верных рыцарей всем необходимым. Покупай добротную экипировку.", "merchant"),
+                ("Оружейник Рауль", "Молот Ордена куёт праведную сталь. Я улучшу твой клинок.", "crafter"),
+                ("Писарь Иеремия", "Мы ведём учёт трофеев и помогаем обмениваться вещами. Загляни в гроссбух.", "auctioneer"),
+            ],
+            "Замок Теней": [
+                ("Лорд Малакар", "Бездна поглотит всё. Мы лишь готовим мир к её пришествию...", "storyteller"),
+                ("Торговец шёпотом Ксавьер", "Тёмные товары для тёмных дел. Бронза не пахнет, верно?", "merchant"),
+                ("Кузнец скверны Кром", "Я закаляю сталь в пламени бездны. Она будет резать глубже.", "crafter"),
+                ("Ростовщик Теневой секты", "Теневой рынок всегда открыт. Мы задокументируем любую сделку.", "auctioneer"),
+            ],
+            "Замок Глубин": [
+                ("Главарь банды Грюм", "В Глубинах выживает сильнейший. Мёртвым золото ни к чему, а нам пригодится.", "storyteller"),
+                ("Скупщик краденого Барни", "Товары со всего мира — дешевле, чем у честных купцов! Бери, пока горячо.", "merchant"),
+                ("Оружейник Глубин Шрам", "Ковка из ржавого лома и заточка клинков — моё ремесло. Было бы золото.", "crafter"),
+                ("Оценщик Гильдии Клык", "Скупщик Молчун оставил тут свои контакты. Покупай и выставляй лоты.", "auctioneer"),
+            ],
+            "Замок Пепла": [
+                ("Капитан Радклифф", "Мы — Стража Погоста. Пока стоит частокол — живые спят спокойно.", "storyteller"),
+                ("Лавочник Кормак", "Походные припасы и броня для защитников рубежей. Всё честно и без обмана.", "merchant"),
+                ("Оружейник Торвальд", "Наковальня Стражи куёт лучшую защиту от когтей нежити. Давай сталь.", "crafter"),
+                ("Летописец Пепла Морган", "Всё, что добыто на поле боя, записывается здесь. Мы проводим честные аукционы.", "auctioneer"),
+            ],
+        }
+
+        for loc in locations:
+            npc_list = CASTLE_NPCS_MAP.get(loc.name)
+            if npc_list:
+                result = await session.execute(
+                    select(Cell).where(Cell.location_id == loc.id).where(Cell.floor == 0).where(Cell.is_passable == True).where(Cell.tile_type == "village")
+                )
+                safe_cells = result.scalars().all()
+                rng = random.Random(seed + loc.id)
+                rng.shuffle(safe_cells)
+                for i, (npc_name, dialogue, npc_type) in enumerate(npc_list):
+                    if i >= len(safe_cells):
+                        break
+                    cell = safe_cells[i]
+                    cell.has_npc = True
+                    cell.npc_name = npc_name
+                    cell.npc_dialogue = dialogue
+                    cell.npc_type = npc_type
 
         # Бесшовные швы: пересборка по фактическому соседству на мировой
         # карте (общие функции — в worldgen; одна дверь на границу).
@@ -349,3 +404,39 @@ async def seed_database():
         await session.commit()
         print("Database seeded: 41 locations (36 on the map rim, corner "
               "castles 25×25), quests, and seamless links.")
+
+
+async def recreate_world_on_server(seed: int):
+    """Полностью пересоздать мир по новому сиду на сервере."""
+    from core.models import Grave, DungeonRun, MobSpawn, Cell, Location, AppSetting, Character
+    from sqlalchemy import delete, update
+    
+    async with async_session() as session:
+        # Обновляем сид
+        seed_row = await session.scalar(select(AppSetting).where(AppSetting.key == "seed"))
+        if not seed_row:
+            seed_row = AppSetting(key="seed", value=str(seed))
+            session.add(seed_row)
+        else:
+            seed_row.value = str(seed)
+        await session.flush()
+
+        # Очищаем мир
+        await session.execute(delete(Grave))
+        await session.execute(delete(DungeonRun))
+        await session.execute(delete(MobSpawn))
+        await session.execute(delete(Cell))
+        await session.execute(delete(Location))
+        await session.flush()
+
+        # Сбрасываем игроков на спавн
+        await session.execute(
+            update(Character)
+            .values(location_id=1, cell_id=None, floor=0)
+        )
+        await session.flush()
+        await session.commit()
+    
+    # Теперь заново вызываем оригинальный seed_database(), который
+    # перегенерирует весь мир под новым сидом.
+    await seed_database()

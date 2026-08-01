@@ -97,7 +97,7 @@ async def run():
         core_factions.award_for_mob(ch, mobs[0])       # зомби = нежить
         rep = core_factions.load(ch)
         check(rep["guard"] > 0, "стража ценит упокоенную нежить")
-        check(rep["cult"] < 0, "культ этим недоволен")
+        check(rep["cult"] >= 0, "культ одобряет упокоение нежити")
 
         guard_before = rep["guard"]
         core_factions.award(ch, "grave_looted")
