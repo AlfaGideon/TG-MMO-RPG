@@ -144,21 +144,42 @@ select:hover,
 textarea:hover { border-color: var(--text-muted); }
 
 input[type="file"] {
-    color: var(--text-muted);
+    color: transparent;
     font-size: 0.8rem;
     max-width: 100%;
+    padding: 0;
+    border: none;
+    background: transparent;
+    position: relative;
 }
 
-input[type="file"]::file-selector-button {
-    font-family: inherit;
-    font-size: 0.78rem;
-    padding: 0.35rem 0.6rem;
-    margin-right: 0.6rem;
-    border-radius: 6px;
-    border: 1px solid var(--border);
+input[type="file"]::before {
+    content: "➕ Загрузить картинку";
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.7rem 1.1rem;
+    border-radius: 8px;
+    border: 1px dashed var(--border);
     background: var(--bg-hover);
     color: var(--text);
     cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 500;
+    min-width: 220px;
+    transition: border-color 0.2s, background 0.2s, color 0.2s;
+}
+
+input[type="file"]:hover::before {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent-text);
+}
+
+input[type="file"]:focus::before {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
 }
 
 input[type="checkbox"], input[type="radio"] {
