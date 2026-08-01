@@ -1,6 +1,7 @@
 import os
 import shutil
 import random
+import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 
@@ -35,7 +36,28 @@ from core.enums import (
 )
 from admin.config import settings
 from admin import auth as webauth
+from admin.logs import install_log_buffer
 from bot.runner import bot_runner
+
+
+class _QuietAccessFilter(logging.Filter):
+    """Не засоряем консоль опросами панели (GET /api/bot/status каждые 5с)."""
+
+    _quiet = ("/api/bot/status",)
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            msg = record.getMessage()
+        except Exception:
+            return True
+        return not any(q in msg for q in self._quiet)
+
+
+# Фильтр вешаем и на случай прямого запуска «uvicorn admin.main:app»:
+# в launch.py access-логи выключены целиком (access_log=False).
+logging.getLogger("uvicorn.access").addFilter(_QuietAccessFilter())
+# Буфер консольных логов для вкладки «📜 Логи».
+install_log_buffer()
 
 
 @asynccontextmanager
@@ -1511,6 +1533,12 @@ async def settings_page(request: Request):
             token_masked = t[:10] + "..." + t[-6:] if len(t) > 20 else "***"
         proxy_url = await get_bot_proxy_url(session)
 
+    # Диагностика прокси для страницы настроек: предупреждение, если
+    # aiohttp-socks не установлен, и подсказка к последней ошибке бота.
+    from bot import proxy as proxy_diag
+    proxy_socks_missing = bool(proxy_url) and not proxy_diag.is_installed()
+    bot_error_tip = proxy_diag.error_tip(bot_runner.last_error or "", proxy_url)
+
     panel_url = await get_panel_url()
     # Подсказываем адрес, с которого админ сейчас смотрит панель
     detected = str(request.base_url).rstrip("/")
@@ -1533,6 +1561,8 @@ async def settings_page(request: Request):
             "token_masked": token_masked,
             "bot_running": bot_runner.is_running(),
             "bot_error": bot_runner.last_error,
+            "bot_error_tip": bot_error_tip,
+            "proxy_socks_missing": proxy_socks_missing,
             "telegram_proxy_url": proxy_url,
             "telegram_proxy_masked": mask_secret_url(proxy_url),
             "panel_url": panel_url,
@@ -1617,6 +1647,48 @@ async def api_bot_status():
         "error": bot_runner.last_error,
         "proxy_enabled": bool(bot_runner.proxy_url),
     }
+
+
+@app.post("/api/proxy/check")
+async def api_proxy_check(request: Request, telegram_proxy_url: str = Form("")):
+    """Пошаговая диагностика прокси: адрес → пакет → TCP → Telegram через прокси.
+
+    Проверяет то, что введено в поле (можно до сохранения). Сетевые проверки
+    короткие (4–10 секунд), останавливается на первой неудаче.
+    """
+    guard(request, "manage_settings")
+    from bot.proxy import check_proxy
+    return await check_proxy(telegram_proxy_url.strip())
+
+
+# ── Логи консоли ──────────────────────────────────────────
+
+@app.get("/logs")
+async def logs_page(request: Request):
+    """Вкладка «Логи»: последние записи консоли сервера (кольцевой буфер)."""
+    guard(request, "view_dash")
+    return templates.TemplateResponse(request, "logs.html", {})
+
+
+@app.get("/api/logs")
+async def api_logs(request: Request, level: str = "", limit: int = 500):
+    """JSON-выборка логов для автоподгрузки вкладки.
+
+    level — минимальный уровень (ERROR/WARNING/INFO), limit — до 2000 записей.
+    """
+    guard(request, "view_dash")
+    from admin.logs import log_buffer
+    return {"records": log_buffer.snapshot(
+        level=level, limit=max(1, min(limit, 2000)))}
+
+
+@app.post("/api/logs/clear")
+async def api_logs_clear(request: Request):
+    """Очистить буфер логов в памяти (консоль не трогаем)."""
+    guard(request, "settings")
+    from admin.logs import log_buffer
+    log_buffer.clear()
+    return {"ok": True}
 
 
 # ── Dashboard Quick Actions ────────────────────────────────

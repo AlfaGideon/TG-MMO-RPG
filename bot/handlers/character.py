@@ -12,6 +12,7 @@ from core.models import User, Character, Battle
 from bot.keyboards.inline import main_menu_keyboard, leaderboard_keyboard
 from bot.utils.texts import profile_text
 from bot.utils.photos import send_or_edit_photo
+from bot.utils.edit import safe_edit_text
 
 router = Router()
 
@@ -58,8 +59,7 @@ async def profile(callback: CallbackQuery):
 
 @router.callback_query(F.data == "leaderboard")
 async def leaderboard(callback: CallbackQuery):
-    await callback.message.edit_text(
-        "🏆 <b>Доска почёта</b>\n\nВыбери категорию:",
+    await safe_edit_text(callback, "🏆 <b>Доска почёта</b>\n\nВыбери категорию:",
         reply_markup=leaderboard_keyboard(),
         parse_mode="HTML",
     )
@@ -93,8 +93,7 @@ async def leaderboard_view(callback: CallbackQuery):
         icon = "⭐" if sort_by == "level" else "🪙"
         lines.append(f"{medals[idx-1]} {name} — {val}{icon}")
 
-    await callback.message.edit_text(
-        "\n".join(lines),
+    await safe_edit_text(callback, "\n".join(lines),
         reply_markup=leaderboard_keyboard(),
         parse_mode="HTML",
     )

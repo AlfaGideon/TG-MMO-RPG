@@ -17,7 +17,11 @@ SUITES = ["test_engine.py", "test_pages.py", "test_transport.py", "test_access.p
           "test_bugfixes.py",
           "test_ai_lore.py",
           "test_telegram_dedup.py",
-          "test_admin_layout.py"]
+          "test_admin_layout.py",
+          "test_proxy.py",
+          "test_bot_edit.py",
+          "test_bot_runner.py",
+          "test_admin_logs.py"]
 
 # Без этих пакетов серверные сценарии не падают, а ТИХО ПРОПУСКАЮТСЯ —
 # зелёный прогон тогда ничего не доказывает про серверный стек.

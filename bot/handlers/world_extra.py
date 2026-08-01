@@ -20,6 +20,7 @@ from core import worldevents as core_events
 from core.database import async_session
 from core.models import Character, User
 from bot.keyboards.inline import main_menu_keyboard
+from bot.utils.edit import safe_edit_text
 
 router = Router()
 
@@ -55,8 +56,12 @@ async def reputation(callback: CallbackQuery):
             await callback.answer("Сначала создай персонажа!", show_alert=True)
             return
         text = core_factions.card_text(character)
-    await callback.message.edit_text(text, reply_markup=_back_keyboard(),
-                                     parse_mode="HTML")
+    await safe_edit_text(
+        callback,
+        text,
+        reply_markup=_back_keyboard(),
+        parse_mode="HTML",
+    )
 
 
 # ── надгробия ───────────────────────────────────────────────
@@ -89,8 +94,12 @@ async def claim_grave(callback: CallbackQuery):
     else:
         text = (f"🪦 <b>Чужая могила</b>\n\nТы забрал: {body}\n\n"
                 f"<i>Половина рассыпалась прахом — мародёрство не в чести.</i>")
-    await callback.message.edit_text(text, reply_markup=_back_keyboard(),
-                                     parse_mode="HTML")
+    await safe_edit_text(
+        callback,
+        text,
+        reply_markup=_back_keyboard(),
+        parse_mode="HTML",
+    )
 
 
 # ── достопримечательности ───────────────────────────────────
@@ -108,9 +117,12 @@ async def study_landmark(callback: CallbackQuery):
             await callback.answer(lines[0], show_alert=True)
             return
         await session.commit()
-    await callback.message.edit_text("\n".join(lines),
-                                     reply_markup=_back_keyboard(),
-                                     parse_mode="HTML")
+    await safe_edit_text(
+        callback,
+        "\n".join(lines),
+        reply_markup=_back_keyboard(),
+        parse_mode="HTML",
+    )
 
 
 # ── мировой босс ────────────────────────────────────────────
@@ -134,9 +146,12 @@ async def world_boss(callback: CallbackQuery):
             return
         ev = await core_events.active_boss(session)
         if ev is None:
-            await callback.message.edit_text(
+            await safe_edit_text(
+                callback,
                 "🏰 <b>Мировой босс</b>\n\n<i>Сейчас в мире тихо.</i>",
-                reply_markup=_back_keyboard(), parse_mode="HTML")
+                reply_markup=_back_keyboard(),
+                parse_mode="HTML",
+            )
             return
         b = core_events.BOSSES[ev.key]
         share = await core_events.boss_contribution(session, ev, character)
@@ -154,8 +169,12 @@ async def world_boss(callback: CallbackQuery):
         elif character.level < b["level"]:
             text += f"\n⚠️ <i>Нужен {b['level']} уровень.</i>"
         await session.commit()
-    await callback.message.edit_text(text, reply_markup=_boss_keyboard(can_hit),
-                                     parse_mode="HTML")
+    await safe_edit_text(
+        callback,
+        text,
+        reply_markup=_boss_keyboard(can_hit),
+        parse_mode="HTML",
+    )
 
 
 @router.callback_query(F.data == "boss_hit")
@@ -185,9 +204,12 @@ async def boss_hit(callback: CallbackQuery):
         await session.commit()
 
     if left <= 0:
-        await callback.message.edit_text(
+        await safe_edit_text(
+            callback,
             "🏆 <b>Босс повержен!</b>\n\n<i>Награды разошлись всем, кто бился.</i>",
-            reply_markup=_back_keyboard(), parse_mode="HTML")
+            reply_markup=_back_keyboard(),
+            parse_mode="HTML",
+        )
         return
     await callback.answer(f"Ты нанёс {dealt}. Получил {back}. Осталось {left}.")
     await world_boss(callback)

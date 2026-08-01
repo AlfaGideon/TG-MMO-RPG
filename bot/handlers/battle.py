@@ -18,6 +18,7 @@ from bot.utils.texts import (
     battle_start_text, battle_round_text, victory_text, defeat_text, loot_text,
 )
 from bot.utils.photos import send_or_edit_photo
+from bot.utils.edit import safe_edit_text
 
 router = Router()
 
@@ -89,7 +90,8 @@ async def battle_menu(callback: CallbackQuery):
             await start_cell_battle(callback, character, spawn, session)
             return
 
-        await callback.message.edit_text(
+        await safe_edit_text(
+            callback,
             f"⚔️ <b>Боевая зона</b>\n\n"
             f"Ты находишься в: {character.location.name}\n"
             f"❤️ HP: {character.current_hp}/{character.max_hp}\n\n"
@@ -244,7 +246,8 @@ async def _finish_victory(callback, session, character, mob, spawn, state):
     if loot:
         text += "\n\n" + loot_text(loot)
 
-    await callback.message.edit_text(
+    await safe_edit_text(
+        callback,
         text,
         reply_markup=main_menu_keyboard(has_character=True),
         parse_mode="HTML",
@@ -319,7 +322,8 @@ async def combat_attack(callback: CallbackQuery):
             await session.commit()
             combat_state.pop(callback.from_user.id, None)
 
-            await callback.message.edit_text(
+            await safe_edit_text(
+                callback,
                 defeat_text() + note,
                 reply_markup=main_menu_keyboard(has_character=True),
                 parse_mode="HTML",
@@ -371,7 +375,8 @@ async def combat_defend(callback: CallbackQuery):
             note = await _lose_bag(session, character)
             await session.commit()
             combat_state.pop(callback.from_user.id, None)
-            await callback.message.edit_text(
+            await safe_edit_text(
+                callback,
                 defeat_text() + note,
                 reply_markup=main_menu_keyboard(has_character=True),
                 parse_mode="HTML",
@@ -459,7 +464,8 @@ async def combat_skill(callback: CallbackQuery):
                 spawn.current_hp = mob.hp
             await session.commit()
             combat_state.pop(callback.from_user.id, None)
-            await callback.message.edit_text(
+            await safe_edit_text(
+                callback,
                 defeat_text(),
                 reply_markup=main_menu_keyboard(has_character=True),
                 parse_mode="HTML",
@@ -505,8 +511,7 @@ async def combat_flee(callback: CallbackQuery):
                     spawn.engaged_by_id = None
             await session.commit()
 
-    await callback.message.edit_text(
-        "🏃 Ты сбежал с поля боя. Жизнь дороже чести...",
+    await safe_edit_text(callback, "🏃 Ты сбежал с поля боя. Жизнь дороже чести...",
         reply_markup=main_menu_keyboard(has_character=True),
     )
 
@@ -525,7 +530,8 @@ async def rest(callback: CallbackQuery):
         character.current_mp = min(character.max_mp, character.current_mp + mp_restore)
         await session.commit()
 
-    await callback.message.edit_text(
+    await safe_edit_text(
+        callback,
         f"🏕 <b>Отдых</b>\n\n"
         f"Ты отдохнул у костра.\n"
         f"❤️ +{heal} HP | 💙 +{mp_restore} MP\n\n"

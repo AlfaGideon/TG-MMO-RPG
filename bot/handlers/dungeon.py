@@ -18,6 +18,7 @@ from bot.keyboards.inline import (
 )
 from core.map_renderer import render_dungeon_map, get_dungeon_map_path
 from bot.utils.texts import loot_text
+from bot.utils.edit import safe_edit_text
 
 router = Router()
 
@@ -204,14 +205,14 @@ async def dungeon_menu(callback: CallbackQuery):
             current = await _current_cell(session, run)
             can_dirs = await _get_can_dirs(session, run, current)
             await session.commit()
-            await callback.message.edit_text(
+            await safe_edit_text(
+                callback,
                 f"🗿 <b>Подземелье</b>\n\nТы уже внутри! Этаж {run.floor}.\nВыбери действие:",
                 reply_markup=dungeon_movement_keyboard(can_dirs),
                 parse_mode="HTML",
             )
         else:
-            await callback.message.edit_text(
-                "🗿 <b>Подземелье Проклятых</b>\n\n"
+            await safe_edit_text(callback, "🗿 <b>Подземелье Проклятых</b>\n\n"
                 "Здесь каждый заход уникален. Процедурная генерация создаёт новые лабиринты для каждого игрока.\n"
                 "Вход в подземелье — это портал на карте мира (клетка с порталом). "
                 "Дойди до него и нажми «🕳 Войти в подземелье», когда окажешься на этой клетке.\n\n"
@@ -223,8 +224,7 @@ async def dungeon_menu(callback: CallbackQuery):
 
 @router.callback_query(F.data == "dungeon_info")
 async def dungeon_info(callback: CallbackQuery):
-    await callback.message.edit_text(
-        "📜 <b>Правила подземелья</b>\n\n"
+    await safe_edit_text(callback, "📜 <b>Правила подземелья</b>\n\n"
         "• Подземелья появляются как порталы на карте мира — их создаёт администратор\n"
         "• Когда портал открывается, все игроки получают уведомление с точным местоположением\n"
         "• Дойди до клетки с порталом и нажми «🕳 Войти в подземелье»\n"
@@ -322,8 +322,7 @@ async def dungeon_exit(callback: CallbackQuery):
                 run.completed_at = datetime.utcnow()
                 await session.commit()
 
-    await callback.message.edit_text(
-        "🏃 <b>Ты покинул подземелье.</b>\n\nСледующий заход создаст новое проклятое логово...",
+    await safe_edit_text(callback, "🏃 <b>Ты покинул подземелье.</b>\n\nСледующий заход создаст новое проклятое логово...",
         reply_markup=main_menu_keyboard(has_character=True),
         parse_mode="HTML",
     )
@@ -451,8 +450,7 @@ async def dungeon_inspect(callback: CallbackQuery):
         builder.button(text="◀️ Назад", callback_data="dungeon_back")
         builder.adjust(1)
 
-        await callback.message.edit_text(
-            "\n".join(lines),
+        await safe_edit_text(callback, "\n".join(lines),
             reply_markup=builder.as_markup(),
             parse_mode="HTML",
         )
@@ -503,7 +501,8 @@ async def dungeon_attack(callback: CallbackQuery):
             "template_id": run.template_id,
         }
 
-        await callback.message.edit_text(
+        await safe_edit_text(
+            callback,
             f"⚔️ <b>Бой с {current.mob_name}</b>\n\n"
             f"Ур. {current.mob_level} | HP: {current.mob_hp}\n"
             f"Твой HP: {character.current_hp}/{character.max_hp}",
@@ -515,8 +514,7 @@ async def dungeon_attack(callback: CallbackQuery):
 @router.callback_query(F.data == "dungeon_flee")
 async def dungeon_flee(callback: CallbackQuery):
     dungeon_combat_state.pop(callback.from_user.id, None)
-    await callback.message.edit_text(
-        "🏃 Ты отступил. Монстр не стал преследовать...",
+    await safe_edit_text(callback, "🏃 Ты отступил. Монстр не стал преследовать...",
         reply_markup=back_to_main_keyboard(),
         parse_mode="HTML",
     )
@@ -595,7 +593,8 @@ async def dungeon_combat_attack(callback: CallbackQuery):
             if loot:
                 text += "\n\n" + loot_text(loot)
 
-            await callback.message.edit_text(
+            await safe_edit_text(
+                callback,
                 text,
                 reply_markup=main_menu_keyboard(has_character=True),
                 parse_mode="HTML",
@@ -612,8 +611,7 @@ async def dungeon_combat_attack(callback: CallbackQuery):
             await session.commit()
             del dungeon_combat_state[callback.from_user.id]
 
-            await callback.message.edit_text(
-                "💀 <b>Поражение в подземелье...</b>\n\n"
+            await safe_edit_text(callback, "💀 <b>Поражение в подземелье...</b>\n\n"
                 "Ты едва унёс ноги, оставив кровавый след." + note,
                 reply_markup=main_menu_keyboard(has_character=True),
                 parse_mode="HTML",
@@ -622,7 +620,8 @@ async def dungeon_combat_attack(callback: CallbackQuery):
 
         await session.commit()
 
-        await callback.message.edit_text(
+        await safe_edit_text(
+            callback,
             f"⚔️ <b>Раунд {state['rounds']}</b>\n\n"
             f"Ты нанёс {char_dmg} урона!\n"
             f"{state['mob_name']} отвечает {mob_dmg} урона!\n\n"
@@ -675,7 +674,8 @@ async def dungeon_open_chest(callback: CallbackQuery):
         if loot:
             text += "\n\n" + loot_text(loot)
 
-        await callback.message.edit_text(
+        await safe_edit_text(
+            callback,
             text,
             reply_markup=back_to_main_keyboard(),
             parse_mode="HTML",
@@ -777,7 +777,8 @@ async def dungeon_back(callback: CallbackQuery):
             if run:
                 await show_dungeon_cell(callback, run, session)
                 return
-    await callback.message.edit_text(
+    await safe_edit_text(
+        callback,
         "🗿 Подземелье",
         reply_markup=dungeon_menu_keyboard(),
         parse_mode="HTML",
@@ -802,17 +803,6 @@ async def show_dungeon_cell(callback, run, session):
         text += "\n🚪 Лестница вниз"
 
     kb = dungeon_movement_keyboard(can_dirs)
-    msg = callback.message
-    # После карты сообщение — фото, а его edit_text редактировать нельзя.
-    if msg and msg.photo:
-        try:
-            await msg.delete()
-        except Exception:
-            pass
-        await msg.answer(text, reply_markup=kb, parse_mode="HTML")
-        return
-    try:
-        await msg.edit_text(text, reply_markup=kb, parse_mode="HTML")
-    except Exception as e:
-        if "message is not modified" not in str(e).lower():
-            await msg.answer(text, reply_markup=kb, parse_mode="HTML")
+    # Сообщение после карты — фото, а его edit_text редактировать нельзя:
+    # safe_edit_text сам правит подпись фото (карта остаётся) или шлёт новое.
+    await safe_edit_text(callback, text, reply_markup=kb, parse_mode="HTML")

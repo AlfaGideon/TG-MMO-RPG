@@ -565,7 +565,7 @@ def test_dungeon_defeat_penalty():
         os.path.abspath(__file__))), "bot", "handlers", "dungeon.py"),
         encoding="utf-8").read()
     defeat = src[src.index('state["char_hp"] <= 0'):]
-    defeat = defeat[:defeat.index("await callback.message.edit_text")]
+    defeat = defeat[:defeat.index("await safe_edit_text")]
     check("_lose_bag" in defeat, "ветка поражения зовёт _lose_bag")
 
 

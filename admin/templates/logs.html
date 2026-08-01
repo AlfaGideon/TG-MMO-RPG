@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% import "macros.html" as macros %}
+
+{% block title %}Логи — Shadow Lands{% endblock %}
+{% block page_title %}📜 Логи консоли{% endblock %}
+
+{% block breadcrumbs %}
+{{ macros.crumbs([('Dashboard','/'), ('Логи', none)]) }}
+{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="toolbar" style="flex-wrap:wrap; gap:0.4rem;">
+        <h2 style="margin-bottom:0;">📜 Логи консоли</h2>
+        <div style="display:flex; gap:0.4rem; align-items:center; flex-wrap:wrap; margin-left:auto;">
+            <button type="button" class="btn btn-sm" data-level="" onclick="setLevel('')">Все</button>
+            <button type="button" class="btn btn-sm" data-level="ERROR" onclick="setLevel('ERROR')">🔴 Ошибки</button>
+            <button type="button" class="btn btn-sm" data-level="WARNING" onclick="setLevel('WARNING')">🟠 Предупреждения</button>
+            <button type="button" class="btn btn-sm" data-level="INFO" onclick="setLevel('INFO')">🔵 Инфо</button>
+            <button type="button" class="btn btn-sm" onclick="clearLogs()">🗑 Очистить</button>
+        </div>
+    </div>
+    <p class="hint" style="margin-top:0.5rem;">
+        Последние записи консоли сервера (бот, aiogram, ошибки). Обновляются
+        автоматически каждые 4 секунды. После перезапуска сервера история начинается заново.
+        <span id="log-count"></span>
+    </p>
+    <div class="table-wrap">
+        <table id="log-table">
+            <thead>
+                <tr>
+                    <th style="width:90px;">Время</th>
+                    <th style="width:120px;">Уровень</th>
+                    <th style="width:180px;">Источник</th>
+                    <th>Сообщение</th>
+                </tr>
+            </thead>
+            <tbody id="log-body">
+                <tr><td colspan="4" class="hint">Загружаю логи...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+let logLevel = '';
+
+const LEVEL_COLORS = {
+    'CRITICAL': 'var(--danger)',
+    'ERROR': 'var(--danger)',
+    'WARNING': 'var(--warning)',
+    'INFO': 'var(--success)',
+    'DEBUG': 'var(--text-muted)',
+};
+
+function setLevel(level) {
+    logLevel = level;
+    document.querySelectorAll('button[data-level]').forEach(b => {
+        b.classList.toggle('btn-primary', b.dataset.level === level);
+    });
+    loadLogs();
+}
+
+async function loadLogs() {
+    try {
+        const r = await fetch('/api/logs?level=' + encodeURIComponent(logLevel) + '&limit=1000');
+        const data = await r.json();
+        renderLogs(Array.isArray(data.records) ? data.records : []);
+    } catch (e) {
+        const body = document.getElementById('log-body');
+        body.replaceChildren();
+        const tr = document.createElement('tr');
+        const td = document.createElement('td');
+        td.colSpan = 4;
+        td.className = 'hint';
+        td.textContent = 'Ошибка загрузки логов: ' + e.message;
+        tr.appendChild(td);
+        body.appendChild(tr);
+    }
+}
+
+function renderLogs(records) {
+    const body = document.getElementById('log-body');
+    const count = document.getElementById('log-count');
+    body.replaceChildren();
+    count.textContent = records.length ? '· записей: ' + records.length : '';
+    if (!records.length) {
+        const tr = document.createElement('tr');
+        const td = document.createElement('td');
+        td.colSpan = 4;
+        td.className = 'hint';
+        td.textContent = 'Логов пока нет.';
+        tr.appendChild(td);
+        body.appendChild(tr);
+        return;
+    }
+    for (const rec of records) {
+        const tr = document.createElement('tr');
+
+        const tdTime = document.createElement('td');
+        tdTime.textContent = rec.time || '';
+        tdTime.className = 'hint';
+        tdTime.style.whiteSpace = 'nowrap';
+
+        const tdLevel = document.createElement('td');
+        const badge = document.createElement('span');
+        badge.textContent = rec.level || '';
+        badge.style.color = LEVEL_COLORS[rec.level] || 'var(--text-muted)';
+        badge.style.fontWeight = 'bold';
+        tdLevel.appendChild(badge);
+
+        const tdLogger = document.createElement('td');
+        tdLogger.textContent = rec.logger || '';
+        tdLogger.className = 'hint';
+        tdLogger.style.wordBreak = 'break-word';
+
+        const tdMsg = document.createElement('td');
+        const pre = document.createElement('pre');
+        pre.style.whiteSpace = 'pre-wrap';
+        pre.style.wordBreak = 'break-word';
+        pre.style.margin = '0';
+        pre.style.fontSize = '0.8rem';
+        pre.style.lineHeight = '1.45';
+        pre.textContent = rec.message || '';
+        tdMsg.appendChild(pre);
+
+        tr.append(tdTime, tdLevel, tdLogger, tdMsg);
+        body.appendChild(tr);
+    }
+}
+
+async function clearLogs() {
+    try {
+        await fetch('/api/logs/clear', {method: 'POST'});
+        loadLogs();
+    } catch (e) {}
+}
+
+// Автообновление, пока вкладка открыта.
+setInterval(() => {
+    if (!document.hidden) loadLogs();
+}, 4000);
+
+setLevel('');
+</script>
+{% endblock %}

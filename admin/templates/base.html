@@ -92,6 +92,9 @@
 
             {% if role is none or role == 'admin' %}
             <div class="nav-section-label">Система</div>
+            <a href="/logs" class="nav-link {% if path == '/logs' %}active{% endif %}">
+                <span class="nav-icon">📜</span> Логи
+            </a>
             <a href="/settings" class="nav-link {% if path == '/settings' %}active{% endif %}">
                 <span class="nav-icon">⚙️</span> Настройки
             </a>

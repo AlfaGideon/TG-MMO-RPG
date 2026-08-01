@@ -43,6 +43,7 @@
                    placeholder="socks5://127.0.0.1:9050"
                    value="{{ telegram_proxy_url }}">
             <button type="submit" class="btn btn-primary">💾 Сохранить прокси</button>
+            <button type="button" class="btn" onclick="checkProxy()">🔌 Проверить</button>
         </div>
         <p class="hint">
             Оставь пустым для прямого подключения. Для Tor обычно подходит
@@ -53,10 +54,22 @@
         {% if telegram_proxy_masked %}
         <p class="hint">Текущий прокси: <code>{{ telegram_proxy_masked }}</code></p>
         {% endif %}
+        {% if proxy_socks_missing %}
+        <p class="hint" style="color: var(--danger);">
+            ❌ Не установлен пакет <code>aiohttp-socks</code> — без него aiogram не умеет
+            ходить через SOCKS-прокси. Установи: <code>pip install aiohttp-socks</code>,
+            затем перезапусти сервер.
+        </p>
+        {% endif %}
+        <div id="proxy-check" class="status-msg" style="margin-top:0.6rem; font-size:0.85rem; line-height:1.7;"
+             role="status" aria-live="polite"></div>
     </form>
 
     {% if bot_error %}
     <p class="hint" style="color: var(--danger);">Последняя ошибка бота: <code>{{ bot_error }}</code></p>
+    {% if bot_error_tip %}
+    <p class="hint" style="color: var(--warning); margin-top:-0.4rem;">{{ bot_error_tip }}</p>
+    {% endif %}
     {% endif %}
 
     <div class="form-actions" style="margin-top:0;">
@@ -155,6 +168,40 @@ function useDetected() {
     if (field) {
         field.value = {{ detected_url|tojson }};
         field.focus();
+    }
+}
+
+async function checkProxy() {
+    const box = document.getElementById('proxy-check');
+    const field = document.getElementById('telegram_proxy_url');
+    const url = field ? field.value.trim() : '';
+    if (!url) {
+        box.style.color = 'var(--text-muted)';
+        box.textContent = 'Прокси не задан: бот будет подключаться к Telegram напрямую.';
+        return;
+    }
+    box.style.color = 'var(--text-muted)';
+    box.textContent = 'Проверяю прокси (это может занять до 15 секунд)...';
+    const body = new URLSearchParams();
+    body.set('telegram_proxy_url', url);
+    try {
+        const r = await fetch('/api/proxy/check', {method: 'POST', body});
+        const data = await r.json();
+        if (!Array.isArray(data.steps)) {
+            box.style.color = 'var(--danger)';
+            box.textContent = '❌ ' + (data.error || 'Ошибка проверки');
+            return;
+        }
+        const lines = data.steps.map(s => {
+            const div = document.createElement('div');
+            div.textContent = (s.ok ? '✅ ' : '❌ ') + s.text;
+            return div;
+        });
+        box.style.color = data.ok ? 'var(--success)' : 'var(--danger)';
+        box.replaceChildren(...lines);
+    } catch (e) {
+        box.style.color = 'var(--danger)';
+        box.textContent = '❌ Ошибка сети: ' + e.message;
     }
 }
 
