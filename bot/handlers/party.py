@@ -6,6 +6,7 @@ from sqlalchemy.orm import selectinload
 from core.database import async_session
 from core.models import User, Character, Party
 from bot.keyboards.inline import main_menu_keyboard, back_to_main_keyboard
+from bot.utils.edit import safe_edit_text
 
 router = Router()
 
@@ -47,15 +48,14 @@ async def party_menu(callback: CallbackQuery):
             builder.button(text="🚪 Выйти из пати", callback_data="party_leave")
             builder.button(text="◀️ Назад", callback_data="main_menu")
             builder.adjust(1)
-            await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+            await safe_edit_text(callback, text, reply_markup=builder.as_markup(), parse_mode="HTML")
         else:
             from aiogram.utils.keyboard import InlineKeyboardBuilder
             builder = InlineKeyboardBuilder()
             builder.button(text="➕ Создать пати", callback_data="party_create")
             builder.button(text="◀️ Назад", callback_data="main_menu")
             builder.adjust(1)
-            await callback.message.edit_text(
-                "👥 <b>Пати</b>\n\nТы не состоишь в пати.\n\n"
+            await safe_edit_text(callback, "👥 <b>Пати</b>\n\nТы не состоишь в пати.\n\n"
                 "Создай свою или попроси друга пригласить тебя.",
                 reply_markup=builder.as_markup(),
                 parse_mode="HTML",

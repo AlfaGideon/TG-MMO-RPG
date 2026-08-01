@@ -19,6 +19,7 @@ from core import magic, statroll
 from core.classes import all_classes, get_class
 from core.vip import is_vip_active, offline_protected, set_offline
 from engine.rules import clean_name
+from bot.utils.edit import safe_edit_text
 
 router = Router()
 
@@ -192,7 +193,7 @@ async def bot_updates_handler(callback: CallbackQuery, state: FSMContext):
             else:
                 text += f"   ⭐ {escape(up.became_text or '')}\n\n"
 
-    await callback.message.edit_text(text, reply_markup=back_to_help_keyboard(), parse_mode="HTML")
+    await safe_edit_text(callback, text, reply_markup=back_to_help_keyboard(), parse_mode="HTML")
     await callback.answer()
 
 
@@ -207,7 +208,7 @@ async def bot_suggest_handler(callback: CallbackQuery, state: FSMContext):
         "<code>Добавить больше редкого оружия во 2-ю локацию</code>\n\n"
         "<i>Можно отменить отправку кнопкой «Назад».</i>"
     )
-    await callback.message.edit_text(text, reply_markup=back_to_help_keyboard(), parse_mode="HTML")
+    await safe_edit_text(callback, text, reply_markup=back_to_help_keyboard(), parse_mode="HTML")
     await callback.answer()
 
 
@@ -233,8 +234,7 @@ async def offline_toggle(callback: CallbackQuery):
             return
         set_offline(character, True)
         await session.commit()
-    await callback.message.edit_text(
-        "🌙 <b>Ты офлайн</b>\n\n"
+    await safe_edit_text(callback, "🌙 <b>Ты офлайн</b>\n\n"
         "👑 VIP-защита включена: мобы, игроки, бои и катаклизмы тебя не затрагивают.\n\n"
         "Все действия скрыты до возвращения в мир.",
         reply_markup=main_menu_keyboard(has_character=True, is_vip=True, offline=True),
@@ -284,7 +284,8 @@ async def main_menu(callback: CallbackQuery, state: FSMContext):
             character = result.scalar_one_or_none()
             has_char = character is not None
 
-    await callback.message.edit_text(
+    await safe_edit_text(
+        callback,
         WELCOME_TEXT,
         reply_markup=main_menu_keyboard(
             has_character=has_char, is_admin=is_admin,
@@ -496,14 +497,16 @@ async def reroll_stats(callback: CallbackQuery):
         left = character.rerolls_left
 
     if locked:
-        await callback.message.edit_text(
+        await safe_edit_text(
+            callback,
             reroll_text(character, cls_def, base, rolled, affinities, final=True),
             reply_markup=main_menu_keyboard(has_character=True),
             parse_mode="HTML",
         )
         return
 
-    await callback.message.edit_text(
+    await safe_edit_text(
+        callback,
         reroll_text(character, cls_def, base, rolled, affinities),
         reply_markup=reroll_keyboard(char_id, left),
         parse_mode="HTML",
@@ -536,7 +539,8 @@ async def accept_stats(callback: CallbackQuery):
         base = cls_def.base_stats() if cls_def else {}
         rolled = {k: getattr(character, k) for k in statroll.ROLLED_STATS}
 
-    await callback.message.edit_text(
+    await safe_edit_text(
+        callback,
         reroll_text(character, cls_def, base, rolled, affinities, final=True),
         reply_markup=main_menu_keyboard(has_character=True),
         parse_mode="HTML",
@@ -596,4 +600,4 @@ async def help_handler(callback: CallbackQuery, state: FSMContext):
         "— Пиши админу простым сообщением в бот\n\n"
         "<i>Удачи в Теневых Землях...</i>"
     )
-    await callback.message.edit_text(text, reply_markup=help_menu_keyboard(), parse_mode="HTML")
+    await safe_edit_text(callback, text, reply_markup=help_menu_keyboard(), parse_mode="HTML")

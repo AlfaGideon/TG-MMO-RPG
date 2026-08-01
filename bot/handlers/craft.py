@@ -18,6 +18,7 @@ from bot.keyboards.inline import (
 )
 from bot.utils.photos import send_or_edit_photo
 from bot.utils.texts import item_line
+from bot.utils.edit import safe_edit_text
 
 router = Router()
 
@@ -72,7 +73,8 @@ async def craft_menu(callback: CallbackQuery):
         npc_name = character.cell.npc_name if character.cell else "Ремесленник"
 
     title = STATION_TITLES.get(station, STATION_TITLES[CraftStation.ANY.value])
-    await callback.message.edit_text(
+    await safe_edit_text(
+        callback,
         f"{title}\n\n"
         f"<i>{npc_name} вытирает руки о фартук.</i>\n\n"
         f"— Могу сковать вещь по рецепту или заточить то, что у тебя уже есть. "
@@ -107,7 +109,8 @@ async def craft_list(callback: CallbackQuery):
         await callback.answer("У этого мастера пока нет рецептов.", show_alert=True)
         return
 
-    await callback.message.edit_text(
+    await safe_edit_text(
+        callback,
         f"📜 <b>Рецепты</b>\n\n"
         f"✅ — хватает материалов, ❌ — чего-то не хватает.\n"
         f"Каждая скованная вещь уникальна: статы катаются заново.",
@@ -206,7 +209,8 @@ async def craft_do(callback: CallbackQuery):
 
     if not outcome["ok"]:
         if outcome.get("failed_roll"):
-            await callback.message.edit_text(
+            await safe_edit_text(
+                callback,
                 f"💥 <b>Брак!</b>\n\n{outcome['reason']}\n\n"
                 f"<i>Мастер разводит руками: «Бывает. Неси ещё».</i>",
                 reply_markup=craft_menu_keyboard(station),
@@ -239,8 +243,7 @@ async def craft_do(callback: CallbackQuery):
     if not made:
         lines.append("\nПредмет отправлен в сумку.")
 
-    await callback.message.edit_text(
-        "\n".join(lines),
+    await safe_edit_text(callback, "\n".join(lines),
         reply_markup=craft_menu_keyboard(station),
         parse_mode="HTML",
     )
@@ -281,8 +284,7 @@ async def upgrade_list(callback: CallbackQuery):
         )
         return
 
-    await callback.message.edit_text(
-        "🔨 <b>Заточка</b>\n\n"
+    await safe_edit_text(callback, "🔨 <b>Заточка</b>\n\n"
         "Каждый уровень заточки поднимает статы предмета. "
         "Нужны золото и материалы, добытые гриндом.\n\n"
         "<i>При неудаче уровень не теряется, но ресурсы сгорают.</i>",
@@ -391,7 +393,8 @@ async def upgrade_do(callback: CallbackQuery):
         return
 
     if outcome.get("failed_roll"):
-        await callback.message.edit_text(
+        await safe_edit_text(
+            callback,
             f"💢 <b>Заточка сорвалась</b>\n\n"
             f"{outcome['reason']}\n\n"
             f"<i>Мастер сплёвывает: «Металл не принял руну. Неси ещё материала».</i>",
@@ -404,7 +407,8 @@ async def upgrade_do(callback: CallbackQuery):
         f"{field.replace('bonus_', '')} +{value}"
         for field, value in outcome["gains"].items()
     ) or "—"
-    await callback.message.edit_text(
+    await safe_edit_text(
+        callback,
         f"⚡ <b>Заточка удалась!</b>\n\n"
         f"{name} теперь <b>+{outcome['level']}</b>\n"
         f"Прирост: {gains}",

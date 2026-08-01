@@ -165,3 +165,64 @@
   импорта admin.main; httpx нужен только тесту — гейтится).
 - Попутно починен латентный баг: `base.html` + `request.state.get()` =
   500 на starlette 1.3 (AUDIT-BUGS.md №19.5).
+
+## 2026-08-01 — Telegram-прокси для бота (Tor / SOCKS5): диагностика и понятные ошибки
+
+Запрос пользователя: панель настроек показывала «Последняя ошибка бота: HTTP
+Client says - ClientConnectorError: ... [Превышен таймаут семафора]» и сырое
+«❌ In order to use aiohttp client for proxy requests, install aiohttp-socks»
+(это RuntimeError aiogram, когда в окружении нет aiohttp-socks; в
+requirements.txt пакет уже был, но устаревшее окружение его не имело).
+
+- Новый модуль `bot/proxy.py` (только серверный стек, в modules.json не нужен):
+  - `validate_proxy_url` — схема (socks4/5/5h/http/https), host:port, userinfo,
+    IPv6; русские ошибки вместо английского исключения aiogram;
+  - `error_tip` / `friendly_error` — сырую ошибку polling/старта превращает в
+    подсказку («проверь, что Tor запущен и слушает 9150/9050», «установи
+    pip install aiohttp-socks»), оригинал сохраняется внутри;
+  - `check_proxy` — пошаговая диагностика для кнопки «🔌 Проверить»:
+    адрес → наличие aiohttp-socks → TCP-проба порта → связь с
+    api.telegram.org через прокси (стоп на первой неудаче, таймауты 4/10 с).
+- `bot/runner.py` — пред-проверки в `start()` (битый адрес / нет пакета → сразу
+  понятная ошибка), в `_poll()` и `except start()` ошибки через прокси
+  заменяются на подсказку с оригиналом.
+- Админка: `/api/proxy/check` (guard manage_settings), на /settings —
+  предупреждение о не установленном aiohttp-socks, подсказка под «Последней
+  ошибкой бота», кнопка «🔌 Проверить» рядом с полем прокси.
+- Попутно: `launch.py:try_start_bot_from_db` (мёртвый код, но ловушка) теперь
+  передаёт прокси; `TELEGRAM_PROXY_URL` задокументирован в `.env.example`.
+- Тесты: `tests/test_proxy.py` (валидация, подсказки, check_proxy с моками,
+  реальная TCP-проба на localhost), подключён в `tests/run_all.py`.
+
+## 2026-08-01 — Кнопки на фото-экранах + конфликт двух экземпляров бота
+
+Запрос пользователя: «не работает кнопка осмотреться» + логи с
+`TelegramBadRequest: there is no text in the message to edit` (location.py
+inspect_cell, battle.py rest) и бесконечным `TelegramConflictError: terminated
+by other getUpdates request`.
+
+- **Корень бага с кнопками**: экран локации и экран боя — это ФОТО с подписью
+  (карта локации / портрет моба, `send_or_edit_photo`). Обработчики кнопок
+  звали `callback.message.edit_text(...)`, а у фото-сообщения нет текста —
+  Telegram отвечает «there is no text in the message to edit». Ломались не
+  только «Осмотреться», а все кнопки на таких экранах (бой, отдых, сундук…).
+- **Фикс**: новый `bot/utils/edit.py` — `safe_edit_text(event, text, ...)`:
+  текстовое сообщение → edit_text; фото/видео → edit_caption (фото остаётся);
+  нельзя отредактировать → шлёт новое сообщение; «message is not modified»
+  проглатывается. Заменены ВСЕ 53 вызова `edit_text` в bot/handlers/*.py.
+  В dungeon.py убран ставший лишним ручной обход для фото.
+- **Конфликт getUpdates**: aiogram ретраит его бесконечно (в 3.30 нет события
+  polling_error). Сделано: (1) `ConflictAwareSession(AiohttpSession)` ловит
+  TelegramConflictError на уровне сессии; (2) `BotRunner._handle_conflict` —
+  единичный конфликт переживаем, повторный (2+ за 2.5с) → `stop()` с
+  понятным русским сообщением в панели; (3) `_start_lock` в start/stop —
+  два параллельных start() (двойной клик «Запустить бота») больше не создают
+  два polling-цикла; (4) `run.bat` больше НЕ запускает сервер дважды
+  (убраны `start /B uvicorn` + `python launch.py` — было два процесса на
+  одном порту, каждый мог поднять бота); (5) `launch.py` проверяет занятость
+  порта и вежливо просит закрыть лишний экземпляр.
+- **Тесты**: `tests/test_bot_edit.py` (safe_edit_text на фейковых сообщениях:
+  текст/фото/ошибки), `tests/test_bot_runner.py` (двойной start → один polling,
+  конфликт → остановка с объяснением, единичный конфликт → продолжение).
+  В `test_bugfixes.py` обновлён страж `await callback.message.edit_text` →
+  `await safe_edit_text` (тест резал исходник dungeon.py по этой строке).

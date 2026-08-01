@@ -4,6 +4,7 @@
 Запускает веб-админку и бота в одном процессе.
 """
 import os
+import sys
 import asyncio
 import logging
 
@@ -16,7 +17,7 @@ from core.seed import seed_database
 from core.seed_content import seed_content
 from core.models import AppSetting
 from bot.runner import bot_runner
-from admin.main import app, settings as admin_settings
+from admin.main import app, settings as admin_settings, get_bot_proxy_url
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("launcher")
@@ -29,7 +30,9 @@ async def try_start_bot_from_db():
         )
         setting = result.scalar_one_or_none()
         if setting and setting.value.strip():
-            ok = await bot_runner.start(setting.value.strip())
+            ok = await bot_runner.start(
+                setting.value.strip(), await get_bot_proxy_url()
+            )
             if ok:
                 logger.info("Bot auto-started from database token")
             else:
@@ -53,8 +56,32 @@ async def _seed_extra_content():
     logger.info(f"Content seed: {stats}, mob spawns created: {spawned}")
 
 
+def _port_busy(host: str, port: int) -> bool:
+    """Занят ли порт: если да — сервер уже запущен (второй экземпляр не нужен)."""
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.settimeout(1)
+        try:
+            s.bind((host, port))
+            return False
+        except OSError:
+            return True
+
+
 def main():
     os.makedirs("data", exist_ok=True)
+
+    if _port_busy(admin_settings.ADMIN_HOST, admin_settings.ADMIN_PORT):
+        print(
+            f"❌ Порт {admin_settings.ADMIN_PORT} уже занят — похоже, сервер "
+            "уже запущен (другое окно/терминал)."
+        )
+        print(
+            "   Закрой лишний процесс, иначе бот будет конфликтовать сам с "
+            "собой (TelegramConflictError)."
+        )
+        sys.exit(1)
 
     # Init DB synchronously before uvicorn starts
     asyncio.run(run_migrations())

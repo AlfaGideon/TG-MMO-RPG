@@ -8,6 +8,7 @@ from core.enums import ItemSource
 from core.loot import grant_item
 from core.models import User, Character, ShopItem, InventoryItem
 from bot.keyboards.inline import shop_keyboard, main_menu_keyboard
+from bot.utils.edit import safe_edit_text
 
 router = Router()
 
@@ -30,15 +31,13 @@ async def shop(callback: CallbackQuery):
         items = result.scalars().all()
 
         if not items:
-            await callback.message.edit_text(
-                "🏪 <b>Лавка торговца</b>\n\nСейчас товаров нет. Загляни позже.",
+            await safe_edit_text(callback, "🏪 <b>Лавка торговца</b>\n\nСейчас товаров нет. Загляни позже.",
                 reply_markup=main_menu_keyboard(has_character=True),
                 parse_mode="HTML",
             )
             return
 
-        await callback.message.edit_text(
-            "🏪 <b>Лавка торговца</b>\n\nВыбери, что купить:",
+        await safe_edit_text(callback, "🏪 <b>Лавка торговца</b>\n\nВыбери, что купить:",
             reply_markup=shop_keyboard(items),
             parse_mode="HTML",
         )

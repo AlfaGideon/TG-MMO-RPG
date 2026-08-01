@@ -12,6 +12,7 @@ from core.models import User
 from core.settings_store import get_panel_url, build_login_url
 from admin import auth as webauth
 from bot.keyboards.inline import admin_panel_keyboard, back_to_main_keyboard
+from bot.utils.edit import safe_edit_text
 
 router = Router()
 
@@ -46,8 +47,7 @@ async def admin_panel(callback: CallbackQuery):
         return
 
     rank = webauth.ROLE_LABELS.get(user.web_admin_role, user.web_admin_role or "—")
-    await callback.message.edit_text(
-        "🛠 <b>Доступ администратора</b>\n\n"
+    await safe_edit_text(callback, "🛠 <b>Доступ администратора</b>\n\n"
         f"Ранг: <b>{rank}</b>\n"
         f"Логин: <code>{user.telegram_id}</code>\n\n"
         f"<b>Твои права:</b>\n{caps_text(user)}\n\n"
@@ -74,8 +74,7 @@ async def admin_password(callback: CallbackQuery):
     else:
         plain = user.web_admin_password
 
-    await callback.message.edit_text(
-        "🔑 <b>Доступ в веб-панель</b>\n\n"
+    await safe_edit_text(callback, "🔑 <b>Доступ в веб-панель</b>\n\n"
         f"Логин: <code>{user.telegram_id}</code>\n"
         f"Пароль: <code>{plain}</code>\n\n"
         "<i>Нажми на пароль, чтобы скопировать. Никому его не передавай.</i>",

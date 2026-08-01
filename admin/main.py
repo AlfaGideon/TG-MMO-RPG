@@ -1511,6 +1511,12 @@ async def settings_page(request: Request):
             token_masked = t[:10] + "..." + t[-6:] if len(t) > 20 else "***"
         proxy_url = await get_bot_proxy_url(session)
 
+    # Диагностика прокси для страницы настроек: предупреждение, если
+    # aiohttp-socks не установлен, и подсказка к последней ошибке бота.
+    from bot import proxy as proxy_diag
+    proxy_socks_missing = bool(proxy_url) and not proxy_diag.is_installed()
+    bot_error_tip = proxy_diag.error_tip(bot_runner.last_error or "", proxy_url)
+
     panel_url = await get_panel_url()
     # Подсказываем адрес, с которого админ сейчас смотрит панель
     detected = str(request.base_url).rstrip("/")
@@ -1533,6 +1539,8 @@ async def settings_page(request: Request):
             "token_masked": token_masked,
             "bot_running": bot_runner.is_running(),
             "bot_error": bot_runner.last_error,
+            "bot_error_tip": bot_error_tip,
+            "proxy_socks_missing": proxy_socks_missing,
             "telegram_proxy_url": proxy_url,
             "telegram_proxy_masked": mask_secret_url(proxy_url),
             "panel_url": panel_url,
@@ -1617,6 +1625,18 @@ async def api_bot_status():
         "error": bot_runner.last_error,
         "proxy_enabled": bool(bot_runner.proxy_url),
     }
+
+
+@app.post("/api/proxy/check")
+async def api_proxy_check(request: Request, telegram_proxy_url: str = Form("")):
+    """Пошаговая диагностика прокси: адрес → пакет → TCP → Telegram через прокси.
+
+    Проверяет то, что введено в поле (можно до сохранения). Сетевые проверки
+    короткие (4–10 секунд), останавливается на первой неудаче.
+    """
+    guard(request, "manage_settings")
+    from bot.proxy import check_proxy
+    return await check_proxy(telegram_proxy_url.strip())
 
 
 # ── Dashboard Quick Actions ────────────────────────────────

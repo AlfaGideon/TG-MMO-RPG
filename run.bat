@@ -12,22 +12,21 @@ call venv\Scripts\activate.bat
 echo Устанавливаю зависимости...
 pip install -q -r requirements.txt
 
-echo Запускаю сервер...
-start /B python -m uvicorn admin.main:app --host 0.0.0.0 --port 8000 --lifespan on > srv.log 2>&1
-
-timeout /t 5 /nobreak >nul
-
 echo.
 echo ==========================================
-echo ✅ Сервер запущен!
+echo ✅ Сервер запускается!
 echo.
-echo Открой в браузере: http://localhost:8000
+echo 🌐 Открой админку в браузере: http://localhost:8000
+echo 🕹 Затем в админке: Настройки → Запустить бота
+echo 👉 Держи это окно ОТКРЫТЫМ — Ctrl+C для остановки
 echo.
-echo Если нужна публичная ссылка:
-echo 1. Установи Node.js
-echo 2. В новом окне выполни: npx localtunnel --port 8000
+echo ⚠️ Если запущено ещё одно окно/терминал с сервером —
+echo    закрой его, иначе бот будет конфликтовать сам с собой.
 echo ==========================================
 echo.
-echo Нажми Ctrl+C для остановки
-echo.
+
 python launch.py
+
+echo.
+echo Сервер остановлен.
+pause

@@ -17,6 +17,7 @@ from bot.keyboards.inline import (
 )
 from bot.utils.texts import location_text, cell_text, loot_text
 from bot.utils.photos import send_or_edit_photo, get_photo_input
+from bot.utils.edit import safe_edit_text
 
 router = Router()
 
@@ -417,8 +418,7 @@ async def inspect_cell(callback: CallbackQuery):
         else:
             lines.append(f"\n<i>{random.choice(EMPTY_INSPECT_LINES)}</i>")
 
-        await callback.message.edit_text(
-            "\n".join(lines),
+        await safe_edit_text(callback, "\n".join(lines),
             reply_markup=inspect_keyboard(
                 has_mob=bool(spawn),
                 has_npc=cell.has_npc,
@@ -786,7 +786,8 @@ async def open_chest(callback: CallbackQuery):
         else:
             text += "\n\n<i>Больше в нём ничего не оказалось.</i>"
 
-        await callback.message.edit_text(
+        await safe_edit_text(
+            callback,
             text,
             reply_markup=back_to_main_keyboard(),
             parse_mode="HTML",

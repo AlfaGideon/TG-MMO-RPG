@@ -15,6 +15,7 @@ from bot.keyboards.inline import (
 )
 from bot.utils.texts import item_detail_text, item_line
 from bot.utils.photos import send_or_edit_photo
+from bot.utils.edit import safe_edit_text
 
 router = Router()
 
@@ -95,8 +96,7 @@ async def inventory(callback: CallbackQuery, page: int = 0):
 
         items = await load_inventory(session, character.id)
         if not items:
-            await callback.message.edit_text(
-                "🎒 <b>Инвентарь</b>\n\nТвоя сумка пуста...",
+            await safe_edit_text(callback, "🎒 <b>Инвентарь</b>\n\nТвоя сумка пуста...",
                 reply_markup=main_menu_keyboard(has_character=True),
                 parse_mode="HTML",
             )
@@ -105,7 +105,8 @@ async def inventory(callback: CallbackQuery, page: int = 0):
         stats = await combat_stats(session, character)
         pocket = await stash_summary(session, character)
 
-    await callback.message.edit_text(
+    await safe_edit_text(
+        callback,
         inventory_text(items, stats)
         + f"\n\n{pocket}\n<i>🎒 Сумка теряется при гибели, 🔒 карман — нет.</i>",
         reply_markup=inventory_keyboard(items, page=page),
