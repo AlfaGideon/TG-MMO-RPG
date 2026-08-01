@@ -57,7 +57,7 @@ async def lifespan(app: FastAPI):
         )
         setting = result.scalar_one_or_none()
         if setting and setting.value and setting.value.strip():
-            await bot_runner.start(setting.value.strip())
+            await bot_runner.start(setting.value.strip(), await get_bot_proxy_url(session))
     yield
     if bot_runner.is_running():
         await bot_runner.stop()
@@ -156,6 +156,48 @@ async def access_denied_handler(request: Request, exc: HTTPException):
             request, "access_denied.html", {"detail": exc.detail}, status_code=403
         )
     return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+
+
+async def get_bot_proxy_url(session=None) -> str:
+    """Telegram-only proxy for aiogram. Empty value means direct connection."""
+    if session is not None:
+        value = await session.scalar(
+            select(AppSetting.value).where(AppSetting.key == "telegram_proxy_url")
+        )
+        if value and value.strip():
+            return value.strip()
+
+    return (
+        os.getenv("TELEGRAM_PROXY_URL")
+        or os.getenv("BOT_PROXY_URL")
+        or ""
+    ).strip()
+
+
+def mask_secret_url(url: str) -> str:
+    if not url:
+        return ""
+    try:
+        from urllib.parse import urlsplit, urlunsplit
+        parts = urlsplit(url)
+        if "@" not in parts.netloc:
+            return url
+        userinfo, host = parts.netloc.rsplit("@", 1)
+        user = userinfo.split(":", 1)[0]
+        return urlunsplit((parts.scheme, f"{user}:***@{host}", parts.path, parts.query, parts.fragment))
+    except Exception:
+        return "***"
+
+
+async def save_app_setting(key: str, value: str):
+    async with async_session() as session:
+        result = await session.execute(select(AppSetting).where(AppSetting.key == key))
+        setting = result.scalar_one_or_none()
+        if setting:
+            setting.value = value
+        else:
+            session.add(AppSetting(key=key, value=value))
+        await session.commit()
 
 
 def guard(request: Request, cap: str):
@@ -1467,6 +1509,7 @@ async def settings_page(request: Request):
         if setting and setting.value:
             t = setting.value
             token_masked = t[:10] + "..." + t[-6:] if len(t) > 20 else "***"
+        proxy_url = await get_bot_proxy_url(session)
 
     panel_url = await get_panel_url()
     # Подсказываем адрес, с которого админ сейчас смотрит панель
@@ -1489,6 +1532,9 @@ async def settings_page(request: Request):
         {
             "token_masked": token_masked,
             "bot_running": bot_runner.is_running(),
+            "bot_error": bot_runner.last_error,
+            "telegram_proxy_url": proxy_url,
+            "telegram_proxy_masked": mask_secret_url(proxy_url),
             "panel_url": panel_url,
             "detected_url": detected,
             "example_login_url": build_login_url(panel_url or detected, 123456789),
@@ -1527,18 +1573,14 @@ async def save_panel_url(request: Request, panel_url: str = Form("")):
 @app.post("/settings/save-token")
 async def save_token(request: Request, bot_token: str = Form(...)):
     guard(request, "manage_settings")
-    token = bot_token.strip()
-    async with async_session() as session:
-        result = await session.execute(
-            select(AppSetting).where(AppSetting.key == "bot_token")
-        )
-        setting = result.scalar_one_or_none()
-        if setting:
-            setting.value = token
-        else:
-            setting = AppSetting(key="bot_token", value=token)
-            session.add(setting)
-        await session.commit()
+    await save_app_setting("bot_token", bot_token.strip())
+    return RedirectResponse(url="/settings", status_code=303)
+
+
+@app.post("/settings/save-telegram-proxy")
+async def save_telegram_proxy(request: Request, telegram_proxy_url: str = Form("")):
+    guard(request, "manage_settings")
+    await save_app_setting("telegram_proxy_url", telegram_proxy_url.strip())
     return RedirectResponse(url="/settings", status_code=303)
 
 
@@ -1553,8 +1595,12 @@ async def api_bot_start(request: Request):
         if not setting or not setting.value.strip():
             return {"success": False, "error": "Токен не задан. Перейдите в Настройки."}
 
-        ok = await bot_runner.start(setting.value.strip())
-        return {"success": ok, "running": bot_runner.is_running()}
+        ok = await bot_runner.start(setting.value.strip(), await get_bot_proxy_url(session))
+        return {
+            "success": ok,
+            "running": bot_runner.is_running(),
+            "error": bot_runner.last_error,
+        }
 
 
 @app.post("/api/bot/stop")
@@ -1566,7 +1612,11 @@ async def api_bot_stop(request: Request):
 
 @app.get("/api/bot/status")
 async def api_bot_status():
-    return {"running": bot_runner.is_running()}
+    return {
+        "running": bot_runner.is_running(),
+        "error": bot_runner.last_error,
+        "proxy_enabled": bool(bot_runner.proxy_url),
+    }
 
 
 # ── Dashboard Quick Actions ────────────────────────────────
