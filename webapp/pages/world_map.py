@@ -92,9 +92,13 @@ def _map_card(ctx, li):
         active_floor = 0
     active_floor = min(max(active_floor, 0), loc_floors - 1)
 
+    # Угловые замки 25×25 рисуются своей сеткой (размер из настроек мира).
+    sizes = ctx.store.settings.get("world_sizes", {})
+    grid_size = int(sizes.get(str(li), W.SIZE) or W.SIZE)
+
     cells = ""
-    for x in range(W.SIZE):
-        for y in range(W.SIZE):
+    for x in range(grid_size):
+        for y in range(grid_size):
             c = W.cell_at(ctx.store.world, li, x, y, active_floor)
             if not c:
                 continue
@@ -181,7 +185,8 @@ def _map_card(ctx, li):
   <p class="muted" style="margin-bottom:.7rem">👾 мобов: {mobs} · 📦 сундуков: {chests}
      · 🧱 стен: {walls} · ⭐ спавн [{W.SPAWN[0]},{W.SPAWN[1]}]</p>
   <div class="floor-map-layout">
-    <div class="mapgrid" id="locMapGrid">{cells}</div>
+    <div class="mapgrid" id="locMapGrid"
+         style="grid-template-columns: repeat({grid_size}, 1fr); max-width: {min(grid_size * 44, 1100)}px;">{cells}</div>
     {f'<div class="floor-switcher" aria-label="Этаж карты">{floor_buttons}</div>' if loc_floors > 1 else ''}
   </div>
   <div class="legend">{legend}</div>

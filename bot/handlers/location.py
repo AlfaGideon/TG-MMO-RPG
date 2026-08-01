@@ -209,6 +209,8 @@ async def move_direction(callback: CallbackQuery):
                 character.cell_id = dest_cell.id
                 character.cell = dest_cell
                 await mark_visited(session, character, dest_cell)
+                from core import merchant
+                await merchant.maybe_wander(session)
                 await session.commit()
 
                 # realtime — переход между локациями / этажами
@@ -234,6 +236,8 @@ async def move_direction(callback: CallbackQuery):
         character.cell_id = target.id
         character.cell = target
         await mark_visited(session, character, target)
+        from core import merchant
+        await merchant.maybe_wander(session)
         await session.commit()
 
         # realtime — движение внутри локации
@@ -324,6 +328,8 @@ async def cell_transition(callback: CallbackQuery):
         character.cell_id = dest_cell.id
         character.cell = dest_cell
         await mark_visited(session, character, dest_cell)
+        from core import merchant
+        await merchant.maybe_wander(session)
         await session.commit()
 
         try:
@@ -632,6 +638,8 @@ async def travel_to(callback: CallbackQuery):
         character.floor = 0
         character.cell_id = dest.id
         await mark_visited(session, character, dest)
+        from core import merchant
+        await merchant.maybe_wander(session)
         await session.commit()
 
         # realtime
@@ -860,6 +868,16 @@ async def show_cell(callback, character, location, session):
         transition_hint=transition_hint,
     )
 
+    # Бродячий торговец: если он стоит в этой локации, игрок видит его
+    # в описании клетки и получает кнопку «🧳 Торговец».
+    from core import merchant
+    merchant_state = await merchant.load(session)
+    has_merchant = bool(merchant_state and
+                        int(merchant_state.get("location_id") or 0) == location.id)
+    if has_merchant:
+        text += ("\n\n🧳 <b>Здесь стоит бродячий торговец!</b> "
+                 "<i>«Свежие диковинки — дёшево, только до заката!»</i>")
+
     # Use custom cell/location image if provided and valid
     custom_img = cell.image_url or location.image_url
     if custom_img and get_photo_input(custom_img):
@@ -867,7 +885,8 @@ async def show_cell(callback, character, location, session):
             callback,
             text,
             reply_markup=cell_movement_keyboard(can_dirs, portal_template_id, dir_labels,
-                                   transition_label, is_vip=vip),
+                                   transition_label, is_vip=vip,
+                                   has_merchant=has_merchant),
             image_url=custom_img,
         )
         return
@@ -881,7 +900,8 @@ async def show_cell(callback, character, location, session):
 
     img_path = ensure_cell_image(cell, cells, cell.x, cell.y)
     kb = cell_movement_keyboard(can_dirs, portal_template_id, dir_labels,
-                                   transition_label, is_vip=vip)
+                                   transition_label, is_vip=vip,
+                                   has_merchant=has_merchant)
 
     await send_or_edit_photo(
         callback,

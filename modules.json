@@ -46,6 +46,7 @@
     "engine/combat.py",
     "engine/inventory.py",
     "engine/shop.py",
+    "engine/merchant.py",
     "engine/game.py",
     "engine/storage.py",
     "webapp/html.py",

@@ -196,7 +196,8 @@ def back_to_help_keyboard():
 def cell_movement_keyboard(can_dirs: dict, dungeon_template_id: int | None = None,
                            dir_labels: dict | None = None,
                            current_transition_label: str | None = None,
-                           is_vip: bool = False):
+                           is_vip: bool = False,
+                           has_merchant: bool = False):
     """
     3x3 grid: 8 directions + center inspect.
     can_dirs: {'nw': bool, 'n': bool, 'ne': bool, 'w': bool, 'e': bool,
@@ -241,6 +242,10 @@ def cell_movement_keyboard(can_dirs: dict, dungeon_template_id: int | None = Non
         builder.button(text="🕳 Войти в подземелье", callback_data=f"dungeon_enter_tpl:{dungeon_template_id}")
         rows.append(1)
 
+    if has_merchant:
+        builder.button(text="🧳 Торговец", callback_data="merchant_menu")
+        rows.append(1)
+
     # Actions
     builder.button(text="🏕 Отдохнуть", callback_data="rest")
     builder.button(text="🎒 Инвентарь", callback_data="inventory")
@@ -274,6 +279,35 @@ def travel_keyboard(safe_locations: list):
         builder.button(text=f"🏠 {loc.name}", callback_data=f"travel:{loc.id}")
     builder.button(text="◀️ Назад", callback_data="back_to_cell")
     builder.adjust(1)
+    return builder.as_markup()
+
+
+def merchant_book_keyboard(ware, page: int, total: int, can_buy: bool):
+    """Витрина бродячего торговца: карточка товара + листание."""
+    builder = InlineKeyboardBuilder()
+    rows = []
+    if can_buy:
+        builder.button(
+            text=f"🟢 💰 Купить за {ware['price']}🪙",
+            callback_data=f"merchant_buy:{page}",
+        )
+    else:
+        builder.button(text="🔒 Не по карману", callback_data="noop")
+    rows.append(1)
+
+    nav = 0
+    if page > 0:
+        builder.button(text="⬅️ Пред.", callback_data=f"merchant_page:{page - 1}")
+        nav += 1
+    if page + 1 < total:
+        builder.button(text="След. ➡️", callback_data=f"merchant_page:{page + 1}")
+        nav += 1
+    if nav:
+        rows.append(nav)
+
+    builder.button(text="◀️ К клетке", callback_data="back_to_cell")
+    rows.append(1)
+    builder.adjust(*rows)
     return builder.as_markup()
 
 

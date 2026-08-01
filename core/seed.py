@@ -122,60 +122,90 @@ def _ensure_connectivity(cells, grid_size: int = 10):
     W.ensure_connectivity(cells, grid_size)
 
 
+# Жители угловых замков: по два на цитадель (см. build_corner_castle).
+# Используется сидом и админкой при создании замка вручную.
+CASTLE_NPCS = [
+    [("Кастелян Одо", "Свет Ордена держит эти стены...", "storyteller"),
+     ("Сестра Люция", "Раненых лечат здесь, не на поле боя...", "healer")],
+    [("Тенелов Вирд", "Мы смотрим на ту сторону, откуда приходит тьма...", "storyteller"),
+     ("Старый капрал", "Служил ещё при королях. Держи меч остриём к врагу...", "storyteller")],
+    [("Хранитель ключей", "Ниже — склепы старше этого форта...", "storyteller"),
+     ("Глубинная ведьма", "Я слышу, как вода поёт под нами...", "healer")],
+    [("Мастер золы", "Пепел — это память. Мы её храним...", "storyteller"),
+     ("Знаменосец Пепла", "Знамя изношено, но не брошено...", "storyteller")],
+]
+
+
 async def seed_database():
     async with async_session() as session:
         result = await session.execute(select(Location))
         if result.scalars().first():
             return
 
+        # Мир: карта 10×10, по краям 36 локаций — 4 угловых замка 25×25
+        # (внутри — четыре замка 10×10 по углам) и 32 опасных тракта между
+        # ними; внутри кольца — стартовые земли и Логово Пожирателя.
+        # Координаты совпадают с engine/world.py DEFAULT_GRID.
+        # Мировая карта 10×10: по краям 36 локаций — 4 угловых замка 25×25
+        # (внутри — четыре замка 10×10 по углам) и 32 опасных тракта между
+        # ними; внутри кольца — стартовые земли и Логово Пожирателя.
+        # Координаты совпадают с engine/world.py DEFAULT_GRID.
+        LOCATIONS_PLAN = [
+            # (имя, описание, тип, мин.уровень, wx, wy, grid_size, картинка)
+            # ── стартовые земли (внутри кольца) ──
+            ("Погост Костров", "Безопасная деревня среди болот...", LocationType.SAFE, 1, 4, 4, 10, LOCATION_IMAGES[1]),
+            ("Тёмный Лес", "Старые дубы скрывают глаза нежити...", LocationType.DANGEROUS, 1, 5, 4, 10, LOCATION_IMAGES[2]),
+            ("Заброшенная Крепость", "Каменные стены помнят времена...", LocationType.DANGEROUS, 3, 5, 5, 10, LOCATION_IMAGES[3]),
+            ("Катакомбы Павших", "Глубокие подземелья под храмом...", LocationType.DUNGEON, 5, 4, 5, 10, LOCATION_IMAGES[4]),
+            ("Логово Пожирателя", "Расщелина в скалах...", LocationType.BOSS, 10, 3, 4, 10, LOCATION_IMAGES[5]),
+            # ── угловые замки 25×25 по углам мировой карты ──
+            ("Замок Рассвета", "Белые башни Ордена на северо-западе. Безопасная зона с NPC.", LocationType.SAFE, 1, 0, 0, 25, None),
+            ("Замок Теней", "Чёрные шпили на северо-востоке. Безопасная зона с NPC.", LocationType.SAFE, 1, 9, 0, 25, None),
+            ("Замок Глубин", "Древний форт на юго-западе. Безопасная зона с NPC.", LocationType.SAFE, 1, 0, 9, 25, None),
+            ("Замок Пепла", "Обожжённые стены на юго-востоке. Безопасная зона с NPC.", LocationType.SAFE, 1, 9, 9, 25, None),
+        ]
+        # ── опасные тракты по краям карты: 8 на каждую сторону ──
+        _TRAKT_DESC = {
+            "Северного": "Мёрзлые пустоши северного края. Снег скрывает тропы...",
+            "Восточного": "Пепельные земли, где ветер носит золу...",
+            "Южного": "Топи и гнилые болота южного предела...",
+            "Западного": "Скалистые осыпи западного края...",
+        }
+        _NORTH = [(1 + i, 0) for i in range(8)]
+        _EAST = [(9, 1 + i) for i in range(8)]
+        _SOUTH = [(8 - i, 9) for i in range(8)]
+        _WEST = [(0, 8 - i) for i in range(8)]
+        for (edge, desc), coords in zip(_TRAKT_DESC.items(),
+                                        (_NORTH, _EAST, _SOUTH, _WEST)):
+            for i, (wx, wy) in enumerate(coords, start=1):
+                LOCATIONS_PLAN.append(
+                    (f"Тракт {edge} Предела {i}", desc,
+                     LocationType.DANGEROUS, 3, wx, wy, 10, None))
         locations = [
-            Location(name="Погост Костров", description="Безопасная деревня среди болот...", location_type=LocationType.SAFE, min_level=1, image_url=LOCATION_IMAGES[1], world_x=0, world_y=0),
-            Location(name="Тёмный Лес", description="Старые дубы скрывают глаза нежити...", location_type=LocationType.DANGEROUS, min_level=1, image_url=LOCATION_IMAGES[2], world_x=1, world_y=0),
-            Location(name="Заброшенная Крепость", description="Каменные стены помнят времена...", location_type=LocationType.DANGEROUS, min_level=3, image_url=LOCATION_IMAGES[3], world_x=2, world_y=0),
-            Location(name="Катакомбы Павших", description="Глубокие подземелья под храмом...", location_type=LocationType.DUNGEON, min_level=5, image_url=LOCATION_IMAGES[4], world_x=3, world_y=0),
-            Location(name="Логово Пожирателя", description="Расщелина в скалах...", location_type=LocationType.BOSS, min_level=10, image_url=LOCATION_IMAGES[5], world_x=4, world_y=0),
+            Location(name=name, description=desc, location_type=lt, min_level=ml,
+                     image_url=img, world_x=wx, world_y=wy, grid_size=gs)
+            for name, desc, lt, ml, wx, wy, gs, img in LOCATIONS_PLAN
         ]
         session.add_all(locations)
         await session.flush()
 
-        story_idx = 0
+        castle_idx = 0
         for loc in locations:
-            cells = []
-            for x in range(10):
-                for y in range(10):
-                    is_border = (x == 0 or x == 9 or y == 0 or y == 9)
-                    is_wall = is_border or (not is_border and random.random() < 0.15 and (x, y) != (5, 5))
+            if loc.name.startswith("Замок"):
+                await W.build_corner_castle(session, loc, CELL_STORIES,
+                                            rng=random.Random(42 + loc.id),
+                                            npcs=CASTLE_NPCS[castle_idx % len(CASTLE_NPCS)])
+                castle_idx += 1
+            else:
+                await W.build_cells(session, loc, CELL_STORIES)
 
-                    name, desc, tile = CELL_STORIES[story_idx % len(CELL_STORIES)]
-                    story_idx += 1
+        # Бесшовные швы: пересборка по фактическому соседству на мировой
+        # карте (общие функции — в worldgen; одна дверь на границу).
+        await W.relink_all(session)
 
-                    cell = Cell(
-                        location_id=loc.id,
-                        x=x,
-                        y=y,
-                        name=name,
-                        description=desc,
-                        is_passable=not is_wall,
-                        tile_type=tile if not is_wall else "wall",
-                        has_tree=(not is_wall and tile == "forest" and random.random() < 0.3),
-                        has_campfire=(not is_wall and random.random() < 0.05),
-                        has_house=(not is_wall and tile == "village" and random.random() < 0.3),
-                    )
-                    session.add(cell)
-                    cells.append(cell)
-
-            _ensure_connectivity(cells, loc.grid_size)
-            await session.flush()
-
-        # Бесшовные швы между соседями по мировой карте: стартовые локации
-        # выстроены в ряд на восток, поэтому каждая пара — сосед с востока.
-        # Общие функции (ворота + прорубка дорог от центра) — в worldgen.
-        for i in range(len(locations) - 1):
-            await W.link_pair(session, locations[i], locations[i + 1], "e")
-
-        # Add NPCs to safe location
+        # Жители деревни — заказчики заданий и торговец.
         result = await session.execute(
-            select(Cell).where(Cell.location_id == 1).where(Cell.is_passable == True)
+            select(Cell).where(Cell.location_id == locations[0].id).where(Cell.is_passable == True)
         )
         safe_cells = result.scalars().all()
         if len(safe_cells) >= 3:
@@ -191,21 +221,69 @@ async def seed_database():
                 cell.npc_dialogue = dialogue
                 cell.npc_type = npc_type
 
-        # Add chests randomly
+        # Сундуки — в опасных землях: стартовые (2-4) и тракты (10-13).
+        danger_ids = [locations[i].id for i in (1, 2, 3, 9, 10, 11, 12)]
         result = await session.execute(
-            select(Cell).where(Cell.location_id.in_([2, 3, 4])).where(Cell.is_passable == True)
+            select(Cell).where(Cell.location_id.in_(danger_ids)).where(Cell.is_passable == True)
         )
         danger_cells = result.scalars().all()
-        for cell in random.sample(danger_cells, min(8, len(danger_cells))):
+        for cell in random.sample(danger_cells, min(12, len(danger_cells))):
             cell.has_chest = True
 
+        # Мобы: стартовые земли + опасные тракты (локации 2-4 и 10-13).
         mobs_data = [
-            {"name": "Болотный зомби", "desc": "Медлительный труп...", "level": 1, "hp": 25, "dmg": 4, "def": 1, "gold": 5, "exp": 10, "loc": 2},
-            {"name": "Лесной ворг", "desc": "Крупный волк с чёрной шерстью...", "level": 2, "hp": 40, "dmg": 7, "def": 2, "gold": 8, "exp": 18, "loc": 2},
-            {"name": "Скелет-воин", "desc": "Ожившие останки павшего солдата...", "level": 3, "hp": 50, "dmg": 8, "def": 3, "gold": 12, "exp": 25, "loc": 3},
-            {"name": "Гнолл-грабитель", "desc": "Гибрид человека и гиены...", "level": 4, "hp": 65, "dmg": 10, "def": 3, "gold": 15, "exp": 35, "loc": 3},
-            {"name": "Пещерный тролль", "desc": "Громадина с каменной кожей...", "level": 6, "hp": 100, "dmg": 14, "def": 6, "gold": 25, "exp": 60, "loc": 4},
-            {"name": "Теневой призрак", "desc": "Нематериальная сущность из кошмаров...", "level": 7, "hp": 80, "dmg": 18, "def": 2, "gold": 30, "exp": 70, "loc": 4},
+            {"name": "Помойная крыса", "desc": "Размером с собаку и вдвое наглее...", "level": 1, "hp": 18, "dmg": 3, "def": 0, "gold": 3, "exp": 6, "loc": locations[0].id},
+            {"name": "Болотный зомби", "desc": "Медлительный труп...", "level": 1, "hp": 25, "dmg": 4, "def": 1, "gold": 5, "exp": 10, "loc": locations[1].id},
+            {"name": "Лесной ворг", "desc": "Крупный волк с чёрной шерстью...", "level": 2, "hp": 40, "dmg": 7, "def": 2, "gold": 8, "exp": 18, "loc": locations[1].id},
+            {"name": "Скелет-воин", "desc": "Ожившие останки павшего солдата...", "level": 3, "hp": 50, "dmg": 8, "def": 3, "gold": 12, "exp": 25, "loc": locations[2].id},
+            {"name": "Гнолл-грабитель", "desc": "Гибрид человека и гиены...", "level": 4, "hp": 65, "dmg": 10, "def": 3, "gold": 15, "exp": 35, "loc": locations[2].id},
+            {"name": "Пещерный тролль", "desc": "Громадина с каменной кожей...", "level": 6, "hp": 100, "dmg": 14, "def": 6, "gold": 25, "exp": 60, "loc": locations[3].id},
+            {"name": "Теневой призрак", "desc": "Нематериальная сущность из кошмаров...", "level": 7, "hp": 80, "dmg": 18, "def": 2, "gold": 30, "exp": 70, "loc": locations[3].id},
+            {"name": "Культист Бездны", "desc": "Ждал этого дня всю жизнь...", "level": 9, "hp": 95, "dmg": 22, "def": 4, "gold": 45, "exp": 110, "loc": locations[4].id},
+            {"name": "Порождение бездны", "desc": "У него слишком много суставов...", "level": 10, "hp": 130, "dmg": 24, "def": 6, "gold": 55, "exp": 130, "loc": locations[4].id},
+            {"name": "Страж расщелины", "desc": "Стоит здесь дольше, чем существует королевство...", "level": 11, "hp": 180, "dmg": 23, "def": 12, "gold": 70, "exp": 160, "loc": locations[4].id},
+            {"name": "Разбойник с большой дороги", "desc": "Считает путников кормовой базой...", "level": 4, "hp": 60, "dmg": 9, "def": 3, "gold": 14, "exp": 30, "loc": locations[9].id},
+            {"name": "Северный канюк", "desc": "Кружит над трактом в ожидании добычи...", "level": 5, "hp": 70, "dmg": 12, "def": 2, "gold": 17, "exp": 36, "loc": locations[10].id},
+            {"name": "Скальный хищник", "desc": "Гнездится в осыпях вдоль дороги...", "level": 5, "hp": 75, "dmg": 11, "def": 5, "gold": 16, "exp": 34, "loc": locations[33].id},
+            {"name": "Тёмный следопыт", "desc": "Идёт по следу тише, чем думает жертва...", "level": 6, "hp": 85, "dmg": 14, "def": 3, "gold": 19, "exp": 40, "loc": locations[34].id},
+            {"name": "Пепельный волк", "desc": "Шерсть серая, как зола...", "level": 6, "hp": 80, "dmg": 13, "def": 3, "gold": 18, "exp": 38, "loc": locations[17].id},
+            {"name": "Чернокнижник пепла", "desc": "Поднимает пепельных духов над кострищами...", "level": 7, "hp": 90, "dmg": 16, "def": 5, "gold": 22, "exp": 46, "loc": locations[18].id},
+            {"name": "Могильный страж", "desc": "Держит меч даже после смерти...", "level": 7, "hp": 110, "dmg": 15, "def": 8, "gold": 24, "exp": 50, "loc": locations[25].id},
+            {"name": "Гниющий великан", "desc": "Каждый шаг оставляет яму...", "level": 8, "hp": 130, "dmg": 18, "def": 7, "gold": 28, "exp": 60, "loc": locations[26].id},
+            # ── остальные тракты по краям мировой карты ──
+            {"name": "Ледяной падальщик", "desc": "Обедает тем, что замёрзло до него...", "level": 4, "hp": 62, "dmg": 10, "def": 3, "gold": 15, "exp": 32, "loc": locations[11].id},
+            {"name": "Вьюжный призрак", "desc": "Появляется из метели...", "level": 5, "hp": 72, "dmg": 12, "def": 2, "gold": 17, "exp": 36, "loc": locations[12].id},
+            {"name": "Мёрзлый зомби", "desc": "Тело промёрзло насквозь...", "level": 4, "hp": 68, "dmg": 9, "def": 4, "gold": 14, "exp": 30, "loc": locations[13].id},
+            {"name": "Снежный волк", "desc": "Шерсть белая, глаза — льдинки...", "level": 5, "hp": 78, "dmg": 13, "def": 3, "gold": 18, "exp": 38, "loc": locations[14].id},
+            {"name": "Костяной странник", "desc": "Идёт по северному тракту без остановки...", "level": 6, "hp": 95, "dmg": 15, "def": 5, "gold": 21, "exp": 44, "loc": locations[15].id},
+            {"name": "Северный упырь", "desc": "Согревается чужой кровью...", "level": 6, "hp": 88, "dmg": 16, "def": 4, "gold": 22, "exp": 46, "loc": locations[16].id},
+            {"name": "Пепельный хищник", "desc": "Затаивается в золе...", "level": 5, "hp": 74, "dmg": 12, "def": 3, "gold": 17, "exp": 36, "loc": locations[19].id},
+            {"name": "Зольный дух", "desc": "Клубок пепла с углями вместо глаз...", "level": 6, "hp": 82, "dmg": 15, "def": 3, "gold": 20, "exp": 42, "loc": locations[20].id},
+            {"name": "Обожжённый скелет", "desc": "Кости оплавились, но держатся...", "level": 4, "hp": 66, "dmg": 11, "def": 3, "gold": 14, "exp": 30, "loc": locations[21].id},
+            {"name": "Гарпия-падальщица", "desc": "Кружит над трактом, высматривая слабых...", "level": 5, "hp": 70, "dmg": 14, "def": 2, "gold": 18, "exp": 38, "loc": locations[22].id},
+            {"name": "Чернокнижник золы", "desc": "Читает судьбы по пеплу...", "level": 7, "hp": 92, "dmg": 17, "def": 5, "gold": 23, "exp": 48, "loc": locations[23].id},
+            {"name": "Пепельный страж", "desc": "Стоит на перекрёстке с тех пор, как сгорел город...", "level": 6, "hp": 100, "dmg": 14, "def": 7, "gold": 21, "exp": 44, "loc": locations[24].id},
+            {"name": "Топяной змей", "desc": "Скользит по болоту так, что рябь не расходится...", "level": 5, "hp": 76, "dmg": 12, "def": 3, "gold": 17, "exp": 36, "loc": locations[27].id},
+            {"name": "Болотный упырь", "desc": "Живёт в трясине и пахнет ею...", "level": 6, "hp": 90, "dmg": 15, "def": 5, "gold": 21, "exp": 44, "loc": locations[28].id},
+            {"name": "Трясинный голем", "desc": "Слеплен из грязи, корней и костей...", "level": 7, "hp": 120, "dmg": 16, "def": 8, "gold": 25, "exp": 52, "loc": locations[29].id},
+            {"name": "Цапля-мертвяк", "desc": "Стоит на одной ноге, пока жертва не подойдёт...", "level": 5, "hp": 68, "dmg": 13, "def": 2, "gold": 17, "exp": 36, "loc": locations[30].id},
+            {"name": "Гнилой латник", "desc": "Броня держит форму лучше, чем владелец...", "level": 6, "hp": 105, "dmg": 14, "def": 7, "gold": 21, "exp": 44, "loc": locations[31].id},
+            {"name": "Южный кровосос", "desc": "Пьёт у спящих у костра...", "level": 7, "hp": 85, "dmg": 18, "def": 3, "gold": 24, "exp": 50, "loc": locations[32].id},
+            {"name": "Скальный копейщик", "desc": "Обороняет осыпь, которой никто не грозит...", "level": 5, "hp": 80, "dmg": 12, "def": 6, "gold": 17, "exp": 36, "loc": locations[35].id},
+            {"name": "Осыпной голем", "desc": "Собран из камней, что падали и не разбились...", "level": 6, "hp": 110, "dmg": 15, "def": 8, "gold": 21, "exp": 44, "loc": locations[36].id},
+            {"name": "Горный тролль-одиночка", "desc": "Изгнан из стаи за уродство...", "level": 7, "hp": 130, "dmg": 17, "def": 8, "gold": 26, "exp": 54, "loc": locations[37].id},
+            {"name": "Пещерный паук", "desc": "Сеть натянута поперёк ущелья...", "level": 4, "hp": 58, "dmg": 10, "def": 2, "gold": 13, "exp": 28, "loc": locations[38].id},
+            {"name": "Западный разбойник", "desc": "Грабит караваны, которых давно не было...", "level": 5, "hp": 72, "dmg": 11, "def": 3, "gold": 16, "exp": 34, "loc": locations[39].id},
+            {"name": "Камнекожий страж", "desc": "Кожа вросла в камень...", "level": 6, "hp": 115, "dmg": 13, "def": 9, "gold": 22, "exp": 46, "loc": locations[40].id},
+            # Угловые замки: пустоши между замками 10×10 кишат тварью
+            {"name": "Обезумевший паломник", "desc": "Шёл к свету — дошёл не туда...", "level": 3, "hp": 50, "dmg": 8, "def": 2, "gold": 11, "exp": 22, "loc": locations[5].id},
+            {"name": "Тварь из замкового рва", "desc": "Вода в рвах давно не вода...", "level": 4, "hp": 65, "dmg": 10, "def": 4, "gold": 14, "exp": 30, "loc": locations[5].id},
+            {"name": "Чёрный ворон", "desc": "Крупнее орла и умнее, чем кажется...", "level": 3, "hp": 45, "dmg": 9, "def": 1, "gold": 10, "exp": 21, "loc": locations[6].id},
+            {"name": "Теневой прислужник", "desc": "Слуга, которого тьма забрала целиком...", "level": 4, "hp": 60, "dmg": 11, "def": 3, "gold": 13, "exp": 28, "loc": locations[6].id},
+            {"name": "Глубинная тварь", "desc": "Выползла из склепов под замком...", "level": 4, "hp": 70, "dmg": 10, "def": 5, "gold": 15, "exp": 32, "loc": locations[7].id},
+            {"name": "Плесневелый страж", "desc": "Доспех пророс грибницей насквозь...", "level": 5, "hp": 85, "dmg": 12, "def": 6, "gold": 17, "exp": 36, "loc": locations[7].id},
+            {"name": "Пепельный голем", "desc": "Слеплен из золы и злобы...", "level": 5, "hp": 95, "dmg": 13, "def": 7, "gold": 18, "exp": 38, "loc": locations[8].id},
+            {"name": "Гарпия пепла", "desc": "Её крик слышен за стенами цитадели...", "level": 6, "hp": 80, "dmg": 15, "def": 3, "gold": 20, "exp": 42, "loc": locations[8].id},
         ]
 
         created_mobs = []
@@ -266,4 +344,5 @@ async def seed_database():
         session.add_all(quests)
 
         await session.commit()
-        print("Database seeded with 500 unique cells, quests, and seamless links.")
+        print("Database seeded: 41 locations (36 on the map rim, corner "
+              "castles 25×25), quests, and seamless links.")

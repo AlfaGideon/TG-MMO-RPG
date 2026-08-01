@@ -50,14 +50,18 @@ def test_opposing_interests():
     F.award(store, p, "undead_slain")
     check(F.value(p, "guard") > 0, "стража ценит упокоенную нежить")
     check(F.value(p, "scavengers") < 0, "падальщики этим недовольны (из-за соперничества)")
+    check(F.value(p, "order") > 0, "орден тоже ценит упокоенную нежить")
 
     guard_before = F.value(p, "guard")
+    order_before = F.value(p, "order")
     F.award(store, p, "grave_looted")
     check(F.value(p, "scavengers") > 0, "падальщики ценят мародёрство")
     check(F.value(p, "cult") < 0, "культ за это злится (из-за соперничества)")
+    check(F.value(p, "order") < order_before, "мародёрство не в чести у ордена")
 
-    check(F.RIVALS["guard"] == "scavengers" and F.RIVALS["scavengers"] == "cult" and F.RIVALS["cult"] == "guard",
-          "фракции связаны по кругу (камень-ножницы-бумага)")
+    check(F.RIVALS["guard"] == "scavengers" and F.RIVALS["scavengers"] == "cult"
+          and F.RIVALS["cult"] == "guard" and F.RIVALS["order"] == "cult",
+          "фракции связаны по кругу, у ордена свой враг — культ")
 
 
 def test_ranks_and_side():
@@ -190,7 +194,7 @@ def test_screen_and_persistence():
     r = game.handle(p, "rep")
     check("Репутация" in r.text, "экран открывается")
     check(all(F.FACTIONS[k][1] in r.text for k in F.FACTIONS),
-          "показаны все три силы")
+          "показаны все четыре силы")
     check("Твоя сторона" in r.text, "названа сторона игрока")
     check(any("rep" == b[1] for row in game.handle(p, "menu").keyboard
               for b in row), "кнопка есть в меню")
