@@ -1,3 +1,11 @@
+
+def get_currency_display(char):
+    """Возвращает строку с тремя валютами."""
+    b = getattr(char, "bronze", 0)
+    s = getattr(char, "silver", 0)
+    g = getattr(char, "gold", 0)
+    return f"{b}🪙 {s}🥈 {g}🪙"
+
 WELCOME_TEXT = """
 🌑 <b>Добро пожаловать в Теневые Земли</b>
 
@@ -556,3 +564,46 @@ def item_detail_text(inv_item, history_rows=None) -> str:
         lines.append(format_history(history_rows))
 
     return "\n".join(lines)
+
+
+def currency_str(char):
+    """Показывает три валюты красиво."""
+    b = getattr(char, "bronze", 0)
+    s = getattr(char, "silver", 0)
+    g = getattr(char, "gold", 0)
+    return f"{b}🪙 {s}🥈 {g}🪙"
+
+
+def currency_display(char):
+    """Красивая строка с тремя валютами."""
+    b = getattr(char, "bronze", 0)
+    s = getattr(char, "silver", 0)
+    g = getattr(char, "gold", 0)
+    return f"{b}🪙 {s}🥈 {g}🪙"
+
+
+def get_russian_stat_name(key):
+    """Русские названия статов для профиля и книги."""
+    names = {
+        "gear_score": "Очки снаряжения (GS)",
+        "max_hp": "Макс. здоровье",
+        "damage": "Урон",
+        "defense": "Защита",
+        "damage_reduction": "Снижение урона",
+        "strength": "Сила",
+        "dexterity": "Ловкость",
+        "intelligence": "Интеллект",
+        "crit_chance": "Шанс крита",
+        "crit_damage": "Урон крита",
+        "double_hit_chance": "Шанс двойного удара",
+        "dodge_chance": "Шанс уклонения",
+        "block_chance": "Шанс блока",
+        "life_on_hit": "Жизнь за удар",
+        "life_on_kill": "Жизнь за убийство",
+        "thorns_damage": "Урон шипами",
+        "exp_gain_mult": "Получение опыта",
+        "gold_gain_mult": "Получение золота",
+        "item_drop_chance": "Шанс дропа предметов",
+        "material_drop_chance": "Шанс дропа материалов",
+    }
+    return names.get(key, key.replace("_", " ").title())
