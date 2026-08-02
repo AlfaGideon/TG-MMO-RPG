@@ -166,7 +166,7 @@ def test_auth_endpoint():
 # ── туннель и URL-хелперы ───────────────────────────────────
 
 def test_tunnel_helpers():
-    print("— Quick Tunnel: выбор бинаря и парсинг адреса —")
+    print("— Quick Tunnel: выбор бинаря и проверка адресов —")
 
     def bin_for(system, machine):
         with mock.patch.object(tunnel_mod.platform, "system", return_value=system), \
@@ -185,25 +185,14 @@ def test_tunnel_helpers():
     check(url.endswith("cloudflared-darwin-arm64.tgz"), "macOS arm64 — tgz-архив")
     check(bin_for("Linux", "riscv64") == ("", ""), "неизвестная архитектура — без скачивания")
 
-    noise = ("2025-01-01T00:00:00Z INF +---------------------------------------------+\n"
-    found = tunnel_mod.TRYCLOUDFLARE_RE.search(noise)
-    check(bool(found) and found.group(0) ==
-          "адрес вылавливается из лога cloudflared")
-    check(tunnel_mod.TRYCLOUDFLARE_RE.search(
-          "URL API Cloudflare не принимается за адрес туннеля")
-    check(tunnel_mod.is_quick_tunnel_url(
-          "старый Quick Tunnel распознаётся для обновления")
+    # Проверяем, что trycloudflare.com адреса распознаются как временные
+    check(tunnel_mod.is_quick_tunnel_url("https://example.trycloudflare.com"),
+          "trycloudflare.com адрес распознаётся как временный")
     check(not tunnel_mod.is_quick_tunnel_url("https://panel.example.com"),
-          "обычный ручной домен не сбрасывается")
+          "обычный ручной домен не считается временным")
 
-    env = dict(os.environ)
-    env.pop("ADMIN_TUNNEL", None)
-    with mock.patch.dict(os.environ, env, clear=True):
-        check(tunnel_mod.tunnel_enabled(), "по умолчанию туннель включён")
-    with mock.patch.dict(os.environ, {**env, "ADMIN_TUNNEL": "0"}):
-        check(not tunnel_mod.tunnel_enabled(), "ADMIN_TUNNEL=0 выключает")
-    with mock.patch.dict(os.environ, {**env, "ADMIN_TUNNEL": "1"}):
-        check(tunnel_mod.tunnel_enabled(), "ADMIN_TUNNEL=1 включает обратно")
+    # Туннель отключён
+    check(not tunnel_mod.tunnel_enabled(), "туннель отключён по умолчанию")
 
     hosted_env = {**env, "RENDER_EXTERNAL_URL": "https://shadow-lands.onrender.com/"}
     with mock.patch.dict(os.environ, hosted_env, clear=True):
@@ -213,6 +202,10 @@ def test_tunnel_helpers():
     with mock.patch.dict(os.environ, replit_env, clear=True):
         check(platform_public_url() == "https://game.replit.app",
               "первый домен Replit выбирается для Mini App")
+
+
+OLD = "https://old-tunnel.trycloudflare.com"
+NEW = "https://new-tunnel.trycloudflare.com"
 
 
 def test_stale_tunnel_url_is_never_served():

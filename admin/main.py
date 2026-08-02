@@ -1872,6 +1872,11 @@ async def save_panel_url(request: Request, panel_url: str = Form("")):
         set_panel_url,
     )
 
+    # Отклоняем trycloudflare.com адреса - они не работают
+    if panel_url.strip() and is_temporary_tunnel_url(panel_url):
+        # Не сохраняем, просто редиректим обратно
+        return RedirectResponse(url="/settings", status_code=303)
+
     saved = await set_panel_url(panel_url)
     # Вписали постоянный домен руками — он главнее туннеля, иначе следующий
     # get_panel_url() продолжил бы отдавать временный адрес cloudflared.

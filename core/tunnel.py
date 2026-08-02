@@ -19,7 +19,6 @@ import asyncio
 import logging
 import os
 import platform
-import re
 import shutil
 import stat
 import subprocess
@@ -40,11 +39,6 @@ logger = logging.getLogger("tunnel")
 TUNNEL_ENV = "ADMIN_TUNNEL"
 ANNOUNCED_KEY = "panel_url_announced"
 
-# Это не адрес туннеля, поэтому его нельзя сохранять как panel_url.
-TRYCLOUDFLARE_RE = re.compile(
-    r"https://(?!api\.trycloudflare\.com\b)"
-    r"[a-z0-9]+(?:-[a-z0-9]+)*\.trycloudflare\.com\b"
-)
 CLOUDFLARED_LATEST = "https://github.com/cloudflare/cloudflared/releases/latest/download/"
 
 _URL_TIMEOUT = 45  # столько ждём публичный адрес от cloudflared
@@ -257,18 +251,8 @@ class CloudflareTunnel:
             pass
 
     async def _read_url(self) -> str:
-        assert self._process and self._process.stdout
-        while True:
-            line = await self._process.stdout.readline()
-            if not line:
-                raise asyncio.TimeoutError()
-            decoded = line.decode("utf-8", "ignore")
-            # Логируем ошибки cloudflared для отладки 502/1033
-            if "ERR" in decoded or "error" in decoded.lower():
-                logger.debug(f"cloudflared: {decoded.strip()}")
-            match = TRYCLOUDFLARE_RE.search(decoded)
-            if match:
-                return match.group(0)
+        """Больше не используется - туннель отключён."""
+        raise asyncio.TimeoutError()
 
     async def stop(self) -> None:
         if self._watcher_task and not self._watcher_task.done():

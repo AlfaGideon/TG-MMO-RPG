@@ -49,8 +49,15 @@ def normalize_url(raw: str) -> str:
 
 
 def is_temporary_tunnel_url(value: str) -> bool:
-    # Схема Cloudflare Quick Tunnel удалена — временные адреса больше не используются.
-    return False
+    """Проверяет, является ли адрес временным туннелем (trycloudflare.com).
+    
+    Такие адреса не должны использоваться - они эфемерные и не работают
+    после перезапуска. Возвращает True для любых trycloudflare.com доменов.
+    """
+    if not value:
+        return False
+    normalized = value.lower()
+    return "trycloudflare.com" in normalized
 
 
 def set_active_tunnel_url(url: str) -> None:
@@ -75,8 +82,12 @@ def tunnel_is_managed() -> bool:
 
 
 def is_stale_tunnel_url(value: str) -> bool:
-    # Туннельная схема удалена — устаревшие адреса больше не сохраняются.
-    return False
+    """Проверяет, является ли адрес устаревшим туннелем.
+    
+    Любой trycloudflare.com адрес считается устаревшим - они не работают
+    после перезапуска и должны быть удалены из настроек.
+    """
+    return is_temporary_tunnel_url(value)
 
 
 def platform_public_url() -> str:
