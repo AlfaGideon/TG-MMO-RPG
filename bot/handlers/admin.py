@@ -9,7 +9,7 @@ from sqlalchemy import select
 
 from core.database import async_session
 from core.models import User
-from core.settings_store import get_panel_url, build_login_url
+from core.settings_store import get_panel_url, build_miniapp_url
 from admin import auth as webauth
 from bot.keyboards.inline import admin_panel_keyboard, back_to_main_keyboard
 from bot.utils.edit import safe_edit_text
@@ -17,9 +17,14 @@ from bot.utils.edit import safe_edit_text
 router = Router()
 
 
-async def login_url(telegram_id: int) -> str:
-    """Ссылка на панель берётся из настроек админки (поле «Адрес панели»)."""
-    return build_login_url(await get_panel_url(), telegram_id)
+async def miniapp_url(telegram_id: int) -> str:
+    """Ссылка Mini App: панель открывается внутри Telegram без пароля.
+
+    Адрес панели берётся из настроек (panel_url) — его автоматически
+    заполняет Quick Tunnel при старте, либо админ вручную (Render и т.п.).
+    Пустая строка → кнопки нет (панель локальная, публичного адреса нет).
+    """
+    return build_miniapp_url(await get_panel_url(), telegram_id)
 
 
 async def _get_admin(telegram_id: int):
@@ -51,8 +56,9 @@ async def admin_panel(callback: CallbackQuery):
         f"Ранг: <b>{rank}</b>\n"
         f"Логин: <code>{user.telegram_id}</code>\n\n"
         f"<b>Твои права:</b>\n{caps_text(user)}\n\n"
-        "<i>Вход в веб-панель — по логину и паролю.</i>",
-        reply_markup=admin_panel_keyboard(await login_url(user.telegram_id)),
+        "<i>Кнопка «🌐 Открыть панель» запускает панель прямо в Telegram — "
+        "без пароля. Пароль остаётся запасным входом из браузера.</i>",
+        reply_markup=admin_panel_keyboard(await miniapp_url(user.telegram_id)),
         parse_mode="HTML",
     )
 
@@ -77,7 +83,9 @@ async def admin_password(callback: CallbackQuery):
     await safe_edit_text(callback, "🔑 <b>Доступ в веб-панель</b>\n\n"
         f"Логин: <code>{user.telegram_id}</code>\n"
         f"Пароль: <code>{plain}</code>\n\n"
-        "<i>Нажми на пароль, чтобы скопировать. Никому его не передавай.</i>",
-        reply_markup=admin_panel_keyboard(await login_url(user.telegram_id)),
+        "<i>Нажми на пароль, чтобы скопировать. Никому его не передавай.\n"
+        "Пароль нужен только для входа из браузера — из Telegram панель "
+        "открывается без него.</i>",
+        reply_markup=admin_panel_keyboard(await miniapp_url(user.telegram_id)),
         parse_mode="HTML",
     )

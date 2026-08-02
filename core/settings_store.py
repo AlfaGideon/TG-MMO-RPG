@@ -66,3 +66,16 @@ def build_login_url(base: str, telegram_id: int) -> str:
     if not base:
         return ""
     return f"{base}/admin-login?uid={telegram_id}"
+
+
+def build_miniapp_url(base: str, telegram_id: int) -> str:
+    """Ссылка Mini App для кнопки web_app (вход по подписи Telegram).
+
+    Пусто, если адрес не задан. Отличается от build_login_url: /tgapp
+    открывается мини-приложением и пускает без пароля, /admin-login —
+    классическая страница для браузера с логином и паролем.
+    """
+    base = normalize_url(base)
+    if not base:
+        return ""
+    return f"{base}/tgapp?uid={telegram_id}"
