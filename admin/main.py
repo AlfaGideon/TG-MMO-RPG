@@ -92,7 +92,7 @@ async def lifespan(app: FastAPI):
     # Если PUBLIC_URL задан вручную — туннель не нужен.
     from core.tunnel import setup_public_url
     app.state.tunnel_task = asyncio.create_task(
-        setup_public_url(admin_settings.ADMIN_PORT)
+        setup_public_url(settings.ADMIN_PORT)
     )
 
     yield
