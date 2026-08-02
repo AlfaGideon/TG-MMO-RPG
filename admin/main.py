@@ -589,6 +589,8 @@ async def player_detail(request: Request, char_id: int):
             "rep_allegiance": allegiance,
             "rep_min": core_factions.MIN_REP,
             "rep_max": core_factions.MAX_REP,
+            "is_banned": bool(char.user.is_banned),
+            "ban_reason": char.user.ban_reason,
             "vip_days": vip_days_val,
         },
     )
@@ -1228,6 +1230,121 @@ async def player_revoke_admin(request: Request, char_id: int):
         except Exception:
             pass
     return RedirectResponse(url=f"/player/{char_id}", status_code=303)
+
+
+# ── Ban / Unban / Delete player ─────────────────────────────
+
+async def _ban_notify(telegram_id: int, text: str):
+    try:
+        from bot.runner import bot_runner
+        if bot_runner.is_running() and bot_runner.bot:
+            await bot_runner.bot.send_message(chat_id=telegram_id, text=text, parse_mode="HTML")
+    except Exception:
+        pass
+
+
+@app.post("/player/{char_id}/ban")
+async def player_ban(request: Request, char_id: int, ban_reason: str = Form("")):
+    """Заблокировать игрока: бот перестанет реагировать на любые его действия."""
+    guard(request, "manage_players")
+    async with async_session() as session:
+        result = await session.execute(
+            select(Character).where(Character.id == char_id).options(selectinload(Character.user))
+        )
+        char = result.scalar_one_or_none()
+        if char and char.user:
+            char.user.is_banned = True
+            char.user.ban_reason = (ban_reason or "").strip()[:256] or None
+            char.user.banned_at = datetime.utcnow()
+            tid = char.user.telegram_id
+            reason = char.user.ban_reason or "нарушение правил"
+            await session.commit()
+            await _ban_notify(
+                tid,
+                f"🚫 <b>Вы заблокированы администратором.</b>\n\nПричина: {reason}\n\n"
+                "<i>Все действия в игре недоступны.</i>")
+    return RedirectResponse(url=f"/player/{char_id}", status_code=303)
+
+
+@app.post("/player/{char_id}/unban")
+async def player_unban(request: Request, char_id: int):
+    """Снять бан с игрока."""
+    guard(request, "manage_players")
+    async with async_session() as session:
+        result = await session.execute(
+            select(Character).where(Character.id == char_id).options(selectinload(Character.user))
+        )
+        char = result.scalar_one_or_none()
+        if char and char.user:
+            char.user.is_banned = False
+            char.user.ban_reason = None
+            char.user.banned_at = None
+            tid = char.user.telegram_id
+            await session.commit()
+            await _ban_notify(tid, "✅ <b>Бан снят.</b> Снова добро пожаловать в игру!")
+    return RedirectResponse(url=f"/player/{char_id}", status_code=303)
+
+
+async def _delete_player(session, char: Character):
+    """Удалить персонажа и всё, что на него ссылается, затем пользователя.
+
+    Каталог предметов (Item/ItemInstance как таковые) не трогаем —
+    зачищаем только владение/инвентарь/историю этого героя.
+    """
+    from core.models import Party, CharacterQuest
+    cid = char.id
+    uid = char.user_id
+
+    # Аукцион: снимаем лоты этого продавца, обнуляем покупателя.
+    await session.execute(delete(AuctionLot).where(AuctionLot.seller_id == cid))
+    await session.execute(
+        AuctionLot.__table__.update()
+        .where(AuctionLot.buyer_id == cid)
+        .values(buyer_id=None)
+    )
+    # Возвращаем мобов, которых держал игрок.
+    await session.execute(
+        MobSpawn.__table__.update()
+        .where(MobSpawn.engaged_by_id == cid)
+        .values(engaged_by_id=None)
+    )
+    # Зависимости персонажа.
+    await session.execute(delete(InventoryItem).where(InventoryItem.character_id == cid))
+    await session.execute(delete(ItemInstance).where(ItemInstance.owner_character_id == cid))
+    await session.execute(delete(ItemHistory).where(ItemHistory.character_id == cid))
+    await session.execute(delete(CharacterAffinity).where(CharacterAffinity.character_id == cid))
+    await session.execute(delete(Battle).where(Battle.character_id == cid))
+    await session.execute(delete(CharacterQuest).where(CharacterQuest.character_id == cid))
+    await session.execute(delete(DungeonRun).where(DungeonRun.character_id == cid))
+    await session.execute(delete(VisitedCell).where(VisitedCell.character_id == cid))
+    await session.execute(delete(Grave).where(Grave.character_id == cid))
+    await session.execute(delete(WorldEventDamage).where(WorldEventDamage.character_id == cid))
+    await session.execute(delete(PlayerSuggestion).where(PlayerSuggestion.character_id == cid))
+    # Отряд: если герой — лидер, распускаем отряд (иначе просто выходим).
+    lead = (await session.execute(select(Party).where(Party.leader_id == cid))).scalar_one_or_none()
+    if lead is not None:
+        await session.execute(
+            Character.__table__.update()
+            .where(Character.party_id == lead.id)
+            .values(party_id=None)
+        )
+        await session.delete(lead)
+    # Сам персонаж и его сообщения/пользователь.
+    await session.execute(delete(AdminMessage).where(AdminMessage.user_id == uid))
+    await session.delete(char)
+    await session.execute(delete(User).where(User.id == uid))
+
+
+@app.post("/player/{char_id}/delete")
+async def player_delete(request: Request, char_id: int):
+    """Полностью удалить игрока (персонаж + пользователь + все его следы)."""
+    guard(request, "manage_players")
+    async with async_session() as session:
+        char = await session.get(Character, char_id)
+        if char:
+            await _delete_player(session, char)
+            await session.commit()
+    return RedirectResponse(url="/players?deleted=1", status_code=303)
 
 
 # ── Items ──────────────────────────────────────────────────
