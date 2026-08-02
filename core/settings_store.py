@@ -18,13 +18,13 @@ PANEL_URL_KEY = "panel_url"
 logger = logging.getLogger("settings")
 
 # Метка запущенной копии сервера. По ней /health отвечает, «свой» ли это
-# процесс: адрес Quick Tunnel от прошлого запуска (или чужой орфан
-# cloudflared) отдаст другую метку, и мы не разошлём мёртвую ссылку.
+# процесс: адрес Quick Tunnel от прошлого запуска (или чужой орфанный процесс
+# SSH/туннеля) отдаст другую метку, и мы не разошлём мёртвую ссылку.
 INSTANCE_ID = uuid.uuid4().hex
 
-# Managed platforms already know the public HTTPS address of a service.  Using
+# Managed platforms already know the public HTTPS address of a service. Using
 # it is much more reliable than a temporary Quick Tunnel: the latter is
-# intentionally ephemeral and may yield Cloudflare 1033 after a restart.
+# intentionally ephemeral and may yield errors after a restart.
 PUBLIC_URL_ENV_KEYS = (
     "PUBLIC_URL",
     "ADMIN_PUBLIC_URL",
@@ -33,7 +33,7 @@ PUBLIC_URL_ENV_KEYS = (
 
 # Адрес Quick Tunnel, поднятого ИМЕННО ЭТИМ процессом, и признак того, что
 # процесс вообще управляет туннелем. Нужны, чтобы бот никогда не выдал ссылку
-# перезапуска отдаёт страницу Cloudflare 1033.
+# от прошлого запуска, которая после перезапуска отдаёт ошибку.
 _active_tunnel_url = ""
 _tunnel_managed = False
 
