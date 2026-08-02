@@ -104,7 +104,7 @@ echo   👉 Не закрывай это окно. Остановка: Ctrl+C
 echo.
 
 :: launch.py запускает и панель, и бота (если токен сохранён),
-:: и штатный Cloudflare Quick Tunnel. Никакие другие .bat запускать не нужно.
+:: и штатный SSH-туннель (serveo / localhost.run). Никакие другие .bat запускать не нужно.
 python launch.py
 
 echo.
