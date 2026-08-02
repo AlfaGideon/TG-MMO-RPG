@@ -117,8 +117,9 @@ async def ensure_stairs(session, loc):
         return False
 
     changed = False
-    cx, cy = center_of(loc.grid_size)
-    dx, dy = (1, 0) if cx + 1 < loc.grid_size - 1 else (-1, 0)
+    grid_size = loc.grid_size or 10
+    cx, cy = center_of(grid_size)
+    dx, dy = (1, 0) if cx + 1 < grid_size - 1 else (-1, 0)
     ux, uy, ddx, ddy = cx, cy, cx + dx, cy + dy
 
     def apply(cell, tx, ty, tf):
@@ -172,6 +173,15 @@ def underground_stair_positions(grid_size: int) -> tuple[tuple[int, int], tuple[
     """
     g = max(3, int(grid_size or 10))
     cx, cy = center_of(g)
+
+    if g == 3:
+        # В сетке 3×3 внутренняя клетка только одна — все три узла
+        # в «центре» коллапсируют в (1,1), и лестница становится ловушкой
+        # (спуск есть, подъёма нет). Раскладываем узлы в ряд; крайние стоят
+        # на рамке, но apply() в ensure_underground_stairs делает их
+        # проходимыми.
+        return (0, cy), (cx, cy), (g - 1, cy)
+
     entry = (cx, _inner_coord(cy - 1, g))
     down = (cx, cy)
     up = (_inner_coord(cx + 1, g), cy)

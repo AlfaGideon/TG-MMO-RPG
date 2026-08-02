@@ -85,7 +85,9 @@ def test_logs_page_and_api():
 
 
 def main():
-    if not _have("sqlalchemy", "aiosqlite", "httpx", "fastapi", "aiogram"):
+    # Новые starlette требуют пакет httpx2 вместо httpx — принимаем оба.
+    if not _have("sqlalchemy", "aiosqlite", "fastapi", "aiogram") \
+            or not (_have("httpx") or _have("httpx2")):
         print("⚠️  ПРОПУСК: нет серверных зависимостей (sqlalchemy/httpx/...)")
         return 0
 
