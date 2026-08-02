@@ -159,6 +159,7 @@ class CloudflareTunnel:
         self.url = ""
         self.error = ""
         self._process = None
+        self._watcher_task = None
 
     async def start(self) -> str:
         """Запускает туннель и ждёт публичный адрес. "" — не вышло."""
@@ -183,11 +184,32 @@ class CloudflareTunnel:
                 f"🌐 Quick Tunnel поднят: {self.url}\n"
                 f"   Mini App: {self.url}/tgapp"
             )
+            # Фоновый наблюдатель: если cloudflared упадёт — логируем
+            self._watcher_task = asyncio.create_task(self._watch_process())
         except asyncio.TimeoutError:
             self.error = f"cloudflared не выдал адрес за {_URL_TIMEOUT} с"
             logger.warning(f"Quick Tunnel: {self.error}")
             await self.stop()
         return self.url
+
+    async def _watch_process(self):
+        """Следит за процессом cloudflared и логирует его падение."""
+        try:
+            rc = await self._process.wait()
+            if rc is not None and rc != 0:
+                logger.warning(
+                    f"⚠️ cloudflared завершился с кодом {rc}. "
+                    f"Туннель {self.url} больше не работает."
+                )
+                # При падении обнуляем сохранённый URL, чтобы бот не
+                # раздавал мёртвую кнопку Mini App
+                try:
+                    from core.settings_store import set_panel_url
+                    await set_panel_url("")
+                except Exception:
+                    pass
+        except asyncio.CancelledError:
+            pass
 
     async def _read_url(self) -> str:
         assert self._process and self._process.stdout
@@ -195,11 +217,22 @@ class CloudflareTunnel:
             line = await self._process.stdout.readline()
             if not line:
                 raise asyncio.TimeoutError()
-            match = TRYCLOUDFLARE_RE.search(line.decode("utf-8", "ignore"))
+            decoded = line.decode("utf-8", "ignore")
+            # Логируем ошибки cloudflared для отладки 502/1033
+            if "ERR" in decoded or "error" in decoded.lower():
+                logger.debug(f"cloudflared: {decoded.strip()}")
+            match = TRYCLOUDFLARE_RE.search(decoded)
             if match:
                 return match.group(0)
 
     async def stop(self) -> None:
+        if self._watcher_task and not self._watcher_task.done():
+            self._watcher_task.cancel()
+            try:
+                await self._watcher_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            self._watcher_task = None
         proc, self._process = self._process, None
         if proc and proc.returncode is None:
             proc.terminate()
