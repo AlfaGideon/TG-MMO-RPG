@@ -261,8 +261,15 @@ async def health_check():
 
     Не обращается к БД и не делает тяжёлых операций — достаточно проверить,
     что процесс uvicorn жив и отвечает на HTTP.
+
+    `instance` — метка запущенной копии сервера. По ней проверяется, что
+    публичный адрес ведёт именно в ЭТОТ процесс: ссылка Quick Tunnel от
+    прошлого запуска либо не ответит вовсе, либо (если рядом остался старый
+    сервер) вернёт чужую метку — и тогда мы её не разошлём.
     """
-    return {"status": "ok", "bot": bot_runner.is_running()}
+    from core.settings_store import INSTANCE_ID
+    return {"status": "ok", "bot": bot_runner.is_running(),
+            "instance": INSTANCE_ID}
 
 
 async def get_bot_proxy_url(session=None) -> str:
@@ -1798,6 +1805,21 @@ async def settings_page(request: Request):
     # Подсказываем адрес, с которого админ сейчас смотрит панель
     detected = str(request.base_url).rstrip("/")
 
+    # Состояние публичного адреса: временный туннель этого запуска, ручной
+    # домен или его нет вовсе. Раньше страница молчала, и было не понять,
+    # почему бот шлёт (или не шлёт) ссылку.
+    from core.settings_store import active_tunnel_url, is_temporary_tunnel_url
+    from core import tunnel as tunnel_mod
+
+    live_tunnel = active_tunnel_url()
+    panel_url_kind = "none"
+    if panel_url and is_temporary_tunnel_url(panel_url):
+        panel_url_kind = "tunnel"
+    elif panel_url:
+        panel_url_kind = "manual"
+    tunnel_pending = (tunnel_mod.tunnel_enabled() and not live_tunnel
+                      and panel_url_kind == "none")
+
     # Карман и VIP: те же числа, что в Pyodide-панели — паритет механики.
     from core import stash as stash_core
 
@@ -1821,6 +1843,8 @@ async def settings_page(request: Request):
             "telegram_proxy_url": proxy_url,
             "telegram_proxy_masked": mask_secret_url(proxy_url),
             "panel_url": panel_url,
+            "panel_url_kind": panel_url_kind,
+            "tunnel_pending": tunnel_pending,
             "detected_url": detected,
             "example_login_url": build_login_url(panel_url or detected, 123456789),
             "stash_tunables": stash_core.TUNABLES,
@@ -1849,9 +1873,17 @@ async def save_panel_url(request: Request, panel_url: str = Form("")):
     """Адрес, по которому открывается панель снаружи. Именно он подставляется
     в инлайн-кнопку «🌐 Открыть панель» в боте."""
     guard(request, "settings")
-    from core.settings_store import set_panel_url
+    from core.settings_store import (
+        is_temporary_tunnel_url, mark_tunnel_managed, set_active_tunnel_url,
+        set_panel_url,
+    )
 
-    await set_panel_url(panel_url)
+    saved = await set_panel_url(panel_url)
+    # Вписали постоянный домен руками — он главнее туннеля, иначе следующий
+    # get_panel_url() продолжил бы отдавать временный адрес cloudflared.
+    if saved and not is_temporary_tunnel_url(saved):
+        mark_tunnel_managed(False)
+        set_active_tunnel_url(saved)
     return RedirectResponse(url="/settings", status_code=303)
 
 

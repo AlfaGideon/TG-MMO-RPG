@@ -23,16 +23,17 @@ import platform
 import re
 import shutil
 import stat
+import subprocess
 import urllib.request
-from urllib.parse import urlparse
 
 from sqlalchemy import select
 
 from core.database import async_session
 from core.models import User
 from core.settings_store import (
-    PANEL_URL_KEY, build_miniapp_url, get_setting, normalize_url, platform_public_url,
-    set_panel_url, set_setting,
+    PANEL_URL_KEY, build_miniapp_url, get_setting, is_temporary_tunnel_url,
+    mark_tunnel_managed, normalize_url, platform_public_url,
+    set_active_tunnel_url, set_panel_url, set_setting,
 )
 
 logger = logging.getLogger("tunnel")
@@ -61,12 +62,11 @@ def is_quick_tunnel_url(value: str) -> bool:
     Quick Tunnel одноразовый: после перезапуска cloudflared прежний домен
     уже не ведёт в панель. Такие адреса нельзя воспринимать как ручную
     настройку `panel_url`, иначе следующий запуск вообще не создаст туннель.
+
+    Реализация живёт в core.settings_store, чтобы бот и панель судили об
+    адресе одинаково; здесь остаётся привычное имя.
     """
-    try:
-        host = (urlparse(normalize_url(value)).hostname or "").lower()
-    except ValueError:
-        return False
-    return host != "api.trycloudflare.com" and host.endswith(".trycloudflare.com")
+    return is_temporary_tunnel_url(value)
 
 
 def binary_url() -> tuple[str, str]:
@@ -93,6 +93,45 @@ def _bin_dir() -> str:
     # TG-MMO-RPG/bin — не попадает в снапшоты и не мешает git (игнорируется ниже)
     return os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bin")
+
+
+def kill_orphan_cloudflared() -> int:
+    """Убить процессы cloudflared, оставшиеся от прошлого запуска сервера.
+
+    Зачем. Quick Tunnel — дочерний процесс панели, но он переживает её
+    далеко не всегда штатно: закрытие окна run.bat крестиком, `os.execv`
+    при «Обновить с GitHub», kill по Ctrl+Break. Осиротевший cloudflared
+    продолжает держать СТАРЫЙ домен и упорно отвечает на него, поэтому
+    новый запуск получал уже занятый порт/второй туннель, а игрокам
+    продолжала уходить прежняя ссылка. Чистим перед стартом.
+
+    Возвращает число завершённых процессов (0 — чисто или нет прав).
+    """
+    killed = 0
+    try:
+        if os.name == "nt":
+            # /T — вместе с деревом дочерних, /F — принудительно.
+            out = subprocess.run(
+                ["taskkill", "/F", "/T", "/IM", "cloudflared.exe"],
+                capture_output=True, text=True, timeout=15,
+            )
+            if out.returncode == 0:
+                killed = out.stdout.count("SUCCESS") or 1
+        else:
+            # pkill -f: ловит и bin/cloudflared, и системный бинарь.
+            out = subprocess.run(
+                ["pkill", "-f", r"cloudflared.*tunnel.*--url"],
+                capture_output=True, text=True, timeout=15,
+            )
+            if out.returncode == 0:
+                killed = 1
+    except Exception as e:
+        logger.debug(f"cloudflared: очистка старых процессов не выполнена ({e})")
+        return 0
+    if killed:
+        logger.info("cloudflared: остановлен туннель от прошлого запуска "
+                    "(иначе он продолжал бы держать старый адрес).")
+    return killed
 
 
 def find_binary() -> str:
@@ -167,6 +206,9 @@ class CloudflareTunnel:
         if not binary:
             self.error = "бинарь cloudflared недоступен"
             return ""
+        # Осиротевший туннель прошлого запуска держит старый домен — из-за
+        # него игрокам и продолжала приходить прежняя ссылка.
+        await asyncio.to_thread(kill_orphan_cloudflared)
         cmd = [binary, "tunnel", "--no-autoupdate",
                "--url", f"http://127.0.0.1:{self.port}"]
         try:
@@ -204,8 +246,9 @@ class CloudflareTunnel:
                     f"⚠️ cloudflared завершился с кодом {rc}. "
                     f"Туннель {self.url} больше не работает."
                 )
-                # При падении обнуляем сохранённый URL, чтобы бот не
-                # раздавал мёртвую кнопку Mini App.
+                # При падении гасим адрес и в памяти, и в настройках: бот
+                # сразу перестаёт показывать мёртвую кнопку Mini App.
+                set_active_tunnel_url("")
                 try:
                     if is_quick_tunnel_url(await get_setting(PANEL_URL_KEY)):
                         await set_panel_url("")
@@ -254,13 +297,53 @@ async def clear_stale_quick_tunnel_url() -> bool:
     Бот стартует раньше фоновой задачи туннеля. Без этой очистки он успевал
     показать кнопку со старым ``trycloudflare.com`` адресом, который уже
     неизбежно отдаёт Cloudflare 1033 после перезапуска процесса.
+
+    Вызывать нужно ДО старта бота (см. lifespan в admin/main.py): очистка
+    и в памяти (`set_active_tunnel_url("")`), и в таблице настроек.
     """
+    if tunnel_enabled():
+        # Туннель поднимает этот процесс: пока нового адреса нет, любой
+        # сохранённый *.trycloudflare.com считается мусором прошлого запуска.
+        mark_tunnel_managed(True)
+    set_active_tunnel_url("")
     saved = normalize_url(await get_setting(PANEL_URL_KEY))
     if not is_quick_tunnel_url(saved):
         return False
     logger.info(f"Предыдущий Quick Tunnel устарел ({saved}); очищаю адрес.")
     await set_panel_url("")
     return True
+
+
+async def verify_tunnel_url(url: str, timeout: float = 20.0) -> bool:
+    """Проверить, что адрес правда ведёт в ЭТОТ процесс.
+
+    Quick Tunnel поднимается не мгновенно, а бывает и хуже: рядом мог
+    остаться незакрытый cloudflared от прошлого запуска, и тогда старый
+    домен отвечает, но чужим сервером. Спрашиваем `/health` и сверяем метку
+    экземпляра — только совпадение доказывает, что ссылка рабочая и наша.
+    """
+    from core.settings_store import INSTANCE_ID
+
+    probe = f"{normalize_url(url)}/health"
+    deadline = asyncio.get_event_loop().time() + timeout
+    last = ""
+    while asyncio.get_event_loop().time() < deadline:
+        try:
+            def _fetch() -> str:
+                req = urllib.request.Request(
+                    probe, headers={"User-Agent": "shadow-lands-tunnel-check"})
+                with urllib.request.urlopen(req, timeout=8) as resp:
+                    return resp.read(4096).decode("utf-8", "ignore")
+
+            body = await asyncio.to_thread(_fetch)
+            if INSTANCE_ID in body:
+                return True
+            last = "ответил чужой сервер (метка экземпляра не совпала)"
+        except Exception as e:
+            last = str(e)
+        await asyncio.sleep(2)
+    logger.warning(f"Проверка адреса {url} не удалась: {last or 'нет ответа'}")
+    return False
 
 
 async def setup_public_url(port: int) -> CloudflareTunnel | None:
@@ -271,8 +354,11 @@ async def setup_public_url(port: int) -> CloudflareTunnel | None:
     """
     global _current
     if not tunnel_enabled():
+        mark_tunnel_managed(False)
         logger.info(f"Quick Tunnel выключен ({TUNNEL_ENV}=0) — панель локальная.")
         return None
+
+    mark_tunnel_managed(True)
     saved = normalize_url(await get_setting(PANEL_URL_KEY))
     env_url = platform_public_url()
 
@@ -287,6 +373,8 @@ async def setup_public_url(port: int) -> CloudflareTunnel | None:
     # PUBLIC_URL считаются постоянной конфигурацией (VPS, собственный домен).
     manual = env_url or saved
     if manual:
+        mark_tunnel_managed(False)
+        set_active_tunnel_url(manual)
         logger.info(f"Публичный адрес панели задан вручную ({manual}) — "
                     "туннель не нужен.")
         return None
@@ -298,7 +386,18 @@ async def setup_public_url(port: int) -> CloudflareTunnel | None:
                        "Панель остаётся на localhost, Mini App-кнопка скрыта.")
         return None
 
+    # Сохраняем адрес ТОЛЬКО после того, как убедились: он ведёт в этот
+    # процесс. Иначе игрок получает ссылку, которая отдаёт ошибку 1033.
+    if not await verify_tunnel_url(url):
+        logger.warning(
+            f"Адрес {url} не подтвердился — кнопку Mini App не публикую. "
+            "Проверь, что рядом не остался старый процесс сервера/cloudflared."
+        )
+        await tunnel.stop()
+        return None
+
     _current = tunnel
+    set_active_tunnel_url(url)
     await set_panel_url(url)
     await _announce_url(url)
     return tunnel
@@ -306,6 +405,7 @@ async def setup_public_url(port: int) -> CloudflareTunnel | None:
 
 async def shutdown_public_url() -> None:
     global _current
+    set_active_tunnel_url("")
     if _current:
         await _current.stop()
         _current = None
@@ -318,9 +418,16 @@ async def _announce_url(url: str) -> None:
     пришлось бы самому лезть в настройки, чтобы его узнать.
     """
     try:
-        if (await get_setting(ANNOUNCED_KEY)) == url:
+        # Сверяем не только адрес, но и метку запуска: после перезапуска
+        # сервера Cloudflare изредка выдаёт тот же домен повторно, и без
+        # метки админам не приходило бы никакого письма — они бы жали
+        # старую кнопку из прошлой переписки и ловили ошибку 1033.
+        from core.settings_store import INSTANCE_ID
+
+        stamp = f"{INSTANCE_ID}|{url}"
+        if (await get_setting(ANNOUNCED_KEY)) == stamp:
             return  # этот адрес уже анонсировали — не спамим
-        await set_setting(ANNOUNCED_KEY, url)
+        await set_setting(ANNOUNCED_KEY, stamp)
 
         from bot.runner import bot_runner
         # Бот мог стартовать чуть позже туннеля — ждём недолго.
