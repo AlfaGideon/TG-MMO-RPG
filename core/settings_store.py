@@ -79,18 +79,25 @@ def set_active_tunnel_url(url: str) -> None:
 
 
 def active_tunnel_url() -> str:
-    # Туннельная схема удалена.
-    return ""
+    """Адрес туннеля, поднятого именно этой копией сервера (или ручной адрес
+    из настроек, вписанный через save_panel_url). Пусто — туннеля нет."""
+    return _active_tunnel_url
 
 
 def mark_tunnel_managed(flag: bool = True) -> None:
-    # Туннельная схема удалена.
+    """Пометить, что туннелем управляет этот процесс.
+
+    True — процесс сам поднимает SSH-туннель, значит адреса из прошлых
+    запусков (serveo.net / localhost.run / trycloudflare.com) — мусор и их
+    надо вычищать. False — туннель внешний (ADMIN_TUNNEL=0) или задан ручной
+    адрес: чужие адреса трогать нельзя.
+    """
     global _tunnel_managed
-    _tunnel_managed = False
+    _tunnel_managed = flag
 
 
 def tunnel_is_managed() -> bool:
-    return False
+    return _tunnel_managed
 
 
 def is_stale_tunnel_url(value: str) -> bool:
@@ -148,21 +155,24 @@ async def set_setting(key: str, value: str) -> None:
 async def get_panel_url() -> str:
     """Адрес админки для кнопок бота.
 
-    Порядок: живой Quick Tunnel этого процесса → сохранённый вручную адрес →
+    Порядок: живой туннель/ручной адрес этого процесса → сохранённый адрес →
     домен хостинга из окружения.
 
-    Отдельная защита от главной ловушки: в БД мог остаться
-    рестарта cloudflared выдаёт новый домен, а старый отвечает ошибкой 1033),
-    поэтому мы его игнорируем и заодно вычищаем из настроек — иначе бот
-    продолжает рассылать старую ссылку.
+    Отдельная защита от главной ловушки: в БД мог остаться адрес туннеля от
+    прошлого запуска (serveo.net / localhost.run / trycloudflare.com живут
+    только вместе со своим процессом; после рестарта старый домен либо мёртв,
+    либо ведёт в чужой сервер). Если туннелем управляет ЭТОТ процесс
+    (mark_tunnel_managed(True)), такой адрес игнорируем и вычищаем из
+    настроек — иначе бот продолжает рассылать мёртвую ссылку. Если туннель
+    внешний (ADMIN_TUNNEL=0) или адрес задан вручную — чужие адреса не трогаем.
     """
     if _active_tunnel_url:
         return _active_tunnel_url
 
     saved = normalize_url(await get_setting(PANEL_URL_KEY))
-    if saved and is_stale_tunnel_url(saved):
+    if saved and _tunnel_managed and is_stale_tunnel_url(saved):
         logger.info(
-            f"Игнорирую устаревший адрес Quick Tunnel из настроек ({saved}) — "
+            f"Игнорирую устаревший адрес туннеля из настроек ({saved}) — "
             "он остался от прошлого запуска сервера."
         )
         try:
