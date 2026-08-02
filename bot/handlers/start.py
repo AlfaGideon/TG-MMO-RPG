@@ -3,12 +3,13 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from html import escape
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from core.database import async_session
-from core.models import User, Character, Cell, Battle, AdminMessage, VisitedCell, PlayerSuggestion, GameUpdate
+from core.models import User, Character, Cell, Battle, AdminMessage, VisitedCell, PlayerSuggestion, GameUpdate, Location
 from bot.keyboards.inline import (
     main_menu_keyboard, class_select_keyboard, confirm_class_keyboard,
     back_to_main_keyboard, reroll_keyboard, help_menu_keyboard, back_to_help_keyboard,
@@ -539,7 +540,7 @@ FACTION_SELECT_TEXT = """
 • Стартовая репутация: <b>+50</b> у Культа
 • Награда: <b>100🪙 + Осколок души</b>
 
-⚜️ <b>Орден Рассвета</b> (на северо-законе)
+⚜️ <b>Орден Рассвета</b> (на северо-западе)
 • Стартовая локация: <b>Замок Рассвета</b>
 • Бонус характеристик: <b>+2 Сила, +1 Выносливость</b> 💪🛡
 • Стартовая репутация: <b>+50</b> у Ордена
@@ -547,6 +548,168 @@ FACTION_SELECT_TEXT = """
 
 <i>Твой выбор определит стартовую позицию и начальный расклад сил в мире. Выбирай мудро!</i>
 """
+
+# ── Книга лора фракций ──────────────────────────────────────
+
+FACTION_LORE = {
+    "guard": (
+        "🛡 <b>Стража Погоста</b>\n\n"
+        "<b>Девиз:</b> <i>«Пока стоит частокол — стоит и деревня.»</i>\n\n"
+        "Стража — старейший порядок Теневых Земель. Ещё до Раскола воины Погоста "
+        "обнесли первый лагерь частоколом из костей павших и дали клятву: "
+        "ни одна нежить не переступит порог, пока жив хоть один стражник.\n\n"
+        "С годами лагерь вырос в Замок Пепла — крепость на юго-востоке, "
+        "чьи стены не раз выдерживали волны нежити и катаклизмы. "
+        "Стража платит за убитую нежить и отдаляет бедствия — "
+        "каждый мёртвый скелет на их совести.\n\n"
+        "⚔️ <b>Вражда:</b> Гильдия падальщиков. Стража ненавидит мародёров, "
+        "которые грабят могилы и оскверняют павших — то, ради чего стражники "
+        "положили жизни, для падальщиков лишь нажива.\n\n"
+        "🤝 <b>Союз:</b> Орден Рассвета. Обе силы ненавидят Культ и нежить; "
+        "стража держит стены, а рыцари Рассвета несут свет вглубь тьмы."
+    ),
+    "scavengers": (
+        "💰 <b>Гильдия падальщиков</b>\n\n"
+        "<b>Девиз:</b> <i>«Мёртвым золото ни к чему.»</i>\n\n"
+        "Когда Раскол обрушил старый мир, первыми, кто научился на нём "
+        "зарабатывать, были не воины и не жрецы — а те, кто подбирал "
+        "оставшееся. Гильдия выросла из бродячих скупщиков и могильщиков, "
+        "что поняли: на войне и бедствиях можно неплохо жить.\n\n"
+        "Их оплот — Замок Глубин на юго-западе, где подземные ходы "
+        "ведут к сокровищам, которые другие боятся взять. Гильдия "
+        "торгует дешевле, платит за мародёрство и ценит добытчиков.\n\n"
+        "⚔️ <b>Вражда:</b> Культ Пожирателя. Культисты ускоряют катаклизмы, "
+        "а Гильдия теряет на хаосе: рушатся торговые пути, "
+        "гибнут покупатели, исчезают товары. Бизнес любит порядок.\n\n"
+        "🤝 <b>Нейтралитет:</b> Стража Погоста их терпит — нехотя, "
+        "но скупщики и стража порой помогают друг другу: "
+        "одни несут добычу, другие — защиту."
+    ),
+    "cult": (
+        "🌑 <b>Культ Пожирателя</b>\n\n"
+        "<b>Девиз:</b> <i>«Всё кончится. Мы лишь торопим неизбежное.»</i>\n\n"
+        "Пожиратель — древняя сущность, чьё имя произносят шёпотом. "
+        "Культ утверждает, что мир уже обречён, и Раскол — лишь первое "
+        "дыхание конца. Культисты не сумасшедшие: они видят, как "
+        "катаклизмы становятся всё чаще, как нежить крепнет, "
+        "как свет меркнет — и принимают это как истину.\n\n"
+        "Их обитель — Замок Теней на северо-востоке, где "
+        "вечные сумерки скрывают ритуалы и пророчества. "
+        "Культ приближает катаклизмы и щедро платит тем, кто помогает "
+        "им случиться — ведь после конца начнётся нечто новое.\n\n"
+        "⚔️ <b>Вражда:</b> Стража Погоста. Стражники — те, кто "
+        "оттягивает неизбежное, строит стены, сжигает нежить. "
+        "Культ видит в них слепцов, что цепляются за умирающий мир.\n\n"
+        "🤝 <b>Нейтралитет:</b> Гильдия падальщиков — каждая беда "
+        "приносит падальщикам новую добычу. Культ не любит скупщиков, "
+        "но и не мешает им — пока те не встают на пути."
+    ),
+    "order": (
+        "⚜️ <b>Орден Рассвета</b>\n\n"
+        "<b>Девиз:</b> <i>«Свет не просит разрешения — он просто приходит.»</i>\n\n"
+        "Орден Рассвета — рыцари-паломники, несущие свет в Теневые Земли. "
+        "Когда Раскол погрузил мир во тьму, они не испугались — "
+        "зажгли факелы и пошли навстречу. Их вера проста: тьма конечна, "
+        "а свет — нет. Каждая убитая нежить — это ещё один луч рассвета.\n\n"
+        "Их твердыня — Замок Рассвета на северо-западе, единственное "
+        "место, где солнце светит дольше обычного. Орден хранит реликвии, "
+        "сжигает нежить и сдерживает старые клятвы, которые иначе "
+        "канули бы в бездну.\n\n"
+        "⚔️ <b>Вражда:</b> Культ Пожирателя. Это не просто вражда — "
+        "это священная война. Культ торопит конец света, Орден — "
+        "не даёт ему наступить. Две стороны одной медали, "
+        "и между ними нет мира.\n\n"
+        "🤝 <b>Союз:</b> Стража Погоста. Стражники держат стены, "
+        "рыцари несут свет — вместе они создают островки порядка "
+        "в мире, что стремится распасться."
+    ),
+}
+
+
+def _faction_lore_text(page: int = 0) -> str:
+    """Текст страницы книги лора фракций."""
+    keys = list(FACTION_LORE.keys())
+    page = max(0, min(page, len(keys) - 1))
+    key = keys[page]
+    body = FACTION_LORE[key]
+
+    from engine.factions import FACTIONS, RIVALS
+    rival = RIVALS.get(key, "")
+    rival_name = FACTIONS[rival][1] if rival in FACTIONS else "—"
+
+    # Явные союзники по лору (не все выводятся из RIVALS)
+    _ALLIES = {
+        "guard": "order",
+        "order": "guard",
+    }
+
+    ally_key = _ALLIES.get(key)
+    ally_name = FACTIONS[ally_key][1] if ally_key and ally_key in FACTIONS else ""
+
+    header = (
+        f"📖 <b>Книга фракций</b> — страница <b>{page + 1}</b> из <b>{len(keys)}</b>\n\n"
+    )
+    footer = (
+        f"\n\n⚔️ <b>Соперник:</b> {rival_name}"
+        + (f"\n🤝 <b>Союзник:</b> {ally_name}" if ally_name else "")
+        + "\n\n<i>Листай страницы, чтобы узнать о каждой силе, "
+        "или вернись к выбору фракции.</i>"
+    )
+    return header + body + footer
+
+
+@router.callback_query(F.data.startswith("faction_lore:"))
+async def faction_lore_callback(callback: CallbackQuery):
+    """Книга лора фракций: краткая история, вражда и союз."""
+    char_id = int(callback.data.split(":")[1])
+    page = 0
+    keys = list(FACTION_LORE.keys())
+    text = _faction_lore_text(page)
+
+    builder = InlineKeyboardBuilder()
+    if page + 1 < len(keys):
+        builder.button(text="След. страница ➡️", callback_data=f"faction_lore_page:{char_id}:{page + 1}")
+    builder.button(text="◀️ Назад к выбору", callback_data=f"faction_lore_back:{char_id}")
+    builder.adjust(1)
+    await safe_edit_text(callback, text, reply_markup=builder.as_markup(), parse_mode="HTML")
+
+
+@router.callback_query(F.data.startswith("faction_lore_page:"))
+async def faction_lore_page_callback(callback: CallbackQuery):
+    """Листание книги лора фракций."""
+    parts = callback.data.split(":")
+    char_id = int(parts[1])
+    page = int(parts[2])
+    keys = list(FACTION_LORE.keys())
+    text = _faction_lore_text(page)
+
+    builder = InlineKeyboardBuilder()
+    rows = []
+    nav = 0
+    if page > 0:
+        builder.button(text="⬅️ Пред. страница", callback_data=f"faction_lore_page:{char_id}:{page - 1}")
+        nav += 1
+    if page + 1 < len(keys):
+        builder.button(text="След. страница ➡️", callback_data=f"faction_lore_page:{char_id}:{page + 1}")
+        nav += 1
+    if nav:
+        rows.append(nav)
+    builder.button(text="◀️ Назад к выбору", callback_data=f"faction_lore_back:{char_id}")
+    rows.append(1)
+    builder.adjust(*rows)
+    await safe_edit_text(callback, text, reply_markup=builder.as_markup(), parse_mode="HTML")
+
+
+@router.callback_query(F.data.startswith("faction_lore_back:"))
+async def faction_lore_back_callback(callback: CallbackQuery):
+    """Возврат из книги лора к экрану выбора фракции."""
+    char_id = int(callback.data.split(":")[1])
+    await safe_edit_text(
+        callback,
+        FACTION_SELECT_TEXT,
+        reply_markup=faction_select_keyboard(char_id),
+        parse_mode="HTML",
+    )
 
 
 @router.callback_query(F.data.startswith("start_faction:"))

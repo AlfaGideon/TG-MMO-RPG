@@ -790,11 +790,15 @@ def dungeon_combat_keyboard():
     return builder.as_markup()
 
 
-def faction_select_keyboard(char_id: int):
+def faction_select_keyboard(char_id: int, show_lore: bool = False):
     builder = InlineKeyboardBuilder()
     builder.button(text="🛡 Стража Погоста", callback_data=f"start_faction:{char_id}:guard")
     builder.button(text="💰 Гильдия падальщиков", callback_data=f"start_faction:{char_id}:scavengers")
     builder.button(text="🌑 Культ Пожирателя", callback_data=f"start_faction:{char_id}:cult")
     builder.button(text="⚜️ Орден Рассвета", callback_data=f"start_faction:{char_id}:order")
-    builder.adjust(2)
+    if show_lore:
+        builder.button(text="📖 Назад к выбору", callback_data=f"faction_lore_back:{char_id}")
+    else:
+        builder.button(text="📖 Книга лора фракций", callback_data=f"faction_lore:{char_id}")
+    builder.adjust(2, 1)
     return builder.as_markup()
