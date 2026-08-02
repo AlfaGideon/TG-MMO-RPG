@@ -435,11 +435,6 @@ async def confirm_class(callback: CallbackQuery):
         base = cls_def.base_stats()
         rolled = statroll.roll_stats(base)
 
-        result = await session.execute(
-            select(Cell).where(Cell.location_id == 1).where(Cell.x == 5).where(Cell.y == 5)
-        )
-        spawn_cell = result.scalar_one_or_none()
-
         character = Character(
             user_id=user.id,
             # first_name может содержать <>& и сломать HTML-разметку всех
@@ -449,9 +444,12 @@ async def confirm_class(callback: CallbackQuery):
             level=1,
             experience=0,
             gold=50,
-            location_id=1,
+            # Класс и стартовые статы ещё не помещают героя в мир.
+            # Локация и клетка определятся только после принятия статов и
+            # осознанного выбора фракции.
+            location_id=None,
+            cell_id=None,
             floor=0,
-            cell_id=spawn_cell.id if spawn_cell else None,
             rerolls_left=statroll.DEFAULT_REROLLS,
             stats_locked=False,
             **rolled,
@@ -467,30 +465,8 @@ async def confirm_class(callback: CallbackQuery):
         await magic.set_affinities(session, character, pairs)
         affinities = await magic.get_affinities(session, character.id)
 
-        if spawn_cell:
-            session.add(VisitedCell(
-                character_id=character.id,
-                location_id=1,
-                floor=0,
-                x=spawn_cell.x,
-                y=spawn_cell.y,
-            ))
         await session.commit()
         char_id = character.id
-
-        # realtime — новый игрок
-        try:
-            from core.realtime import publish as rt_publish
-            await rt_publish("player_joined", {
-                "character_id": char_id,
-                "name": character.name,
-                "telegram_id": user.telegram_id,
-                "class": character.character_class,
-                "level": character.level,
-                "location_id": character.location_id,
-            })
-        except Exception:
-            pass
 
     await send_or_edit_photo(
         callback,
@@ -1000,6 +976,17 @@ async def start_faction_callback(callback: CallbackQuery):
             await callback.answer("Персонаж не найден.", show_alert=True)
             return
 
+        owner = await session.get(User, character.user_id)
+        if owner is None or owner.telegram_id != callback.from_user.id:
+            await callback.answer("Это не твой герой.", show_alert=True)
+            return
+        if not character.stats_locked:
+            await callback.answer("Сначала прими стартовые статы.", show_alert=True)
+            return
+        if faction_chosen(character):
+            await callback.answer("Фракция уже выбрана.", show_alert=True)
+            return
+
         loc_res = await session.execute(
             select(Location).where(Location.name == loc_name)
         )
@@ -1017,7 +1004,10 @@ async def start_faction_callback(callback: CallbackQuery):
         spawn_cell = await castle_spawn_cell(session, loc)
         if spawn_cell is None:
             cell_res = await session.execute(
-                select(Cell).where(Cell.location_id == loc.id).where(Cell.is_passable == True)
+                select(Cell)
+                .where(Cell.location_id == loc.id)
+                .where(Cell.floor == 0)
+                .where(Cell.is_passable == True)
             )
             cells = cell_res.scalars().all()
             center = loc.grid_size // 2
@@ -1076,6 +1066,22 @@ async def start_faction_callback(callback: CallbackQuery):
 
         await session.commit()
         loc_name_full = loc.name
+        joined_payload = {
+            "character_id": character.id,
+            "name": character.name,
+            "telegram_id": callback.from_user.id,
+            "class": character.character_class,
+            "level": character.level,
+            "location_id": character.location_id,
+        }
+
+    # Для живой карты герой появляется только сейчас: класс и статы уже
+    # приняты, фракция выбрана, реальная стартовая клетка назначена.
+    try:
+        from core.realtime import publish as rt_publish
+        await rt_publish("player_joined", joined_payload)
+    except Exception:
+        pass
 
     await send_or_edit_photo(
         callback,

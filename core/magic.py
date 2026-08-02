@@ -100,7 +100,7 @@ async def set_affinities(session, character, pairs: list[tuple[str, str]]):
         )
     )
     for row in result.scalars().all():
-        session.delete(row)
+        await session.delete(row)
     await session.flush()
 
     created = []

@@ -254,7 +254,9 @@ class Character(Base):
     max_mp = Column(Integer, default=50)
     current_mp = Column(Integer, default=50)
 
-    location_id = Column(Integer, ForeignKey("locations.id"), default=1)
+    # Пока игрок выбирает стартовые статы и фракцию, герой ещё не помещён
+    # в мир. Локация и клетка назначаются только при выборе фракции.
+    location_id = Column(Integer, ForeignKey("locations.id"), nullable=True)
     cell_id = Column(Integer, ForeignKey("cells.id"), nullable=True)
     floor = Column(Integer, default=0)
 

@@ -38,8 +38,8 @@ async def scenario():
     )
     from core.migrations import run_migrations
     from core.models import (
-        AppSetting, AuctionLot, Character, InventoryItem, Item, ItemHistory,
-        ItemInstance, User,
+        AppSetting, AuctionLot, Cell, Character, InventoryItem, Item, ItemHistory,
+        ItemInstance, User, VisitedCell,
     )
     from core.seed import seed_database
     from core.seed_content import seed_content
@@ -50,6 +50,112 @@ async def scenario():
     async with async_session() as s:
         await seed_content(s)
         await s.commit()
+
+        # ── Порядок создания героя ───────────────────────────
+        # У стартового замка одна и та же координата [5,5] есть на этажах
+        # 0, 1, -1 и -2. Но при подтверждении КЛАССА выбирать среди них
+        # вообще не нужно: клетка определяется позже выбранной ФРАКЦИЕЙ.
+        print("\n— Класс → статы → фракция → клетка —")
+        spawn_rows = (await s.execute(
+            select(Cell)
+            .where(Cell.location_id == 1)
+            .where(Cell.x == 5)
+            .where(Cell.y == 5)
+        )).scalars().all()
+        check(len(spawn_rows) > 1,
+              f"в стартовом замке [5,5] есть на нескольких этажах ({len(spawn_rows)})")
+        await s.commit()  # освободить read-транзакцию перед сессией хендлера
+
+        from types import SimpleNamespace
+        from bot.handlers import start as start_handler
+
+        class FakeCallback:
+            data = "confirm_class:warrior"
+            from_user = SimpleNamespace(
+                id=8999, first_name="Новичок", username="newcomer",
+            )
+
+            def __init__(self):
+                self.answers = []
+
+            async def answer(self, text=None, **kwargs):
+                self.answers.append((text, kwargs))
+
+        shown = {}
+
+        async def capture_screen(_event, text, **kwargs):
+            shown["text"] = text
+            shown["kwargs"] = kwargs
+
+        s.add(User(telegram_id=8999, first_name="Новичок"))
+        await s.commit()
+
+        callback = FakeCallback()
+        original_sender = start_handler.send_or_edit_photo
+        start_handler.send_or_edit_photo = capture_screen
+        try:
+            await start_handler.confirm_class(callback)
+        finally:
+            start_handler.send_or_edit_photo = original_sender
+
+        newcomer_user = (await s.execute(
+            select(User).where(User.telegram_id == 8999)
+        )).scalar_one_or_none()
+        newcomer = None
+        if newcomer_user is not None:
+            newcomer = (await s.execute(
+                select(Character).where(Character.user_id == newcomer_user.id)
+            )).scalar_one_or_none()
+        check(newcomer is not None, "кнопка «Подтвердить» сохраняет бросок героя")
+        check(newcomer is not None and newcomer.location_id is None and newcomer.cell_id is None,
+              "до выбора фракции локация и клетка не назначены")
+        visited_before = await s.scalar(
+            select(func.count(VisitedCell.id)).where(
+                VisitedCell.character_id == newcomer.id
+            )
+        ) if newcomer else -1
+        check(visited_before == 0, "до выбора фракции на карте ничего не посещено")
+        check("Осталось попыток" in shown.get("text", ""),
+              "после подтверждения показан экран переката статов")
+        await s.commit()
+
+        # Принятие статов открывает выбор фракции, но всё ещё не помещает
+        # персонажа в какую-либо локацию.
+        shown.clear()
+        callback.data = f"accept_stats:{newcomer.id}"
+        start_handler.send_or_edit_photo = capture_screen
+        try:
+            await start_handler.accept_stats(callback)
+        finally:
+            start_handler.send_or_edit_photo = original_sender
+        await s.refresh(newcomer)
+        check(newcomer.stats_locked, "статы приняты и зафиксированы")
+        check(newcomer.location_id is None and newcomer.cell_id is None,
+              "принятие статов ещё не выбирает клетку")
+        check("Выбери свою фракцию" in shown.get("text", ""),
+              "после статов показан выбор фракции")
+        await s.commit()
+
+        # И только выбор фракции назначает её замок и реальную клетку.
+        shown.clear()
+        callback.data = f"start_faction:{newcomer.id}:guard"
+        start_handler.send_or_edit_photo = capture_screen
+        try:
+            await start_handler.start_faction_callback(callback)
+        finally:
+            start_handler.send_or_edit_photo = original_sender
+        await s.refresh(newcomer)
+        spawn = await s.get(Cell, newcomer.cell_id) if newcomer.cell_id else None
+        check(newcomer.location_id is not None and spawn is not None,
+              "выбор фракции назначает локацию и клетку")
+        check(spawn is not None and spawn.floor == 0,
+              "фракционная стартовая клетка находится на этаже 0")
+        visited_after = await s.scalar(
+            select(func.count(VisitedCell.id)).where(
+                VisitedCell.character_id == newcomer.id
+            )
+        )
+        check(visited_after == 1, "первая посещённая клетка записана после выбора фракции")
 
         cls = await get_class(s, "warrior")
 
