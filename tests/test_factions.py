@@ -60,8 +60,8 @@ def test_opposing_interests():
     check(F.value(p, "order") < order_before, "мародёрство не в чести у ордена")
 
     check(F.RIVALS["guard"] == "scavengers" and F.RIVALS["scavengers"] == "cult"
-          and F.RIVALS["cult"] == "guard" and F.RIVALS["order"] == "cult",
-          "фракции связаны по кругу, у ордена свой враг — культ")
+          and F.RIVALS["cult"] == "order" and F.RIVALS["order"] == "guard",
+          "фракции связаны по кольцу: 1↔2, 2↔3, 3↔4, 4↔1")
 
 
 def test_ranks_and_side():

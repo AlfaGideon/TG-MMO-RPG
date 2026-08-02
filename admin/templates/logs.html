@@ -33,14 +33,23 @@
                     <th style="width:120px;">Уровень</th>
                     <th style="width:180px;">Источник</th>
                     <th>Сообщение</th>
+                    <th style="width:50px;"></th>
                 </tr>
             </thead>
             <tbody id="log-body">
-                <tr><td colspan="4" class="hint">Загружаю логи...</td></tr>
+                <tr><td colspan="5" class="hint">Загружаю логи...</td></tr>
             </tbody>
         </table>
     </div>
 </div>
+
+<!-- Toast уведомление для копирования -->
+<div id="copy-toast" style="
+    position:fixed; bottom:2rem; left:50%; transform:translateX(-50%);
+    background:var(--success, #2ecc71); color:#fff; padding:0.6rem 1.4rem;
+    border-radius:8px; font-size:0.9rem; font-weight:600; opacity:0;
+    transition:opacity 0.3s; pointer-events:none; z-index:9999;
+">✅ Скопировано!</div>
 
 <script>
 let logLevel = '';
@@ -71,12 +80,35 @@ async function loadLogs() {
         body.replaceChildren();
         const tr = document.createElement('tr');
         const td = document.createElement('td');
-        td.colSpan = 4;
+        td.colSpan = 5;
         td.className = 'hint';
         td.textContent = 'Ошибка загрузки логов: ' + e.message;
         tr.appendChild(td);
         body.appendChild(tr);
     }
+}
+
+function copyLogText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => showCopyToast());
+    } else {
+        // Fallback для старых браузеров
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); showCopyToast(); } catch(e) {}
+        document.body.removeChild(ta);
+    }
+}
+
+function showCopyToast() {
+    const toast = document.getElementById('copy-toast');
+    toast.style.opacity = '1';
+    clearTimeout(showCopyToast._timer);
+    showCopyToast._timer = setTimeout(() => { toast.style.opacity = '0'; }, 1500);
 }
 
 function renderLogs(records) {
@@ -87,7 +119,7 @@ function renderLogs(records) {
     if (!records.length) {
         const tr = document.createElement('tr');
         const td = document.createElement('td');
-        td.colSpan = 4;
+        td.colSpan = 5;
         td.className = 'hint';
         td.textContent = 'Логов пока нет.';
         tr.appendChild(td);
@@ -124,7 +156,18 @@ function renderLogs(records) {
         pre.textContent = rec.message || '';
         tdMsg.appendChild(pre);
 
-        tr.append(tdTime, tdLevel, tdLogger, tdMsg);
+        const tdCopy = document.createElement('td');
+        const copyBtn = document.createElement('button');
+        copyBtn.textContent = '📋';
+        copyBtn.title = 'Копировать запись';
+        copyBtn.style.cssText = 'background:none;border:1px solid var(--border,#2a2a30);border-radius:6px;padding:0.3rem 0.5rem;cursor:pointer;font-size:0.85rem;transition:all .15s;';
+        copyBtn.onmouseenter = () => { copyBtn.style.borderColor = 'var(--accent)'; copyBtn.style.background = 'var(--bg,#16161a)'; };
+        copyBtn.onmouseleave = () => { copyBtn.style.borderColor = 'var(--border,#2a2a30)'; copyBtn.style.background = 'none'; };
+        const fullText = `[${rec.time || ''}] [${rec.level || ''}] [${rec.logger || ''}] ${rec.message || ''}`;
+        copyBtn.onclick = () => copyLogText(fullText);
+        tdCopy.appendChild(copyBtn);
+
+        tr.append(tdTime, tdLevel, tdLogger, tdMsg, tdCopy);
         body.appendChild(tr);
     }
 }
