@@ -26,7 +26,7 @@ try:
     from core import tunnel as tunnel_mod
     from core.database import async_session, init_db
     from core.models import AppSetting, User
-    from core.settings_store import build_login_url, build_miniapp_url
+    from core.settings_store import build_login_url, build_miniapp_url, platform_public_url
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 except ImportError as e:
@@ -208,6 +208,15 @@ def test_tunnel_helpers():
         check(not tunnel_mod.tunnel_enabled(), "ADMIN_TUNNEL=0 выключает")
     with mock.patch.dict(os.environ, {**env, "ADMIN_TUNNEL": "1"}):
         check(tunnel_mod.tunnel_enabled(), "ADMIN_TUNNEL=1 включает обратно")
+
+    hosted_env = {**env, "RENDER_EXTERNAL_URL": "https://shadow-lands.onrender.com/"}
+    with mock.patch.dict(os.environ, hosted_env, clear=True):
+        check(platform_public_url() == "https://shadow-lands.onrender.com",
+              "Render URL выбирается вместо временного Quick Tunnel")
+    replit_env = {**env, "REPLIT_DOMAINS": "game.replit.app,alias.replit.app"}
+    with mock.patch.dict(os.environ, replit_env, clear=True):
+        check(platform_public_url() == "https://game.replit.app",
+              "первый домен Replit выбирается для Mini App")
 
 
 def test_url_helpers():

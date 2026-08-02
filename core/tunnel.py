@@ -31,8 +31,8 @@ from sqlalchemy import select
 from core.database import async_session
 from core.models import User
 from core.settings_store import (
-    PANEL_URL_KEY, build_miniapp_url, get_setting, normalize_url, set_panel_url,
-    set_setting,
+    PANEL_URL_KEY, build_miniapp_url, get_setting, normalize_url, platform_public_url,
+    set_panel_url, set_setting,
 )
 
 logger = logging.getLogger("tunnel")
@@ -196,16 +196,19 @@ class CloudflareTunnel:
         """Следит за процессом cloudflared и логирует его падение."""
         try:
             rc = await self._process.wait()
-            if rc is not None and rc != 0:
+            # Even a zero exit means that this ephemeral Quick Tunnel is gone.
+            # Leaving its URL in the database makes Telegram open Cloudflare's
+            # 1033 page instead of the panel.
+            if rc is not None:
                 logger.warning(
                     f"⚠️ cloudflared завершился с кодом {rc}. "
                     f"Туннель {self.url} больше не работает."
                 )
                 # При падении обнуляем сохранённый URL, чтобы бот не
-                # раздавал мёртвую кнопку Mini App
+                # раздавал мёртвую кнопку Mini App.
                 try:
-                    from core.settings_store import set_panel_url
-                    await set_panel_url("")
+                    if is_quick_tunnel_url(await get_setting(PANEL_URL_KEY)):
+                        await set_panel_url("")
                 except Exception:
                     pass
         except asyncio.CancelledError:
@@ -245,6 +248,21 @@ class CloudflareTunnel:
 _current: CloudflareTunnel | None = None
 
 
+async def clear_stale_quick_tunnel_url() -> bool:
+    """Удалить URL прошлого Quick Tunnel до запуска бота.
+
+    Бот стартует раньше фоновой задачи туннеля. Без этой очистки он успевал
+    показать кнопку со старым ``trycloudflare.com`` адресом, который уже
+    неизбежно отдаёт Cloudflare 1033 после перезапуска процесса.
+    """
+    saved = normalize_url(await get_setting(PANEL_URL_KEY))
+    if not is_quick_tunnel_url(saved):
+        return False
+    logger.info(f"Предыдущий Quick Tunnel устарел ({saved}); очищаю адрес.")
+    await set_panel_url("")
+    return True
+
+
 async def setup_public_url(port: int) -> CloudflareTunnel | None:
     """Поднять туннель и записать публичный адрес в настройки панели.
 
@@ -256,20 +274,17 @@ async def setup_public_url(port: int) -> CloudflareTunnel | None:
         logger.info(f"Quick Tunnel выключен ({TUNNEL_ENV}=0) — панель локальная.")
         return None
     saved = normalize_url(await get_setting(PANEL_URL_KEY))
-    env_url = normalize_url(
-        os.getenv("PUBLIC_URL", "") or os.getenv("ADMIN_PUBLIC_URL", "")
-    )
+    env_url = platform_public_url()
 
     # Сохранённый *.trycloudflare.com — это не ручной домен, а адрес
     # предыдущего процесса cloudflared. Удаляем его до запуска, чтобы бот
     # не успел отдать игроку мёртвую кнопку Mini App.
     if is_quick_tunnel_url(saved):
-        logger.info(f"Предыдущий Quick Tunnel устарел ({saved}); создаю новый.")
-        await set_panel_url("")
+        await clear_stale_quick_tunnel_url()
         saved = ""
 
-    # PUBLIC_URL/ADMIN_PUBLIC_URL и обычный panel_url считаются постоянной
-    # ручной конфигурацией (VPS, Render, собственный домен).
+    # URL из окружения хостинга (Render/Replit), обычный panel_url и
+    # PUBLIC_URL считаются постоянной конфигурацией (VPS, собственный домен).
     manual = env_url or saved
     if manual:
         logger.info(f"Публичный адрес панели задан вручную ({manual}) — "

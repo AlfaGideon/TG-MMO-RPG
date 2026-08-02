@@ -11,4 +11,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-CMD ["python", "-m", "admin.main"]
+# admin.main only defines the ASGI application; it is not a CLI entry point.
+# Starting it via uvicorn keeps the HTTP origin alive for a Mini App tunnel.
+CMD ["uvicorn", "admin.main:app", "--host", "0.0.0.0", "--port", "8000"]
