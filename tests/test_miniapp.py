@@ -1,5 +1,5 @@
 """Telegram Mini App для админ-панели: подпись initData, вход по кнопке,
-автовыбор бинаря cloudflared и URL-хелперы.
+SSH-туннель и URL-хелперы.
 
 python3 tests/test_miniapp.py
 """
@@ -166,55 +166,63 @@ def test_auth_endpoint():
 # ── туннель и URL-хелперы ───────────────────────────────────
 
 def test_tunnel_helpers():
-    print("— Quick Tunnel: выбор бинаря и проверка адресов —")
+    print("— SSH-туннель: проверка адресов и настроек —")
 
-    def bin_for(system, machine):
-        with mock.patch.object(tunnel_mod.platform, "system", return_value=system), \
-             mock.patch.object(tunnel_mod.platform, "machine", return_value=machine):
-            return tunnel_mod.binary_url()
-
-    url, name = bin_for("Windows", "AMD64")
-    check(url.endswith("cloudflared-windows-amd64.exe") and name == "cloudflared.exe",
-          "Windows amd64 — правильный релиз")
-    url, name = bin_for("Linux", "x86_64")
-    check(url.endswith("cloudflared-linux-amd64") and name == "cloudflared",
-          "Linux amd64 — правильный релиз")
-    url, name = bin_for("Linux", "aarch64")
-    check(url.endswith("cloudflared-linux-arm64"), "Linux arm64 — правильный релиз")
-    url, name = bin_for("Darwin", "arm64")
-    check(url.endswith("cloudflared-darwin-arm64.tgz"), "macOS arm64 — tgz-архив")
-    check(bin_for("Linux", "riscv64") == ("", ""), "неизвестная архитектура — без скачивания")
-
-    # Проверяем, что trycloudflare.com адреса распознаются как временные
+    # Проверяем, что временные адреса распознаются
+    check(tunnel_mod.is_quick_tunnel_url("https://abc123.serveo.net"),
+          "serveo.net адрес распознаётся как временный")
+    check(tunnel_mod.is_quick_tunnel_url("https://abc123.lhr.life"),
+          "lhr.life (localhost.run) адрес распознаётся как временный")
+    check(tunnel_mod.is_quick_tunnel_url("https://abc.localhost.run"),
+          "localhost.run адрес распознаётся как временный")
     check(tunnel_mod.is_quick_tunnel_url("https://example.trycloudflare.com"),
-          "trycloudflare.com адрес распознаётся как временный")
+          "trycloudflare.com адрес распознаётся как временный (наследие)")
     check(not tunnel_mod.is_quick_tunnel_url("https://panel.example.com"),
           "обычный ручной домен не считается временным")
+    check(not tunnel_mod.is_quick_tunnel_url("https://my-game.onrender.com"),
+          "Render домен не считается временным")
 
-    # Туннель отключён
-    check(not tunnel_mod.tunnel_enabled(), "туннель отключён по умолчанию")
+    # Проверяем tunnel_enabled
+    env = dict(os.environ)
+    env.pop("ADMIN_TUNNEL", None)
+    with mock.patch.dict(os.environ, env, clear=True):
+        check(tunnel_mod.tunnel_enabled(), "по умолчанию туннель включён")
+    with mock.patch.dict(os.environ, {**env, "ADMIN_TUNNEL": "0"}):
+        check(not tunnel_mod.tunnel_enabled(), "ADMIN_TUNNEL=0 выключает")
+    with mock.patch.dict(os.environ, {**env, "ADMIN_TUNNEL": "1"}):
+        check(tunnel_mod.tunnel_enabled(), "ADMIN_TUNNEL=1 включает обратно")
 
+    # Проверяем platform_public_url
     hosted_env = {**env, "RENDER_EXTERNAL_URL": "https://shadow-lands.onrender.com/"}
     with mock.patch.dict(os.environ, hosted_env, clear=True):
         check(platform_public_url() == "https://shadow-lands.onrender.com",
-              "Render URL выбирается вместо временного Quick Tunnel")
+              "Render URL выбирается вместо временного туннеля")
     replit_env = {**env, "REPLIT_DOMAINS": "game.replit.app,alias.replit.app"}
     with mock.patch.dict(os.environ, replit_env, clear=True):
         check(platform_public_url() == "https://game.replit.app",
               "первый домен Replit выбирается для Mini App")
 
+    # Проверяем, что SSH доступен (обычно да на Linux/macOS/Windows 10+)
+    import shutil
+    ssh_path = shutil.which("ssh")
+    if ssh_path:
+        check(tunnel_mod.find_binary() != "",
+              "SSH-клиент найден для туннеля")
+    else:
+        check(True, "SSH-клиент не найден (туннель не будет работать)")
 
-OLD = "https://old-tunnel.trycloudflare.com"
-NEW = "https://new-tunnel.trycloudflare.com"
+
+OLD = "https://old-tunnel.serveo.net"
+NEW = "https://new-tunnel.serveo.net"
 
 
 def test_stale_tunnel_url_is_never_served():
     """Главная регрессия: после перезапуска бот НЕ отдаёт старую ссылку.
 
     Симптом из жизни: сервер перезапускали целиком, а игрокам/админам
-    одноразовый, и старый адрес отвечает страницей Cloudflare 1033.
+    продолжала уходить прежняя ссылка SSH-туннеля, которая уже мертва.
     """
-    print("— Устаревший адрес Quick Tunnel не выдаётся —")
+    print("— Устаревший адрес туннеля не выдаётся —")
     import asyncio
 
     from core import settings_store as st
@@ -260,7 +268,9 @@ def test_stale_tunnel_url_is_never_served():
     check(r["external"] == OLD,
           "при ADMIN_TUNNEL=0 чужой туннель не сбрасывается")
 
-    check(st.is_temporary_tunnel_url(OLD), "адрес Quick Tunnel распознаётся")
+    check(st.is_temporary_tunnel_url(OLD), "адрес SSH-туннеля распознаётся")
+    check(st.is_temporary_tunnel_url("https://old.lhr.life"),
+          "адрес localhost.run распознаётся")
     check(not st.is_temporary_tunnel_url("https://panel.example.com"),
           "обычный домен не считается временным")
 
@@ -292,19 +302,21 @@ def test_tunnel_verification():
         return FakeResponse(json.dumps({"status": "ok", "instance": "other"}))
 
     def dead(*_a, **_kw):
-        raise OSError("Cloudflare 1033")
+        raise OSError("Connection refused")
+
+    test_url = "https://test-tunnel.serveo.net"
 
     with mock.patch.object(tunnel_mod.urllib.request, "urlopen", ours):
-        ok = asyncio.run(tunnel_mod.verify_tunnel_url(
+        ok = asyncio.run(tunnel_mod.verify_tunnel_url(test_url, timeout=3))
     check(ok, "адрес нашего процесса подтверждается")
 
     with mock.patch.object(tunnel_mod.urllib.request, "urlopen", stranger):
-        ok = asyncio.run(tunnel_mod.verify_tunnel_url(
+        ok = asyncio.run(tunnel_mod.verify_tunnel_url(test_url, timeout=3))
     check(not ok, "чужой сервер на том же домене не принимается")
 
     with mock.patch.object(tunnel_mod.urllib.request, "urlopen", dead):
-        ok = asyncio.run(tunnel_mod.verify_tunnel_url(
-    check(not ok, "мёртвый адрес (1033) не подтверждается")
+        ok = asyncio.run(tunnel_mod.verify_tunnel_url(test_url, timeout=3))
+    check(not ok, "мёртвый адрес не подтверждается")
 
 
 def test_url_helpers():

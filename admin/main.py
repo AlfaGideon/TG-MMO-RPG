@@ -74,9 +74,9 @@ async def lifespan(app: FastAPI):
             await session.commit()
     except Exception:
         pass
-    # Старый Quick Tunnel прекращает существовать при каждом рестарте.
+    # Старый SSH-туннель прекращает существовать при каждом рестарте.
     # Очищаем его *до* запуска бота, иначе первые кнопки Mini App ведут на
-    # Cloudflare 1033, пока фоновая задача ещё поднимает новый адрес.
+    # мёртвый адрес, пока фоновая задача ещё поднимает новый.
     from core import tunnel as tunnel_mod
     await tunnel_mod.clear_stale_quick_tunnel_url()
 
@@ -88,16 +88,20 @@ async def lifespan(app: FastAPI):
         if setting and setting.value and setting.value.strip():
             await bot_runner.start(setting.value.strip(), await get_bot_proxy_url(session))
 
-    # Схема Cloudflare Quick Tunnel удалена — больше не запускается.
-    # Панель работает напрямую через внешний адрес хостинга (Render / VPS)
-    # или заданный вручную panel_url. Ошибки 502/1033 больше не возникнут.
-    app.state.tunnel_task = None
+    # SSH-туннель поднимается асинхронно в фоне, чтобы не блокировать старт.
+    # Если PUBLIC_URL задан вручную — туннель не нужен.
+    from core.tunnel import setup_public_url
+    app.state.tunnel_task = asyncio.create_task(
+        setup_public_url(admin_settings.ADMIN_PORT)
+    )
 
     yield
 
     if bot_runner.is_running():
         await bot_runner.stop()
-    # Туннель удалён — ничего останавливать.
+    # Останавливаем SSH-туннель
+    from core.tunnel import shutdown_public_url
+    await shutdown_public_url()
     await tunnel_mod.clear_stale_quick_tunnel_url()
 
 
@@ -162,10 +166,8 @@ STATION_LABELS = {
 class RoleMiddleware:
     """Чистая ASGI-обёртка: подмешивает role/caps в request.state.
 
-    В отличие от BaseHTTPMiddleware, не ломает WebSocket-соединения
-    (базовый класс Starlette известен тем, что рвёт WS-апгрейд — это и
-    было причиной 502/1033 через Cloudflare Tunnel). Пропускает
-    WebSocket и статику без обращения к БД.
+    В отличие от BaseHTTPMiddleware, не ломает WebSocket-соединения.
+    Пропускает WebSocket и статику без обращения к БД.
     """
 
     def __init__(self, app: ASGIApp):
@@ -251,13 +253,13 @@ async def access_denied_handler(request: Request, exc: HTTPException):
 
 @app.get("/health")
 async def health_check():
-    """Лёгкий health-check для Cloudflare Tunnel и балансировщиков.
+    """Лёгкий health-check для туннеля и балансировщиков.
 
     Не обращается к БД и не делает тяжёлых операций — достаточно проверить,
     что процесс uvicorn жив и отвечает на HTTP.
 
     `instance` — метка запущенной копии сервера. По ней проверяется, что
-    публичный адрес ведёт именно в ЭТОТ процесс: ссылка Quick Tunnel от
+    публичный адрес ведёт именно в ЭТОТ процесс: ссылка SSH-туннеля от
     прошлого запуска либо не ответит вовсе, либо (если рядом остался старый
     сервер) вернёт чужую метку — и тогда мы её не разошлём.
     """
@@ -1879,7 +1881,7 @@ async def save_panel_url(request: Request, panel_url: str = Form("")):
 
     saved = await set_panel_url(panel_url)
     # Вписали постоянный домен руками — он главнее туннеля, иначе следующий
-    # get_panel_url() продолжил бы отдавать временный адрес cloudflared.
+    # get_panel_url() продолжил бы отдавать временный адрес SSH-туннеля.
     if saved and not is_temporary_tunnel_url(saved):
         mark_tunnel_managed(False)
         set_active_tunnel_url(saved)

@@ -49,15 +49,27 @@ def normalize_url(raw: str) -> str:
 
 
 def is_temporary_tunnel_url(value: str) -> bool:
-    """Проверяет, является ли адрес временным туннелем (trycloudflare.com).
-    
-    Такие адреса не должны использоваться - они эфемерные и не работают
-    после перезапуска. Возвращает True для любых trycloudflare.com доменов.
+    """Проверяет, является ли адрес временным туннелем.
+
+    Распознаёт адреса эфемерных туннелей, которые не работают
+    после перезапуска:
+      - *.serveo.net       (SSH-туннель через serveo)
+      - *.lhr.life         (localhost.run)
+      - *.localhost.run    (localhost.run)
+      - *.trycloudflare.com (старый Cloudflare Quick Tunnel)
+
+    Возвращает True для любого из них.
     """
     if not value:
         return False
     normalized = value.lower()
-    return "trycloudflare.com" in normalized
+    _TEMPORARY_DOMAINS = (
+        "serveo.net",
+        "lhr.life",
+        "localhost.run",
+        "trycloudflare.com",
+    )
+    return any(domain in normalized for domain in _TEMPORARY_DOMAINS)
 
 
 def set_active_tunnel_url(url: str) -> None:
