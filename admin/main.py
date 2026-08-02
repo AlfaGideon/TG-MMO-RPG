@@ -537,10 +537,25 @@ async def player_detail(request: Request, char_id: int):
         from core.classes import all_classes as list_classes, get_class
         from core.stats import combat_stats
         from core import magic
+        from core import factions as core_factions
         classes = await list_classes(session, only_enabled=False)
         class_def = await get_class(session, char.character_class)
         totals = await combat_stats(session, char)
         affinities = await magic.get_affinities(session, char.id)
+
+        # Репутация героя по четырём силам — для блока «Силы и репутация».
+        rep_values = core_factions.load(char)
+        rep_rows = []
+        for key in core_factions.ORDER:
+            icon, name, motto, foe = core_factions.FACTIONS[key]
+            pts = rep_values.get(key, 0)
+            r_icon, r_title = core_factions.rank(pts)
+            rep_rows.append({
+                "key": key, "icon": icon, "name": name, "motto": motto,
+                "foe": foe, "foe_name": core_factions.FACTIONS[foe][1],
+                "value": pts, "rank_icon": r_icon, "rank_title": r_title,
+            })
+        allegiance = core_factions.allegiance(char)
         from core import stash as stash_core
         vip_days_val = await stash_core.tune(session, "vip_days")
 
@@ -570,6 +585,12 @@ async def player_detail(request: Request, char_id: int):
             "affinities": affinities,
             "schools": [(k, v[0], v[1]) for k, v in MAGIC_SCHOOLS.items()],
             "grades": [(k, v[0]) for k, v in AFFINITY_GRADES.items()],
+            "rep_rows": rep_rows,
+            "rep_allegiance": allegiance,
+            "rep_min": core_factions.MIN_REP,
+            "rep_max": core_factions.MAX_REP,
+            "is_banned": bool(char.user.is_banned),
+            "ban_reason": char.user.ban_reason,
             "vip_days": vip_days_val,
         },
     )
@@ -777,6 +798,38 @@ async def player_set_affinities(
             await magic.set_affinities(session, char, pairs)
             await session.commit()
     return RedirectResponse(url=f"/player/{char_id}", status_code=303)
+
+
+@app.post("/player/{char_id}/reputation")
+async def player_set_reputation(request: Request, char_id: int):
+    """Правка репутации героя по четырём силам.
+
+    Имена полей формы совпадают с ключами фракций (guard/scavengers/cult/order),
+    поэтому разбираем форму обобщённо — это заодно обходит конфликт имени поля
+    `guard` с одноимённой функцией проверки прав. Злоба соперника здесь НЕ
+    применяется: админ задаёт ровно те числа, что ввёл, в границах
+    MIN_REP..MAX_REP.
+    """
+    guard(request, "manage_players")
+    from core import factions as core_factions
+
+    form = await request.form()
+    async with async_session() as session:
+        char = await session.get(Character, char_id)
+        if char:
+            raw = {}
+            for key in core_factions.FACTIONS:
+                val = form.get(key)
+                if val is None or str(val).strip() == "":
+                    continue
+                try:
+                    pts = int(val)
+                except (TypeError, ValueError):
+                    continue
+                raw[key] = max(core_factions.MIN_REP, min(core_factions.MAX_REP, pts))
+            core_factions.save(char, raw)
+            await session.commit()
+    return RedirectResponse(url=f"/player/{char_id}#factions", status_code=303)
 
 
 @app.post("/player/{char_id}/reroll-stats")
@@ -1177,6 +1230,121 @@ async def player_revoke_admin(request: Request, char_id: int):
         except Exception:
             pass
     return RedirectResponse(url=f"/player/{char_id}", status_code=303)
+
+
+# ── Ban / Unban / Delete player ─────────────────────────────
+
+async def _ban_notify(telegram_id: int, text: str):
+    try:
+        from bot.runner import bot_runner
+        if bot_runner.is_running() and bot_runner.bot:
+            await bot_runner.bot.send_message(chat_id=telegram_id, text=text, parse_mode="HTML")
+    except Exception:
+        pass
+
+
+@app.post("/player/{char_id}/ban")
+async def player_ban(request: Request, char_id: int, ban_reason: str = Form("")):
+    """Заблокировать игрока: бот перестанет реагировать на любые его действия."""
+    guard(request, "manage_players")
+    async with async_session() as session:
+        result = await session.execute(
+            select(Character).where(Character.id == char_id).options(selectinload(Character.user))
+        )
+        char = result.scalar_one_or_none()
+        if char and char.user:
+            char.user.is_banned = True
+            char.user.ban_reason = (ban_reason or "").strip()[:256] or None
+            char.user.banned_at = datetime.utcnow()
+            tid = char.user.telegram_id
+            reason = char.user.ban_reason or "нарушение правил"
+            await session.commit()
+            await _ban_notify(
+                tid,
+                f"🚫 <b>Вы заблокированы администратором.</b>\n\nПричина: {reason}\n\n"
+                "<i>Все действия в игре недоступны.</i>")
+    return RedirectResponse(url=f"/player/{char_id}", status_code=303)
+
+
+@app.post("/player/{char_id}/unban")
+async def player_unban(request: Request, char_id: int):
+    """Снять бан с игрока."""
+    guard(request, "manage_players")
+    async with async_session() as session:
+        result = await session.execute(
+            select(Character).where(Character.id == char_id).options(selectinload(Character.user))
+        )
+        char = result.scalar_one_or_none()
+        if char and char.user:
+            char.user.is_banned = False
+            char.user.ban_reason = None
+            char.user.banned_at = None
+            tid = char.user.telegram_id
+            await session.commit()
+            await _ban_notify(tid, "✅ <b>Бан снят.</b> Снова добро пожаловать в игру!")
+    return RedirectResponse(url=f"/player/{char_id}", status_code=303)
+
+
+async def _delete_player(session, char: Character):
+    """Удалить персонажа и всё, что на него ссылается, затем пользователя.
+
+    Каталог предметов (Item/ItemInstance как таковые) не трогаем —
+    зачищаем только владение/инвентарь/историю этого героя.
+    """
+    from core.models import Party, CharacterQuest
+    cid = char.id
+    uid = char.user_id
+
+    # Аукцион: снимаем лоты этого продавца, обнуляем покупателя.
+    await session.execute(delete(AuctionLot).where(AuctionLot.seller_id == cid))
+    await session.execute(
+        AuctionLot.__table__.update()
+        .where(AuctionLot.buyer_id == cid)
+        .values(buyer_id=None)
+    )
+    # Возвращаем мобов, которых держал игрок.
+    await session.execute(
+        MobSpawn.__table__.update()
+        .where(MobSpawn.engaged_by_id == cid)
+        .values(engaged_by_id=None)
+    )
+    # Зависимости персонажа.
+    await session.execute(delete(InventoryItem).where(InventoryItem.character_id == cid))
+    await session.execute(delete(ItemInstance).where(ItemInstance.owner_character_id == cid))
+    await session.execute(delete(ItemHistory).where(ItemHistory.character_id == cid))
+    await session.execute(delete(CharacterAffinity).where(CharacterAffinity.character_id == cid))
+    await session.execute(delete(Battle).where(Battle.character_id == cid))
+    await session.execute(delete(CharacterQuest).where(CharacterQuest.character_id == cid))
+    await session.execute(delete(DungeonRun).where(DungeonRun.character_id == cid))
+    await session.execute(delete(VisitedCell).where(VisitedCell.character_id == cid))
+    await session.execute(delete(Grave).where(Grave.character_id == cid))
+    await session.execute(delete(WorldEventDamage).where(WorldEventDamage.character_id == cid))
+    await session.execute(delete(PlayerSuggestion).where(PlayerSuggestion.character_id == cid))
+    # Отряд: если герой — лидер, распускаем отряд (иначе просто выходим).
+    lead = (await session.execute(select(Party).where(Party.leader_id == cid))).scalar_one_or_none()
+    if lead is not None:
+        await session.execute(
+            Character.__table__.update()
+            .where(Character.party_id == lead.id)
+            .values(party_id=None)
+        )
+        await session.delete(lead)
+    # Сам персонаж и его сообщения/пользователь.
+    await session.execute(delete(AdminMessage).where(AdminMessage.user_id == uid))
+    await session.delete(char)
+    await session.execute(delete(User).where(User.id == uid))
+
+
+@app.post("/player/{char_id}/delete")
+async def player_delete(request: Request, char_id: int):
+    """Полностью удалить игрока (персонаж + пользователь + все его следы)."""
+    guard(request, "manage_players")
+    async with async_session() as session:
+        char = await session.get(Character, char_id)
+        if char:
+            await _delete_player(session, char)
+            await session.commit()
+    return RedirectResponse(url="/players?deleted=1", status_code=303)
 
 
 # ── Items ──────────────────────────────────────────────────
@@ -2259,11 +2427,23 @@ async def editor_world(request: Request):
         )
         pop_by_loc = {row[1]: row[0] for row in result.all()}
         
-        # Загружаем сид из настроек
+        # Загружаем сид из настроек (если мир ещё не сеялся — None, тогда
+        # генератор подберёт случайный).
         seed_setting = await session.scalar(select(AppSetting).where(AppSetting.key == "seed"))
-        seed = int(seed_setting.value) if seed_setting else 1337
+        seed = int(seed_setting.value) if seed_setting and (seed_setting.value or "").strip() else None
+
+        # Сохранённые «любимые» сиды — чтобы вернуться к понравившемуся миру.
+        from core.seed import get_saved_seeds
+        saved_seeds = await get_saved_seeds(session)
 
     grid = {(loc.world_x, loc.world_y): loc for loc in locations if 0 <= loc.world_x < WORLD_GRID_SIZE and 0 <= loc.world_y < WORLD_GRID_SIZE}
+
+    # Свежий сид заполняет всю карту 10×10 = 100 локаций
+    # (4 замка + 4 башни + 4 входа + 4-клеточная цитадель + 84 свободных).
+    # Существенно меньше — значит мир сеялся старой версией и не обновился:
+    # seed_database() не пересоздаёт непустой мир.
+    loc_count = len(locations)
+    world_outdated = loc_count < 90
 
     return templates.TemplateResponse(
         request,
@@ -2271,7 +2451,8 @@ async def editor_world(request: Request):
         {
             "locations": locations, "grid": grid, "grid_range": range(WORLD_GRID_SIZE),
             "world_grid_size": WORLD_GRID_SIZE, "pop_by_loc": pop_by_loc,
-            "seed": seed,
+            "seed": seed, "loc_count": loc_count, "world_outdated": world_outdated,
+            "saved_seeds": saved_seeds,
         },
     )
 
@@ -2446,12 +2627,46 @@ async def editor_world_relink(request: Request):
 
 
 @app.post("/editor/world/regen")
-async def editor_world_regen(request: Request, seed: int = Form(...)):
-    """Полностью пересоздать мир на сервере под новым сидом."""
+async def editor_world_regen(request: Request, seed: str = Form(""), randomize: str = Form("")):
+    """Пересоздать мир на сервере.
+
+    `randomize` — подобрать случайный сид («живой мир», без ручного числа).
+    Иначе берётся `seed` из формы; если и он пуст — тоже случайный.
+    """
     guard(request, "manage_content")
     from core.seed import recreate_world_on_server
-    await recreate_world_on_server(seed)
-    return RedirectResponse(url="/editor/world", status_code=303)
+
+    use_seed = None
+    if not randomize and seed and str(seed).strip():
+        try:
+            use_seed = int(seed)
+        except ValueError:
+            use_seed = None
+    await recreate_world_on_server(use_seed)
+    return RedirectResponse(url="/editor/world?regen=1", status_code=303)
+
+
+@app.post("/editor/world/seed/save")
+async def editor_world_seed_save(request: Request, label: str = Form("")):
+    """Сохранить текущий сид в «любимые», чтобы переиспользовать потом."""
+    guard(request, "manage_content")
+    from core.seed import add_saved_seed
+
+    async with async_session() as session:
+        seed_row = await session.scalar(select(AppSetting).where(AppSetting.key == "seed"))
+        current = int(seed_row.value) if seed_row and (seed_row.value or "").strip() else None
+    if current:
+        await add_saved_seed(current, label)
+    return RedirectResponse(url="/editor/world#saved", status_code=303)
+
+
+@app.post("/editor/world/seed/delete")
+async def editor_world_seed_delete(request: Request, seed: int = Form(...)):
+    """Убрать сид из сохранённых."""
+    guard(request, "manage_content")
+    from core.seed import delete_saved_seed
+    await delete_saved_seed(seed)
+    return RedirectResponse(url="/editor/world#saved", status_code=303)
 
 
 # ── Mobs Editor ────────────────────────────────────────────
@@ -3995,6 +4210,31 @@ async def editor_living(request: Request):
                 sides[side] += 1
         mood = await core_factions.cataclysm_mult(session)
 
+        # Лидерборд репутации: кто к какой силе прибился и насколько.
+        # Паритет с блоком «Фракции и репутация» браузерной панели.
+        rep_rows = []
+        for ch in chars:
+            rep = core_factions.load(ch)
+            best_key = max(rep, key=lambda k: rep[k])
+            best_val = rep[best_key]
+            if best_val <= 0:
+                continue  # нейтральных в таблицу не тащим
+            icon, title = core_factions.rank(best_val)
+            foe = core_factions.RIVALS[best_key]
+            rep_rows.append({
+                "char": ch,
+                "allegiance": best_key,
+                "allegiance_icon": core_factions.FACTIONS[best_key][0],
+                "allegiance_name": core_factions.FACTIONS[best_key][1],
+                "rank_icon": icon,
+                "rank_title": title,
+                "best": best_val,
+                "rep": rep,
+                "foe": foe,
+            })
+        rep_rows.sort(key=lambda r: r["best"], reverse=True)
+        rep_top = rep_rows[:15]
+
         result = await session.execute(select(Mob))
         mobs = result.scalars().all()
         census = core_behavior.census(mobs)
@@ -4016,8 +4256,10 @@ async def editor_living(request: Request):
             "graves": graves,
             "factions": core_factions.FACTIONS,
             "faction_order": core_factions.ORDER,
+            "rivals": core_factions.RIVALS,
             "sides": sides,
             "mood": mood,
+            "rep_top": rep_top,
             "census": census,
             "behaviors": core_behavior.BEHAVIORS,
             "locations": locations,

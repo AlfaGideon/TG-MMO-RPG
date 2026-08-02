@@ -11,9 +11,18 @@
 
 {% block content %}
 
+{% if is_banned %}
+<div class="card" style="border-color:var(--danger,#ef4444);background:rgba(239,68,68,.06)">
+    <b style="color:var(--danger,#ef4444)">🚫 Игрок заблокирован</b>
+    {% if ban_reason %}— {{ ban_reason }}{% endif %}.
+    Бот игнорирует все его действия. Снять бан — на вкладке «VIP и доступ».
+</div>
+{% endif %}
+
 <div class="tabs">
     <button class="tab-btn active" data-tab="tab-overview">📊 Обзор</button>
     <button class="tab-btn" data-tab="tab-stats">✏️ Характеристики</button>
+    <button class="tab-btn" data-tab="tab-equipment">🎽 Снаряжение</button>
     <button class="tab-btn" data-tab="tab-inventory">🎒 Инвентарь ({{ inventory|length }})</button>
     <button class="tab-btn" data-tab="tab-access">👑 VIP и доступ</button>
     <button class="tab-btn" data-tab="tab-chat">💬 Чат</button>
@@ -130,6 +139,40 @@
         </div>
         {% endfor %}
     </div>
+</div>
+
+<div class="card" id="factions">
+    <h3>🧭 Силы и репутация</h3>
+    <p class="section-sub">
+        Четыре силы с противоположными интересами. Админ задаёт очки напрямую —
+        злоба соперника при этом не начисляется (это ручная правка). В игре
+        репутация даёт скидку у торговцев, меняет реплики жителей и влияет на
+        частоту катаклизмов.
+    </p>
+    {% if rep_allegiance %}
+    <p style="margin-bottom:0.75rem;">
+        {% set af = rep_rows | selectattr('key','equalto', rep_allegiance) | first %}
+        Присяга: <b>{{ af.icon }} {{ af.name }}</b> · {{ af.rank_icon }} {{ af.rank_title }}
+    </p>
+    {% else %}
+    <p style="margin-bottom:0.75rem; color:var(--text-muted);">Герой пока ни к одной силе не прибился (нужно ≥30 очков у одной из них).</p>
+    {% endif %}
+    <form action="/player/{{ char.id }}/reputation" method="post" class="inline-form" style="flex-direction:column;align-items:stretch;gap:0.5rem">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:0.6rem">
+            {% for r in rep_rows %}
+            <div style="background:var(--bg-dark);border:1px solid var(--border);border-radius:8px;padding:0.6rem">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.3rem">
+                    <b>{{ r.icon }} {{ r.name }}</b>
+                    <span class="badge">{{ r.rank_icon }} {{ r.rank_title }}</span>
+                </div>
+                <div class="muted" style="font-size:0.72rem;margin-bottom:0.4rem">{{ r.motto }} · соперник: {{ r.foe_name }}</div>
+                <label class="form-label">Очки ({{ rep_min }}…{{ rep_max }})</label>
+                <input type="number" name="{{ r.key }}" value="{{ r.value }}" min="{{ rep_min }}" max="{{ rep_max }}" class="search-box" style="max-width:140px">
+            </div>
+            {% endfor %}
+        </div>
+        <div><button type="submit" class="btn btn-primary">💾 Сохранить репутацию</button></div>
+    </form>
 </div>
 </div>
 
@@ -288,6 +331,55 @@
             </form>
         </div>
     </fieldset>
+</div>
+</div>
+
+<!-- ══════════════ СНАРЯЖЕНИЕ ══════════════ -->
+<div class="tab-panel" id="tab-equipment">
+<div class="card">
+    <h3>🎽 Снаряжение героя</h3>
+    <p class="section-sub">Пять слотов экипировки. «Снять» убирает предмет в инвентарь; надеть обратно или заменить — на вкладке «Инвентарь».</p>
+    <div class="slot-grid">
+        {% for slot, label in slot_labels.items() %}
+        {% set inv = equipped_by_slot.get(slot) %}
+        <div class="slot-box {% if inv %}filled{% endif %}">
+            <div class="slot-label">{{ label }}</div>
+            {% if inv %}
+            <div class="slot-item">{{ inv.item.icon }} {{ inv.display_name() }}</div>
+            {% if inv.instance %}
+            <div class="inv-uid">🆔 {{ inv.instance.uid }}</div>
+            <div style="font-size:0.72rem;">Качество <b>{{ inv.instance.quality }}%</b>
+                {% if inv.instance.upgrade_level %} · +{{ inv.instance.upgrade_level }}{% endif %}
+                · <span class="badge badge-{{ inv.instance.rarity.value }}">{{ inv.instance.rarity.value }}</span>
+            </div>
+            {% else %}
+            <div style="font-size:0.72rem; color:var(--text-muted);">по шаблону</div>
+            {% endif %}
+            {% set b = inv.bonuses() %}
+            <div class="inv-bonuses" style="margin-top:0.25rem;">
+                {% for field, lab in bonus_labels.items() %}{% if b.get(field) %}
+                {{ lab }} +{{ b[field] }}{% if not loop.last %} · {% endif %}
+                {% endif %}{% endfor %}
+            </div>
+            <form action="/player/{{ char.id }}/inv/{{ inv.id }}/toggle-equip" method="post" style="margin-top:0.4rem;">
+                <button type="submit" class="btn btn-sm">🚫 Снять</button>
+            </form>
+            {% else %}
+            <div class="slot-item" style="color:var(--text-muted); font-weight:400;">пусто</div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+
+    <h4 style="margin-top:1.2rem;">Итого от снаряжения</h4>
+    <div class="inv-bonuses" style="font-size:0.9rem;">
+        {% set tb = totals.bonus %}
+        {% for field, lab in bonus_labels.items() %}{% if tb.get(field) %}
+        {{ lab }} <b>+{{ tb[field] }}</b> ·
+        {% endif %}{% endfor %}
+        {% if tb.max_hp %}❤️ <b>+{{ tb.max_hp }}</b> · {% endif %}
+        {% if tb.max_mp %}💙 <b>+{{ tb.max_mp }}</b>{% endif %}
+    </div>
 </div>
 </div>
 
@@ -525,6 +617,33 @@
             </form>
             {% endif %}
         </div>
+    </div>
+</div>
+
+<div class="card" style="border-color:var(--danger,#ef4444)">
+    <h3 style="color:var(--danger,#ef4444)">⛔ Модерация игрока</h3>
+    <p class="section-sub">Бан блокирует все действия игрока в боте (он увидит причину). Удаление стирает персонажа и пользователя безвозвратно.</p>
+
+    {% if is_banned %}
+    <p style="margin-bottom:0.75rem;"><b>🚫 Заблокирован</b>{% if ban_reason %}: {{ ban_reason }}{% endif %}</p>
+    <form action="/player/{{ char.id }}/unban" method="post">
+        <button type="submit" class="btn btn-primary">✅ Снять бан</button>
+    </form>
+    {% else %}
+    <form action="/player/{{ char.id }}/ban" method="post" style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:flex-end;">
+        <div>
+            <label class="form-label">Причина бана (необязательно)</label>
+            <input type="text" name="ban_reason" class="search-box" style="max-width:320px" placeholder="напр. читерство, токсичность">
+        </div>
+        <button type="submit" class="btn btn-danger">🚫 Забанить</button>
+    </form>
+    {% endif %}
+
+    <div style="margin-top:1.2rem;border-top:1px solid var(--border);padding-top:1rem;">
+        <form action="/player/{{ char.id }}/delete" method="post"
+              data-confirm="УДАЛИТЬ игрока {{ char.name }} безвозвратно? Будут стёрты персонаж, пользователь, инвентарь, бои, переписка и весь прогресс. Это нельзя отменить.">
+            <button type="submit" class="btn btn-danger">🗑 Удалить игрока навсегда</button>
+        </form>
     </div>
 </div>
 </div>

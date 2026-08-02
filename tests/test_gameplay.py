@@ -273,9 +273,14 @@ async def scenario():
 
         # ── Правила бродяжничества ──────────────────────────
         print("\n— Передвижение по локациям —")
-        locs = {l.name: l for l in (await s.execute(select(Location))).scalars()}
-        forest = locs["Тёмный Лес"]          # min_level 1
-        catacombs = locs["Катакомбы Павших"]  # min_level 5
+        # Мир теперь процедурно именуется (живые названия, не «Тёмный Лес»),
+        # поэтому берём локации по уровню, а не по зашитым именам:
+        # лес (min_level 1) и земли повыше (min_level >= 5).
+        _ordered = (await s.execute(
+            select(Location).order_by(Location.min_level, Location.id)
+        )).scalars().all()
+        forest = next((l for l in _ordered if (l.min_level or 1) <= 1), _ordered[0])
+        catacombs = next((l for l in _ordered if (l.min_level or 1) >= 5), _ordered[-1])
 
         weak = (await s.execute(
             select(Mob).where(Mob.name == "Болотный зомби")

@@ -139,6 +139,10 @@ class User(Base):
     first_name = Column(String(128), nullable=True)
     last_name = Column(String(128), nullable=True)
     is_admin = Column(Boolean, default=False)
+    # Бан: заблокированный админом игрок — бот игнорирует все его действия.
+    is_banned = Column(Boolean, default=False)
+    ban_reason = Column(String(256), nullable=True)
+    banned_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     last_active = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

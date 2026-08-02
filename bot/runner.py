@@ -9,6 +9,7 @@ from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramConflictError
 
 from bot.handlers import routers
+from bot.middlewares.ban import BanMiddleware
 from bot.middlewares.db import DBSessionMiddleware
 from bot.middlewares.dedup import DedupUpdateMiddleware, reset_deduper
 from bot.middlewares.offline import OfflineProtectionMiddleware
@@ -81,12 +82,13 @@ class BotRunner:
         reset_deduper()
         # aiogram 3: wrap_middlewares делает reversed() — первый
         # зарегистрированный middleware = самый внешний (идёт первым).
-        # Снаружи внутрь: дедуп → сериализация → БД → офлайн → handler.
+        # Снаружи внутрь: дедуп → сериализация → БД → офлайн → бан → handler.
         for event_type in (self.dp.message, self.dp.callback_query):
             event_type.middleware(DedupUpdateMiddleware())
             event_type.middleware(SerializeUserMiddleware())
             event_type.middleware(DBSessionMiddleware())
             event_type.middleware(OfflineProtectionMiddleware())
+            event_type.middleware(BanMiddleware())
         for router in routers:
             self.dp.include_router(router)
 

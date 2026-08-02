@@ -125,7 +125,7 @@
     {% endif %}
 </div>
 
-<div class="card">
+<div class="card" id="factions">
     <h2>🧭 Фракции и репутация</h2>
     <p class="section-sub">
         Четыре силы с противоположными интересами: помощь одной злит соперника.
@@ -154,6 +154,38 @@
             </tbody>
         </table>
     </div>
+
+    {% if rep_top %}
+    <h3 style="margin-top:1.2rem">🏆 Кто за какую силу</h3>
+    <p class="section-sub">
+        Герои, набравшие репутацию у какой-либо силы. Значок и звание — по
+        лучшей фракции; поправить репутацию конкретного героя можно в его
+        карточке (вкладка «Обзор» → «Силы и репутация»).
+    </p>
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Герой</th><th>Присягнул</th><th>Звание</th>
+                {% for key in faction_order %}<th>{{ factions[key][0] }}</th>{% endfor %}
+                <th></th></tr></thead>
+            <tbody>
+            {% for r in rep_top %}
+                <tr>
+                    <td><a href="/player/{{ r.char.id }}"><b>{{ r.char.name }}</b></a>
+                        <span class="muted">ур. {{ r.char.level }}</span></td>
+                    <td>{{ r.allegiance_icon }} {{ r.allegiance_name }}</td>
+                    <td>{{ r.rank_icon }} {{ r.rank_title }}</td>
+                    {% for key in faction_order %}
+                        <td>{{ r.rep[key] }}</td>
+                    {% endfor %}
+                    <td><a href="/player/{{ r.char.id }}#factions" class="btn btn-sm">✏️</a></td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="muted" style="margin-top:1rem">Пока никто не набрал репутацию ни у одной силы — герои ещё ничем не проявили себя.</p>
+    {% endif %}
 </div>
 
 <div class="card">
