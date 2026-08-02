@@ -88,23 +88,17 @@ async def lifespan(app: FastAPI):
         if setting and setting.value and setting.value.strip():
             await bot_runner.start(setting.value.strip(), await get_bot_proxy_url(session))
 
-    # Публичный HTTPS для Mini App: Quick Tunnel поднимается в фоне, чтобы
-    # не задерживать готовность локальной панели (первый запуск ещё и
-    # скачивает cloudflared). Адрес сам попадёт в настройки panel_url.
-    # На Render/Replit platform_public_url() выбирает постоянный домен, и
-    # туннель не запускается вовсе — это устраняет нестабильные 502/1033.
-    app.state.tunnel_task = asyncio.create_task(
-        tunnel_mod.setup_public_url(settings.ADMIN_PORT)
-    )
+    # Схема Cloudflare Quick Tunnel удалена — больше не запускается.
+    # Панель работает напрямую через внешний адрес хостинга (Render / VPS)
+    # или заданный вручную panel_url. Ошибки 502/1033 больше не возникнут.
+    app.state.tunnel_task = None
 
     yield
 
     if bot_runner.is_running():
         await bot_runner.stop()
-    task = getattr(app.state, "tunnel_task", None)
-    if task and not task.done():
-        task.cancel()
-    await tunnel_mod.shutdown_public_url()
+    # Туннель удалён — ничего останавливать.
+    await tunnel_mod.clear_stale_quick_tunnel_url()
 
 
 app = FastAPI(title="Shadow Lands Admin", lifespan=lifespan)
