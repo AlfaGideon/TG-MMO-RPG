@@ -191,6 +191,14 @@ def test_tunnel_helpers():
     check(bool(found) and found.group(0) ==
           "https://frobnicated-words-here.trycloudflare.com",
           "адрес вылавливается из лога cloudflared")
+    check(tunnel_mod.TRYCLOUDFLARE_RE.search(
+          "POST https://api.trycloudflare.com/tunnel failed") is None,
+          "URL API Cloudflare не принимается за адрес туннеля")
+    check(tunnel_mod.is_quick_tunnel_url(
+          "https://frobnicated-words-here.trycloudflare.com"),
+          "старый Quick Tunnel распознаётся для обновления")
+    check(not tunnel_mod.is_quick_tunnel_url("https://panel.example.com"),
+          "обычный ручной домен не сбрасывается")
 
     env = dict(os.environ)
     env.pop("ADMIN_TUNNEL", None)

@@ -24,6 +24,7 @@ import re
 import shutil
 import stat
 import urllib.request
+from urllib.parse import urlparse
 
 from sqlalchemy import select
 
@@ -39,7 +40,12 @@ logger = logging.getLogger("tunnel")
 TUNNEL_ENV = "ADMIN_TUNNEL"
 ANNOUNCED_KEY = "panel_url_announced"
 
-TRYCLOUDFLARE_RE = re.compile(r"https://[a-z0-9]+(?:-[a-z0-9]+)*\.trycloudflare\.com")
+# В ошибках cloudflared бывает URL API (`https://api.trycloudflare.com/...`).
+# Это не адрес туннеля, поэтому его нельзя сохранять как panel_url.
+TRYCLOUDFLARE_RE = re.compile(
+    r"https://(?!api\.trycloudflare\.com\b)"
+    r"[a-z0-9]+(?:-[a-z0-9]+)*\.trycloudflare\.com\b"
+)
 CLOUDFLARED_LATEST = "https://github.com/cloudflare/cloudflared/releases/latest/download/"
 
 _URL_TIMEOUT = 45  # столько ждём публичный адрес от cloudflared
@@ -47,6 +53,20 @@ _URL_TIMEOUT = 45  # столько ждём публичный адрес от 
 
 def tunnel_enabled() -> bool:
     return os.getenv(TUNNEL_ENV, "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def is_quick_tunnel_url(value: str) -> bool:
+    """Это адрес, который раньше выдал Cloudflare Quick Tunnel.
+
+    Quick Tunnel одноразовый: после перезапуска cloudflared прежний домен
+    уже не ведёт в панель. Такие адреса нельзя воспринимать как ручную
+    настройку `panel_url`, иначе следующий запуск вообще не создаст туннель.
+    """
+    try:
+        host = (urlparse(normalize_url(value)).hostname or "").lower()
+    except ValueError:
+        return False
+    return host != "api.trycloudflare.com" and host.endswith(".trycloudflare.com")
 
 
 def binary_url() -> tuple[str, str]:
@@ -159,7 +179,10 @@ class CloudflareTunnel:
             return ""
         try:
             self.url = await asyncio.wait_for(self._read_url(), timeout=_URL_TIMEOUT)
-            logger.info(f"🌐 Quick Tunnel поднят: {self.url}")
+            logger.info(
+                f"🌐 Quick Tunnel поднят: {self.url}\n"
+                f"   Mini App: {self.url}/tgapp"
+            )
         except asyncio.TimeoutError:
             self.error = f"cloudflared не выдал адрес за {_URL_TIMEOUT} с"
             logger.warning(f"Quick Tunnel: {self.error}")
@@ -199,11 +222,22 @@ async def setup_public_url(port: int) -> CloudflareTunnel | None:
     if not tunnel_enabled():
         logger.info(f"Quick Tunnel выключен ({TUNNEL_ENV}=0) — панель локальная.")
         return None
-    manual = normalize_url(
-        (await get_setting(PANEL_URL_KEY))
-        or os.getenv("PUBLIC_URL", "")
-        or os.getenv("ADMIN_PUBLIC_URL", "")
+    saved = normalize_url(await get_setting(PANEL_URL_KEY))
+    env_url = normalize_url(
+        os.getenv("PUBLIC_URL", "") or os.getenv("ADMIN_PUBLIC_URL", "")
     )
+
+    # Сохранённый *.trycloudflare.com — это не ручной домен, а адрес
+    # предыдущего процесса cloudflared. Удаляем его до запуска, чтобы бот
+    # не успел отдать игроку мёртвую кнопку Mini App.
+    if is_quick_tunnel_url(saved):
+        logger.info(f"Предыдущий Quick Tunnel устарел ({saved}); создаю новый.")
+        await set_panel_url("")
+        saved = ""
+
+    # PUBLIC_URL/ADMIN_PUBLIC_URL и обычный panel_url считаются постоянной
+    # ручной конфигурацией (VPS, Render, собственный домен).
+    manual = env_url or saved
     if manual:
         logger.info(f"Публичный адрес панели задан вручную ({manual}) — "
                     "туннель не нужен.")
