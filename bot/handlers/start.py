@@ -90,13 +90,7 @@ async def resume_character_creation(event, session, character) -> bool:
 
     # Статы зафиксированы, но фракция не выбрана (либо класс удалили —
     # тогда тоже отправляем выбирать фракцию, чтобы не застрять).
-    text = RESUME_HINT + FACTION_SELECT_TEXT
-    markup = faction_select_keyboard(character.id)
-    if isinstance(event, CallbackQuery):
-        await safe_edit_text(event, text, reply_markup=markup, parse_mode="HTML")
-        await event.answer()
-    else:
-        await event.answer(text, reply_markup=markup, parse_mode="HTML")
+    await _show_faction_page(event, character.id, prefix=RESUME_HINT)
     return True
 
 
@@ -546,12 +540,7 @@ async def reroll_stats(callback: CallbackQuery):
         left = character.rerolls_left
 
     if locked:
-        await safe_edit_text(
-            callback,
-            FACTION_SELECT_TEXT,
-            reply_markup=faction_select_keyboard(char_id),
-            parse_mode="HTML",
-        )
+        await _show_faction_page(callback, char_id)
         return
 
     await safe_edit_text(
@@ -588,45 +577,137 @@ async def accept_stats(callback: CallbackQuery):
         base = cls_def.base_stats() if cls_def else {}
         rolled = {k: getattr(character, k) for k in statroll.ROLLED_STATS}
 
-    await safe_edit_text(
-        callback,
-        FACTION_SELECT_TEXT,
-        reply_markup=faction_select_keyboard(char_id),
-        parse_mode="HTML",
+    await _show_faction_page(callback, char_id)
+
+
+# ── Книга выбора фракции ────────────────────────────────────
+#
+# Выбор фракции устроен как книга классов: игрок листает страницы,
+# на каждой — герб (картинка 1:1), описание и все стартовые бонусы.
+# Одной простынёй текста и слепых кнопок больше нет.
+
+# Гербы лежат в admin/static/factions — бот читает их прямо с диска
+# (get_photo_input превращает /static/... в admin/static/...).
+FACTION_IMAGES = {
+    "guard": "/static/factions/guard.jpg",
+    "scavengers": "/static/factions/scavengers.jpg",
+    "cult": "/static/factions/cult.jpg",
+    "order": "/static/factions/order.jpg",
+}
+
+# Союз по диагонали кольца: противоположные стороны не враждуют.
+_FACTION_ALLY = {
+    "guard": "cult",
+    "scavengers": "order",
+    "cult": "guard",
+    "order": "scavengers",
+}
+
+FACTION_CARDS = {
+    "guard": {
+        "castle": "Замок Пепла",
+        "side": "юго-восток",
+        "desc": (
+            "Старейший порядок Теневых Земель. Воины Погоста клялись: "
+            "ни одна нежить не переступит порог, пока жив хоть один "
+            "стражник. Стены их крепости не раз выдерживали волны "
+            "нежити и катаклизмы — и не раз падали, чтобы встать снова."
+        ),
+        "bonus": "+3 Выносливость ❤️",
+        "reward": "100🟤",
+    },
+    "scavengers": {
+        "castle": "Замок Глубин",
+        "side": "юго-запад",
+        "desc": (
+            "Гильдия выросла из бродячих скупщиков и могильщиков, "
+            "понявших: на войне и бедствиях можно неплохо жить. "
+            "Торгует дешевле всех, платит за мародёрство, ценит "
+            "добытчиков — а подземные ходы её замка ведут к "
+            "сокровищам, которые другие боятся взять."
+        ),
+        "bonus": "+2 Удача 🍀, +1 Ловкость 🏃",
+        "reward": "200🟤",
+    },
+    "cult": {
+        "castle": "Замок Теней",
+        "side": "северо-восток",
+        "desc": (
+            "Культ знает: мир обречён, и Раскол — лишь первое дыхание "
+            "конца. Его послушники приближают катаклизмы и щедро "
+            "платят тем, кто помогает им случиться, — ведь после конца "
+            "начнётся нечто новое. В вечных сумерках замка звучат "
+            "пророчества."
+        ),
+        "bonus": "+3 Интеллект 🧠",
+        "reward": "100🟤 + Осколок души",
+    },
+    "order": {
+        "castle": "Замок Рассвета",
+        "side": "северо-запад",
+        "desc": (
+            "Рыцари-паломники, несущие свет в Теневые Земли. Их вера "
+            "проста: тьма конечна, а свет — нет. Их замок — единственное "
+            "место, где солнце светит дольше обычного; Орден хранит "
+            "реликвии, сжигает нежить и сдерживает старые клятвы."
+        ),
+        "bonus": "+2 Сила 💪, +1 Выносливость 🛡",
+        "reward": "100🟤",
+    },
+}
+
+
+def _faction_page_text(page: int, prefix: str = "") -> str:
+    """Страница книги выбора: герб + описание + все бонусы фракции.
+
+    Влезает в лимит подписи к фото (1024 символа) — проверяется
+    тестом, поэтому описания держим ёмкими.
+    """
+    from engine.factions import FACTIONS, ORDER
+
+    page = max(0, min(page, len(ORDER) - 1))
+    key = ORDER[page]
+    icon, name, motto, foe = FACTIONS[key]
+    card = FACTION_CARDS[key]
+    ally = _FACTION_ALLY.get(key)
+
+    lines = [
+        f"🌍 <b>Выбери свою фракцию</b> — страница <b>{page + 1}</b> из <b>{len(ORDER)}</b>",
+        "",
+        f"{icon} <b>{name}</b>",
+        f"<i>«{motto}»</i>",
+        "",
+        card["desc"],
+        "",
+        f"🏰 Стартовый замок: <b>{card['castle']}</b> ({card['side']})",
+        f"✨ Бонус характеристик: <b>{card['bonus']}</b>",
+        f"🧭 Стартовая репутация: <b>+50</b> (звание «Знакомый»)",
+        f"🎁 Награда: <b>{card['reward']}</b>",
+    ]
+    if foe in FACTIONS:
+        lines.append(f"⚔️ Соперник: {FACTIONS[foe][0]} {FACTIONS[foe][1]}")
+    if ally in FACTIONS:
+        lines.append(f"🤝 Союзник: {FACTIONS[ally][0]} {FACTIONS[ally][1]}")
+    lines += [
+        "",
+        "<i>Листай страницы и сравнивай. Истории сил — в «Книге лора».</i>",
+    ]
+    return prefix + "\n".join(lines)
+
+
+async def _show_faction_page(event, char_id: int, page: int = 0, prefix: str = ""):
+    """Показать страницу книги выбора фракции с её гербом."""
+    from engine.factions import ORDER
+
+    page = max(0, min(page, len(ORDER) - 1))
+    await send_or_edit_photo(
+        event,
+        _faction_page_text(page, prefix=prefix),
+        reply_markup=faction_select_keyboard(char_id, page),
+        image_url=FACTION_IMAGES.get(ORDER[page]),
     )
-
-
-FACTION_SELECT_TEXT = """
-🌍 <b>Выбери свою стартовую фракцию</b>
-
-Твой герой готов к путешествию, но сперва выбери к какому из четырёх Великих Замков примкнуть. Каждый выбор даёт уникальные стартовые бонусы:
-
-🛡 <b>Стража Погоста</b> (на юго-востоке)
-• Стартовая локация: <b>Замок Пепла</b>
-• Бонус характеристик: <b>+3 Выносливость</b> ❤️
-• Стартовая репутация: <b>+50</b> у Стражи
-• Награда: <b>100🟤</b>
-
-💰 <b>Гильдия падальщиков</b> (на юго-западе)
-• Стартовая локация: <b>Замок Глубин</b>
-• Бонус характеристик: <b>+2 Удача, +1 Ловкость</b> 🍀🏃
-• Стартовая репутация: <b>+50</b> у Гильдии
-• Награда: <b>200🟤</b>
-
-🌑 <b>Культ Пожирателя</b> (на северо-востоке)
-• Стартовая локация: <b>Замок Теней</b>
-• Бонус характеристик: <b>+3 Интеллект</b> 🧠
-• Стартовая репутация: <b>+50</b> у Культа
-• Награда: <b>100🟤 + Осколок души</b>
-
-⚜️ <b>Орден Рассвета</b> (на северо-западе)
-• Стартовая локация: <b>Замок Рассвета</b>
-• Бонус характеристик: <b>+2 Сила, +1 Выносливость</b> 💪🛡
-• Стартовая репутация: <b>+50</b> у Ордена
-• Награда: <b>100🟤</b>
-
-<i>Твой выбор определит стартовую позицию и начальный расклад сил в мире. Выбирай мудро!</i>
-"""
+    if isinstance(event, CallbackQuery):
+        await event.answer()
 
 # ── Книга лора фракций ──────────────────────────────────────
 
@@ -749,61 +830,138 @@ FACTION_LORE = {
 }
 
 
-def _faction_lore_text(page: int = 0) -> str:
-    """Текст страницы книги лора фракций."""
-    from engine.factions import FACTIONS, RIVALS
+_CAPTION_LIMIT = 1024  # лимит подписи к фото в Telegram
 
-    keys = list(FACTION_LORE.keys())
-    total_pages = len(keys) + 1  # +1 для вступительной страницы с кругом
 
-    # Страница 0 — вступление со схемой круга
+def _split_caption(text: str, budget: int) -> list:
+    """Разрезать длинный текст на куски по абзацам, каждый ≤ budget.
+
+    Подпись к фото в Telegram — максимум 1024 символа. Лор-страница
+    длиннее, и Telegram отклонял отправку — глава приходила вообще без
+    герба (тихий фолбэк в чистый текст). Режем по абзацам, чтобы каждая
+    страница книги лора с гербом гарантированно проходила.
+    """
+    chunks, current = [], ""
+    for para in text.split("\n\n"):
+        candidate = para if not current else current + "\n\n" + para
+        if len(candidate) <= budget:
+            current = candidate
+            continue
+        if current:
+            chunks.append(current)
+        current = para
+        # Абзац сам длиннее бюджета — режем по строкам.
+        while len(current) > budget:
+            cut = current.rfind("\n", 0, budget)
+            if cut < budget // 2:
+                cut = budget
+            chunks.append(current[:cut])
+            current = current[cut:].lstrip("\n")
+    if current:
+        chunks.append(current)
+    return chunks or [""]
+
+
+def _faction_lore_pages() -> list:
+    """Страницы книги лора: вступление + главы фракций.
+
+    Возвращает список {'key': код фракции или None, 'text': подпись}.
+    Страницам с ключом при показе достаётся герб фракции; глава режется
+    на части так, чтобы подпись влезала в лимит вместе с гербом.
+    """
+    from engine.factions import FACTIONS, ORDER, RIVALS
+
+    pages = [{"key": None, "text": FACTION_LORE_CIRCLE}]
+    for key in ORDER:
+        icon, name = FACTIONS[key][0], FACTIONS[key][1]
+        parts = _split_caption(FACTION_LORE[key], budget=780)
+        for idx, part in enumerate(parts):
+            if len(parts) > 1:
+                part += f"\n\n<i>— {icon} {name}: часть {idx + 1} из {len(parts)} —</i>"
+            if idx == len(parts) - 1:
+                rival_name = FACTIONS[RIVALS[key]][1]
+                ally_name = FACTIONS[_FACTION_ALLY[key]][1]
+                part += (
+                    f"\n\n⚔️ <b>Соперник:</b> {rival_name}\n"
+                    f"🤝 <b>Союзник:</b> {ally_name}\n\n"
+                    f"<i>Листай страницы, чтобы узнать о каждой силе, "
+                    f"или вернись к выбору фракции.</i>"
+                )
+            pages.append({"key": key, "text": part})
+    return pages
+
+
+def _faction_lore_text(page: int = 0):
+    """Текст страницы книги лора фракций + ключ фракции для герба."""
+    pages = _faction_lore_pages()
+    page = max(0, min(page, len(pages) - 1))
+    entry = pages[page]
     if page == 0:
-        return FACTION_LORE_CIRCLE
-
-    # Страницы 1..4 — конкретная фракция
-    idx = page - 1
-    idx = max(0, min(idx, len(keys) - 1))
-    key = keys[idx]
-    body = FACTION_LORE[key]
-
-    rival = RIVALS.get(key, "")
-    rival_name = FACTIONS[rival][1] if rival in FACTIONS else "—"
-
-    # Явные союзники по лору (противоположные стороны кольца)
-    _ALLIES = {
-        "guard": "cult",
-        "scavengers": "order",
-        "cult": "guard",
-        "order": "scavengers",
-    }
-    ally_key = _ALLIES.get(key)
-    ally_name = FACTIONS[ally_key][1] if ally_key and ally_key in FACTIONS else ""
-
+        # У вступления свой заголовок и схема кольца вражды.
+        return entry["key"], entry["text"]
     header = (
-        f"📖 <b>Книга фракций</b> — страница <b>{page + 1}</b> из <b>{total_pages}</b>\n\n"
+        f"📖 <b>Книга фракций</b> — страница <b>{page + 1}</b> из <b>{len(pages)}</b>\n\n"
     )
-    footer = (
-        f"\n\n⚔️ <b>Соперник:</b> {rival_name}"
-        + (f"\n🤝 <b>Союзник:</b> {ally_name}" if ally_name else "")
-        + "\n\n<i>Листай страницы, чтобы узнать о каждой силе, "
-        "или вернись к выбору фракции.</i>"
+    return entry["key"], header + entry["text"]
+
+
+@router.callback_query(F.data.startswith("faction_page:"))
+async def faction_page_callback(callback: CallbackQuery):
+    """Листание книги выбора фракции: соседние гербы и бонусы."""
+    parts = callback.data.split(":")
+    char_id = int(parts[1])
+    page = int(parts[2])
+    await _show_faction_page(callback, char_id, page)
+
+
+async def _show_faction_lore_page(callback: CallbackQuery, char_id: int,
+                                  sel_page: int, page: int):
+    """Страница книги лора фракций; на главах сил висит их герб.
+
+    Подписи к фото ограничены 1024 символами — страницы лора бьются на
+    части (см. _faction_lore_pages), иначе Telegram отклоняет send и
+    глава приходит без картинки.
+    """
+    pages = _faction_lore_pages()
+    total = len(pages)
+    page = max(0, min(page, total - 1))
+    key, text = _faction_lore_text(page)
+
+    builder = InlineKeyboardBuilder()
+    rows = []
+    nav = 0
+    if page > 0:
+        builder.button(text="⬅️ Пред. страница",
+                       callback_data=f"faction_lore_page:{char_id}:{sel_page}:{page - 1}")
+        nav += 1
+    if page + 1 < total:
+        builder.button(text="След. страница ➡️",
+                       callback_data=f"faction_lore_page:{char_id}:{sel_page}:{page + 1}")
+        nav += 1
+    if nav:
+        rows.append(nav)
+    builder.button(text="◀️ Назад к выбору",
+                   callback_data=f"faction_lore_back:{char_id}:{sel_page}")
+    rows.append(1)
+    builder.adjust(*rows)
+
+    image_url = FACTION_IMAGES.get(key) if key else None
+    await send_or_edit_photo(
+        callback, text, reply_markup=builder.as_markup(), image_url=image_url
     )
-    return header + body + footer
 
 
 @router.callback_query(F.data.startswith("faction_lore:"))
 async def faction_lore_callback(callback: CallbackQuery):
-    """Книга лора фракций: вступление со схемой круговой вражды."""
-    char_id = int(callback.data.split(":")[1])
-    from engine.factions import FACTIONS
-    total_pages = len(FACTIONS) + 1  # +1 вступление
-    text = _faction_lore_text(0)
+    """Книга лора фракций: вступление со схемой круговой вражды.
 
-    builder = InlineKeyboardBuilder()
-    builder.button(text="След. страница ➡️", callback_data=f"faction_lore_page:{char_id}:1")
-    builder.button(text="◀️ Назад к выбору", callback_data=f"faction_lore_back:{char_id}")
-    builder.adjust(1)
-    await safe_edit_text(callback, text, reply_markup=builder.as_markup(), parse_mode="HTML")
+    Открывается из книги выбора фракции — запоминаем, с какой страницы
+    выбора игрок сюда пришёл, чтобы вернуть его туда же.
+    """
+    parts = callback.data.split(":")
+    char_id = int(parts[1])
+    sel_page = int(parts[2]) if len(parts) > 2 else 0
+    await _show_faction_lore_page(callback, char_id, sel_page, 0)
 
 
 @router.callback_query(F.data.startswith("faction_lore_page:"))
@@ -811,38 +969,18 @@ async def faction_lore_page_callback(callback: CallbackQuery):
     """Листание книги лора фракций."""
     parts = callback.data.split(":")
     char_id = int(parts[1])
-    page = int(parts[2])
-    from engine.factions import FACTIONS
-    total_pages = len(FACTIONS) + 1  # +1 вступление
-    text = _faction_lore_text(page)
-
-    builder = InlineKeyboardBuilder()
-    rows = []
-    nav = 0
-    if page > 0:
-        builder.button(text="⬅️ Пред. страница", callback_data=f"faction_lore_page:{char_id}:{page - 1}")
-        nav += 1
-    if page + 1 < total_pages:
-        builder.button(text="След. страница ➡️", callback_data=f"faction_lore_page:{char_id}:{page + 1}")
-        nav += 1
-    if nav:
-        rows.append(nav)
-    builder.button(text="◀️ Назад к выбору", callback_data=f"faction_lore_back:{char_id}")
-    rows.append(1)
-    builder.adjust(*rows)
-    await safe_edit_text(callback, text, reply_markup=builder.as_markup(), parse_mode="HTML")
+    sel_page = int(parts[2]) if len(parts) > 3 else 0
+    page = int(parts[3]) if len(parts) > 3 else int(parts[2])
+    await _show_faction_lore_page(callback, char_id, sel_page, page)
 
 
 @router.callback_query(F.data.startswith("faction_lore_back:"))
 async def faction_lore_back_callback(callback: CallbackQuery):
-    """Возврат из книги лора к экрану выбора фракции."""
-    char_id = int(callback.data.split(":")[1])
-    await safe_edit_text(
-        callback,
-        FACTION_SELECT_TEXT,
-        reply_markup=faction_select_keyboard(char_id),
-        parse_mode="HTML",
-    )
+    """Возврат из книги лора на ту же страницу книги выбора фракции."""
+    parts = callback.data.split(":")
+    char_id = int(parts[1])
+    sel_page = int(parts[2]) if len(parts) > 2 else 0
+    await _show_faction_page(callback, char_id, sel_page)
 
 
 @router.callback_query(F.data.startswith("start_faction:"))
@@ -851,13 +989,10 @@ async def start_faction_callback(callback: CallbackQuery):
     char_id = int(parts[1])
     faction_key = parts[2]
 
-    faction_to_loc = {
-        "guard": "Замок Пепла",
-        "scavengers": "Замок Глубин",
-        "cult": "Замок Теней",
-        "order": "Замок Рассвета",
-    }
-    loc_name = faction_to_loc.get(faction_key)
+    if faction_key not in FACTION_CARDS:
+        await callback.answer("Такой фракции нет.", show_alert=True)
+        return
+    loc_name = FACTION_CARDS[faction_key]["castle"]
 
     async with async_session() as session:
         character = await session.get(Character, char_id)
@@ -942,7 +1077,7 @@ async def start_faction_callback(callback: CallbackQuery):
         await session.commit()
         loc_name_full = loc.name
 
-    await safe_edit_text(
+    await send_or_edit_photo(
         callback,
         f"🎉 <b>Твой путь начинается!</b>\n\n"
         f"Ты примкнул к фракции <b>{core_factions.FACTIONS[faction_key][1]}</b> и стартуешь в локации <b>{loc_name_full}</b>.\n\n"
@@ -951,6 +1086,6 @@ async def start_faction_callback(callback: CallbackQuery):
         f"• Бонусы: <b>{bonus_desc}</b>\n\n"
         f"<i>Удачи в Теневых Землях! Нажмите кнопку ниже, чтобы продолжить путь...</i>",
         reply_markup=main_menu_keyboard(has_character=True),
-        parse_mode="HTML"
+        image_url=FACTION_IMAGES.get(faction_key),
     )
     await callback.answer("Герой успешно создан!", show_alert=True)

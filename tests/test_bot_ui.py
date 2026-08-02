@@ -73,6 +73,40 @@ def test_menus():
     check("healer_shop" in vip, "лавка лекаря доступна VIP из меню")
     check("profile" in plain and "inventory" in plain,
           "профиль и инвентарь остались на месте")
+    check("show_map" in plain and "journey" in plain,
+          "карта и путешествия — разные кнопки в меню")
+    check("world_map" not in plain,
+          "карта мира убрана из главного меню — живёт в разделе «Карта»")
+
+    print("\\n— Разделы карты —")
+    mv = datas(K.map_view_keyboard())
+    check("world_map" in mv and "journey" in mv,
+          "с карты локации открывается карта мира и экран «В путь»")
+    wm = datas(K.world_map_keyboard())
+    check(all(not d.startswith("travel:") for d in wm),
+          "на мировой карте нет переходов между замками")
+    check("show_map" in wm, "с карты мира можно вернуться к карте локации")
+    tv = datas(K.travel_keyboard([]))
+    check(all(not d.startswith("travel:") for d in tv),
+          "без направлений экран «В путь» пуст, но жил")
+
+    print("\\n— Книга выбора фракции —")
+    kb0 = datas(K.faction_select_keyboard(7, page=0))
+    check(any(d == "start_faction:7:guard" for d in kb0),
+          "первая страница — герб и выбор Стражи")
+    check(any(d.startswith("faction_page:7:1") for d in kb0),
+          "с первой страницы можно листать дальше")
+    check(not any(d == "faction_page:7:-1" for d in kb0),
+          "с первой страницы нет перехода назад в пустоту")
+    kb2 = datas(K.faction_select_keyboard(7, page=2))
+    check("start_faction:7:cult" in kb2, "третья страница — Культ")
+    check("faction_page:7:1" in kb2 and "faction_page:7:3" in kb2,
+          "средняя страница листается в обе стороны")
+    check(any(d.startswith("faction_lore:7:2") for d in kb2),
+          "книга лора запоминает, откуда её открыли")
+    kb_last = datas(K.faction_select_keyboard(7, page=99))
+    check("start_faction:7:order" in kb_last,
+          "переполнение страницы клампится к последней")
 
     print("\n— Клетка мира —")
     can = {d: True for d in ("n", "s", "e", "w")}
@@ -92,6 +126,42 @@ def test_menus():
     check("main_menu" in cont, "меню остаётся запасным выходом")
     with_extra = datas(K.continue_keyboard([("🛒 Торговать", "shop")]))
     check(with_extra[0] == "shop", "дополнительные действия идут первыми")
+
+
+def test_faction_lore_fits_caption():
+    """Главы лора с гербом обязаны влезать в лимит подписи к фото (1024).
+
+    Telegram отклоняет фото с подписью длиннее 1024 символов — и глава
+    молча приходила игроку без картинки вообще.
+    """
+    import os
+
+    from bot.handlers.start import (_faction_lore_pages, _faction_lore_text,
+                                    FACTION_IMAGES)
+
+    print("\\n— Подписи книги лора фракций —")
+    pages = _faction_lore_pages()
+    total = len(pages)
+    check(total >= 5, f"книга лора не жиже пяти страниц ({total})")
+    longest = 0
+    for i in range(total):
+        key, text = _faction_lore_text(i)
+        longest = max(longest, len(text))
+        if len(text) > 1024:
+            check(False, f"страница {i} не влезает в подпись ({len(text)})")
+    check(longest <= 1024,
+          f"каждая страница лора влезает в подпись (макс {longest})")
+    check(any(p["key"] for p in pages[1:]),
+          "на главах фракций есть герб (key у страниц)")
+    for p in pages[1:]:
+        check(os.path.exists("admin" + FACTION_IMAGES[p["key"]]),
+              f"герб {p['key']} существует на диске")
+    for img_path in set(FACTION_IMAGES.values()):
+        w, h = Image.open("admin" + img_path).size
+        check(w == h, f"герб {os.path.basename(img_path)} квадратный ({w}×{h})")
+    idem = [_faction_lore_text(i) for i in range(total)]
+    check([t for _, t in idem] == [_faction_lore_text(i)[1] for i in range(total)],
+          "тексты страниц стабильны между вызовами")
 
 
 def test_handlers_use_continue():
@@ -306,6 +376,7 @@ def test_admin_grid_axes():
 async def main():
     test_menus()
     test_handlers_use_continue()
+    test_faction_lore_fits_caption()
     test_profile_book()
     await test_inventory_sections()
     test_item_book_text()

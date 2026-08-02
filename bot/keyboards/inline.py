@@ -12,7 +12,10 @@ def main_menu_keyboard(has_character: bool = False, is_admin: bool = False,
     else:
         builder.button(text="🧙 Профиль", callback_data="profile")
         builder.button(text="🎒 Инвентарь", callback_data="inventory")
-        builder.button(text="🌍 Карта мира", callback_data="world_map")
+        # Карта и путешествия — разные вещи: карта только смотрит мир,
+        # а в дорогу герой отправляется отдельной кнопкой.
+        builder.button(text="🗺 Карта", callback_data="show_map")
+        builder.button(text="🥾 В путь", callback_data="journey")
         builder.button(text="👥 Пати", callback_data="party_menu")
         builder.button(text="🧭 Репутация", callback_data="reputation")
         builder.button(text="🏆 Топ", callback_data="leaderboard")
@@ -263,19 +266,34 @@ def cell_movement_keyboard(can_dirs: dict, dungeon_template_id: int | None = Non
 
 
 def map_view_keyboard():
+    """Раздел «Карта»: текущая карта локации + мировая карта + выход в путь."""
     builder = InlineKeyboardBuilder()
     builder.button(text="🌍 Карта мира", callback_data="world_map")
+    builder.button(text="🥾 В путь", callback_data="journey")
     builder.button(text="◀️ Назад", callback_data="back_to_cell")
     builder.adjust(1)
     return builder.as_markup()
 
 
-def travel_keyboard(safe_locations: list):
-    """Карта мира: список посещённых безопасных локаций для быстрого travel."""
+def world_map_keyboard():
+    """Мировая карта — только обзор: никаких переходов между замками.
+
+    Путешествия уехали на отдельный экран «В путь», а здесь лишь
+    возврат к карте локации и обратно в мир.
+    """
     builder = InlineKeyboardBuilder()
-    for loc in safe_locations[:8]:
+    builder.button(text="🗺 Карта локации", callback_data="show_map")
+    builder.button(text="◀️ Назад", callback_data="back_to_cell")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def travel_keyboard(destinations: list):
+    """Экран «В путь»: список посещённых локаций для быстрого travel."""
+    builder = InlineKeyboardBuilder()
+    for loc in destinations[:8]:
         builder.button(text=f"🏠 {loc.name}", callback_data=f"travel:{loc.id}")
-    builder.button(text="⚖️ Силы фракций", callback_data="reputation")
+    builder.button(text="🗺 Карта", callback_data="show_map")
     builder.button(text="◀️ Назад", callback_data="back_to_cell")
     builder.adjust(1)
     return builder.as_markup()
@@ -782,15 +800,39 @@ def dungeon_combat_keyboard():
     return builder.as_markup()
 
 
-def faction_select_keyboard(char_id: int, show_lore: bool = False):
+def faction_select_keyboard(char_id: int, page: int = 0):
+    """Книга выбора фракции: одна страница — один герб с бонусами.
+
+    Раньше выбор был четырьмя кнопками под длинной простынёй текста —
+    фракции выбирали вслепую, не увидев ни герба, ни награды. Как и в
+    книге классов, теперь игрок листает страницы, рассматривает герб и
+    бонусы, и только потом жмёт «Выбрать».
+    """
+    from engine.factions import FACTIONS, ORDER
+
     builder = InlineKeyboardBuilder()
-    builder.button(text="🛡 Стража Погоста", callback_data=f"start_faction:{char_id}:guard")
-    builder.button(text="💰 Гильдия падальщиков", callback_data=f"start_faction:{char_id}:scavengers")
-    builder.button(text="🌑 Культ Пожирателя", callback_data=f"start_faction:{char_id}:cult")
-    builder.button(text="⚜️ Орден Рассвета", callback_data=f"start_faction:{char_id}:order")
-    if show_lore:
-        builder.button(text="📖 Назад к выбору", callback_data=f"faction_lore_back:{char_id}")
-    else:
-        builder.button(text="📖 Книга лора фракций", callback_data=f"faction_lore:{char_id}")
-    builder.adjust(2, 1)
+    total = len(ORDER)
+    page = max(0, min(page, total - 1))
+    key = ORDER[page]
+    icon, name = FACTIONS[key][0], FACTIONS[key][1]
+
+    builder.button(
+        text=f"✅ Выбрать: {icon} {name}",
+        callback_data=f"start_faction:{char_id}:{key}",
+    )
+    rows = [1]
+
+    nav = 0
+    if page > 0:
+        builder.button(text="⬅️ Пред. знамя", callback_data=f"faction_page:{char_id}:{page - 1}")
+        nav += 1
+    if page + 1 < total:
+        builder.button(text="След. знамя ➡️", callback_data=f"faction_page:{char_id}:{page + 1}")
+        nav += 1
+    if nav:
+        rows.append(nav)
+
+    builder.button(text="📖 Книга лора фракций", callback_data=f"faction_lore:{char_id}:{page}")
+    rows.append(1)
+    builder.adjust(*rows)
     return builder.as_markup()
