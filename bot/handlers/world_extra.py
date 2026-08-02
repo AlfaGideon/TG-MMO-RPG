@@ -97,7 +97,7 @@ async def reputation(callback: CallbackQuery):
             if is_leader:
                 text += " <i>(Ты являешься лидером этой фракции! 👑)</i>"
             elif my_rep >= 300:
-                builder.button(text="👑 Стать лидером фракции (50k🪙)", callback_data=f"become_leader:{my_faction}")
+                builder.button(text="👑 Стать лидером фракции (50k🟤)", callback_data=f"become_leader:{my_faction}")
 
         builder.button(text="◀️ Назад", callback_data="main_menu")
         builder.adjust(1)
@@ -133,7 +133,7 @@ async def become_leader_callback(callback: CallbackQuery):
 
         from engine.currency import total_in_bronze, deduct_currency
         if total_in_bronze(character) < 50000:
-            await callback.answer("Недостаточно средств! Требуется 50,000🪙 (бронзы).", show_alert=True)
+            await callback.answer("Недостаточно средств! Требуется 50,000🟤 (бронзы).", show_alert=True)
             return
 
         # Deduct currency
@@ -176,7 +176,7 @@ async def claim_grave(callback: CallbackQuery):
             core_factions.award(character, "grave_looted")
         await session.commit()
 
-    got = [f"+{gold} 🪙"] if gold else []
+    got = [f"+{gold} 🟤"] if gold else []
     if items:
         got.append(f"🎒 вещей: {len(items)}")
     body = ", ".join(got) if got else "здесь уже пусто"

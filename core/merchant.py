@@ -212,7 +212,7 @@ async def generate_items(session, count: int = 4) -> dict:
         qty = (random.randint(3, 5)
                if item.item_type == ItemType.CONSUMABLE else 1)
         items.append({"item_id": item.id, "price": price, "qty": qty})
-        made.append(f"{item.icon} {item.name} — {price}🪙 ×{qty}")
+        made.append(f"{item.icon} {item.name} — {price}🟤 ×{qty}")
     await save(session, state)
     return {"ok": True, "count": len(made), "wares": made}
 
@@ -234,7 +234,7 @@ async def buy(session, character: Character, index: int) -> dict:
     from engine.currency import total_in_bronze, deduct_currency
     if total_in_bronze(character) < price:
         return {"ok": False,
-                "reason": f"Не хватает {price - total_in_bronze(character)}🪙."}
+                "reason": f"Не хватает {price - total_in_bronze(character)}🟤."}
     item = await session.get(Item, int(ware["item_id"]))
     if item is None:
         return {"ok": False, "reason": "Предмет потерялся — торговец убрал его с витрины."}

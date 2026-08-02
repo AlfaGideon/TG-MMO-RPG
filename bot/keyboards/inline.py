@@ -295,7 +295,7 @@ def merchant_book_keyboard(ware, page: int, total: int, can_buy: bool):
     rows = []
     if can_buy:
         builder.button(
-            text=f"🟢 💰 Купить за {ware['price']}🪙",
+            text=f"🟢 💰 Купить за {ware['price']}🟤",
             callback_data=f"merchant_buy:{page}",
         )
     else:
@@ -499,7 +499,7 @@ def auction_browse_keyboard(lots: list, page: int = 0, per_page: int = 6,
         badge = inst.badge() if inst else "🔹"
         name = inst.display_name(lot.item) if inst else (lot.item.name if lot.item else "Лот")
         builder.button(
-            text=f"{badge}{icon} {name} — {lot.price}🪙",
+            text=f"{badge}{icon} {name} — {lot.price}🟤",
             callback_data=f"auction_lot:{lot.id}",
         )
     rows = [1] * len(chunk)
@@ -580,12 +580,12 @@ def auction_price_keyboard(inv_id: int, prices: list, npc_price: int):
     builder = InlineKeyboardBuilder()
     for label, price in prices:
         builder.button(
-            text=f"{label} — {price}🪙",
+            text=f"{label} — {price}🟤",
             callback_data=f"auction_list:{inv_id}:{price}",
         )
     rows = [1] * len(prices)
     builder.button(
-        text=f"⚡ Сразу скупщику — {npc_price}🪙",
+        text=f"⚡ Сразу скупщику — {npc_price}🟤",
         callback_data=f"auction_npc_sell:{inv_id}",
     )
     builder.button(text="◀️ Назад", callback_data="auction_my_items:0")
@@ -600,7 +600,7 @@ def auction_my_lots_keyboard(lots: list):
         icon = lot.item.icon if lot.item else "❔"
         name = lot.instance.display_name(lot.item) if lot.instance else "Лот"
         builder.button(
-            text=f"↩️ {icon} {name} ({lot.price}🪙)",
+            text=f"↩️ {icon} {name} ({lot.price}🟤)",
             callback_data=f"auction_cancel:{lot.id}",
         )
     builder.button(text="◀️ К аукциону", callback_data="auction_menu")
@@ -712,7 +712,7 @@ def shop_book_keyboard(shop_item, page: int, total: int, can_buy: bool,
     if shop_item is not None:
         if can_buy:
             builder.button(
-                text=f"🟢 💰 Купить за {shop_item.price}🪙",
+                text=f"🟢 💰 Купить за {shop_item.price}🟤",
                 callback_data=f"buy:{shop_item.id}",
             )
         else:

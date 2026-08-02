@@ -162,11 +162,11 @@ async def auction_lot_view(callback: CallbackQuery):
     b_val = remainder % CONVERSION
     price_parts = []
     if g_val > 0:
-        price_parts.append(f"{g_val}🪙")
+        price_parts.append(f"{g_val}🟡")
     if s_val > 0:
-        price_parts.append(f"{s_val}🥈")
+        price_parts.append(f"{s_val}⚪")
     if b_val > 0 or not price_parts:
-        price_parts.append(f"{b_val}🪙")
+        price_parts.append(f"{b_val}🟤")
     price_str = " ".join(price_parts)
 
     lines += [
@@ -240,9 +240,9 @@ async def auction_buy(callback: CallbackQuery):
         s_v = rem // CONVERSION
         b_v = rem % CONVERSION
         parts = []
-        if g_v > 0: parts.append(f"{g_v}🪙")
-        if s_v > 0: parts.append(f"{s_v}🥈")
-        if b_v > 0 or not parts: parts.append(f"{b_v}🪙")
+        if g_v > 0: parts.append(f"{g_v}🟡")
+        if s_v > 0: parts.append(f"{s_v}⚪")
+        if b_v > 0 or not parts: parts.append(f"{b_v}🟤")
         return " ".join(parts)
 
     if seller_tg:
@@ -347,8 +347,8 @@ async def auction_sell(callback: CallbackQuery):
         callback,
         f"📢 <b>{name}</b>\n"
         f"🆔 <code>{uid}</code>\n\n"
-        f"Оценка аукциона: <b>{hint}</b>🪙\n"
-        f"Допустимая цена: от {low}🪙 до {high}🪙\n\n"
+        f"Оценка аукциона: <b>{hint}</b>🟤\n"
+        f"Допустимая цена: от {low}🟤 до {high}🟤\n\n"
         f"Выбери, за сколько выставить. Комиссия — "
         f"{int(auction.COMMISSION * 100)} % с продажи.\n"
         f"Не купят за сутки — вещь вернётся в сумку.",
@@ -393,9 +393,9 @@ async def auction_list(callback: CallbackQuery):
         s_v = rem // CONVERSION
         b_v = rem % CONVERSION
         parts = []
-        if g_v > 0: parts.append(f"{g_v}🪙")
-        if s_v > 0: parts.append(f"{s_v}🥈")
-        if b_v > 0 or not parts: parts.append(f"{b_v}🪙")
+        if g_v > 0: parts.append(f"{g_v}🟡")
+        if s_v > 0: parts.append(f"{s_v}⚪")
+        if b_v > 0 or not parts: parts.append(f"{b_v}🟤")
         return " ".join(parts)
 
     await send_or_edit_photo(callback,
@@ -444,9 +444,9 @@ async def auction_npc_sell(callback: CallbackQuery):
         s_v = rem // CONVERSION
         b_v = rem % CONVERSION
         parts = []
-        if g_v > 0: parts.append(f"{g_v}🪙")
-        if s_v > 0: parts.append(f"{s_v}🥈")
-        if b_v > 0 or not parts: parts.append(f"{b_v}🪙")
+        if g_v > 0: parts.append(f"{g_v}🟡")
+        if s_v > 0: parts.append(f"{s_v}⚪")
+        if b_v > 0 or not parts: parts.append(f"{b_v}🟤")
         return " ".join(parts)
 
     await send_or_edit_photo(callback,
@@ -482,7 +482,7 @@ async def auction_my_lots(callback: CallbackQuery):
             from core.dates import aware, utcnow
             hours = int((aware(lot.expires_at) - utcnow()).total_seconds() // 3600)
             left = f" · осталось ~{max(0, hours)}ч"
-        lines.append(f"• {name} — <b>{lot.price}</b>🪙{left}")
+        lines.append(f"• {name} — <b>{lot.price}</b>🟤{left}")
     lines.append("\n<i>Нажми на лот, чтобы снять его с продажи.</i>")
 
     await send_or_edit_photo(callback,

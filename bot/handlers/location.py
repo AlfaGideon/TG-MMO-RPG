@@ -418,7 +418,7 @@ async def inspect_cell(callback: CallbackQuery):
         if grave is not None:
             whose = ("твоя" if grave.character_id == character.id
                      else grave.owner_name or "чужая")
-            found.append(f"🪦 Надгробие ({whose}) — {grave.gold} 🪙")
+            found.append(f"🪦 Надгробие ({whose}) — {grave.gold} 🟤")
 
         # Другие игроки на клетке
         result_others = await session.execute(
@@ -544,6 +544,9 @@ async def world_map(callback: CallbackQuery):
             select(User).where(User.telegram_id == callback.from_user.id)
         )
         user = result.scalar_one_or_none()
+        if not user:
+            await callback.answer("Нажми /start, чтобы начать.", show_alert=True)
+            return
         result = await session.execute(
             select(Character)
             .where(Character.user_id == user.id)
@@ -553,6 +556,30 @@ async def world_map(callback: CallbackQuery):
         if not character:
             await callback.answer("Сначала создай героя.", show_alert=True)
             return
+
+        if character.location is None:
+            # Герой без локации: создание прервалось до выбора фракции
+            # (локация появляется вместе с ней) или мир пересоздавался и
+            # старый location_id больше не существует. Карта в таком виде
+            # падала с AttributeError — возвращаем на шаг создания или
+            # чиним привязку к миру.
+            from bot.handlers.start import resume_character_creation
+            if await resume_character_creation(callback, session, character):
+                return
+            fallback = (await session.execute(
+                select(Location).order_by(Location.id)
+            )).scalars().first()
+            if fallback is None:
+                await callback.answer("Мир ещё не создан. Загляни позже.", show_alert=True)
+                return
+            character.location_id = fallback.id
+            await session.commit()
+            result = await session.execute(
+                select(Character)
+                .where(Character.id == character.id)
+                .options(selectinload(Character.location))
+            )
+            character = result.scalar_one()
 
         locations = (await session.execute(select(Location))).scalars().all()
         visited_rows = await session.execute(
@@ -827,9 +854,9 @@ async def open_chest(callback: CallbackQuery):
             s_v = rem // CONVERSION
             b_v = rem % CONVERSION
             parts = []
-            if g_v > 0: parts.append(f"{g_v}🪙")
-            if s_v > 0: parts.append(f"{s_v}🥈")
-            if b_v > 0 or not parts: parts.append(f"{b_v}🪙")
+            if g_v > 0: parts.append(f"{g_v}🟡")
+            if s_v > 0: parts.append(f"{s_v}⚪")
+            if b_v > 0 or not parts: parts.append(f"{b_v}🟤")
             return " ".join(parts)
 
         text = f"📦 <b>Сундук открыт!</b>\n\nВнутри ты нашёл {fmt_b(gold)}."
@@ -1010,7 +1037,7 @@ async def dig_tunnel_menu(callback: CallbackQuery):
             "<b>Стоимость прокопки:</b>\n"
             "• 🧱 Железный лом ×10\n"
             "• 🧱 Стальной слиток ×5\n"
-            "• 🪙 500 бронзы (авторазмен)\n\n"
+            "• 🟤 500 бронзы (авторазмен)\n\n"
             "<b>Доступные направления:</b>\n"
         ]
 

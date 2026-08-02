@@ -149,9 +149,9 @@ def _recipe_text(recipe: CraftRecipe, status: dict, character) -> str:
         s_v = rem // CONVERSION
         b_v = rem % CONVERSION
         parts = []
-        if g_v > 0: parts.append(f"{g_v}🪙")
-        if s_v > 0: parts.append(f"{s_v}🥈")
-        if b_v > 0 or not parts: parts.append(f"{b_v}🪙")
+        if g_v > 0: parts.append(f"{g_v}🟡")
+        if s_v > 0: parts.append(f"{s_v}⚪")
+        if b_v > 0 or not parts: parts.append(f"{b_v}🟤")
         return " ".join(parts)
 
     gold_mark = "✅" if total_in_bronze(character) >= (recipe.gold_cost or 0) else "❌"
@@ -340,9 +340,9 @@ def _upgrade_text(inv_item, cost, character) -> str:
         s_v = rem // CONVERSION
         b_v = rem % CONVERSION
         parts = []
-        if g_v > 0: parts.append(f"{g_v}🪙")
-        if s_v > 0: parts.append(f"{s_v}🥈")
-        if b_v > 0 or not parts: parts.append(f"{b_v}🪙")
+        if g_v > 0: parts.append(f"{g_v}🟡")
+        if s_v > 0: parts.append(f"{s_v}⚪")
+        if b_v > 0 or not parts: parts.append(f"{b_v}🟤")
         return " ".join(parts)
 
     gold_ok = "✅" if total_in_bronze(character) >= cost["gold"] else "❌"

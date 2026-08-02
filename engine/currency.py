@@ -37,11 +37,11 @@ def add_currency(p, bronze=0, silver=0, gold=0):
     normalize_currencies(p)
 
 def currency_str(p):
-    """Красивая строка: 87🪙 12🥈 3🪙"""
+    """Красивая строка: 87🟤 12⚪ 3🟡"""
     b = getattr(p, "bronze", 0)
     s = getattr(p, "silver", 0)
     g = getattr(p, "gold", 0)
-    return f"{b}🪙 {s}🥈 {g}🪙"
+    return f"{b}🟤 {s}⚪ {g}🟡"
 
 def deduct_currency(p, cost_bronze):
     """Вычитает стоимость в бронзе из баланса игрока с учетом трех валют."""

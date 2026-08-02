@@ -17,7 +17,7 @@ SAMPLE_UPDATES = [
         "short": "Добавлена бронза, серебро и золото с конвертацией 1:100.",
         "full": [
             "• Введена трёхвалютная система",
-            "• Бронза 🪙 → Серебро 🥈 → Золото 🪙",
+            "• Бронза 🟤 → Серебро ⚪ → Золото 🟡",
             "• Автоконвертация при 100 единицах",
             "• Настройка курса в админке",
             "• Все награды, магазины и сундуки обновлены"
@@ -94,13 +94,23 @@ async def show_updates_page(callback: CallbackQuery, page: int):
     from aiogram.utils.keyboard import InlineKeyboardBuilder
     builder = InlineKeyboardBuilder()
 
+    nav = 0
     if page > 0:
         builder.button(text="◀️ Назад", callback_data=f"updates_page:{page-1}")
+        nav += 1
     if page < len(all_updates) - 1:
         builder.button(text="Вперёд ▶️", callback_data=f"updates_page:{page+1}")
+        nav += 1
 
+    # Книга обновлений — подраздел помощи: даём путь обратно к ней.
+    builder.button(text="❓ К помощи", callback_data="help")
     builder.button(text="◀️ В меню", callback_data="main_menu")
-    builder.adjust(2, 1)
+
+    rows = []
+    if nav:
+        rows.append(nav)
+    rows.append(2)
+    builder.adjust(*rows)
 
     await safe_edit_text(callback, text, reply_markup=builder.as_markup(), parse_mode="HTML")
     await callback.answer()

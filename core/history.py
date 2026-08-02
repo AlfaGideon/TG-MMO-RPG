@@ -115,7 +115,7 @@ def format_history(rows, max_lines: int = 8) -> str:
     for row in shown:
         when = row.created_at.strftime("%d.%m") if row.created_at else ""
         who = f" — {row.actor_name}" if row.actor_name else ""
-        price = f" за {row.price}🪙" if row.price else ""
+        price = f" за {row.price}🟤" if row.price else ""
         detail = f" <i>({row.detail})</i>" if row.detail else ""
         lines.append(
             f"{event_icon(row.event)} {when} {event_label(row.event)}{who}{price}{detail}"

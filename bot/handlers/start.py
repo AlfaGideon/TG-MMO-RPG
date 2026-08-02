@@ -32,6 +32,74 @@ class IdeaForm(StatesGroup):
     waiting_for_text = State()
 
 
+def faction_chosen(character) -> bool:
+    """Выбрана ли стартовая фракция.
+
+    Вместе с выбором фракции герой получает стартовую репутацию (+50),
+    и поле reputation перестаёт быть пустым. До выбора оно '' или None
+    (значение по умолчанию в БД) — надёжный маркер незавершённого шага.
+    """
+    return bool((getattr(character, "reputation", "") or "").strip())
+
+
+RESUME_HINT = (
+    "⚠️ <b>Создание героя прервалось.</b>\n"
+    "Продолжим с того самого места, где ты остановился!\n\n"
+)
+
+
+async def resume_character_creation(event, session, character) -> bool:
+    """Возвращает героя на прерванный шаг создания вместо главного меню.
+
+    Раньше /start (и кнопка «Меню») всегда открывали главное меню. Если
+    сервер обновлялся, пока игрок катал статы или не успел выбрать
+    фракцию, герой оказывался «в игре» без локации — меню показывало
+    полный набор кнопок, а «Карта мира» и другие разделы падали на
+    character.location = None. Теперь старт возвращает на последний
+    шаг создания: экран переката статов или выбор фракции.
+
+    event может быть Message (команда /start) или CallbackQuery
+    (кнопка «Меню»). Возвращает True, если вместо меню показан экран
+    продолжения создания.
+    """
+    if character.stats_locked and faction_chosen(character):
+        return False
+
+    cls_def = None
+    if not character.stats_locked:
+        cls_def = await get_class(session, character.character_class)
+
+    if not character.stats_locked and cls_def is not None:
+        # Игрок остановился на броске статов — показываем экран переката
+        # с текущим броском и остатком попыток.
+        base = cls_def.base_stats()
+        rolled = {k: getattr(character, k) for k in statroll.ROLLED_STATS}
+        affinities = await magic.get_affinities(session, character.id)
+        text = RESUME_HINT + reroll_text(character, cls_def, base, rolled, affinities)
+        markup = reroll_keyboard(character.id, character.rerolls_left)
+        if isinstance(event, CallbackQuery):
+            await send_or_edit_photo(
+                event, text, reply_markup=markup, image_url=cls_def.image_url,
+            )
+            await event.answer()
+        else:
+            await send_or_edit_photo(
+                event, text, reply_markup=markup, image_url=cls_def.image_url,
+            )
+        return True
+
+    # Статы зафиксированы, но фракция не выбрана (либо класс удалили —
+    # тогда тоже отправляем выбирать фракцию, чтобы не застрять).
+    text = RESUME_HINT + FACTION_SELECT_TEXT
+    markup = faction_select_keyboard(character.id)
+    if isinstance(event, CallbackQuery):
+        await safe_edit_text(event, text, reply_markup=markup, parse_mode="HTML")
+        await event.answer()
+    else:
+        await event.answer(text, reply_markup=markup, parse_mode="HTML")
+    return True
+
+
 def _class_book_text(cls_def, page: int, total: int) -> str:
     """Текст страницы «книги классов» на старте."""
     return (
@@ -65,6 +133,12 @@ async def cmd_start(message: Message):
             .options(selectinload(Character.location), selectinload(Character.cell))
         )
         character = result.scalar_one_or_none()
+
+        # Герой есть, но создание не завершено (перекат статов или выбор
+        # фракции прервались, например обновлением сервера) — возвращаем
+        # на последний шаг, а не в меню.
+        if character and await resume_character_creation(message, session, character):
+            return
 
         await message.answer(
             WELCOME_TEXT,
@@ -253,6 +327,11 @@ async def main_menu(callback: CallbackQuery, state: FSMContext):
             )
             character = result.scalar_one_or_none()
             has_char = character is not None
+
+        # Как и /start: если создание героя не завершено, «Меню» ведёт
+        # не в меню, а на прерванный шаг создания.
+        if character and await resume_character_creation(callback, session, character):
+            return
 
     await safe_edit_text(
         callback,
@@ -526,25 +605,25 @@ FACTION_SELECT_TEXT = """
 • Стартовая локация: <b>Замок Пепла</b>
 • Бонус характеристик: <b>+3 Выносливость</b> ❤️
 • Стартовая репутация: <b>+50</b> у Стражи
-• Награда: <b>100🪙</b>
+• Награда: <b>100🟤</b>
 
 💰 <b>Гильдия падальщиков</b> (на юго-западе)
 • Стартовая локация: <b>Замок Глубин</b>
 • Бонус характеристик: <b>+2 Удача, +1 Ловкость</b> 🍀🏃
 • Стартовая репутация: <b>+50</b> у Гильдии
-• Награда: <b>200🪙</b>
+• Награда: <b>200🟤</b>
 
 🌑 <b>Культ Пожирателя</b> (на северо-востоке)
 • Стартовая локация: <b>Замок Теней</b>
 • Бонус характеристик: <b>+3 Интеллект</b> 🧠
 • Стартовая репутация: <b>+50</b> у Культа
-• Награда: <b>100🪙 + Осколок души</b>
+• Награда: <b>100🟤 + Осколок души</b>
 
 ⚜️ <b>Орден Рассвета</b> (на северо-западе)
 • Стартовая локация: <b>Замок Рассвета</b>
 • Бонус характеристик: <b>+2 Сила, +1 Выносливость</b> 💪🛡
 • Стартовая репутация: <b>+50</b> у Ордена
-• Награда: <b>100🪙</b>
+• Награда: <b>100🟤</b>
 
 <i>Твой выбор определит стартовую позицию и начальный расклад сил в мире. Выбирай мудро!</i>
 """
@@ -819,12 +898,12 @@ async def start_faction_callback(callback: CallbackQuery):
         if faction_key == "guard":
             character.endurance += 3
             add_currency(character, bronze=100)
-            bonus_desc = "+3 Выносливость ❤️, 100🪙"
+            bonus_desc = "+3 Выносливость ❤️, 100🟤"
         elif faction_key == "scavengers":
             character.luck += 2
             character.agility += 1
             add_currency(character, bronze=200)
-            bonus_desc = "+2 Удача 🍀, +1 Ловкость 🏃, 200🪙"
+            bonus_desc = "+2 Удача 🍀, +1 Ловкость 🏃, 200🟤"
         elif faction_key == "cult":
             character.intelligence += 3
             add_currency(character, bronze=100)
@@ -839,12 +918,12 @@ async def start_faction_callback(callback: CallbackQuery):
                     item_id=soul_item.id,
                     quantity=1
                 ))
-            bonus_desc = "+3 Интеллект 🧠, 100🪙, Осколок души 💎"
+            bonus_desc = "+3 Интеллект 🧠, 100🟤, Осколок души 💎"
         elif faction_key == "order":
             character.strength += 2
             character.endurance += 1
             add_currency(character, bronze=100)
-            bonus_desc = "+2 Сила 💪, +1 Выносливость 🛡, 100🪙"
+            bonus_desc = "+2 Сила 💪, +1 Выносливость 🛡, 100🟤"
 
         # Initial reputation
         import core.factions as core_factions
