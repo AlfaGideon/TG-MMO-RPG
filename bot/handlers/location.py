@@ -14,6 +14,7 @@ from core.map_renderer import ensure_cell_image, render_player_map, get_player_m
 from bot.keyboards.inline import (
     cell_movement_keyboard, inspect_keyboard,
     main_menu_keyboard, map_view_keyboard,
+    world_map_keyboard,
     travel_keyboard, continue_keyboard,
 )
 from bot.utils.texts import location_text, cell_text, loot_text, format_floor_label
@@ -164,6 +165,109 @@ async def is_chest_available(session, cell: Cell) -> bool:
     if cell.chest_respawn_at and aware(cell.chest_respawn_at) > utcnow():
         return False
     return True
+
+
+async def _map_character(callback: CallbackQuery, session, need_cell: bool = False):
+    """Персонаж для экранов карты/пути — с починкой битых привязок.
+
+    «Карта» и «В путь» теперь висят в главном меню, поэтому экран обязан
+    переживать героев без локации (создание прервалось) и без клетки
+    (мир пересоздавали). Возвращает character или None, если ответ уже
+    отправлен (продолжение создания / ошибка).
+    """
+    result = await session.execute(
+        select(User).where(User.telegram_id == callback.from_user.id)
+    )
+    user = result.scalar_one_or_none()
+    if not user:
+        await callback.answer("Нажми /start, чтобы начать.", show_alert=True)
+        return None
+    result = await session.execute(
+        select(Character)
+        .where(Character.user_id == user.id)
+        .options(selectinload(Character.location), selectinload(Character.cell))
+    )
+    character = result.scalar_one_or_none()
+    if not character:
+        await callback.answer("Сначала создай героя.", show_alert=True)
+        return None
+
+    if character.location is None:
+        # Герой без локации: создание прервалось до выбора фракции
+        # (локация появляется вместе с ней) или мир пересоздавался и
+        # старый location_id больше не существует. Возвращаем на шаг
+        # создания или чиним привязку к миру.
+        from bot.handlers.start import resume_character_creation
+        if await resume_character_creation(callback, session, character):
+            return None
+        fallback = (await session.execute(
+            select(Location).order_by(Location.id)
+        )).scalars().first()
+        if fallback is None:
+            await callback.answer("Мир ещё не создан. Загляни позже.", show_alert=True)
+            return None
+        character.location_id = fallback.id
+        await session.commit()
+        result = await session.execute(
+            select(Character)
+            .where(Character.id == character.id)
+            .options(selectinload(Character.location), selectinload(Character.cell))
+        )
+        character = result.scalar_one()
+
+    if need_cell and character.cell is None:
+        # Клетка пропала (мигрaции мира): ставим героя на спавн-клетку
+        # его локации, иначе карту локации рисовать негде.
+        from core import worldops as WO
+        dest = await WO.spawn_cell_of(session, character.location)
+        if dest is None:
+            await callback.answer("В локации нет проходимых клеток.", show_alert=True)
+            return None
+        character.cell_id = dest.id
+        character.floor = 0
+        await mark_visited(session, character, dest)
+        await session.commit()
+        result = await session.execute(
+            select(Character)
+            .where(Character.id == character.id)
+            .options(selectinload(Character.location), selectinload(Character.cell))
+        )
+        character = result.scalar_one()
+    return character
+
+
+async def _send_map_photo(callback: CallbackQuery, map_path: str, caption: str, reply_markup):
+    """Показать картинку карты: заменить текущее фото или отправить новое.
+
+    Раньше у каждого экрана карты был свой экземпляр этого блока, причём
+    в «Карте мира» caption передавался аргументом edit_media, который его
+    не принимает, — и сообщение каждый раз пересылалось заново.
+    """
+    from aiogram.types import InputMediaPhoto
+    msg = callback.message
+    try:
+        if msg and msg.photo:
+            await msg.edit_media(
+                media=InputMediaPhoto(
+                    media=FSInputFile(map_path), caption=caption, parse_mode="HTML"
+                ),
+                reply_markup=reply_markup,
+            )
+            return
+        if msg:
+            try:
+                await msg.delete()
+            except Exception:
+                pass
+        await callback.message.answer_photo(
+            photo=FSInputFile(map_path), caption=caption,
+            parse_mode="HTML", reply_markup=reply_markup,
+        )
+    except Exception:
+        await callback.message.answer_photo(
+            photo=FSInputFile(map_path), caption=caption,
+            parse_mode="HTML", reply_markup=reply_markup,
+        )
 
 
 async def mark_visited(session, character: Character, cell: Cell):
@@ -574,19 +678,14 @@ async def inspect_cell(callback: CallbackQuery):
 
 @router.callback_query(F.data == "show_map")
 async def show_map(callback: CallbackQuery):
+    """Раздел «Карта»: текущая карта локации.
+
+    Отсюда же открывается мировая карта и экран «В путь» — три экрана
+    связаны, но не смешивают обзор и путешествия.
+    """
     async with async_session() as session:
-        result = await session.execute(
-            select(User).where(User.telegram_id == callback.from_user.id)
-        )
-        user = result.scalar_one_or_none()
-        result = await session.execute(
-            select(Character)
-            .where(Character.user_id == user.id)
-            .options(selectinload(Character.location), selectinload(Character.cell))
-        )
-        character = result.scalar_one_or_none()
-        if not character or not character.cell:
-            await callback.answer("Ошибка.", show_alert=True)
+        character = await _map_character(callback, session, need_cell=True)
+        if character is None:
             return
 
         location = character.location
@@ -618,82 +717,30 @@ async def show_map(callback: CallbackQuery):
 
         show_floor = (floor != 0) or (location.floors_count and location.floors_count > 1)
         floor_label = f" ({format_floor_label(floor, location.floors_count or 1, location.name)})" if show_floor else ""
-        caption = f"🗺 <b>{location.name}</b>{floor_label}\n\nИсследовано клеток: {len(visited)}"
+        caption = (
+            f"🗺 <b>{location.name}</b>{floor_label}\n\n"
+            f"Исследовано клеток: {len(visited)}\n\n"
+            f"<i>Это раздел «Карта»: отсюда можно открыть 🌍 карту мира "
+            f"или отправиться 🥾 в путь.</i>"
+        )
 
-        photo = FSInputFile(map_path)
-        msg = callback.message
-        try:
-            if msg and msg.photo:
-                from aiogram.types import InputMediaPhoto
-                await msg.edit_media(
-                    media=InputMediaPhoto(media=photo, caption=caption, parse_mode="HTML"),
-                    reply_markup=map_view_keyboard(),
-                )
-            else:
-                if msg:
-                    try:
-                        await msg.delete()
-                    except Exception:
-                        pass
-                await callback.message.answer_photo(
-                    photo=photo, caption=caption, parse_mode="HTML",
-                    reply_markup=map_view_keyboard(),
-                )
-        except Exception:
-            await callback.message.answer_photo(
-                photo=FSInputFile(map_path), caption=caption, parse_mode="HTML",
-                reply_markup=map_view_keyboard(),
-            )
+        await _send_map_photo(callback, map_path, caption, map_view_keyboard())
 
 
 @router.callback_query(F.data == "world_map")
 async def world_map(callback: CallbackQuery):
-    """Карта мира: посещённые локации, текущая позиция, туман войны."""
+    """Карта мира: посещённые локации, текущая позиция, туман войны.
+
+    Это просто карта — никаких переходов между замками: быстрые
+    путешествия живут на отдельном экране «В путь».
+    """
     from core.map_renderer import render_world_map, get_world_map_path
     from core.worldgen import WORLD_GRID_SIZE
-    from core.enums import LocationType
 
     async with async_session() as session:
-        result = await session.execute(
-            select(User).where(User.telegram_id == callback.from_user.id)
-        )
-        user = result.scalar_one_or_none()
-        if not user:
-            await callback.answer("Нажми /start, чтобы начать.", show_alert=True)
+        character = await _map_character(callback, session)
+        if character is None:
             return
-        result = await session.execute(
-            select(Character)
-            .where(Character.user_id == user.id)
-            .options(selectinload(Character.location))
-        )
-        character = result.scalar_one_or_none()
-        if not character:
-            await callback.answer("Сначала создай героя.", show_alert=True)
-            return
-
-        if character.location is None:
-            # Герой без локации: создание прервалось до выбора фракции
-            # (локация появляется вместе с ней) или мир пересоздавался и
-            # старый location_id больше не существует. Карта в таком виде
-            # падала с AttributeError — возвращаем на шаг создания или
-            # чиним привязку к миру.
-            from bot.handlers.start import resume_character_creation
-            if await resume_character_creation(callback, session, character):
-                return
-            fallback = (await session.execute(
-                select(Location).order_by(Location.id)
-            )).scalars().first()
-            if fallback is None:
-                await callback.answer("Мир ещё не создан. Загляни позже.", show_alert=True)
-                return
-            character.location_id = fallback.id
-            await session.commit()
-            result = await session.execute(
-                select(Character)
-                .where(Character.id == character.id)
-                .options(selectinload(Character.location))
-            )
-            character = result.scalar_one()
 
         locations = (await session.execute(select(Location))).scalars().all()
         visited_rows = await session.execute(
@@ -709,9 +756,45 @@ async def world_map(callback: CallbackQuery):
                          WORLD_GRID_SIZE, map_path)
 
         total = len(locations)
-        caption = (f"🌍 <b>Карта мира</b>\n\n"
-                   f"Исследовано локаций: <b>{len(visited_ids)} из {total}</b>\n"
-                   f"📍 Ты здесь: <b>{character.location.name}</b>")
+        caption = (
+            f"🌍 <b>Карта мира</b>\n\n"
+            f"Исследовано локаций: <b>{len(visited_ids)} из {total}</b>\n"
+            f"📍 Ты здесь: <b>{character.location.name}</b>\n\n"
+            f"<i>Отправиться в путь — кнопка 🥾 «В путь» в разделе "
+            f"«Карта» или в главном меню.</i>"
+        )
+        await _send_map_photo(callback, map_path, caption, world_map_keyboard())
+
+
+@router.callback_query(F.data == "journey")
+async def journey(callback: CallbackQuery):
+    """Экран «В путь»: мгновенные путешествия между посещёнными локациями.
+
+    Раньше список направлений висел прямо под картой мира, и она
+    превращалась из карты в пульт переездов. Теперь карта — только
+    обзор, а весь travel живёт здесь.
+    """
+    from core.map_renderer import render_world_map, get_world_map_path
+    from core.worldgen import WORLD_GRID_SIZE
+    from core.enums import LocationType
+
+    async with async_session() as session:
+        character = await _map_character(callback, session)
+        if character is None:
+            return
+
+        locations = (await session.execute(select(Location))).scalars().all()
+        visited_rows = await session.execute(
+            select(VisitedCell.location_id)
+            .where(VisitedCell.character_id == character.id)
+            .distinct()
+        )
+        visited_ids = {row[0] for row in visited_rows.all()}
+        visited_ids.add(character.location_id)  # текущая всегда открыта
+
+        map_path = get_world_map_path(character.id)
+        render_world_map(locations, visited_ids, character.location_id,
+                         WORLD_GRID_SIZE, map_path)
 
         # Быстрый travel — обычные только в safe, VIP в любые посещённые
         if is_vip_active(character):
@@ -725,31 +808,24 @@ async def world_map(callback: CallbackQuery):
                 if l.location_type == LocationType.SAFE
                 and l.id in visited_ids and l.id != character.location_id
             ]
-        kb = travel_keyboard(travel_targets)
 
-        photo = FSInputFile(map_path)
-        msg = callback.message
-        try:
-            if msg and msg.photo:
-                from aiogram.types import InputMediaPhoto
-                await msg.edit_media(
-                    media=InputMediaPhoto(media=photo),
-                    caption=caption, parse_mode="HTML", reply_markup=kb,
-                )
-            else:
-                if msg:
-                    try:
-                        await msg.delete()
-                    except Exception:
-                        pass
-                await callback.message.answer_photo(
-                    photo=photo, caption=caption, parse_mode="HTML", reply_markup=kb,
-                )
-        except Exception:
-            await callback.message.answer_photo(
-                photo=FSInputFile(map_path), caption=caption,
-                parse_mode="HTML", reply_markup=kb,
+        if travel_targets:
+            caption = (
+                f"🥾 <b>В путь!</b>\n\n"
+                f"📍 Ты здесь: <b>{character.location.name}</b>\n\n"
+                f"Мгновенные путешествия доступны между уже посещёнными "
+                f"безопасными локациями <i>(VIP — любыми посещёнными)</i>.\n\n"
+                f"<b>Выбери направление — и вперёд:</b>"
             )
+        else:
+            caption = (
+                f"🥾 <b>В путь!</b>\n\n"
+                f"📍 Ты здесь: <b>{character.location.name}</b>\n\n"
+                f"Пока доступных направлений нет. Доберись пешком до других "
+                f"безопасных локаций — и они откроются здесь для мгновенных "
+                f"путешествий <i>(VIP — любые посещённые)</i>."
+            )
+        await _send_map_photo(callback, map_path, caption, travel_keyboard(travel_targets))
 
 
 @router.callback_query(F.data.startswith("travel:"))
