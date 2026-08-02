@@ -579,15 +579,19 @@ async def start_faction_callback(callback: CallbackQuery):
             )
             loc = loc_res.scalar_one()
 
-        cell_res = await session.execute(
-            select(Cell).where(Cell.location_id == loc.id).where(Cell.is_passable == True)
-        )
-        cells = cell_res.scalars().all()
-        if cells:
+        # Спавн — в правильном внутреннем замке 10×10 угловой локации
+        # (внешний угол: (0,0)->(5,5), (9,0)->(5,19), (0,9)->(19,5), (9,9)->(19,19)),
+        # а не в центре-площади.
+        from core.seed import castle_spawn_cell
+        spawn_cell = await castle_spawn_cell(session, loc)
+        if spawn_cell is None:
+            cell_res = await session.execute(
+                select(Cell).where(Cell.location_id == loc.id).where(Cell.is_passable == True)
+            )
+            cells = cell_res.scalars().all()
             center = loc.grid_size // 2
-            spawn_cell = min(cells, key=lambda c: (c.x - center)**2 + (c.y - center)**2)
-        else:
-            spawn_cell = None
+            spawn_cell = (min(cells, key=lambda c: (c.x - center) ** 2 + (c.y - center) ** 2)
+                          if cells else None)
 
         character.location_id = loc.id
         character.cell_id = spawn_cell.id if spawn_cell else None

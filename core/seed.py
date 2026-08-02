@@ -463,6 +463,33 @@ async def _seal_fortress_and_link_gates(session):
     await session.flush()
 
 
+def castle_spawn_xy(world_x, world_y, grid=25):
+    """Клетка спавна внутри углового замка 25×25 — центр того внутреннего
+    замка 10×10, что лежит во ВНЕШНЕМ углу локации (ближайшем к краю карты).
+
+      (0,0)→(5,5)   (9,0)→(5,19)   (0,9)→(19,5)   (9,9)→(19,19)
+
+    world_x — восток (= cell y), world_y — юг (= cell x); внутренние замки:
+    северные в строках 0-9 (центр x=5), южные 15-24 (x=19);
+    западные в колонках 0-9 (y=5), восточные 15-24 (y=19).
+    """
+    half = WORLD_GRID // 2  # граница «север/юг» и «запад/восток» на карте
+    cx = 5 if world_y < half else 19
+    cy = 5 if world_x < half else 19
+    return cx, cy
+
+
+async def castle_spawn_cell(session, loc):
+    """Cell спавна в угловом замке loc (центр внешнего внутреннего замка)
+    или None, если такой клетки нет."""
+    sx, sy = castle_spawn_xy(loc.world_x, loc.world_y, loc.grid_size or 25)
+    result = await session.execute(
+        select(Cell).where(Cell.location_id == loc.id).where(Cell.floor == 0)
+        .where(Cell.x == sx).where(Cell.y == sy)
+    )
+    return result.scalar_one_or_none()
+
+
 async def seed_database():
     """Засеять мир с нуля.
 
