@@ -144,21 +144,16 @@ def continue_keyboard(extra: list | None = None, with_inspect: bool = True):
 
 
 def profile_book_keyboard(page: int, total: int, titles: list):
-    """Листалка «книги о герое»: развороты вместо одной длинной простыни."""
+    """Навигация «книги о герое»: только закладки-разделы и выход в меню.
+
+    Раньше здесь были и стрелки «Пред./След.», и закладки всех разделов —
+    двойная навигация давала до шести кнопок под маленькой карточкой.
+    Закладки сами ведут на любой разворот одним нажатием, поэтому стрелки
+    убраны как лишние.
+    """
     builder = InlineKeyboardBuilder()
     rows = []
 
-    nav = 0
-    if page > 0:
-        builder.button(text="⬅️ Пред.", callback_data=f"profile_page:{page - 1}")
-        nav += 1
-    if page + 1 < total:
-        builder.button(text="След. ➡️", callback_data=f"profile_page:{page + 1}")
-        nav += 1
-    if nav:
-        rows.append(nav)
-
-    # Быстрый переход на любой разворот — закладки книги.
     tabs = 0
     for idx, title in enumerate(titles):
         if idx == page:
@@ -166,10 +161,7 @@ def profile_book_keyboard(page: int, total: int, titles: list):
         builder.button(text=title, callback_data=f"profile_page:{idx}")
         tabs += 1
     if tabs:
-        rows.append(2 if tabs > 1 else 1)
-        if tabs > 2:
-            rows[-1] = 2
-            rows.append(tabs - 2)
+        rows = [2] * (tabs // 2) + ([1] if tabs % 2 else [])
 
     builder.button(text="🏠 Меню", callback_data="main_menu")
     rows.append(1)
