@@ -9,7 +9,8 @@ from fastapi import FastAPI, Request, Form, UploadFile, File, HTTPException, Web
 from fastapi.responses import RedirectResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware  # noqa: F401 (kept for compat)
+from starlette.types import ASGIApp, Scope, Receive, Send
 from sqlalchemy import select, func, delete, String
 from sqlalchemy.orm import selectinload
 import asyncio
@@ -157,33 +158,82 @@ STATION_LABELS = {
 }
 
 
-class RoleMiddleware(BaseHTTPMiddleware):
-    """Attaches request.state.role: None means unrestricted (owner) access,
-    otherwise one of viewer/moderator/admin for a granted web-admin session."""
+class RoleMiddleware:
+    """Чистая ASGI-обёртка: подмешивает role/caps в request.state.
 
-    async def dispatch(self, request: Request, call_next):
-        session = webauth.get_web_session(request)
-        request.state.role = session[1] if session else None
-        request.state.web_user_id = session[0] if session else None
-        request.state.caps = None
+    В отличие от BaseHTTPMiddleware, не ломает WebSocket-соединения
+    (базовый класс Starlette известен тем, что рвёт WS-апгрейд — это и
+    было причиной 502/1033 через Cloudflare Tunnel). Пропускает
+    WebSocket и статику без обращения к БД.
+    """
 
-        # Точечные права хранятся у пользователя — подтягиваем их на каждый
-        # запрос, чтобы изменения применялись без перелогина.
-        if session:
-            try:
-                async with async_session() as db:
-                    user = await db.get(User, session[0])
-                    if user is None or not user.is_web_admin:
-                        resp = RedirectResponse(url="/admin-login", status_code=303)
-                        resp.delete_cookie(webauth.COOKIE_NAME)
-                        return resp
-                    request.state.caps = user.web_admin_caps
-                    request.state.role = user.web_admin_role or session[1]
-            except Exception:
-                pass
+    def __init__(self, app: ASGIApp):
+        self.app = app
 
-        response = await call_next(request)
-        return response
+    async def __call__(self, scope: Scope, receive: Receive, send: Send):
+        # WebSocket и lifespan — пропускаем без обработки
+        if scope["type"] not in ("http",):
+            await self.app(scope, receive, send)
+            return
+
+        # Быстрый путь: нет cookie — значит, владелец (role=None = полный доступ).
+        # Никакого запроса к БД не делаем, не замедляем туннель.
+        cookies = {}
+        for header_name, header_value in scope.get("headers", []):
+            if header_name == b"cookie":
+                for part in header_value.decode("latin-1").split(";"):
+                    part = part.strip()
+                    if "=" in part:
+                        k, v = part.split("=", 1)
+                        cookies[k.strip()] = v.strip()
+                break
+
+        token = cookies.get(webauth.COOKIE_NAME)
+        if not token:
+            scope["state"] = {**scope.get("state", {}),
+                              "role": None, "web_user_id": None, "caps": None}
+            await self.app(scope, receive, send)
+            return
+
+        # Есть cookie — разбираем токен (без БД)
+        session = webauth.parse_session_token(token)
+        if not session:
+            scope["state"] = {**scope.get("state", {}),
+                              "role": None, "web_user_id": None, "caps": None}
+            await self.app(scope, receive, send)
+            return
+
+        # Сверяем, что пользователь ещё веб-админ, и подтягиваем точечные права
+        try:
+            async with async_session() as db:
+                user = await db.get(User, session[0])
+                if user is None or not user.is_web_admin:
+                    # Неадмин — редирект на логин
+                    await self._send_redirect(send, scope)
+                    return
+                caps = user.web_admin_caps
+                role = user.web_admin_role or session[1]
+        except Exception:
+            # БД недоступна — пропускаем как владельца, пусть дальше
+            # разбирается (иначе любой сбой БД роняет весь туннель)
+            caps = None
+            role = session[1]
+
+        scope["state"] = {**scope.get("state", {}),
+                          "role": role, "web_user_id": session[0], "caps": caps}
+        await self.app(scope, receive, send)
+
+    @staticmethod
+    async def _send_redirect(send: Send, scope: Scope):
+        """Минимальный HTTP 303 на /admin-login + удаление cookie."""
+        headers = [
+            (b"location", b"/admin-login"),
+            (b"set-cookie",
+             f"{webauth.COOKIE_NAME}=; Max-Age=0; Path=/; SameSite=Lax".encode()),
+            (b"content-type", b"text/html"),
+        ]
+        await send({"type": "http.response.start", "status": 303, "headers": headers})
+        await send({"type": "http.response.body", "body": b"Redirecting..."})
 
 
 app.add_middleware(RoleMiddleware)
@@ -196,6 +246,16 @@ async def access_denied_handler(request: Request, exc: HTTPException):
             request, "access_denied.html", {"detail": exc.detail}, status_code=403
         )
     return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+
+
+@app.get("/health")
+async def health_check():
+    """Лёгкий health-check для Cloudflare Tunnel и балансировщиков.
+
+    Не обращается к БД и не делает тяжёлых операций — достаточно проверить,
+    что процесс uvicorn жив и отвечает на HTTP.
+    """
+    return {"status": "ok", "bot": bot_runner.is_running()}
 
 
 async def get_bot_proxy_url(session=None) -> str:
