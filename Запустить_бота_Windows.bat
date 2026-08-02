@@ -1,14 +1,17 @@
 @echo off
 chcp 65001 >nul
-title Shadow Lands — запуск сервера
+setlocal
+cd /d "%~dp0"
+title Shadow Lands — сервер и бот
+
 echo.
 echo  ==========================================
-echo   🌑 Shadow Lands — запуск сервера
+echo   🌑 Shadow Lands — запуск сервера и бота
 echo  ==========================================
-echo   ОБНОВЛЕНИЯ ТЫКАТЬ НЕ НАДО — обновления
-echo   делаются КНОПКОЙ в самой админ-панели:
-echo   Настройки  →  Обновить с GitHub
-echo  ==========================================
+echo.
+echo   Один проект — одно окно запуска.
+echo   Не запускай одновременно run.bat, setup_and_run.bat
+echo  или вторую копию этого файла.
 echo.
 
 :: Проверка Python
@@ -16,51 +19,85 @@ python --version >nul 2>&1
 if errorlevel 1 (
     echo ❌ Python не найден!
     echo Скачай и установи: https://python.org/downloads
-    echo ☑️ Обязательно поставь галочку "Add Python to PATH"
+    echo ☑️ При установке отметь "Add Python to PATH"
     pause
-    exit /b
+    exit /b 1
 )
 
-:: Проверка Git
-git --version >nul 2>&1
-if errorlevel 1 (
-    echo ❌ Git не найден!
-    echo Скачай и установи: https://git-scm.com/download/win
-    pause
-    exit /b
-)
-
-:: Если мы не в папке проекта — скачиваем его (только первый раз)
+:: Если файл запущен рядом с проектом, а не из него — клонируем проект.
 if not exist "launch.py" (
     echo 📥 Первый запуск — скачиваю проект с GitHub...
-    cd /d %~dp0
+    git --version >nul 2>&1
+    if errorlevel 1 (
+        echo ❌ Git не найден!
+        echo Скачай и установи: https://git-scm.com/download/win
+        pause
+        exit /b 1
+    )
     git clone https://github.com/AlfaGideon/TG-MMO-RPG.git
-    cd TG-MMO-RPG
+    if errorlevel 1 (
+        echo ❌ Не удалось скачать проект.
+        pause
+        exit /b 1
+    )
+    cd /d "%CD%\TG-MMO-RPG"
 )
 
-echo 🐍 Создаю виртуальное окружение (если его нет)...
-if not exist "venv" python -m venv venv
+:: Не создаём второй сервер: это предотвращает конфликт бота и порта 8000.
+python -c "import socket; s=socket.socket(); s.settimeout(1); busy=s.connect_ex(('127.0.0.1', 8000)) == 0; s.close(); raise SystemExit(0 if busy else 1)"
+if not errorlevel 1 goto :ALREADY_RUNNING
 
-echo ⚡ Активирую окружение...
+echo 🐍 Создаю виртуальное окружение (если его нет)...
+if not exist "venv\Scripts\python.exe" python -m venv venv
+if errorlevel 1 (
+    echo ❌ Не удалось создать виртуальное окружение.
+    pause
+    exit /b 1
+)
+
 call venv\Scripts\activate.bat
 
-echo 📦 Устанавливаю библиотеки...
-pip install -q -r requirements.txt
+echo 📦 Устанавливаю/проверяю библиотеки...
+python -m pip install -q -r requirements.txt
+if errorlevel 1 (
+    echo ❌ Не удалось установить зависимости.
+    pause
+    exit /b 1
+)
 
 echo.
 echo  ==========================================
-echo   ✅ Сервер запускается!
+echo   ✅ Запускаю единственный экземпляр сервера
 echo  ==========================================
 echo.
-echo   🌐 Открой админку в браузере: http://localhost:8000
-echo   🕹 Затем в админке: Настройки → Запустить бота
+echo   🏠 Локальная панель: http://localhost:8000
+echo   🌐 Публичный HTTPS-адрес Cloudflare появится в этом окне
+echo      после запуска и сохранится в Настройках панели.
+echo   🕹 Бот запускается в панели: Настройки → Запустить бота
 echo   🔄 Обновления: Настройки → Обновить с GitHub
 echo.
-echo   👉 Держи это окно ОТКРЫТЫМ, пока хочешь,
-echo      чтобы бот и админка работали.
-echo      Чтобы остановить — нажми Ctrl+C
+echo   👉 Не закрывай это окно. Остановка: Ctrl+C
 echo.
 
+:: launch.py запускает и панель, и бота (если токен сохранён),
+:: и штатный Cloudflare Quick Tunnel. Никакие другие .bat запускать не нужно.
 python launch.py
 
+echo.
+echo Сервер остановлен.
 pause
+exit /b
+
+:ALREADY_RUNNING
+echo.
+echo  ==========================================
+echo   ⚠️ Сервер уже запущен на порту 8000.
+echo  ==========================================
+echo.
+echo   Второй экземпляр не запущен: это защищает от
+echo   конфликта Telegram-бота (TelegramConflictError).
+echo   Открываю уже работающую панель: http://localhost:8000
+echo.
+start "" "http://localhost:8000"
+pause
+exit /b 0
