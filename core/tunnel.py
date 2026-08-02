@@ -51,7 +51,8 @@ _URL_TIMEOUT = 45  # столько ждём публичный адрес от 
 
 
 def tunnel_enabled() -> bool:
-    return os.getenv(TUNNEL_ENV, "1").strip().lower() not in ("0", "false", "no", "off")
+    # Схема Cloudflare Quick Tunnel удалена — туннель больше не используется.
+    return False
 
 
 def is_quick_tunnel_url(value: str) -> bool:
@@ -343,12 +344,9 @@ async def verify_tunnel_url(url: str, timeout: float = 20.0) -> bool:
 
 
 async def setup_public_url(port: int) -> CloudflareTunnel | None:
-    """Поднять туннель и записать публичный адрес в настройки панели.
-
-    Ничего не делает, если туннель выключен или адрес уже задан вручную.
-    Сохранённый panel_url сразу подхватывается ботом для Mini App-кнопки.
-    """
-    global _current
+    # Схема Cloudflare Quick Tunnel удалена.
+    logger.info("Quick Tunnel отключён (ADMIN_TUNNEL=0) — панель работает напрямую.")
+    return None
     if not tunnel_enabled():
         mark_tunnel_managed(False)
         logger.info(f"Quick Tunnel выключен ({TUNNEL_ENV}=0) — панель локальная.")

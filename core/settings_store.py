@@ -49,16 +49,8 @@ def normalize_url(raw: str) -> str:
 
 
 def is_temporary_tunnel_url(value: str) -> bool:
-    """Это одноразовый адрес Cloudflare Quick Tunnel?
-
-    Такой домен живёт только пока работает конкретный процесс cloudflared.
-    Сохранять его как «постоянную настройку» нельзя: после перезапуска он
-    ведёт на страницу Cloudflare 1033, а не в панель.
-    """
-    try:
-        host = (urlparse(normalize_url(value)).hostname or "").lower()
-    except ValueError:
-        return False
+    # Схема Cloudflare Quick Tunnel удалена — временные адреса больше не используются.
+    return False
 
 
 def set_active_tunnel_url(url: str) -> None:
@@ -68,32 +60,23 @@ def set_active_tunnel_url(url: str) -> None:
 
 
 def active_tunnel_url() -> str:
-    return _active_tunnel_url
+    # Туннельная схема удалена.
+    return ""
 
 
 def mark_tunnel_managed(flag: bool = True) -> None:
-    """Отметить, что Quick Tunnel поднимает этот процесс.
-
-    с живым адресом, считается мусором прошлого запуска.
-    """
+    # Туннельная схема удалена.
     global _tunnel_managed
-    _tunnel_managed = bool(flag)
+    _tunnel_managed = False
 
 
 def tunnel_is_managed() -> bool:
-    return _tunnel_managed
+    return False
 
 
 def is_stale_tunnel_url(value: str) -> bool:
-    """Адрес принадлежит прошлому запуску Quick Tunnel (ссылка уже мертва)."""
-    url = normalize_url(value)
-    if not url or not is_temporary_tunnel_url(url):
-        return False
-    if not _tunnel_managed:
-        # Туннель ведёт кто-то снаружи (ADMIN_TUNNEL=0 + ручной cloudflared) —
-        # не нам судить, живой адрес или нет.
-        return False
-    return url != _active_tunnel_url
+    # Туннельная схема удалена — устаревшие адреса больше не сохраняются.
+    return False
 
 
 def platform_public_url() -> str:
