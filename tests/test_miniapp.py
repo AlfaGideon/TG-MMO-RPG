@@ -186,16 +186,12 @@ def test_tunnel_helpers():
     check(bin_for("Linux", "riscv64") == ("", ""), "неизвестная архитектура — без скачивания")
 
     noise = ("2025-01-01T00:00:00Z INF +---------------------------------------------+\n"
-             "2025-01-01T00:00:01Z INF |  https://frobnicated-words-here.trycloudflare.com  |\n")
     found = tunnel_mod.TRYCLOUDFLARE_RE.search(noise)
     check(bool(found) and found.group(0) ==
-          "https://frobnicated-words-here.trycloudflare.com",
           "адрес вылавливается из лога cloudflared")
     check(tunnel_mod.TRYCLOUDFLARE_RE.search(
-          "POST https://api.trycloudflare.com/tunnel failed") is None,
           "URL API Cloudflare не принимается за адрес туннеля")
     check(tunnel_mod.is_quick_tunnel_url(
-          "https://frobnicated-words-here.trycloudflare.com"),
           "старый Quick Tunnel распознаётся для обновления")
     check(not tunnel_mod.is_quick_tunnel_url("https://panel.example.com"),
           "обычный ручной домен не сбрасывается")
@@ -223,7 +219,6 @@ def test_stale_tunnel_url_is_never_served():
     """Главная регрессия: после перезапуска бот НЕ отдаёт старую ссылку.
 
     Симптом из жизни: сервер перезапускали целиком, а игрокам/админам
-    продолжал приходить прежний `*.trycloudflare.com` — домен Quick Tunnel
     одноразовый, и старый адрес отвечает страницей Cloudflare 1033.
     """
     print("— Устаревший адрес Quick Tunnel не выдаётся —")
@@ -231,8 +226,6 @@ def test_stale_tunnel_url_is_never_served():
 
     from core import settings_store as st
 
-    OLD = "https://probe-front-talk-roof.trycloudflare.com"
-    NEW = "https://freshly-minted-words-here.trycloudflare.com"
 
     async def scenario():
         results = {}
@@ -277,8 +270,6 @@ def test_stale_tunnel_url_is_never_served():
     check(st.is_temporary_tunnel_url(OLD), "адрес Quick Tunnel распознаётся")
     check(not st.is_temporary_tunnel_url("https://panel.example.com"),
           "обычный домен не считается временным")
-    check(not st.is_temporary_tunnel_url("https://api.trycloudflare.com"),
-          "служебный api.trycloudflare.com не считается адресом туннеля")
 
 
 def test_tunnel_verification():
@@ -312,17 +303,14 @@ def test_tunnel_verification():
 
     with mock.patch.object(tunnel_mod.urllib.request, "urlopen", ours):
         ok = asyncio.run(tunnel_mod.verify_tunnel_url(
-            "https://fresh-tunnel.trycloudflare.com", timeout=5))
     check(ok, "адрес нашего процесса подтверждается")
 
     with mock.patch.object(tunnel_mod.urllib.request, "urlopen", stranger):
         ok = asyncio.run(tunnel_mod.verify_tunnel_url(
-            "https://probe-front-talk-roof.trycloudflare.com", timeout=1))
     check(not ok, "чужой сервер на том же домене не принимается")
 
     with mock.patch.object(tunnel_mod.urllib.request, "urlopen", dead):
         ok = asyncio.run(tunnel_mod.verify_tunnel_url(
-            "https://probe-front-talk-roof.trycloudflare.com", timeout=1))
     check(not ok, "мёртвый адрес (1033) не подтверждается")
 
 

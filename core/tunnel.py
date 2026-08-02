@@ -2,7 +2,6 @@
 
 Кнопка Telegram Mini App (web_app) открывается только по HTTPS с публичным
 доменом, а панель обычно крутится на домашней машине за NAT. Quick Tunnel
-даёт бесплатный адрес вида *.trycloudflare.com без регистрации и ключей.
 
 Модуль сам скачивает официальный бинарь cloudflared под текущую ОС в bin/,
 запускает `cloudflared tunnel --url http://127.0.0.1:PORT`, вылавливает из
@@ -41,7 +40,6 @@ logger = logging.getLogger("tunnel")
 TUNNEL_ENV = "ADMIN_TUNNEL"
 ANNOUNCED_KEY = "panel_url_announced"
 
-# В ошибках cloudflared бывает URL API (`https://api.trycloudflare.com/...`).
 # Это не адрес туннеля, поэтому его нельзя сохранять как panel_url.
 TRYCLOUDFLARE_RE = re.compile(
     r"https://(?!api\.trycloudflare\.com\b)"
@@ -295,7 +293,6 @@ async def clear_stale_quick_tunnel_url() -> bool:
     """Удалить URL прошлого Quick Tunnel до запуска бота.
 
     Бот стартует раньше фоновой задачи туннеля. Без этой очистки он успевал
-    показать кнопку со старым ``trycloudflare.com`` адресом, который уже
     неизбежно отдаёт Cloudflare 1033 после перезапуска процесса.
 
     Вызывать нужно ДО старта бота (см. lifespan в admin/main.py): очистка
@@ -303,7 +300,6 @@ async def clear_stale_quick_tunnel_url() -> bool:
     """
     if tunnel_enabled():
         # Туннель поднимает этот процесс: пока нового адреса нет, любой
-        # сохранённый *.trycloudflare.com считается мусором прошлого запуска.
         mark_tunnel_managed(True)
     set_active_tunnel_url("")
     saved = normalize_url(await get_setting(PANEL_URL_KEY))
@@ -362,7 +358,6 @@ async def setup_public_url(port: int) -> CloudflareTunnel | None:
     saved = normalize_url(await get_setting(PANEL_URL_KEY))
     env_url = platform_public_url()
 
-    # Сохранённый *.trycloudflare.com — это не ручной домен, а адрес
     # предыдущего процесса cloudflared. Удаляем его до запуска, чтобы бот
     # не успел отдать игроку мёртвую кнопку Mini App.
     if is_quick_tunnel_url(saved):

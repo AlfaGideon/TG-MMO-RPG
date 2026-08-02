@@ -33,7 +33,6 @@ PUBLIC_URL_ENV_KEYS = (
 
 # Адрес Quick Tunnel, поднятого ИМЕННО ЭТИМ процессом, и признак того, что
 # процесс вообще управляет туннелем. Нужны, чтобы бот никогда не выдал ссылку
-# от прошлого запуска: домен *.trycloudflare.com одноразовый и после
 # перезапуска отдаёт страницу Cloudflare 1033.
 _active_tunnel_url = ""
 _tunnel_managed = False
@@ -60,7 +59,6 @@ def is_temporary_tunnel_url(value: str) -> bool:
         host = (urlparse(normalize_url(value)).hostname or "").lower()
     except ValueError:
         return False
-    return host != "api.trycloudflare.com" and host.endswith(".trycloudflare.com")
 
 
 def set_active_tunnel_url(url: str) -> None:
@@ -76,7 +74,6 @@ def active_tunnel_url() -> str:
 def mark_tunnel_managed(flag: bool = True) -> None:
     """Отметить, что Quick Tunnel поднимает этот процесс.
 
-    Пока флаг стоит, любой сохранённый `*.trycloudflare.com`, не совпадающий
     с живым адресом, считается мусором прошлого запуска.
     """
     global _tunnel_managed
@@ -149,7 +146,6 @@ async def get_panel_url() -> str:
     домен хостинга из окружения.
 
     Отдельная защита от главной ловушки: в БД мог остаться
-    `*.trycloudflare.com` от ПРОШЛОГО запуска. Такой адрес уже мёртв (после
     рестарта cloudflared выдаёт новый домен, а старый отвечает ошибкой 1033),
     поэтому мы его игнорируем и заодно вычищаем из настроек — иначе бот
     продолжает рассылать старую ссылку.
