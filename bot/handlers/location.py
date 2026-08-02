@@ -16,7 +16,7 @@ from bot.keyboards.inline import (
     main_menu_keyboard, map_view_keyboard,
     travel_keyboard, continue_keyboard,
 )
-from bot.utils.texts import location_text, cell_text, loot_text
+from bot.utils.texts import location_text, cell_text, loot_text, format_floor_label
 from bot.utils.photos import send_or_edit_photo, get_photo_input
 from bot.utils.edit import safe_edit_text
 
@@ -72,16 +72,32 @@ def _current_transition(cell: Cell, location: Location):
     target_floor = cell.target_floor if cell.target_floor is not None else 0
     current_floor = cell.floor or 0
     if cell.target_location_id == location.id:
-        target_label = target_floor + 1
-        if target_floor > current_floor:
-            button = f"🪜⬆️ Подняться на этаж {target_label}"
-            hint = f"🪜 <b>Лестница вверх:</b> можно подняться на этаж <b>{target_label}</b>."
-        elif target_floor < current_floor:
-            button = f"🪜⬇️ Спуститься на этаж {target_label}"
-            hint = f"🪜 <b>Лестница вниз:</b> можно спуститься на этаж <b>{target_label}</b>."
+        target_label = format_floor_label(
+            target_floor, location.floors_count or 1, location.name
+        )
+        castle_basement = (
+            location.name.startswith("Замок")
+            and {current_floor, target_floor} == {0, 1}
+        )
+        if target_floor == current_floor:
+            button = f"🪜 Перейти: {target_label}"
+            hint = f"🪜 <b>Переход:</b> ведёт на <b>{target_label}</b>."
         else:
-            button = f"🪜 Перейти на этаж {target_label}"
-            hint = f"🪜 <b>Переход:</b> ведёт на этаж <b>{target_label}</b>."
+            if current_floor < 0 or target_floor < 0:
+                going_up = target_floor > current_floor
+            elif castle_basement:
+                # В стартовых замках floor=1 — это подвал для подкопов,
+                # а не второй надземный этаж.
+                going_up = target_floor < current_floor
+            else:
+                going_up = target_floor > current_floor
+
+            if going_up:
+                button = f"🪜⬆️ Подняться: {target_label}"
+                hint = f"🪜 <b>Лестница вверх:</b> можно подняться на <b>{target_label}</b>."
+            else:
+                button = f"🪜⬇️ Спуститься: {target_label}"
+                hint = f"🪜 <b>Лестница вниз:</b> можно спуститься на <b>{target_label}</b>."
     else:
         button = "🚪 Перейти через дверь"
         hint = "🚪 <b>Дверь:</b> отсюда можно перейти в другую локацию."
@@ -89,28 +105,55 @@ def _current_transition(cell: Cell, location: Location):
 
 
 async def _ensure_floor_stairs_present(session, location: Location):
-    """Lazy safety net for locations that were made multi-floor earlier.
+    """Lazy safety net for broken floor links in existing databases.
 
-    Admin resize creates stairs, but old/manual data can have floors_count > 1
-    without enough floor links. On first player view we restore the standard
-    stair pair near the center so floors are reachable in-game.
+    There are two independent kinds of floors:
+
+    * ordinary non-negative floors from ``Location.floors_count`` (tower floors
+      and the castle basement used by sabotage tunnels);
+    * negative underground floors (-1, -2, ...) generated under corner castles.
+
+    The old underground builder reused the central ordinary-stair cell and
+    linked each negative level only downward. As a result a player could fall
+    from Замок Рассвета into the depths, lose the surface stair, and never
+    climb back. We now verify the exact standard stair cells, not just the
+    total number of links (old broken underground links used to fool that
+    count).
     """
-    floors = max(1, location.floors_count or 1)
-    if floors < 2:
-        return
-    expected_links = 2 * (floors - 1)
-    existing = await session.scalar(
-        select(func.count(Cell.id))
-        .where(Cell.location_id == location.id)
-        .where(Cell.target_location_id == location.id)
-        .where(Cell.target_floor.isnot(None))
-    ) or 0
-    if existing >= expected_links:
-        return
-
     from core import worldgen as W
-    await W.ensure_stairs(session, location)
-    await session.commit()
+
+    changed = False
+    floors = max(1, location.floors_count or 1)
+    if floors >= 2:
+        # Check the standard positive stair pair explicitly. Counting all
+        # self-links is not enough because negative underground links are also
+        # self-links and made broken castles look "healthy".
+        cx, cy = W.center_of(location.grid_size)
+        dx, dy = (1, 0) if cx + 1 < (location.grid_size or 10) - 1 else (-1, 0)
+        expected = []
+        for floor in range(floors):
+            if floor < floors - 1:
+                expected.append((cx, cy, floor, floor + 1))
+            if floor > 0:
+                expected.append((cx + dx, cy + dy, floor, floor - 1))
+        ok = True
+        for x, y, floor, target_floor in expected:
+            c = await W.cell_at(session, location.id, x, y, floor)
+            if not (
+                c and c.is_passable and c.target_location_id == location.id
+                and c.target_x == x and c.target_y == y
+                and c.target_floor == target_floor
+            ):
+                ok = False
+                break
+        if not ok:
+            changed = await W.ensure_stairs(session, location) or changed
+
+    if await W.underground_floors(session, location):
+        changed = await W.ensure_underground_stairs(session, location) or changed
+
+    if changed:
+        await session.commit()
 
 
 async def is_chest_available(session, cell: Cell) -> bool:
@@ -143,6 +186,75 @@ async def mark_visited(session, character: Character, cell: Cell):
         ))
 
 
+async def _nearby_landing_cell(session, door_cell: Cell):
+    """A safe arrival cell next to an inter-location door/tunnel.
+
+    Dig tunnels used to point A-door directly to B-door and B-door directly
+    back to A-door. The player landed on the return trigger and visually
+    "jumped" between Замок Рассвета and Замок Глубин. For transitions between
+    different locations we prefer to land one step inside the destination; the
+    door remains next to the player and can still be used to go back.
+    """
+    if door_cell is None:
+        return None
+
+    # Cardinal cells first (clearer on the navigation pad), diagonals second.
+    offsets = [(-1, 0), (1, 0), (0, -1), (0, 1),
+               (-1, -1), (-1, 1), (1, -1), (1, 1)]
+    fallback = None
+    for dx, dy in offsets:
+        result = await session.execute(
+            select(Cell)
+            .where(Cell.location_id == door_cell.location_id)
+            .where(Cell.floor == (door_cell.floor or 0))
+            .where(Cell.x == door_cell.x + dx)
+            .where(Cell.y == door_cell.y + dy)
+        )
+        c = result.scalar_one_or_none()
+        if not c or not c.is_passable:
+            continue
+        if fallback is None:
+            fallback = c
+        # Best landing: not another door/stair, so the next click does not
+        # immediately trigger a different transition.
+        if c.target_location_id is None:
+            return c
+    return fallback
+
+
+async def _resolve_transition_destination(session, link_cell: Cell, source_location_id: int):
+    """Return destination floor/cell for a transition cell.
+
+    For ordinary stairs and world borders we keep the exact configured target.
+    For reciprocal inter-location doors (notably player-dug castle tunnels),
+    landing on the configured target means landing on the return door itself.
+    In that case we shift the arrival to a neighboring passable cell.
+    """
+    dest_floor = link_cell.target_floor if link_cell.target_floor is not None else 0
+    result = await session.execute(
+        select(Cell)
+        .where(Cell.location_id == link_cell.target_location_id)
+        .where(Cell.floor == dest_floor)
+        .where(Cell.x == link_cell.target_x)
+        .where(Cell.y == link_cell.target_y)
+    )
+    dest_cell = result.scalar_one_or_none()
+    if not dest_cell:
+        return dest_floor, None
+
+    is_inter_location = link_cell.target_location_id != source_location_id
+    reciprocal = (
+        is_inter_location
+        and dest_cell.target_location_id == link_cell.location_id
+        and (dest_cell.target_floor if dest_cell.target_floor is not None else 0) == (link_cell.floor or 0)
+    )
+    if reciprocal:
+        landing = await _nearby_landing_cell(session, dest_cell)
+        if landing is not None:
+            return landing.floor or 0, landing
+    return dest_floor, dest_cell
+
+
 @router.callback_query(F.data.startswith("move:"))
 async def move_direction(callback: CallbackQuery):
     direction = callback.data.split(":")[1]
@@ -164,6 +276,9 @@ async def move_direction(callback: CallbackQuery):
             await callback.answer("Ошибка перемещения.", show_alert=True)
             return
 
+        if character.location:
+            await _ensure_floor_stairs_present(session, character.location)
+
         current = character.cell
         new_x, new_y = current.x + dx, current.y + dy
 
@@ -181,15 +296,9 @@ async def move_direction(callback: CallbackQuery):
 
         # Check seamless / floor transition
         if target.target_location_id is not None and target.target_x is not None and target.target_y is not None:
-            dest_floor = target.target_floor if target.target_floor is not None else 0
-            result = await session.execute(
-                select(Cell)
-                .where(Cell.location_id == target.target_location_id)
-                .where(Cell.floor == dest_floor)
-                .where(Cell.x == target.target_x)
-                .where(Cell.y == target.target_y)
+            dest_floor, dest_cell = await _resolve_transition_destination(
+                session, target, character.location_id
             )
-            dest_cell = result.scalar_one_or_none()
             if dest_cell:
                 # Предупреждение по min_level: вход в локацию выше уровнем
                 # разрешён, но игрок видит alert — решение остаётся за ним.
@@ -286,6 +395,9 @@ async def cell_transition(callback: CallbackQuery):
             await callback.answer("Ошибка перехода.", show_alert=True)
             return
 
+        if character.location:
+            await _ensure_floor_stairs_present(session, character.location)
+
         current = character.cell
         if (
             current.target_location_id is None
@@ -295,15 +407,9 @@ async def cell_transition(callback: CallbackQuery):
             await callback.answer("Здесь нет перехода.", show_alert=True)
             return
 
-        dest_floor = current.target_floor if current.target_floor is not None else 0
-        result = await session.execute(
-            select(Cell)
-            .where(Cell.location_id == current.target_location_id)
-            .where(Cell.floor == dest_floor)
-            .where(Cell.x == current.target_x)
-            .where(Cell.y == current.target_y)
+        dest_floor, dest_cell = await _resolve_transition_destination(
+            session, current, character.location_id
         )
-        dest_cell = result.scalar_one_or_none()
         if not dest_cell or not dest_cell.is_passable:
             await callback.answer("Переход ведёт в непроходимую клетку.", show_alert=True)
             return
@@ -503,7 +609,8 @@ async def show_map(callback: CallbackQuery):
             location.grid_size, map_path,
         )
 
-        floor_label = f" (этаж {floor})" if location.floors_count and location.floors_count > 1 else ""
+        show_floor = (floor != 0) or (location.floors_count and location.floors_count > 1)
+        floor_label = f" ({format_floor_label(floor, location.floors_count or 1, location.name)})" if show_floor else ""
         caption = f"🗺 <b>{location.name}</b>{floor_label}\n\nИсследовано клеток: {len(visited)}"
 
         photo = FSInputFile(map_path)
@@ -1145,18 +1252,20 @@ async def dig_to_callback(callback: CallbackQuery):
         import random
         cell_a = random.choice(loc_cells)
         cell_b = random.choice(target_cells)
+        landing_a = await _nearby_landing_cell(session, cell_a) or cell_a
+        landing_b = await _nearby_landing_cell(session, cell_b) or cell_b
 
         await _consume_material(session, character.id, 0, 10)
         await _consume_material(session, character.id, 3, 5)
         deduct_currency(character, 500)
 
         cell_a.target_location_id = target_loc.id
-        cell_a.target_x, cell_a.target_y, cell_a.target_floor = cell_b.x, cell_b.y, 1
+        cell_a.target_x, cell_a.target_y, cell_a.target_floor = landing_b.x, landing_b.y, 1
         cell_a.name = f"Подкоп в {target_loc.name}"
         cell_a.description = f"Секретный подземный ход, прорытый твоими диверсантами к соседям."
 
         cell_b.target_location_id = loc.id
-        cell_b.target_x, cell_b.target_y, cell_b.target_floor = cell_a.x, cell_a.y, 1
+        cell_b.target_x, cell_b.target_y, cell_b.target_floor = landing_a.x, landing_a.y, 1
         cell_b.name = f"Подкоп из {loc.name}"
         cell_b.description = f"Секретный подземный ход диверсантов из враждебного замка."
 

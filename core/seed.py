@@ -341,28 +341,13 @@ async def build_underground(session, loc, depth: int, rng: random.Random):
                 session.add(cell)
                 cells.append(cell)
         W.ensure_connectivity(cells, size)
-        # лестница вниз: с текущего этажа на следующий (более глубокий)
-        src = await W.cell_at(session, loc.id, cx, cy, floor)
-        dst = await W.cell_at(session, loc.id, cx, cy, floor - 1)
-        if src:
-            src.is_passable = True
-            src.tile_type = "road"
-            src.target_location_id = loc.id
-            src.target_x, src.target_y, src.target_floor = cx, cy, floor - 1
-        if dst:
-            dst.is_passable = True
-            dst.tile_type = "road"
-            dst.target_location_id = loc.id
-            dst.target_x, dst.target_y, dst.target_floor = cx, cy, floor
-    # лестница с наземного этажа (0) на первый подземный (−1)
-    entry = await W.cell_at(session, loc.id, cx, cy, 0)
-    below = await W.cell_at(session, loc.id, cx, cy, -1)
-    if entry and below:
-        entry.is_passable = True
-        entry.tile_type = "road"
-        entry.target_location_id = loc.id
-        entry.target_x, entry.target_y, entry.target_floor = cx, cy, -1
+
+    # Сначала создаём ВСЕ отрицательные этажи, и только потом ставим
+    # лестницы. Старый код пытался связать -1 с -2 до создания -2, поэтому
+    # получалась цепочка только вниз без обратного пути. Также подземный
+    # вход больше не перетирает обычную лестницу 0↔1 в центре замка.
     await session.flush()
+    await W.ensure_underground_stairs(session, loc)
 
 
 async def _seal_fortress_and_link_gates(session):

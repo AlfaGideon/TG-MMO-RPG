@@ -311,13 +311,38 @@ def location_text(location):
     )
 
 
+def format_floor_label(floor: int | None, total_floors: int = 1,
+                       location_name: str = "") -> str:
+    """Human-readable floor name for bot UI.
+
+    Internal storage uses 0 for surface, positive integers for ordinary
+    sublevels, and negative integers for underground depth. Showing
+    ``floor + 1`` for ``-1`` produced nonsense like "этаж 0" and made the
+    broken underground hard to understand.
+    """
+    cur = 0 if floor is None else int(floor)
+    if cur == 0:
+        return "поверхность"
+    if cur < 0:
+        return f"подземный уровень {abs(cur)}"
+    if (location_name or "").startswith("Замок") and cur == 1:
+        return "подвал замка"
+    return f"этаж {cur + 1}"
+
+
 def cell_text(cell, location_name, portal_active=False, floor: int | None = None,
               total_floors: int = 1, transition_hint: str | None = None):
     # No hints about mobs, NPCs, chests - player must explore
     floor_line = ""
-    if total_floors and total_floors > 1:
-        cur_floor = 0 if floor is None else floor
+    cur_floor = 0 if floor is None else floor
+    if cur_floor < 0:
+        floor_line = f"🕳 Уровень: <b>{format_floor_label(cur_floor, total_floors, location_name)}</b>\n"
+    elif (location_name or "").startswith("Замок") and cur_floor == 1:
+        floor_line = "🏰 Уровень: <b>подвал замка</b>\n"
+    elif total_floors and total_floors > 1:
         floor_line = f"🏢 Этаж: <b>{cur_floor + 1}</b>/<b>{total_floors}</b>\n"
+    elif cur_floor != 0:
+        floor_line = f"🏢 Уровень: <b>{format_floor_label(cur_floor, total_floors, location_name)}</b>\n"
     text = (
         f"🗺 <b>{location_name}</b>\n"
         f"{floor_line}"

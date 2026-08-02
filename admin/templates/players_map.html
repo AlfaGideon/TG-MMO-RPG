@@ -64,8 +64,8 @@
     <!-- Фильтр по этажам -->
     <div style="display:flex;gap:0.5rem;margin-bottom:1rem;flex-wrap:wrap">
         <button class="btn btn-sm floor-filter active" data-floor="all" onclick="filterFloor('all')">🏢 Все этажи</button>
-        {% for f in range(10) %}
-        <button class="btn btn-sm floor-filter" data-floor="{{ f }}" onclick="filterFloor({{ f }})" style="display:none">Этаж {{ f }}</button>
+        {% for f in floor_values %}
+        <button class="btn btn-sm floor-filter" data-floor="{{ f }}" onclick="filterFloor({{ f }})" style="display:none">{% if f < 0 %}Подземье {{ -f }}{% elif f == 0 %}Поверхность{% else %}Этаж {{ f }}{% endif %}</button>
         {% endfor %}
     </div>
     <div class="pm-grid" id="pmGrid">
@@ -151,6 +151,27 @@
     // ── Активный фильтр по этажу ──
     let activeFloor = 'all';
     let selectedLocId = null;
+
+    function floorLabel(f){
+        if(f < 0) return 'Подземье ' + Math.abs(f);
+        if(f === 0) return 'Поверхность';
+        return 'Этаж ' + f;
+    }
+    function ensureFloorButton(floor){
+        let btn = document.querySelector(`.floor-filter[data-floor="${floor}"]`);
+        if(!btn){
+            const wrap = document.querySelector('.floor-filter')?.parentElement;
+            if(!wrap) return null;
+            btn = document.createElement('button');
+            btn.className = 'btn btn-sm floor-filter';
+            btn.dataset.floor = String(floor);
+            btn.textContent = floorLabel(Number(floor));
+            btn.onclick = () => filterFloor(Number(floor));
+            wrap.appendChild(btn);
+        }
+        btn.style.display = '';
+        return btn;
+    }
 
     // Показать/скрыть кнопки этажей в зависимости от реальных данных
     (function initFloorButtons(){
@@ -319,9 +340,9 @@
                     updateTableMove(p);
                     applyTableFilters();
 
-                    // Показать кнопку этажа если появился новый этаж
-                    const floorBtn = document.querySelector(`.floor-filter[data-floor="${newFloor}"]`);
-                    if(floorBtn) floorBtn.style.display = '';
+                    // Показать кнопку этажа если появился новый этаж, включая
+                    // отрицательные подземные уровни (-1, -2, ...).
+                    ensureFloorButton(newFloor);
 
                     addLog(`🏃 ${p.name} → ${p.location_name||p.location_id} [${p.x},${p.y}] эт.${newFloor} ${p.via? '('+p.via+')':''}`);
                 }

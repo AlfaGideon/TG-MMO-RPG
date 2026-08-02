@@ -267,7 +267,8 @@
                 </div>
                 <div>
                     <label class="form-label">Этаж</label>
-                    <input type="number" name="floor" value="{{ char.floor or 0 }}" min="0" class="search-box">
+                    <input type="number" name="floor" value="{{ char.floor or 0 }}" class="search-box">
+                    <small class="hint">0 — поверхность, -1/-2 — подземные уровни</small>
                 </div>
                 <div>
                     <label class="form-label">X</label>

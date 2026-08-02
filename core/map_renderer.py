@@ -19,6 +19,21 @@ FOG_COLOR = (15, 15, 19)       # unvisited / fog of war — matches --bg-dark
 PLAYER_COLOR = (220, 220, 220)
 PLAYER_RING = (139, 92, 246)   # --accent
 
+# Pillow's built-in bitmap font does not contain Cyrillic. In slim Docker
+# images that means Russian labels are rendered as empty boxes/crosses.
+# Keep a wide list of common Cyrillic-capable fonts and install DejaVu in
+# Dockerfiles; TG_MMO_FONT_PATH can override this in custom deployments.
+_FONT_PATHS = (
+    os.getenv("TG_MMO_FONT_PATH", ""),
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
+    "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+)
+
 
 def _dark_bg(size: int) -> Image.Image:
     img = Image.new("RGB", (size, size), (18, 22, 28))
@@ -44,45 +59,70 @@ def _load_bg(image_url: str | None) -> Image.Image:
     return _dark_bg(TILE_SIZE)
 
 
-def _draw_minimap(draw: ImageDraw.Draw, cells, player_x: int, player_y: int, ox: int, oy: int):
-    """Draw minimap. x=vertical (north-south), y=horizontal (west-east)."""
-    size = 10
-    cs = MINIMAP_CELL
+def _grid_size_from_cells(cells, default: int = 10) -> int:
+    """Infer square grid size from cells; works for 10×10 and 25×25 castles."""
+    coords = [max(int(getattr(c, "x", 0)), int(getattr(c, "y", 0))) for c in cells]
+    return max(default, (max(coords) + 1) if coords else default)
+
+
+def _draw_minimap(draw: ImageDraw.Draw, cells, player_x: int, player_y: int,
+                  ox: int, oy: int, grid_size: int | None = None,
+                  cell_px: int | None = None):
+    """Draw minimap. x=vertical (north-south), y=horizontal (west-east).
+
+    The old minimap was hard-coded to 10×10. Corner castles and their
+    underground floors are 25×25, so coordinates like [12,12] or [19,5]
+    were outside the drawn area and the player marker disappeared.
+    """
+    cells = list(cells)
+    size = max(1, int(grid_size or _grid_size_from_cells(cells)))
+    cs = max(6, int(cell_px or min(MINIMAP_CELL, 360 // size)))
     bw = size * cs + 4
     bh = size * cs + 4
+    by_pos = {(int(c.x), int(c.y)): c for c in cells}
 
     draw.rectangle([ox - 2, oy - 2, ox + bw + 2, oy + bh + 2],
                    fill=(30, 30, 35), outline=(100, 100, 110), width=2)
 
-    for row in range(size):      # row = x (0=top/north, 9=bottom/south)
-        for col in range(size):  # col = y (0=left/west, 9=right/east)
-            cell = next((c for c in cells if c.x == row and c.y == col), None)
+    gap = 1 if cs <= 10 else 2
+    for row in range(size):      # row = x (0=top/north)
+        for col in range(size):  # col = y (0=left/west)
+            cell = by_pos.get((row, col))
             px = ox + col * cs   # y goes horizontally
             py = oy + row * cs   # x goes vertically
 
             if row == player_x and col == player_y:
                 color = (220, 220, 220)  # Player - white
             elif cell is None or not cell.is_passable:
-                color = (15, 15, 20)     # Wall
+                color = (15, 15, 20)     # Wall / outside
             else:
                 color = (60, 65, 70)     # Passable - single color
 
-            draw.rectangle([px, py, px + cs - 2, py + cs - 2], fill=color)
+            draw.rectangle([px, py, px + cs - gap, py + cs - gap], fill=color)
+
+    # Extra ring so the marker remains visible when a cell is small (25×25).
+    if 0 <= player_x < size and 0 <= player_y < size:
+        cx = ox + player_y * cs + cs // 2
+        cy = oy + player_x * cs + cs // 2
+        r = max(3, cs // 3)
+        draw.ellipse([cx - r - 1, cy - r - 1, cx + r + 1, cy + r + 1],
+                     outline=PLAYER_RING, width=max(1, cs // 5))
 
 
 def render_cell_image(cell, cells, player_x: int, player_y: int, output_path: str) -> str:
+    cells = list(cells)
     img = _load_bg(cell.image_url)
     draw = ImageDraw.Draw(img)
 
-    mm_size = 10 * MINIMAP_CELL
+    grid_size = _grid_size_from_cells(cells)
+    mm_cell = max(6, min(MINIMAP_CELL, 360 // max(1, grid_size)))
+    mm_size = grid_size * mm_cell
     mm_x = (TILE_SIZE - mm_size) // 2
     mm_y = (TILE_SIZE - mm_size) // 2 - 20
-    _draw_minimap(draw, cells, player_x, player_y, mm_x, mm_y)
+    _draw_minimap(draw, cells, player_x, player_y, mm_x, mm_y,
+                  grid_size=grid_size, cell_px=mm_cell)
 
-    try:
-        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 18)
-    except:
-        font = ImageFont.load_default()
+    font = _fit_font(18)
 
     draw.text((20, 12), cell.name, fill=(255, 255, 255),
               font=font, stroke_width=2, stroke_fill=(0, 0, 0))
@@ -95,7 +135,9 @@ def render_cell_image(cell, cells, player_x: int, player_y: int, output_path: st
 
 
 def get_cell_image_path(cell_id: int) -> str:
-    return f"data/cell_images/{cell_id}.jpg"
+    # v2 invalidates old cached JPEGs that were rendered with a 10×10-only
+    # minimap and, on slim images, a non-Cyrillic Pillow fallback font.
+    return f"data/cell_images/v2/{cell_id}.jpg"
 
 
 def ensure_cell_image(cell, cells, player_x: int, player_y: int) -> str:
@@ -203,15 +245,16 @@ LOC_TYPE_ICONS = {"safe": "🛡", "dangerous": "⚠", "dungeon": "💀", "boss":
 
 
 def _fit_font(size: int):
-    for path in (
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-    ):
-        if os.path.exists(path):
-            try:
-                return ImageFont.truetype(path, size)
-            except Exception:
-                pass
+    for path in _FONT_PATHS:
+        if not path or not os.path.exists(path):
+            continue
+        try:
+            return ImageFont.truetype(path, size)
+        except Exception:
+            pass
+    # Last resort. This font is ASCII-only in many Pillow builds, so Docker
+    # images install DejaVu; returning it here keeps the bot alive if a custom
+    # host removed all fonts.
     return ImageFont.load_default()
 
 
