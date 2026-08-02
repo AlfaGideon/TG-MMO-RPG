@@ -14,6 +14,18 @@ async def main():
     await init_db()
     await seed_database()
 
+    # Автономный бот работает без панели, значит Quick Tunnel никто не
+    # поднимает — сохранённый в БД адрес *.trycloudflare.com гарантированно
+    # мёртв (домен живёт только вместе со своим процессом cloudflared).
+    # Без этой очистки кнопка «🌐 Открыть панель» вела бы на ошибку 1033.
+    from core.settings_store import (
+        PANEL_URL_KEY, get_setting, is_temporary_tunnel_url, set_panel_url,
+    )
+    saved = await get_setting(PANEL_URL_KEY)
+    if is_temporary_tunnel_url(saved):
+        logging.info(f"Адрес прошлого Quick Tunnel ({saved}) устарел — очищаю.")
+        await set_panel_url("")
+
     # Try to read token from env for standalone mode
     from bot.config import settings
     if settings.BOT_TOKEN:

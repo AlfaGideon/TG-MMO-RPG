@@ -219,6 +219,113 @@ def test_tunnel_helpers():
               "первый домен Replit выбирается для Mini App")
 
 
+def test_stale_tunnel_url_is_never_served():
+    """Главная регрессия: после перезапуска бот НЕ отдаёт старую ссылку.
+
+    Симптом из жизни: сервер перезапускали целиком, а игрокам/админам
+    продолжал приходить прежний `*.trycloudflare.com` — домен Quick Tunnel
+    одноразовый, и старый адрес отвечает страницей Cloudflare 1033.
+    """
+    print("— Устаревший адрес Quick Tunnel не выдаётся —")
+    import asyncio
+
+    from core import settings_store as st
+
+    OLD = "https://probe-front-talk-roof.trycloudflare.com"
+    NEW = "https://freshly-minted-words-here.trycloudflare.com"
+
+    async def scenario():
+        results = {}
+        # Состояние прошлого запуска: адрес лежит в БД.
+        await st.set_setting(st.PANEL_URL_KEY, OLD)
+        st.set_active_tunnel_url("")
+        st.mark_tunnel_managed(True)
+
+        # Пока новый туннель не поднялся, старый адрес отдавать нельзя.
+        results["hidden"] = await st.get_panel_url()
+        # …и он же должен быть вычищен из настроек, а не остаться ждать.
+        results["wiped"] = await st.get_setting(st.PANEL_URL_KEY)
+
+        # Туннель поднялся — отдаём свежий адрес.
+        st.set_active_tunnel_url(NEW)
+        await st.set_panel_url(NEW)
+        results["fresh"] = await st.get_panel_url()
+
+        # Ручной домен (VPS/Render) сохранённым остаётся всегда.
+        st.set_active_tunnel_url("")
+        st.mark_tunnel_managed(True)
+        await st.set_panel_url("https://panel.example.com")
+        results["manual"] = await st.get_panel_url()
+
+        # ADMIN_TUNNEL=0: туннелем правит кто-то снаружи — не трогаем адрес.
+        st.mark_tunnel_managed(False)
+        await st.set_panel_url(OLD)
+        results["external"] = await st.get_panel_url()
+        st.mark_tunnel_managed(False)
+        st.set_active_tunnel_url("")
+        return results
+
+    r = asyncio.run(scenario())
+    check(r["hidden"] == "", "старый адрес туннеля не отдаётся боту")
+    check(r["wiped"] == "", "старый адрес удаляется из настроек")
+    check(r["fresh"] == NEW, "новый адрес туннеля отдаётся сразу")
+    check(r["manual"] == "https://panel.example.com",
+          "ручной домен не считается устаревшим туннелем")
+    check(r["external"] == OLD,
+          "при ADMIN_TUNNEL=0 чужой туннель не сбрасывается")
+
+    check(st.is_temporary_tunnel_url(OLD), "адрес Quick Tunnel распознаётся")
+    check(not st.is_temporary_tunnel_url("https://panel.example.com"),
+          "обычный домен не считается временным")
+    check(not st.is_temporary_tunnel_url("https://api.trycloudflare.com"),
+          "служебный api.trycloudflare.com не считается адресом туннеля")
+
+
+def test_tunnel_verification():
+    """Адрес публикуется только после ответа /health с нашей меткой."""
+    print("— Проверка живости адреса перед публикацией —")
+    import asyncio
+
+    from core.settings_store import INSTANCE_ID
+
+    class FakeResponse:
+        def __init__(self, body):
+            self._body = body.encode()
+
+        def read(self, _n=None):
+            return self._body
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def ours(*_a, **_kw):
+        return FakeResponse(json.dumps({"status": "ok", "instance": INSTANCE_ID}))
+
+    def stranger(*_a, **_kw):
+        return FakeResponse(json.dumps({"status": "ok", "instance": "other"}))
+
+    def dead(*_a, **_kw):
+        raise OSError("Cloudflare 1033")
+
+    with mock.patch.object(tunnel_mod.urllib.request, "urlopen", ours):
+        ok = asyncio.run(tunnel_mod.verify_tunnel_url(
+            "https://fresh-tunnel.trycloudflare.com", timeout=5))
+    check(ok, "адрес нашего процесса подтверждается")
+
+    with mock.patch.object(tunnel_mod.urllib.request, "urlopen", stranger):
+        ok = asyncio.run(tunnel_mod.verify_tunnel_url(
+            "https://probe-front-talk-roof.trycloudflare.com", timeout=1))
+    check(not ok, "чужой сервер на том же домене не принимается")
+
+    with mock.patch.object(tunnel_mod.urllib.request, "urlopen", dead):
+        ok = asyncio.run(tunnel_mod.verify_tunnel_url(
+            "https://probe-front-talk-roof.trycloudflare.com", timeout=1))
+    check(not ok, "мёртвый адрес (1033) не подтверждается")
+
+
 def test_url_helpers():
     print("— URL-адреса для кнопок —")
     check(build_miniapp_url("https://panel.example.com/", 42) ==
@@ -236,6 +343,8 @@ def main():
     test_validate()
     test_auth_endpoint()
     test_tunnel_helpers()
+    test_stale_tunnel_url_is_never_served()
+    test_tunnel_verification()
     test_url_helpers()
 
     print()

@@ -3,7 +3,10 @@
 Отдельный модуль, чтобы и бот, и админка читали одни и те же значения
 без циклических импортов.
 """
+import logging
 import os
+import uuid
+from urllib.parse import urlparse
 
 from sqlalchemy import select
 
@@ -11,6 +14,13 @@ from core.database import async_session
 from core.models import AppSetting
 
 PANEL_URL_KEY = "panel_url"
+
+logger = logging.getLogger("settings")
+
+# Метка запущенной копии сервера. По ней /health отвечает, «свой» ли это
+# процесс: адрес Quick Tunnel от прошлого запуска (или чужой орфан
+# cloudflared) отдаст другую метку, и мы не разошлём мёртвую ссылку.
+INSTANCE_ID = uuid.uuid4().hex
 
 # Managed platforms already know the public HTTPS address of a service.  Using
 # it is much more reliable than a temporary Quick Tunnel: the latter is
@@ -21,6 +31,13 @@ PUBLIC_URL_ENV_KEYS = (
     "RENDER_EXTERNAL_URL",
 )
 
+# Адрес Quick Tunnel, поднятого ИМЕННО ЭТИМ процессом, и признак того, что
+# процесс вообще управляет туннелем. Нужны, чтобы бот никогда не выдал ссылку
+# от прошлого запуска: домен *.trycloudflare.com одноразовый и после
+# перезапуска отдаёт страницу Cloudflare 1033.
+_active_tunnel_url = ""
+_tunnel_managed = False
+
 
 def normalize_url(raw: str) -> str:
     """Приводит введённый адрес к виду https://host[/path] без хвостового слэша."""
@@ -30,6 +47,56 @@ def normalize_url(raw: str) -> str:
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
     return url.rstrip("/")
+
+
+def is_temporary_tunnel_url(value: str) -> bool:
+    """Это одноразовый адрес Cloudflare Quick Tunnel?
+
+    Такой домен живёт только пока работает конкретный процесс cloudflared.
+    Сохранять его как «постоянную настройку» нельзя: после перезапуска он
+    ведёт на страницу Cloudflare 1033, а не в панель.
+    """
+    try:
+        host = (urlparse(normalize_url(value)).hostname or "").lower()
+    except ValueError:
+        return False
+    return host != "api.trycloudflare.com" and host.endswith(".trycloudflare.com")
+
+
+def set_active_tunnel_url(url: str) -> None:
+    """Запомнить адрес туннеля, который подняла именно эта копия сервера."""
+    global _active_tunnel_url
+    _active_tunnel_url = normalize_url(url)
+
+
+def active_tunnel_url() -> str:
+    return _active_tunnel_url
+
+
+def mark_tunnel_managed(flag: bool = True) -> None:
+    """Отметить, что Quick Tunnel поднимает этот процесс.
+
+    Пока флаг стоит, любой сохранённый `*.trycloudflare.com`, не совпадающий
+    с живым адресом, считается мусором прошлого запуска.
+    """
+    global _tunnel_managed
+    _tunnel_managed = bool(flag)
+
+
+def tunnel_is_managed() -> bool:
+    return _tunnel_managed
+
+
+def is_stale_tunnel_url(value: str) -> bool:
+    """Адрес принадлежит прошлому запуску Quick Tunnel (ссылка уже мертва)."""
+    url = normalize_url(value)
+    if not url or not is_temporary_tunnel_url(url):
+        return False
+    if not _tunnel_managed:
+        # Туннель ведёт кто-то снаружи (ADMIN_TUNNEL=0 + ручной cloudflared) —
+        # не нам судить, живой адрес или нет.
+        return False
+    return url != _active_tunnel_url
 
 
 def platform_public_url() -> str:
@@ -76,10 +143,33 @@ async def set_setting(key: str, value: str) -> None:
 
 
 async def get_panel_url() -> str:
-    """Адрес админки: сохранённый вручную, затем адрес хостинга из env."""
-    saved = await get_setting(PANEL_URL_KEY)
+    """Адрес админки для кнопок бота.
+
+    Порядок: живой Quick Tunnel этого процесса → сохранённый вручную адрес →
+    домен хостинга из окружения.
+
+    Отдельная защита от главной ловушки: в БД мог остаться
+    `*.trycloudflare.com` от ПРОШЛОГО запуска. Такой адрес уже мёртв (после
+    рестарта cloudflared выдаёт новый домен, а старый отвечает ошибкой 1033),
+    поэтому мы его игнорируем и заодно вычищаем из настроек — иначе бот
+    продолжает рассылать старую ссылку.
+    """
+    if _active_tunnel_url:
+        return _active_tunnel_url
+
+    saved = normalize_url(await get_setting(PANEL_URL_KEY))
+    if saved and is_stale_tunnel_url(saved):
+        logger.info(
+            f"Игнорирую устаревший адрес Quick Tunnel из настроек ({saved}) — "
+            "он остался от прошлого запуска сервера."
+        )
+        try:
+            await set_setting(PANEL_URL_KEY, "")
+        except Exception:
+            pass
+        saved = ""
     if saved:
-        return normalize_url(saved)
+        return saved
     return platform_public_url()
 
 
