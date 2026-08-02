@@ -2855,13 +2855,48 @@ async def api_cell_paint(
             # target_x/y = собственная позиция (лестница на том же месте этажом выше)
             cell.target_x = cell.x
             cell.target_y = cell.y
+            # Обратная ступень на этаже выше: иначе игрок, поднявшийся
+            # по админской лестнице, застревает наверху (та же односторонняя
+            # ловушка, которую чинит ensure_stairs для стандартных узлов).
+            up_cell = await session.scalar(
+                select(Cell)
+                .where(Cell.location_id == cell.location_id)
+                .where(Cell.floor == cell.target_floor)
+                .where(Cell.x == cell.x).where(Cell.y == cell.y)
+            )
+            if up_cell is not None and (up_cell.target_location_id is None
+                                        or up_cell.target_floor == cell.floor):
+                up_cell.is_passable = True
+                up_cell.tile_type = "road"
+                up_cell.target_location_id = cell.location_id
+                up_cell.target_floor = cell.floor
+                up_cell.target_x = cell.x
+                up_cell.target_y = cell.y
         elif brush == "stairs_down":
             cell.is_passable = True
             cell.tile_type = "road"
             cell.target_location_id = cell.location_id
-            cell.target_floor = max(0, (cell.floor or 0) - 1)
+            # Без max(0, ...): на подземных этажах (−1, −2, …) «вниз» должен
+            # вести на следующий подземный уровень, а не телепортировать
+            # на поверхность. Раньше с −1 кисть вела прямо на этаж 0.
+            cell.target_floor = (cell.floor or 0) - 1
             cell.target_x = cell.x
             cell.target_y = cell.y
+            # Обратная ступень на этаже ниже (см. stairs_up).
+            down_cell = await session.scalar(
+                select(Cell)
+                .where(Cell.location_id == cell.location_id)
+                .where(Cell.floor == cell.target_floor)
+                .where(Cell.x == cell.x).where(Cell.y == cell.y)
+            )
+            if down_cell is not None and (down_cell.target_location_id is None
+                                          or down_cell.target_floor == cell.floor):
+                down_cell.is_passable = True
+                down_cell.tile_type = "road"
+                down_cell.target_location_id = cell.location_id
+                down_cell.target_floor = cell.floor
+                down_cell.target_x = cell.x
+                down_cell.target_y = cell.y
         elif brush == "erase":
             # Полная очистка клетки до травы без объектов и переходов
             cell.tile_type = "grass"

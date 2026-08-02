@@ -199,7 +199,7 @@
         updateGridCounters();
         // обновить видимость строк
         applyTableFilters();
-        addLog(`🏢 Фильтр: ${floor === 'all' ? 'все этажи' : 'этаж ' + floor}`);
+        addLog(`🏢 Фильтр: ${floor === 'all' ? 'все этажи' : floorLabel(Number(floor))}`);
     };
 
     // ── Пересчёт счётчиков на grid-карте ──

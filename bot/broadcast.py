@@ -62,7 +62,12 @@ async def broadcast_to_all(bot, text: str, image_path: str | None = None, reply_
 async def notify_dungeon_portal_opened(bot, location_name: str, x: int, y: int, floor: int,
                                         template_name: str, image_url: str | None = None):
     """Announces a freshly-opened dungeon portal to every player."""
-    floor_hint = f" (этаж {floor})" if floor else ""
+    if floor is None or floor == 0:
+        floor_hint = ""
+    elif floor < 0:
+        floor_hint = f" (подземный уровень {-floor})"
+    else:
+        floor_hint = f" (этаж {floor})"
     text = (
         "🌀 <b>Портал разорвал завесу мира!</b>\n\n"
         f"Где-то в <b>{location_name}</b>{floor_hint} на клетке <code>[{x},{y}]</code> "

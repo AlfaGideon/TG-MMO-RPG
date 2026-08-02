@@ -154,6 +154,45 @@ async def main():
         check(deep_center.target_floor == -1,
               "самое дно не ведёт в несуществующий -3, а поднимает наверх")
 
+    print("\n— Позиции подземных лестниц: узлы не коллапсируют —")
+    for g in (3, 4, 5, 10, 25):
+        ep, dp, up_ = W.underground_stair_positions(g)
+        check(len({ep, dp, up_}) == 3,
+              f"сетка {g}×{g}: entry={ep} down={dp} up={up_} — три разные клетки")
+    # На -1 должен существовать и узел спуска, и узел подъёма (не одна клетка).
+    async with Session() as s:
+        u = await make_loc(s, "Замок Малый", 7, 4, grid_size=4, floors=1,
+                           ltype=LocationType.SAFE)
+        await build_underground(s, u, 1, random.Random(321))
+        await s.commit()
+        ep, dp, up_ = W.underground_stair_positions(4)
+        up1 = await W.cell_at(s, u.id, *up_, -1)
+        down1 = await W.cell_at(s, u.id, *dp, -1)
+        check(up1 is not None and down1 is not None and up1.id != down1.id,
+              "на -1 узел подъёма и узел спуска — разные клетки")
+        check(up1.target_floor == 0, "малая сетка: -1 → поверхность")
+        check(down1.target_floor == 0, "малая сетка: дно -1 → поверхность (нет битого -2)")
+
+    print("\n— Ремонт идемпотентен: повторный прогон ничего не меняет —")
+    async with Session() as s:
+        u = await make_loc(s, "Замок Стабильный", 7, 6, grid_size=10, floors=2,
+                           ltype=LocationType.SAFE)
+        await build_underground(s, u, 2, random.Random(555))
+        await s.commit()
+        first = await W.ensure_underground_stairs(s, u)
+        second = await W.ensure_underground_stairs(s, u)
+        check(first is False, "первый прогон после сида ничего не чинит")
+        check(second is False, "второй прогон ничего не чинит (нет вечных апдейтов)")
+
+    print("\n— Лестницы без grid_size (ручные локации) не падают —")
+    async with Session() as s:
+        u = await make_loc(s, "Замок Безразмерный", 3, 7, grid_size=10, floors=2,
+                           ltype=LocationType.SAFE)
+        u.grid_size = None
+        await s.flush()
+        changed = await W.ensure_stairs(s, u)
+        check(isinstance(changed, bool), "ensure_stairs с grid_size=None не упал")
+
     print("\n— Коллизии координат: обмен местами —")
     async with Session() as s:
         a = (await s.execute(select(Location).where(Location.name == "Деревня"))).scalar_one()

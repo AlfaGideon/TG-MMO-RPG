@@ -299,48 +299,55 @@ async def move_direction(callback: CallbackQuery):
             dest_floor, dest_cell = await _resolve_transition_destination(
                 session, target, character.location_id
             )
-            if dest_cell:
-                # Предупреждение по min_level: вход в локацию выше уровнем
-                # разрешён, но игрок видит alert — решение остаётся за ним.
-                if target.target_location_id != character.location_id:
-                    dest_loc = await session.get(Location, target.target_location_id)
-                    if dest_loc and (dest_loc.min_level or 1) > character.level:
-                        await callback.answer(
-                            f"⚠️ {dest_loc.name} — опасность! Рекомендуется "
-                            f"{dest_loc.min_level}+ уровень, у тебя {character.level}. "
-                            f"Ты входишь на свой страх и риск…",
-                            show_alert=True,
-                        )
-                dest_loc = await session.get(Location, target.target_location_id)
-                character.location_id = target.target_location_id
-                character.location = dest_loc
-                character.floor = dest_floor
-                character.cell_id = dest_cell.id
-                character.cell = dest_cell
-                await mark_visited(session, character, dest_cell)
-                from core import merchant
-                await merchant.maybe_wander(session)
-                await session.commit()
-
-                # realtime — переход между локациями / этажами
-                try:
-                    from core.realtime import publish as rt_publish
-                    from core.vip import is_vip_active as vip_active
-                    await rt_publish("player_move", {
-                        "character_id": character.id,
-                        "name": character.name,
-                        "location_id": character.location_id,
-                        "location_name": dest_loc.name if dest_loc else "",
-                        "floor": dest_floor,
-                        "x": dest_cell.x,
-                        "y": dest_cell.y,
-                        "from_location_id": current.location_id if current else None,
-                        "is_vip": vip_active(character),
-                    })
-                except Exception:
-                    pass
-                await show_cell(callback, character, dest_loc, session)
+            if not dest_cell or not dest_cell.is_passable:
+                # Цель перехода отсутствует или замурована (битая ссылка
+                # в данных) — не пускаем игрока ВНУТРЬ клетки-перехода:
+                # иначе он «застревает» на лестнице/двери, которая никуда
+                # не ведёт, и кнопка перехода вечно показывает ошибку.
+                await callback.answer("Переход ведёт в непроходимую клетку.", show_alert=True)
                 return
+
+            # Предупреждение по min_level: вход в локацию выше уровнем
+            # разрешён, но игрок видит alert — решение остаётся за ним.
+            if target.target_location_id != character.location_id:
+                dest_loc = await session.get(Location, target.target_location_id)
+                if dest_loc and (dest_loc.min_level or 1) > character.level:
+                    await callback.answer(
+                        f"⚠️ {dest_loc.name} — опасность! Рекомендуется "
+                        f"{dest_loc.min_level}+ уровень, у тебя {character.level}. "
+                        f"Ты входишь на свой страх и риск…",
+                        show_alert=True,
+                    )
+            dest_loc = await session.get(Location, target.target_location_id)
+            character.location_id = target.target_location_id
+            character.location = dest_loc
+            character.floor = dest_floor
+            character.cell_id = dest_cell.id
+            character.cell = dest_cell
+            await mark_visited(session, character, dest_cell)
+            from core import merchant
+            await merchant.maybe_wander(session)
+            await session.commit()
+
+            # realtime — переход между локациями / этажами
+            try:
+                from core.realtime import publish as rt_publish
+                from core.vip import is_vip_active as vip_active
+                await rt_publish("player_move", {
+                    "character_id": character.id,
+                    "name": character.name,
+                    "location_id": character.location_id,
+                    "location_name": dest_loc.name if dest_loc else "",
+                    "floor": dest_floor,
+                    "x": dest_cell.x,
+                    "y": dest_cell.y,
+                    "from_location_id": current.location_id if current else None,
+                    "is_vip": vip_active(character),
+                })
+            except Exception:
+                pass
+            await show_cell(callback, character, dest_loc, session)
+            return
 
         character.cell_id = target.id
         character.cell = target
