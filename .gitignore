@@ -26,3 +26,7 @@ Thumbs.db
 
 # Pyodide/browser build artefacts
 *.pyc
+
+# Downloaded tunnel binary (core/tunnel.py auto-downloads cloudflared here)
+bin/cloudflared
+bin/cloudflared.exe

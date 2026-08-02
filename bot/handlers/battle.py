@@ -65,7 +65,7 @@ async def _lose_bag(session, character):
 
     parts = []
     if grave:
-        parts.append(f"🪦 Осталось на месте гибели: <b>{gold_lost}</b> 🪙")
+        parts.append(f"🪦 Осталось на месте гибели: <b>{gold_lost}</b> 🟤")
     if lost:
         parts.append(f"🎒 Выпало из сумки: <b>{len(lost)}</b>")
     if kept:

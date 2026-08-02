@@ -173,6 +173,29 @@ class Party(Base):
     leader = relationship("Character", foreign_keys=[leader_id], overlaps="members")
 
 
+class PartyInvite(Base):
+    """Приглашение в пати или заявка на вступление.
+
+    Появилось вместе с поиском союзников: раньше в пати можно было
+    вступить только по наитию — приглашений в боте не существовало.
+
+    kind:   'invite' — предводитель зовёт героя в свою пати (отвечает позванный);
+            'join'   — одиночка просится в чужую пати (отвечает предводитель).
+    status: pending / accepted / declined / cancelled.
+
+    to_character_id — всегда тот, кто должен нажать «Принять».
+    """
+    __tablename__ = "party_invites"
+
+    id = Column(Integer, primary_key=True, index=True)
+    party_id = Column(Integer, ForeignKey("parties.id"), nullable=False, index=True)
+    from_character_id = Column(Integer, ForeignKey("characters.id"), nullable=False)
+    to_character_id = Column(Integer, ForeignKey("characters.id"), nullable=False, index=True)
+    kind = Column(String(8), nullable=False, default="invite")
+    status = Column(String(16), nullable=False, default="pending")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class Character(Base):
     __tablename__ = "characters"
 

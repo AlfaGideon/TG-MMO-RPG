@@ -293,7 +293,7 @@ def offline_generate(kind: str, params: dict, dossier: str) -> str:
     return (f"{opener} {loc} «{q[1]}-2» (по мотивам «{q[1]}»).\n"
             f"Заказчик: {npc()[0]}. Задача: истребить {m[0]} — "
             f"{rnd.randint(3, 6)} особей. {m[1]} "
-            f"Награда: {rnd.randint(80, 260)}🪙 и слава. "
+            f"Награда: {rnd.randint(80, 260)}🟤 и слава. "
             f"Тон: {tone}. {('Затравка: ' + seed_hint) if seed_hint else ''}")
 
 

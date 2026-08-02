@@ -600,7 +600,7 @@ async def dungeon_combat_attack(callback: CallbackQuery):
             text = (
                 f"🎉 <b>Победа в подземелье!</b>\n\n"
                 f"Ты поверг {state['mob_name']}!\n"
-                f"💰 +{state['mob_gold']}🪙 | ⭐ +{state['mob_exp']} опыта"
+                f"💰 +{state['mob_gold']}🟤 | ⭐ +{state['mob_exp']} опыта"
             )
             if leveled:
                 text += f"\n\n🎖 <b>Новый уровень: {character.level}!</b>"
@@ -691,9 +691,9 @@ async def dungeon_open_chest(callback: CallbackQuery):
             s_v = rem // CONVERSION
             b_v = rem % CONVERSION
             parts = []
-            if g_v > 0: parts.append(f"{g_v}🪙")
-            if s_v > 0: parts.append(f"{s_v}🥈")
-            if b_v > 0 or not parts: parts.append(f"{b_v}🪙")
+            if g_v > 0: parts.append(f"{g_v}🟡")
+            if s_v > 0: parts.append(f"{s_v}⚪")
+            if b_v > 0 or not parts: parts.append(f"{b_v}🟤")
             return " ".join(parts)
 
         text = f"📦 <b>Сундук открыт!</b>\n\nВнутри {fmt_b(current.chest_gold)}."

@@ -80,16 +80,34 @@ async def lifespan(app: FastAPI):
         setting = result.scalar_one_or_none()
         if setting and setting.value and setting.value.strip():
             await bot_runner.start(setting.value.strip(), await get_bot_proxy_url(session))
+
+    # Публичный HTTPS для Mini App: Quick Tunnel поднимается в фоне, чтобы
+    # не задерживать готовность локальной панели (первый запуск ещё и
+    # скачивает cloudflared). Адрес сам попадёт в настройки panel_url.
+    from core import tunnel as tunnel_mod
+    app.state.tunnel_task = asyncio.create_task(
+        tunnel_mod.setup_public_url(settings.ADMIN_PORT)
+    )
+
     yield
+
     if bot_runner.is_running():
         await bot_runner.stop()
+    task = getattr(app.state, "tunnel_task", None)
+    if task and not task.done():
+        task.cancel()
+    await tunnel_mod.shutdown_public_url()
 
 
 app = FastAPI(title="Shadow Lands Admin", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="admin/static"), name="static")
 templates = Jinja2Templates(directory="admin/templates")
 
-PUBLIC_PATHS = {"/admin-login", "/admin-logout"}
+# Mini App-вход в панель из Telegram (без пароля, по подписи initData).
+from admin.tgapp import router as tgapp_router  # noqa: E402
+app.include_router(tgapp_router)
+
+PUBLIC_PATHS = {"/admin-login", "/admin-logout", "/tgapp", "/tgapp/auth"}
 
 # Подписи слотов экипировки и бонусов — используются шаблонами редактора
 SLOT_LABELS = {

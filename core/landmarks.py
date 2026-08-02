@@ -96,7 +96,7 @@ async def claim(session, character, cell, rng=None):
     if kind == "gold":
         gold = rng.randint(20, 40) + character.level * 10
         character.gold += gold
-        lines.append(f"💰 Найдено: <b>{gold}</b> 🪙")
+        lines.append(f"💰 Найдено: <b>{gold}</b> 🟤")
     elif kind == "exp":
         exp = 40 + character.level * 20
         character.experience += exp

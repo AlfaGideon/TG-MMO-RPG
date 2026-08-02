@@ -4,7 +4,7 @@ def get_currency_display(char):
     b = getattr(char, "bronze", 0)
     s = getattr(char, "silver", 0)
     g = getattr(char, "gold", 0)
-    return f"{b}🪙 {s}🥈 {g}🪙"
+    return f"{b}🟤 {s}⚪ {g}🟡"
 
 WELCOME_TEXT = """
 🌑 <b>Добро пожаловать в Теневые Земли</b>
@@ -495,11 +495,11 @@ def item_book_text(item, page: int, total: int, header: str = "📖 Книга �
         b_val = remainder % CONVERSION
         price_parts = []
         if g_val > 0:
-            price_parts.append(f"{g_val}🪙")
+            price_parts.append(f"{g_val}🟡")
         if s_val > 0:
-            price_parts.append(f"{s_val}🥈")
+            price_parts.append(f"{s_val}⚪")
         if b_val > 0 or not price_parts:
-            price_parts.append(f"{b_val}🪙")
+            price_parts.append(f"{b_val}🟤")
         price_str = " ".join(price_parts)
         lines += ["", f"💰 Цена: <b>{price_str}</b>{stock_note}"]
     if owned:
@@ -585,7 +585,7 @@ def currency_str(char):
     b = getattr(char, "bronze", 0)
     s = getattr(char, "silver", 0)
     g = getattr(char, "gold", 0)
-    return f"{b}🪙 {s}🥈 {g}🪙"
+    return f"{b}🟤 {s}⚪ {g}🟡"
 
 
 def currency_display(char):
@@ -593,7 +593,7 @@ def currency_display(char):
     b = getattr(char, "bronze", 0)
     s = getattr(char, "silver", 0)
     g = getattr(char, "gold", 0)
-    return f"{b}🪙 {s}🥈 {g}🪙"
+    return f"{b}🟤 {s}⚪ {g}🟡"
 
 
 def get_russian_stat_name(key):

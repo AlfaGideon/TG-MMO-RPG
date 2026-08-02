@@ -110,11 +110,11 @@ async def _render_book(callback: CallbackQuery, page: int, healer: bool):
             b_val = remainder % CONVERSION
             missing_parts = []
             if g_val > 0:
-                missing_parts.append(f"{g_val}🪙")
+                missing_parts.append(f"{g_val}🟡")
             if s_val > 0:
-                missing_parts.append(f"{s_val}🥈")
+                missing_parts.append(f"{s_val}⚪")
             if b_val > 0 or not missing_parts:
-                missing_parts.append(f"{b_val}🪙")
+                missing_parts.append(f"{b_val}🟤")
             missing_str = " ".join(missing_parts)
             note += f"\n<i>Не хватает {missing_str}.</i>"
 

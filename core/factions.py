@@ -18,6 +18,7 @@ FACTIONS = F.FACTIONS
 ORDER = F.ORDER
 RIVALS = F.RIVALS
 MIN_REP, MAX_REP = F.MIN_REP, F.MAX_REP
+hostile = F.hostile
 
 
 def load(character) -> dict:

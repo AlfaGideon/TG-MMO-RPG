@@ -21,9 +21,9 @@ HELP_PAGES = [
 • <b>Подземелье</b> — процедурные данжи
 
 <b>💰 Три валюты (1:100)</b>
-🪙 <b>Бронза</b> — мелочь
-🥈 <b>Серебро</b> — средняя
-🪙 <b>Золото</b> — высшая
+🟤 <b>Бронза</b> — мелочь
+⚪ <b>Серебро</b> — средняя
+🟡 <b>Золото</b> — высшая
 
 Автоконвертация работает автоматически."""
     },
@@ -90,7 +90,7 @@ HELP_PAGES = [
 • Сундуки восстанавливаются
 • Мир бесшовный — исследуй границы
 • Пиши админу через бота
-• Конвертация валюты 1:100 (бронза → серебро → золото)
+• Конвертация валюты 1:100 (🟤 бронза → ⚪ серебро → 🟡 золото)
 
 <i>Удачи в Теневых Землях...</i>"""
     }
@@ -118,13 +118,27 @@ async def show_help_page(callback: CallbackQuery, page: int):
     from aiogram.utils.keyboard import InlineKeyboardBuilder
     builder = InlineKeyboardBuilder()
 
+    nav = 0
     if page > 0:
         builder.button(text="◀️ Назад", callback_data=f"help_page:{page-1}")
+        nav += 1
     if page < len(HELP_PAGES) - 1:
         builder.button(text="Вперёд ▶️", callback_data=f"help_page:{page+1}")
+        nav += 1
+
+    # Подразделы помощи: книга обновлений и место для идей игроков.
+    # После перевода помощи в «книгу» эти кнопки потерялись — возвращаем.
+    builder.button(text="📢 Обновления", callback_data="bot_updates")
+    builder.button(text="💡 Идеи и пожелания", callback_data="bot_suggest")
 
     builder.button(text="◀️ В меню", callback_data="main_menu")
-    builder.adjust(2, 1)
+
+    rows = []
+    if nav:
+        rows.append(nav)
+    rows.append(2)
+    rows.append(1)
+    builder.adjust(*rows)
 
     await safe_edit_text(callback, text, reply_markup=builder.as_markup(), parse_mode="HTML")
     await callback.answer()

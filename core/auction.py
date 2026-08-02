@@ -157,7 +157,7 @@ async def list_lot(session, character, inv_item: InventoryItem, price: int) -> d
     if price < low or price > high:
         return {
             "ok": False,
-            "reason": f"Цена должна быть от {low}🪙 до {high}🪙.",
+            "reason": f"Цена должна быть от {low}🟤 до {high}🟤.",
         }
 
     lot = AuctionLot(
@@ -213,7 +213,7 @@ async def buy_lot(session, buyer: Character, lot: AuctionLot) -> dict:
         return {"ok": False, "reason": "Нельзя купить собственный лот."}
     from engine.currency import total_in_bronze, deduct_currency, add_currency
     if total_in_bronze(buyer) < lot.price:
-        return {"ok": False, "reason": f"Не хватает {lot.price - total_in_bronze(buyer)}🪙."}
+        return {"ok": False, "reason": f"Не хватает {lot.price - total_in_bronze(buyer)}🟤."}
 
     instance = await session.get(ItemInstance, lot.instance_id)
     item = await session.get(Item, lot.item_id)

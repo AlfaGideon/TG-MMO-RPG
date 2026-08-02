@@ -144,21 +144,16 @@ def continue_keyboard(extra: list | None = None, with_inspect: bool = True):
 
 
 def profile_book_keyboard(page: int, total: int, titles: list):
-    """Листалка «книги о герое»: развороты вместо одной длинной простыни."""
+    """Навигация «книги о герое»: только закладки-разделы и выход в меню.
+
+    Раньше здесь были и стрелки «Пред./След.», и закладки всех разделов —
+    двойная навигация давала до шести кнопок под маленькой карточкой.
+    Закладки сами ведут на любой разворот одним нажатием, поэтому стрелки
+    убраны как лишние.
+    """
     builder = InlineKeyboardBuilder()
     rows = []
 
-    nav = 0
-    if page > 0:
-        builder.button(text="⬅️ Пред.", callback_data=f"profile_page:{page - 1}")
-        nav += 1
-    if page + 1 < total:
-        builder.button(text="След. ➡️", callback_data=f"profile_page:{page + 1}")
-        nav += 1
-    if nav:
-        rows.append(nav)
-
-    # Быстрый переход на любой разворот — закладки книги.
     tabs = 0
     for idx, title in enumerate(titles):
         if idx == page:
@@ -166,10 +161,7 @@ def profile_book_keyboard(page: int, total: int, titles: list):
         builder.button(text=title, callback_data=f"profile_page:{idx}")
         tabs += 1
     if tabs:
-        rows.append(2 if tabs > 1 else 1)
-        if tabs > 2:
-            rows[-1] = 2
-            rows.append(tabs - 2)
+        rows = [2] * (tabs // 2) + ([1] if tabs % 2 else [])
 
     builder.button(text="🏠 Меню", callback_data="main_menu")
     rows.append(1)
@@ -295,7 +287,7 @@ def merchant_book_keyboard(ware, page: int, total: int, can_buy: bool):
     rows = []
     if can_buy:
         builder.button(
-            text=f"🟢 💰 Купить за {ware['price']}🪙",
+            text=f"🟢 💰 Купить за {ware['price']}🟤",
             callback_data=f"merchant_buy:{page}",
         )
     else:
@@ -499,7 +491,7 @@ def auction_browse_keyboard(lots: list, page: int = 0, per_page: int = 6,
         badge = inst.badge() if inst else "🔹"
         name = inst.display_name(lot.item) if inst else (lot.item.name if lot.item else "Лот")
         builder.button(
-            text=f"{badge}{icon} {name} — {lot.price}🪙",
+            text=f"{badge}{icon} {name} — {lot.price}🟤",
             callback_data=f"auction_lot:{lot.id}",
         )
     rows = [1] * len(chunk)
@@ -580,12 +572,12 @@ def auction_price_keyboard(inv_id: int, prices: list, npc_price: int):
     builder = InlineKeyboardBuilder()
     for label, price in prices:
         builder.button(
-            text=f"{label} — {price}🪙",
+            text=f"{label} — {price}🟤",
             callback_data=f"auction_list:{inv_id}:{price}",
         )
     rows = [1] * len(prices)
     builder.button(
-        text=f"⚡ Сразу скупщику — {npc_price}🪙",
+        text=f"⚡ Сразу скупщику — {npc_price}🟤",
         callback_data=f"auction_npc_sell:{inv_id}",
     )
     builder.button(text="◀️ Назад", callback_data="auction_my_items:0")
@@ -600,7 +592,7 @@ def auction_my_lots_keyboard(lots: list):
         icon = lot.item.icon if lot.item else "❔"
         name = lot.instance.display_name(lot.item) if lot.instance else "Лот"
         builder.button(
-            text=f"↩️ {icon} {name} ({lot.price}🪙)",
+            text=f"↩️ {icon} {name} ({lot.price}🟤)",
             callback_data=f"auction_cancel:{lot.id}",
         )
     builder.button(text="◀️ К аукциону", callback_data="auction_menu")
@@ -712,7 +704,7 @@ def shop_book_keyboard(shop_item, page: int, total: int, can_buy: bool,
     if shop_item is not None:
         if can_buy:
             builder.button(
-                text=f"🟢 💰 Купить за {shop_item.price}🪙",
+                text=f"🟢 💰 Купить за {shop_item.price}🟤",
                 callback_data=f"buy:{shop_item.id}",
             )
         else:

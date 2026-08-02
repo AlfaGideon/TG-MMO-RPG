@@ -11,6 +11,8 @@ SUITES = ["test_engine.py", "test_pages.py", "test_transport.py", "test_access.p
           "test_living_world.py", "test_social_world.py",
           "test_stash.py", "test_world_endgame.py",
           "test_factions.py", "test_dungeon.py",
+          "test_party.py",
+          "test_miniapp.py",
           "test_server_stash.py",
           "test_parity.py",
           "test_merchant.py",

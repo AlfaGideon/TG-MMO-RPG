@@ -159,7 +159,7 @@ async def leaderboard_view(callback: CallbackQuery):
             b = getattr(char, "bronze", 0)
             s = getattr(char, "silver", 0)
             g = getattr(char, "gold", 0)
-            val = f"{b}🪙{s}🥈{g}🪙"
+            val = f"{b}🟤{s}⚪{g}🟡"
             icon = ""
         lines.append(f"{medals[idx-1]} {name} — {val}{icon}")
 
