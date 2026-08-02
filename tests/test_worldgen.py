@@ -22,7 +22,7 @@ from core import worldgen as W, worldops as WO
 from core.database import Base
 from core.enums import LocationType
 from core.models import Location, Cell, Character, User, Mob, MobSpawn, Quest, VisitedCell
-from core.seed import CELL_STORIES
+from core.seed import CELL_STORIES, build_underground
 
 FAILED = []
 
@@ -127,6 +127,32 @@ async def main():
         check(down1.target_floor == 0 and down1.target_location_id == t.id,
               "лестница 1→0 (обратная!)")
         check(down2.target_floor == 1, "лестница 2→1 (с верхнего этажа есть спуск)")
+
+    print("\n— Подземные этажи замка: вниз и обратно —")
+    async with Session() as s:
+        u = await make_loc(s, "Замок Подземный", 3, 3, grid_size=10, floors=2,
+                           ltype=LocationType.SAFE)
+        await build_underground(s, u, 2, random.Random(123))
+        await s.commit()
+        cx, cy = W.center_of(10)
+        entry_pos, down_pos, up_pos = W.underground_stair_positions(10)
+        surface_center = await W.cell_at(s, u.id, cx, cy, 0)
+        entry = await W.cell_at(s, u.id, *entry_pos, 0)
+        up1 = await W.cell_at(s, u.id, *up_pos, -1)
+        down1 = await W.cell_at(s, u.id, *down_pos, -1)
+        up2 = await W.cell_at(s, u.id, *up_pos, -2)
+        deep_center = await W.cell_at(s, u.id, *down_pos, -2)
+        check(surface_center.target_floor == 1,
+              "подземный вход не перетёр обычную лестницу 0→1")
+        check(entry.target_floor == -1 and (entry.target_x, entry.target_y) == up_pos,
+              "поверхность → первый подземный уровень")
+        check(up1.target_floor == 0 and (up1.target_x, up1.target_y) == entry_pos,
+              "-1 → поверхность (обратная лестница)")
+        check(down1.target_floor == -2 and (down1.target_x, down1.target_y) == up_pos,
+              "-1 → -2 (спуск глубже)")
+        check(up2.target_floor == -1, "-2 → -1 через узел подъёма")
+        check(deep_center.target_floor == -1,
+              "самое дно не ведёт в несуществующий -3, а поднимает наверх")
 
     print("\n— Коллизии координат: обмен местами —")
     async with Session() as s:

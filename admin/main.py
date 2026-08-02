@@ -703,7 +703,9 @@ async def player_edit(
             # Перенос по миру: ищем указанную клетку, иначе любую проходимую
             if location_id:
                 char.location_id = location_id
-                char.floor = max(0, floor or 0)
+                # Отрицательные этажи — подземелья под замками; админский
+                # перенос не должен насильно возвращать их на поверхность.
+                char.floor = floor or 0
                 target = None
                 if cell_x is not None and cell_y is not None:
                     result = await session.execute(
@@ -5100,8 +5102,11 @@ async def players_map(request: Request):
         )
         pop_rows = result.all()
         pop_by_loc = {}
+        floor_values = set()
         for loc_id, floor, cnt in pop_rows:
-            pop_by_loc.setdefault(loc_id, {})[floor or 0] = cnt
+            f = floor or 0
+            pop_by_loc.setdefault(loc_id, {})[f] = cnt
+            floor_values.add(f)
 
         result = await session.execute(
             select(Character)
@@ -5118,8 +5123,8 @@ async def players_map(request: Request):
         "players_map.html",
         {
             "locations": locations, "grid": grid, "grid_range": range(WORLD_GRID_SIZE),
-            "pop_by_loc": pop_by_loc, "characters": characters,
-            "total_characters": total_online_proxy,
+            "pop_by_loc": pop_by_loc, "floor_values": sorted(floor_values),
+            "characters": characters, "total_characters": total_online_proxy,
         },
     )
 
