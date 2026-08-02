@@ -74,6 +74,12 @@ async def lifespan(app: FastAPI):
             await session.commit()
     except Exception:
         pass
+    # Старый Quick Tunnel прекращает существовать при каждом рестарте.
+    # Очищаем его *до* запуска бота, иначе первые кнопки Mini App ведут на
+    # Cloudflare 1033, пока фоновая задача ещё поднимает новый адрес.
+    from core import tunnel as tunnel_mod
+    await tunnel_mod.clear_stale_quick_tunnel_url()
+
     async with async_session() as session:
         result = await session.execute(
             select(AppSetting).where(AppSetting.key == "bot_token")
@@ -85,7 +91,8 @@ async def lifespan(app: FastAPI):
     # Публичный HTTPS для Mini App: Quick Tunnel поднимается в фоне, чтобы
     # не задерживать готовность локальной панели (первый запуск ещё и
     # скачивает cloudflared). Адрес сам попадёт в настройки panel_url.
-    from core import tunnel as tunnel_mod
+    # На Render/Replit platform_public_url() выбирает постоянный домен, и
+    # туннель не запускается вовсе — это устраняет нестабильные 502/1033.
     app.state.tunnel_task = asyncio.create_task(
         tunnel_mod.setup_public_url(settings.ADMIN_PORT)
     )
