@@ -12,8 +12,10 @@ from core.models import User, Character, Location, Cell, VisitedCell
 from core.spawns import spawn_at_cell
 from core.vip import is_vip_active
 from core.map_renderer import (
-    render_player_map, get_player_map_path, zoom_radius_for, DEFAULT_ZOOM,
+    render_cell_image, render_player_map, get_neutral_scene_path,
+    get_player_map_path, zoom_radius_for, DEFAULT_ZOOM,
 )
+from core.neutral_tiles import background_for
 from bot.keyboards.inline import (
     cell_movement_keyboard, inspect_keyboard,
     main_menu_keyboard, map_view_keyboard,
@@ -1187,25 +1189,55 @@ async def show_cell(callback, character, location, session,
 
     is_basement = bool(location.name.startswith("Замок") and character.floor == 1)
 
-    # Use custom cell/location image if provided and valid
-    custom_img = cell.image_url or location.image_url
+    # Своя картинка клетки (например, портрет NPC) всегда важнее автоматики.
+    # Фон всей локации оставляем резервом: обычные клетки получают более
+    # читаемую нейтральную сцену по своему типу/форме дороги.
+    custom_img = (cell.image_url or "").strip()
     if custom_img and get_photo_input(custom_img):
         await send_or_edit_photo(
-            callback,
-            text,
-            reply_markup=cell_movement_keyboard(can_dirs, portal_template_id, dir_labels,
-                                   transition_label, is_vip=vip,
-                                   has_merchant=has_merchant,
-                                   is_castle_basement=is_basement),
+            callback, text,
+            reply_markup=cell_movement_keyboard(
+                can_dirs, portal_template_id, dir_labels, transition_label,
+                is_vip=vip, has_merchant=has_merchant,
+                is_castle_basement=is_basement),
             image_url=custom_img,
         )
         return
 
-    # Экран перемещения рисует ту же цветную карту с туманом войны, что
-    # и раздел «Карта», — больше никакого серо-чёрного минимапа. Масштаб
-    # крутится кнопками ➕/➖ под стрелками направлений.
     cells, visited = await _explored_cells(
         session, character, location.id, character.floor or 0)
+    neutral = background_for(cell, cells)
+    if neutral:
+        background_url, rotation = neutral
+        scene_path = get_neutral_scene_path(
+            character.id, location.id, character.floor or 0, cell.id)
+        render_cell_image(
+            cell, cells, cell.x, cell.y, scene_path,
+            background_url=background_url, background_rotation=rotation,
+        )
+        await send_or_edit_photo(
+            callback, text,
+            reply_markup=cell_movement_keyboard(
+                can_dirs, portal_template_id, dir_labels, transition_label,
+                is_vip=vip, has_merchant=has_merchant,
+                is_castle_basement=is_basement),
+            image_url=scene_path,
+        )
+        return
+
+    # Редкие типы без нейтрального арта используют заданный фон локации;
+    # иначе остаётся знакомая карта с туманом войны и масштабом.
+    if location.image_url and get_photo_input(location.image_url):
+        await send_or_edit_photo(
+            callback, text,
+            reply_markup=cell_movement_keyboard(
+                can_dirs, portal_template_id, dir_labels, transition_label,
+                is_vip=vip, has_merchant=has_merchant,
+                is_castle_basement=is_basement),
+            image_url=location.image_url,
+        )
+        return
+
     img_path = get_player_map_path(character.id, location.id,
                                    character.floor or 0, zoom)
     render_player_map(
@@ -1213,17 +1245,10 @@ async def show_cell(callback, character, location, session,
         zoom_radius=zoom_radius_for(location.grid_size, zoom),
     )
     kb = cell_movement_keyboard(can_dirs, portal_template_id, dir_labels,
-                                   transition_label, is_vip=vip,
-                                   has_merchant=has_merchant,
-                                   is_castle_basement=is_basement,
-                                   zoom=zoom)
-
-    await send_or_edit_photo(
-        callback,
-        text,
-        reply_markup=kb,
-        image_url=img_path,
-    )
+                                transition_label, is_vip=vip,
+                                has_merchant=has_merchant,
+                                is_castle_basement=is_basement, zoom=zoom)
+    await send_or_edit_photo(callback, text, reply_markup=kb, image_url=img_path)
 
 
 async def _active_portal_template_id(session, cell: Cell):

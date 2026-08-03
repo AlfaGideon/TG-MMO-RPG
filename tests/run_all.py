@@ -23,7 +23,7 @@ SUITES = ["test_engine.py", "test_pages.py", "test_transport.py", "test_access.p
           "test_admin_layout.py",
           "test_proxy.py",
           "test_bot_edit.py",
-          "test_bot_photos.py",
+          "test_bot_photos.py", "test_neutral_tiles.py",
           "test_bot_runner.py",
           "test_admin_logs.py",
           "test_bot_ui.py",

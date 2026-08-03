@@ -28,7 +28,7 @@ from core.models import (
     CharacterClassDef, ItemInstance, DropEntry, CraftRecipe, CraftIngredient,
     UpgradeRule, MobSpawn, ItemHistory, AuctionLot, CharacterAffinity,
     WorldEvent, WorldEventDamage, Grave, GameUpdate, PlayerSuggestion,
-    AIGeneration, UILayout,
+    AIGeneration, ImageAsset, UILayout,
 )
 from core.enums import (
     LocationType, ItemType, ItemRarity, QuestStatus, ItemSource, CraftStation,
@@ -804,10 +804,18 @@ async def player_edit(
                 char.vip_until = datetime.utcnow() + timedelta(days=vip_days)
             elif not is_vip:
                 char.vip_until = None
+            # Портрет героя из карточки игрока тоже становится вариантом
+            # библиотеки — потом его можно листать и вернуть без перезаливки.
             if image and image.filename:
-                char.image_url = save_uploaded_image(image, "character", char.id)
+                value, label = _save_library_upload(image, "character", str(char.id))
+                char.image_url = value
+                session.add(ImageAsset(kind="character", ref=str(char.id),
+                                       url=value, label=label))
             elif image_url.strip():
-                char.image_url = image_url.strip()
+                value = image_url.strip()
+                char.image_url = value
+                session.add(ImageAsset(kind="character", ref=str(char.id),
+                                       url=value, label=value[:160]))
             await session.commit()
     return RedirectResponse(url=f"/player/{char_id}", status_code=303)
 
@@ -2511,17 +2519,17 @@ async def editor_cell_save(
             cell.target_y = None
             cell.target_floor = None
 
+        # Ручные фоны клетки тоже идут в общую библиотеку: новая загрузка
+        # не перетирает предыдущую, её потом можно вернуть из «Картинок».
         if image and image.filename:
-            ext = os.path.splitext(image.filename)[1] or ".png"
-            filename = f"cell_{cell_id}{ext}"
-            upload_dir = "admin/static/cells"
-            os.makedirs(upload_dir, exist_ok=True)
-            filepath = os.path.join(upload_dir, filename)
-            with open(filepath, "wb") as f:
-                shutil.copyfileobj(image.file, f)
-            cell.image_url = f"/static/cells/{filename}"
+            value, label = _save_library_upload(image, "cell", str(cell_id))
+            cell.image_url = value
+            session.add(ImageAsset(kind="cell", ref=str(cell_id), url=value, label=label))
         elif image_url:
-            cell.image_url = image_url
+            value = image_url.strip()
+            cell.image_url = value
+            session.add(ImageAsset(kind="cell", ref=str(cell_id), url=value,
+                                   label=value[:160]))
 
         await session.commit()
 
@@ -2883,6 +2891,8 @@ async def api_cell_paint(
         "wall": ("wall", False),
         "grass": ("grass", True),
         "forest": ("forest", True),
+        "desert": ("desert", True),
+        "swamp": ("swamp", True),
         "water": ("water", False),
         "road": ("road", True),
         "village": ("village", True),
@@ -4050,18 +4060,22 @@ _MODEL_IMAGE_ANCHORS = {
 }
 
 
-def _save_named_upload(image: UploadFile, subdir: str, name: str) -> str:
-    """Сохраняет файл под осмысленным именем и возвращает /static-путь."""
+def _save_library_upload(image: UploadFile, kind: str, ref: str) -> tuple[str, str]:
+    """Сохранить новый вариант, не затирая прежние изображения слота."""
+    from uuid import uuid4
+
     ext = os.path.splitext(image.filename or "")[1].lower() or ".png"
     if ext not in (".jpg", ".jpeg", ".png", ".webp", ".gif"):
         ext = ".png"
-    safe = ("".join(ch for ch in name if ch.isalnum() or ch in ("_", "-"))[:80]
-            or "img")
-    upload_dir = f"admin/static/uploads/{subdir}"
+    safe_kind = "".join(ch for ch in kind if ch.isalnum() or ch in ("_", "-"))[:32] or "misc"
+    safe_ref = "".join(ch for ch in str(ref) if ch.isalnum() or ch in ("_", "-"))[:48] or "asset"
+    token = uuid4().hex[:12]
+    filename = f"{safe_ref}_{token}{ext}"
+    upload_dir = f"admin/static/uploads/library/{safe_kind}"
     os.makedirs(upload_dir, exist_ok=True)
-    with open(os.path.join(upload_dir, f"{safe}{ext}"), "wb") as fh:
+    with open(os.path.join(upload_dir, filename), "wb") as fh:
         shutil.copyfileobj(image.file, fh)
-    return f"/static/uploads/{subdir}/{safe}{ext}"
+    return f"/static/uploads/library/{safe_kind}/{filename}", (image.filename or filename)[:160]
 
 
 def _faction_crest_path(key: str) -> str:
@@ -4088,54 +4102,115 @@ def _img_group(gid: str, title: str, note: str, slots: list) -> dict:
 
 
 def _slot(kind: str, ref: str, title: str, url: str, sub: str = "",
-          clearable: bool = True, restore: bool = False) -> dict:
-    return {"kind": kind, "ref": str(ref), "title": title, "url": url,
-            "sub": sub, "clearable": clearable, "restore": restore}
+          clearable: bool = True, restore: bool = False, assets: list | None = None) -> dict:
+    """Собрать слот с текущим изображением и сохранёнными вариантами."""
+    entries, by_url = [], {}
+
+    def add(asset_id, candidate, label, active=False):
+        candidate = (candidate or "").strip()
+        if not candidate:
+            return
+        previous = by_url.get(candidate)
+        if previous:
+            previous["active"] = previous["active"] or active
+            return
+        item = {"id": asset_id, "url": candidate, "label": label or "Вариант",
+                "active": active}
+        entries.append(item)
+        by_url[candidate] = item
+
+    current = (url or "").strip()
+    add(None, current, "Сейчас выбрано", active=True)
+    for asset in assets or []:
+        add(asset.id, asset.url, asset.label or f"Вариант #{asset.id}",
+            active=(asset.url == current))
+
+    return {"kind": kind, "ref": str(ref), "title": title, "url": current,
+            "sub": sub, "clearable": clearable, "restore": restore,
+            "assets": entries}
+
+
+async def _apply_slot_image(session, kind: str, ref: str, value: str,
+                            clear: bool = False) -> str:
+    """Сделать URL активным, сохранив один источник правды старых экранов."""
+    from core import classes as cls_mod, ui_images
+
+    value = (value or "").strip()
+    if kind == "ui":
+        if ref in ui_images.DEFAULTS:
+            await ui_images.set_value(session, ref, "" if clear else value)
+        return "ui"
+
+    if kind == "class":
+        cls = await session.get(CharacterClassDef, int(ref or 0))
+        if cls is not None:
+            cls.image_url = "" if clear else value
+            return f"class_{cls.id}"
+        return "classes"
+
+    if kind == "class_faction":
+        class_id, _, fkey = (ref or "").partition(":")
+        cls = await session.get(CharacterClassDef, int(class_id or 0))
+        if cls is not None:
+            cls_mod.save_faction_image(cls, fkey, "" if clear else value)
+            return f"class_{cls.id}"
+        return "classes"
+
+    model = _MODEL_IMAGE_KINDS.get(kind)
+    if model is not None:
+        obj = await session.get(model, int(ref or 0))
+        if obj is not None:
+            obj.image_url = "" if clear else value
+    return _MODEL_IMAGE_ANCHORS.get(kind, kind)
 
 
 @app.get("/editor/images")
 async def editor_images(request: Request):
-    """Все картинки игры в одном разделе — и под будущие праздничные темы."""
+    """Все картинки игры + библиотека вариантов для каждого слота."""
     guard(request, "manage_content")
     from core import ui_images
     from core import classes as cls_mod
     from engine.factions import FACTIONS, ORDER
 
     async with async_session() as session:
-        ui_slots = []
-        for key, title in ui_images.TITLES.items():
-            ui_slots.append(_slot(
-                "ui", key, title, await ui_images.get(session, key),
-                "экран бота"))
+        assets = (await session.execute(
+            select(ImageAsset).order_by(ImageAsset.created_at.desc(), ImageAsset.id.desc())
+        )).scalars().all()
+        assets_by_slot = {}
+        for asset in assets:
+            assets_by_slot.setdefault((asset.kind, str(asset.ref)), []).append(asset)
 
+        def variants(kind, ref):
+            return assets_by_slot.get((kind, str(ref)), [])
+
+        ui_slots = [
+            _slot("ui", key, title, await ui_images.get(session, key), "экран бота",
+                  assets=variants("ui", key))
+            for key, title in ui_images.TITLES.items()
+        ]
         classes = (await session.execute(
-            select(CharacterClassDef).order_by(
-                CharacterClassDef.sort_order, CharacterClassDef.id))
+            select(CharacterClassDef).order_by(CharacterClassDef.sort_order,
+                                               CharacterClassDef.id))
         ).scalars().all()
-        locations = (await session.execute(
-            select(Location).order_by(Location.id))).scalars().all()
-        mobs = (await session.execute(
-            select(Mob).order_by(Mob.id))).scalars().all()
-        items = (await session.execute(
-            select(Item).order_by(Item.id))).scalars().all()
-        quests = (await session.execute(
-            select(Quest).order_by(Quest.id))).scalars().all()
-        dungeons = (await session.execute(
-            select(DungeonTemplate).order_by(DungeonTemplate.id))).scalars().all()
+        locations = (await session.execute(select(Location).order_by(Location.id))).scalars().all()
+        mobs = (await session.execute(select(Mob).order_by(Mob.id))).scalars().all()
+        items = (await session.execute(select(Item).order_by(Item.id))).scalars().all()
+        quests = (await session.execute(select(Quest).order_by(Quest.id))).scalars().all()
+        dungeons = (await session.execute(select(DungeonTemplate).order_by(DungeonTemplate.id))).scalars().all()
         npc_cells = (await session.execute(
-            select(Cell).where(Cell.has_npc == True)  # noqa: E712
-            .options(selectinload(Cell.location)))).scalars().all()
+            select(Cell).where(Cell.has_npc == True).options(selectinload(Cell.location))  # noqa: E712
+        )).scalars().all()
         custom_cells = (await session.execute(
-            select(Cell)
-            .where(Cell.image_url.isnot(None)).where(Cell.image_url != "")
-            .options(selectinload(Cell.location)))).scalars().all()
+            select(Cell).where(Cell.image_url.isnot(None)).where(Cell.image_url != "")
+            .options(selectinload(Cell.location))
+        )).scalars().all()
+        # Показываем и героев без текущего аватара: для них библиотека —
+        # место, где можно добавить первый вариант, а не только заменить уже
+        # существующий.
         players = (await session.execute(
-            select(Character)
-            .where(Character.image_url.isnot(None)).where(Character.image_url != "")
-            .order_by(Character.id))).scalars().all()
+            select(Character).order_by(Character.id)
+        )).scalars().all()
 
-    # Гербы фракций — файлы в admin/static/factions (показываем с меткой
-    # времени, чтобы превью не залипало в кеше после перезаливки).
     faction_slots = []
     for key in ORDER:
         icon, name = FACTIONS[key][0], FACTIONS[key][1]
@@ -4144,168 +4219,136 @@ async def editor_images(request: Request):
         url = f"/static/factions/{key}.jpg?v={stamp}" if stamp else ""
         backup = os.path.join(FACTION_CREST_DIR, "_originals", f"{key}.jpg")
         faction_slots.append(_slot(
-            "faction", key, f"{icon} {name}", url,
-            "герб в книге выбора фракции",
+            "faction", key, f"{icon} {name}", url, "герб в книге выбора фракции",
             clearable=False, restore=os.path.isfile(backup)))
 
-    # Классы: основное фото + портреты четырёх сторон (подставляются в
-    # профиль по текущей фракции игрока).
     class_groups = []
     for cls in classes:
         slots = [_slot("class", cls.id, f"{cls.icon or '🎭'} Основной портрет",
-                       (cls.image_url or "").strip(),
-                       "выбор класса на старте")]
+                       (cls.image_url or "").strip(), "выбор класса на старте",
+                       assets=variants("class", cls.id))]
         customs = cls_mod.faction_images(cls)
         for fkey in ORDER:
             if fkey not in FACTIONS:
                 continue
             icon, name = FACTIONS[fkey][0], FACTIONS[fkey][1]
             src = "свой файл" if customs.get(fkey) else "сгенерированный"
-            slots.append(_slot("class_faction", f"{cls.id}:{fkey}",
-                               f"{icon} {name}", cls_mod.class_image(cls, fkey), src))
+            ref = f"{cls.id}:{fkey}"
+            slots.append(_slot("class_faction", ref, f"{icon} {name}",
+                               cls_mod.class_image(cls, fkey), src,
+                               assets=variants("class_faction", ref)))
         class_groups.append(_img_group(
             f"class_{cls.id}", f"🎭 Класс: {cls.name}",
-            "Портреты (1×1) подставляются в профиль по текущей фракции игрока.",
-            slots))
+            "Варианты хранятся рядом с портретом: листай и выбери активный.", slots))
 
-    def _entity(model_kind, obj, title, sub):
-        return _slot(model_kind, obj.id, title, (obj.image_url or "").strip(), sub)
+    def entity(model_kind, obj, title, sub):
+        return _slot(model_kind, obj.id, title, (obj.image_url or "").strip(), sub,
+                     assets=variants(model_kind, obj.id))
 
     loc_of = {loc.id: loc.name for loc in locations}
     npc_ids = {c.id for c in npc_cells}
     groups = [
         _img_group("ui", "🖥 Экраны бота",
-                   "Заставка и оформление разделов. Праздничные темы "
-                   "(Новый год, Хеллоуин) готовятся здесь заранее.",
-                   ui_slots),
+                   "Загрузки не заменяют друг друга: все варианты остаются в библиотеке.", ui_slots),
         _img_group("factions", "🧭 Гербы фракций",
-                   "Файлы admin/static/factions. Новая картинка сразу "
-                   "появляется в книге выбора фракции; оригинал можно вернуть.",
-                   faction_slots),
-        _img_group("locations", "🗺 Локации",
-                   "Фон раздела локации в боте.",
-                   [_entity("location", l, f"{l.id}. {l.name}", "локация") for l in locations]),
-        _img_group("mobs", "👾 Мобы",
-                   "Картинка монстра в бою.",
-                   [_entity("mob", m, f"{m.id}. {m.name}", f"ур. {m.level}") for m in mobs]),
-        _img_group("npcs", "💬 Жители (NPC)",
-                   "Портрет жителя на клетке.",
-                   [_slot("cell", c.id, c.npc_name or "Житель",
-                          (c.image_url or "").strip(),
-                          f"{loc_of.get(c.location_id, '?')} [{c.x},{c.y}]")
-                    for c in npc_cells]),
-        _img_group("items", "🎒 Предметы",
-                   "Иконка предмета в инвентаре, лавке и аукционе.",
-                   [_entity("item", i, f"{i.id}. {i.name}", "предмет") for i in items]),
-        _img_group("quests", "📜 Квесты",
-                   "Картинка квеста в журнале.",
-                   [_entity("quest", q, f"{q.id}. {q.name}", "квест") for q in quests]),
-        _img_group("dungeons", "🕳 Подземелья",
-                   "Афиша подземелья.",
-                   [_entity("dungeon", d, f"{d.id}. {d.name}", "подземелье") for d in dungeons]),
-        _img_group("cells", "🧱 Клетки с особыми фонами",
-                   "Только клетки, где уже стоит своя картинка "
-                   "(остальные задаются в редакторе локации).",
-                   [_slot("cell", c.id, c.name or f"Клетка {c.id}",
-                          (c.image_url or "").strip(),
-                          f"{loc_of.get(c.location_id, '?')} [{c.x},{c.y}] этаж {c.floor or 0}")
-                    for c in custom_cells if c.id not in npc_ids]),
-        _img_group("players", "👤 Аватары игроков",
-                   "Свои портреты, загруженные игроками или админом.",
-                   [_entity("character", p, f"{p.id}. {p.name}", f"ур. {p.level}") for p in players]),
+                   "Герб хранится отдельным файлом; оригинал можно вернуть.", faction_slots),
+        _img_group("locations", "🗺 Локации", "Фон раздела локации в боте.",
+                   [entity("location", loc, f"{loc.id}. {loc.name}", "локация") for loc in locations]),
+        _img_group("mobs", "👾 Мобы", "Картинка монстра в бою.",
+                   [entity("mob", mob, f"{mob.id}. {mob.name}", f"ур. {mob.level}") for mob in mobs]),
+        _img_group("npcs", "💬 Жители (NPC)", "Портрет жителя на клетке.",
+                   [_slot("cell", cell.id, cell.npc_name or "Житель",
+                          (cell.image_url or "").strip(),
+                          f"{loc_of.get(cell.location_id, '?')} [{cell.x},{cell.y}]",
+                          assets=variants("cell", cell.id)) for cell in npc_cells]),
+        _img_group("items", "🎒 Предметы", "Иконка предмета в инвентаре, лавке и аукционе.",
+                   [entity("item", item, f"{item.id}. {item.name}", "предмет") for item in items]),
+        _img_group("quests", "📜 Квесты", "Картинка квеста в журнале.",
+                   [entity("quest", quest, f"{quest.id}. {quest.name}", "квест") for quest in quests]),
+        _img_group("dungeons", "🕳 Подземелья", "Афиша подземелья.",
+                   [entity("dungeon", dungeon, f"{dungeon.id}. {dungeon.name}", "подземелье") for dungeon in dungeons]),
+        _img_group("cells", "🧱 Клетки с особыми фонами", "Клетки с ручной картинкой.",
+                   [_slot("cell", cell.id, cell.name or f"Клетка {cell.id}",
+                          (cell.image_url or "").strip(),
+                          f"{loc_of.get(cell.location_id, '?')} [{cell.x},{cell.y}] этаж {cell.floor or 0}",
+                          assets=variants("cell", cell.id))
+                    for cell in custom_cells if cell.id not in npc_ids]),
+        _img_group("players", "👤 Аватары игроков", "Свои портреты игроков.",
+                   [entity("character", player, f"{player.id}. {player.name}", f"ур. {player.level}") for player in players]),
     ]
-    # Пустые группы (нет ни одной клетки с фоном и т.п.) не показываем.
-    groups = [g for g in groups if g["slots"]]
-
-    return templates.TemplateResponse(
-        request, "editor_images.html",
-        {"groups": groups, "class_groups": class_groups},
-    )
+    groups = [group for group in groups if group["slots"]]
+    return templates.TemplateResponse(request, "editor_images.html",
+                                      {"groups": groups, "class_groups": class_groups})
 
 
 @app.post("/editor/images/set")
 async def editor_images_set(
-    request: Request,
-    kind: str = Form(...),
-    ref: str = Form(""),
-    image: UploadFile = File(None),
-    url: str = Form(""),
-    clear: str = Form(""),
+    request: Request, kind: str = Form(...), ref: str = Form(""),
+    image: UploadFile = File(None), url: str = Form(""), clear: str = Form(""),
     restore: str = Form(""),
 ):
-    """Сменить/убрать/вернуть картинку слота из раздела «Картинки»."""
+    """Загрузить новый вариант и сразу сделать его активным."""
     guard(request, "manage_content")
-    from core import classes as cls_mod, ui_images
+    has_file, url = bool(image and image.filename), (url or "").strip()
 
-    has_file = bool(image and image.filename)
-    url = (url or "").strip()
-    anchor = kind
-
-    if kind == "ui":
-        if ref in ui_images.DEFAULTS:
-            value = ""
-            if has_file:
-                value = _save_named_upload(image, "ui", ref)
-            elif url:
-                value = url
-            # Пустая настройка = вернуть запасной файл из репозитория.
-            async with async_session() as session:
-                await ui_images.set_value(session, ref, value)
-                await session.commit()
-        anchor = "ui"
-
-    elif kind == "faction":
+    if kind == "faction":
         backup = os.path.join(FACTION_CREST_DIR, "_originals", f"{ref}.jpg")
         if restore and os.path.isfile(backup):
             shutil.copyfile(backup, _faction_crest_path(ref))
         elif has_file:
             _save_faction_crest(ref, image)
-        anchor = "factions"
+        return RedirectResponse(url="/editor/images#factions", status_code=303)
 
-    elif kind == "class":
-        async with async_session() as session:
-            cls = await session.get(CharacterClassDef, int(ref or 0))
-            if cls is not None:
-                if clear:
-                    cls.image_url = ""
-                elif has_file:
-                    cls.image_url = _save_named_upload(image, "classes", cls.key)
-                elif url:
-                    cls.image_url = url
-                await session.commit()
-                anchor = f"class_{cls.id}"
-
-    elif kind == "class_faction":
-        class_id, _, fkey = (ref or "").partition(":")
-        async with async_session() as session:
-            cls = await session.get(CharacterClassDef, int(class_id or 0))
-            if cls is not None:
-                value = ""
-                if has_file:
-                    value = _save_named_upload(image, "classes", f"{cls.key}_{fkey}")
-                elif url:
-                    value = url
-                if value or clear:
-                    cls_mod.save_faction_image(cls, fkey, value)
-                    await session.commit()
-                anchor = f"class_{cls.id}"
-
-    else:
-        model = _MODEL_IMAGE_KINDS.get(kind)
-        if model is not None:
-            async with async_session() as session:
-                obj = await session.get(model, int(ref or 0))
-                if obj is not None:
-                    if clear:
-                        obj.image_url = ""
-                    elif has_file:
-                        obj.image_url = _save_named_upload(image, kind, f"{kind}_{obj.id}")
-                    elif url:
-                        obj.image_url = url
-                    await session.commit()
-            anchor = _MODEL_IMAGE_ANCHORS.get(kind, kind)
-
+    anchor = kind
+    async with async_session() as session:
+        if has_file:
+            value, label = _save_library_upload(image, kind, ref)
+            session.add(ImageAsset(kind=kind, ref=str(ref), url=value, label=label))
+            anchor = await _apply_slot_image(session, kind, ref, value)
+        elif url:
+            session.add(ImageAsset(kind=kind, ref=str(ref), url=url, label=url[:160]))
+            anchor = await _apply_slot_image(session, kind, ref, url)
+        elif clear:
+            anchor = await _apply_slot_image(session, kind, ref, "", clear=True)
+        await session.commit()
     return RedirectResponse(url=f"/editor/images#{anchor}", status_code=303)
+
+
+@app.post("/editor/images/select")
+async def editor_images_select(request: Request, asset_id: int = Form(...),
+                               kind: str = Form(...), ref: str = Form("")):
+    """Сделать ранее сохранённый вариант активным без повторной загрузки."""
+    guard(request, "manage_content")
+    async with async_session() as session:
+        asset = await session.get(ImageAsset, asset_id)
+        if asset and asset.kind == kind and asset.ref == str(ref):
+            anchor = await _apply_slot_image(session, kind, ref, asset.url)
+            await session.commit()
+        else:
+            anchor = kind
+    return RedirectResponse(url=f"/editor/images#{anchor}", status_code=303)
+
+
+@app.post("/editor/images/delete-asset")
+async def editor_images_delete_asset(request: Request, asset_id: int = Form(...),
+                                     kind: str = Form(...)):
+    """Удалить неактивный вариант из библиотеки и, если возможно, его файл."""
+    guard(request, "manage_content")
+    async with async_session() as session:
+        asset = await session.get(ImageAsset, asset_id)
+        if asset:
+            url = asset.url
+            await session.delete(asset)
+            await session.commit()
+            if url.startswith("/static/uploads/library/"):
+                from core.assets import local_asset_path
+                path = local_asset_path(url)
+                if path and path.is_file():
+                    try:
+                        path.unlink()
+                    except OSError:
+                        pass
+    return RedirectResponse(url=f"/editor/images#{kind}", status_code=303)
 
 
 # ── Drop Tables Editor (что выпадает из мобов и сундуков) ───

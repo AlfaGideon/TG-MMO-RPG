@@ -1,0 +1,103 @@
+"""Нейтральные сцены движения: формы дорог и прозрачный Pillow-слой.
+
+python3 tests/test_neutral_tiles.py
+"""
+import os
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+try:
+    from PIL import Image
+except ImportError:
+    print("⚠️  ПРОПУСК: нет Pillow")
+    sys.exit(0)
+
+FAILED = []
+
+
+def check(condition, label):
+    print(("  ✅ " if condition else "  ❌ ") + label)
+    if not condition:
+        FAILED.append(label)
+
+
+def cell(x, y, tile="road", passable=True, name="Тракт"):
+    return SimpleNamespace(id=x * 10 + y + 1, x=x, y=y, tile_type=tile,
+                           is_passable=passable, name=name, image_url="")
+
+
+def test_road_shapes():
+    from core.neutral_tiles import (ROAD_CROSS, ROAD_STRAIGHT, ROAD_T, ROAD_TURN,
+                                    background_for)
+
+    print("\n— Форма дорожного фона —")
+    center = cell(1, 1)
+    cross = [center, cell(0, 1), cell(2, 1), cell(1, 0), cell(1, 2)]
+    check(background_for(center, cross) == (ROAD_CROSS, 0),
+          "четыре соседа → перекрёсток")
+
+    straight = [center, cell(0, 1), cell(2, 1)]
+    check(background_for(center, straight) == (ROAD_STRAIGHT, 0),
+          "север–юг → прямой вертикальный участок")
+
+    horizontal = [center, cell(1, 0), cell(1, 2)]
+    check(background_for(center, horizontal) == (ROAD_STRAIGHT, 90),
+          "запад–восток → повёрнутый прямой участок")
+
+    turn = [center, cell(2, 1), cell(1, 2)]
+    check(background_for(center, turn) == (ROAD_TURN, 0),
+          "юг–восток → базовый поворот")
+
+    tee = [center, cell(2, 1), cell(1, 0), cell(1, 2)]
+    check(background_for(center, tee) == (ROAD_T, 0),
+          "три соседа → T-перекрёсток")
+
+
+def test_terrain_assets_and_scene():
+    from core.neutral_tiles import TILE_BACKGROUNDS, background_for
+    from core.map_renderer import TILE_SIZE, render_cell_image
+
+    print("\n— Нейтральные ландшафты и слой Pillow —")
+    expected = {"grass", "forest", "desert", "swamp", "water", "cave"}
+    check(expected <= set(TILE_BACKGROUNDS), "есть все заявленные типы ландшафта")
+    for tile, url in TILE_BACKGROUNDS.items():
+        path = ROOT / "admin/static" / url.removeprefix("/static/")
+        check(path.is_file(), f"{tile}: фон существует")
+
+    meadow = cell(0, 0, "grass", name="Поляна")
+    check(background_for(meadow, [meadow])[0].endswith("meadow.png"),
+          "трава получает нейтральный луг")
+
+    output = ROOT / "data" / "test_neutral_scene.jpg"
+    render_cell_image(meadow, [meadow], 0, 0, str(output),
+                      background_url=TILE_BACKGROUNDS["grass"])
+    image = Image.open(output)
+    check(image.size == (TILE_SIZE, TILE_SIZE), "сцена собрана в размер Telegram-фона")
+    # Центр занят тактическим полупрозрачным слоем, но фон снаружи остаётся
+    # живым и не сводится к одноцветной заглушке.
+    center = image.getpixel((256, 256))
+    top = image.getpixel((500, 20))
+    check(center != top, "Pillow-слой наложен поверх фонового арта")
+    try:
+        output.unlink()
+    except OSError:
+        pass
+
+
+def main():
+    test_road_shapes()
+    test_terrain_assets_and_scene()
+    print()
+    if FAILED:
+        print("❌ Провалено: " + ", ".join(FAILED))
+        return 1
+    print("✅ Нейтральные сцены движения готовы")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
