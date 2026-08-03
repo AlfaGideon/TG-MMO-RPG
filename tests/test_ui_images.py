@@ -28,9 +28,10 @@ def test_ui_defaults():
     from core import ui_images
 
     print("\n— Дефолты экранов бота —")
-    check(set(ui_images.DEFAULTS) ==
-          {"welcome_ru", "welcome_en", "auction", "leaderboard"},
-          f"есть все четыре экрана {sorted(ui_images.DEFAULTS)}")
+    check({"welcome_ru", "welcome_en", "auction", "leaderboard",
+           "splash_winter", "splash_spring", "splash_summer",
+           "splash_autumn"} <= set(ui_images.DEFAULTS),
+          f"есть все экраны, включая сезонные {sorted(ui_images.DEFAULTS)}")
     check(all(v.startswith("/static/branding/")
               for v in ui_images.DEFAULTS.values()),
           "дефолты ведут в статику админки")
@@ -38,6 +39,31 @@ def test_ui_defaults():
           "у каждого экрана есть русское название")
     check(ui_images.setting_key("auction") == "ui_image:auction",
           "ключ настройки с префиксом")
+
+
+def test_seasonal_splash():
+    from core import ui_images
+
+    print("\n— Сезонные заставки —")
+    seasons = [ui_images.season_key(m) for m in
+               (12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)]
+    check(seasons == ["splash_winter"] * 3 + ["splash_spring"] * 3
+          + ["splash_summer"] * 3 + ["splash_autumn"] * 3,
+          "месяцы верно раскладываются по сезонам")
+    check(set(ui_images.SEASON_FLAVOR) ==
+          set(ui_images.SEASON_BY_MONTH.values()),
+          "у каждого сезона есть приправа-подпись")
+    # Сезонные файлы на диске и квадратные (заставка 1:1).
+    import struct
+    for key in ("splash_winter", "splash_spring", "splash_summer",
+                "splash_autumn"):
+        path = "admin" + ui_images.DEFAULTS[key]
+        check(ui_images._usable(ui_images.DEFAULTS[key]),
+              f"{key}: файл на месте")
+        with open(path, "rb") as fh:
+            head = fh.read(24)
+        w, h = struct.unpack(">II", head[16:24])
+        check(w == h == 1024, f"{key} квадратный ({w}×{h})")
 
 
 async def _ui_roundtrip_async():
@@ -64,6 +90,21 @@ async def _ui_roundtrip_async():
         await ui_images.set_value(s, "auction", "")
         check((await ui_images.get(s, "auction")).endswith("auction.png"),
               "сброс возвращает дефолт")
+        # Сезонная заставка: декабрь → зима, июль → лето; праздничная
+        # замена из админки побеждает сезонный файл.
+        check((await ui_images.seasonal_splash(s, 12)).endswith(
+              "start_winter.png"), "декабрь → зимняя заставка")
+        check((await ui_images.seasonal_splash(s, 7)).endswith(
+              "start_summer.png"), "июль → летняя заставка")
+        await ui_images.set_value(s, "splash_winter",
+                                  "https://cdn.example/ny24.png")
+        got = await ui_images.seasonal_splash(s, 12)
+        check(got == "https://cdn.example/ny24.png",
+              "праздничная тема поверх зимней заставки")
+        # Битая локальная ссылка не долетит до Telegram — откат на классику.
+        await ui_images.set_value(s, "splash_winter", "/static/uploads/ghost.png")
+        check((await ui_images.seasonal_splash(s, 12)).endswith("start_ru.png"),
+              "несуществующий файл → классическая заставка")
     await engine.dispose()
 
 
@@ -177,6 +218,7 @@ def test_admin_routes():
 
 def main():
     test_ui_defaults()
+    test_seasonal_splash()
     print("\n— Настройки в БД —")
     asyncio.run(_ui_roundtrip_async())
     test_faction_images_json()

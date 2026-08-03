@@ -154,9 +154,40 @@ async def _show_class_book(event, page: int = 0,
 # гербами фракций; англоязычный вариант — start_en.png (на будущее).
 START_BANNER_RU = "/static/branding/start_ru.png"
 
+# Подпись к заставке /start: короткая — название уже КРУПНО на самой
+# картинке, и игрок видит его при каждом входе. Приправа по сезону года
+# подставляется автоматически (core.ui_images.SEASON_FLAVOR).
+SPLASH_TEXT = (
+    "🌑 <b>ТЕНЕВЫЕ ЗЕМЛИ</b>\n\n"
+    "{flavor}\n\n"
+    "<i>Нажми «{button}», чтобы войти в мир.</i>"
+)
+
+
+def _splash_continue_text(has_character: bool) -> str:
+    return "⚔️ Начать путь" if not has_character else "▶️ Продолжить"
+
+
+def start_continue_keyboard(has_character: bool):
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text=_splash_continue_text(has_character),
+        callback_data="start_continue",
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
 
 @router.message(CommandStart())
 async def cmd_start(message: Message):
+    """Первый экран — ВСЕГДА заставка с названием и кнопкой «Продолжить».
+
+    Раньше /start сразу открывал главное меню, и красивая заставка с
+    названием игры мелькала один раз. Теперь название светится при каждом
+    входе, а картинка сама подбирается под сезон года (зима/весна/лето/
+    осень; в админке «🖼 Картинки» можно повесить и праздничную тему).
+    Весь прежний вход в игру переехал на кнопку «Продолжить».
+    """
     async with async_session() as session:
         result = await session.execute(
             select(User).where(User.telegram_id == message.from_user.id)
@@ -173,6 +204,47 @@ async def cmd_start(message: Message):
             await session.commit()
 
         result = await session.execute(
+            select(Character).where(Character.user_id == user.id)
+        )
+        has_character = result.scalar_one_or_none() is not None
+
+        from core import ui_images
+        season = ui_images.season_key()
+        splash_img = await ui_images.seasonal_splash(session)
+        flavor = ui_images.SEASON_FLAVOR[season]
+
+    button = _splash_continue_text(has_character)
+    await send_or_edit_photo(
+        message,
+        SPLASH_TEXT.format(flavor=flavor, button=button),
+        reply_markup=start_continue_keyboard(has_character),
+        image_url=splash_img,
+    )
+
+
+@router.callback_query(F.data == "start_continue")
+async def start_continue(callback: CallbackQuery):
+    """Кнопка «Продолжить» на заставке — прежний вход в игру.
+
+    Незавершённое создание героя возвращает на прерванный шаг, готовый
+    герой — в главное меню, новичок — к кнопке создания героя.
+    """
+    async with async_session() as session:
+        result = await session.execute(
+            select(User).where(User.telegram_id == callback.from_user.id)
+        )
+        user = result.scalar_one_or_none()
+        if not user:
+            user = User(
+                telegram_id=callback.from_user.id,
+                username=callback.from_user.username,
+                first_name=callback.from_user.first_name,
+                last_name=callback.from_user.last_name,
+            )
+            session.add(user)
+            await session.commit()
+
+        result = await session.execute(
             select(Character)
             .where(Character.user_id == user.id)
             .options(selectinload(Character.location), selectinload(Character.cell))
@@ -182,16 +254,13 @@ async def cmd_start(message: Message):
         # Герой есть, но создание не завершено (перекат статов или выбор
         # фракции прервались, например обновлением сервера) — возвращаем
         # на последний шаг, а не в меню.
-        if character and await resume_character_creation(message, session, character):
+        if character and await resume_character_creation(callback, session, character):
             return
 
-        # Заставка слева от приветствия: берётся из настроек админки
-        # (раздел «🖼 Картинки», там же праздничные темы), запасной
-        # вариант — файл из репозитория. Если файла нет — откат на текст.
         from core import ui_images
         welcome_img = await ui_images.get(session, "welcome_ru")
         await send_or_edit_photo(
-            message,
+            callback,
             WELCOME_TEXT,
             reply_markup=main_menu_keyboard(
                 has_character=bool(character),

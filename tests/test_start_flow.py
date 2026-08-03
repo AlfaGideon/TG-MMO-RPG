@@ -219,7 +219,31 @@ async def _flow_async():
     await engine.dispose()
 
 
+def test_splash_start():
+    from bot.handlers.start import (SPLASH_TEXT, start_continue_keyboard,
+                                    _splash_continue_text)
+
+    print("\n— Заставка /start с «Продолжить» —")
+    kb_new = start_continue_keyboard(False)
+    kb_old = start_continue_keyboard(True)
+    data_new = _kb_data(kb_new)
+    data_old = _kb_data(kb_old)
+    check(data_new == ["start_continue"] and data_old == ["start_continue"],
+          f"у заставки одна кнопка «Продолжить» ({data_new})")
+    check("Начать путь" in str(kb_new.inline_keyboard[0][0].text),
+          "новичку — «Начать путь»")
+    check("Продолжить" in str(kb_old.inline_keyboard[0][0].text),
+          "игроку с героем — «Продолжить»")
+    caption = SPLASH_TEXT.format(flavor="🍂 Осень-проба.",
+                                 button=_splash_continue_text(True))
+    check("ТЕНЕВЫЕ ЗЕМЛИ" in caption, "название крупно на заставке")
+    check("Осень-проба" in caption and "▶️ Продолжить" in caption,
+          "сезонная приправа и подсказка кнопки подставляются")
+    check(len(caption) < 1024, f"влезает в подпись к фото ({len(caption)})")
+
+
 def main():
+    test_splash_start()
     test_keyboard_faction_suffix()
     test_class_book_text()
     print("\n— Финал создания: спавн и бонусы знамени —")
