@@ -141,11 +141,12 @@ def test_default_files():
             (found if on_disk else missing).append(f"{cls}_{fac}")
     print(f"     файлов: {len(found)}, нет ещё: {', '.join(missing) or '—'}")
     done = {n.split("_")[0] for n in found}
-    check({"warrior", "mage", "rogue", "cleric", "paladin",
-           "ranger", "necromancer"} <= done,
-          "семь классов покрыты портретами")
-    check(len(found) >= 30,
-          f"не меньше 30 портретов классов в статике ({len(found)})")
+    check(len(done) == len(classes),
+          f"все {len(classes)} классов покрыты портретами")
+    check(not missing,
+          f"полный комплект {len(classes)}×4 портретов ({len(found)})")
+    check(len(found) == len(classes) * len(factions),
+          f"ровно {len(classes) * len(factions)} файлов ({len(found)})")
     # Размеры: всё строго 1×1 (картинка-квадрат под профиль).
     import struct
     for cls in classes:
