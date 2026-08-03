@@ -1,19 +1,20 @@
-import os
+"""Рендер интерфейсных фонов Pillow по разметке из админки."""
 import json
-from PIL import Image, ImageDraw
+
+from PIL import Image
 from sqlalchemy import select
+
+from core.assets import local_asset_path
 from core.database import async_session
 from core.models import UILayout
 
-# Путь к статике админки (от корня проекта)
-STATIC_ROOT = "admin"
 
 async def render_ui(layout_key: str, items_map: dict, output_path: str):
-    """Отрисовывает интерфейс через Pillow.
+    """Отрисовать интерфейс с предметами по сохранённой разметке.
 
-    layout_key: ключ из таблицы ui_layouts.
-    items_map: словарь {имя_слота: путь_к_картинке_предмета}.
-    output_path: куда сохранить результат.
+    ``items_map``: ``{имя_слота: путь_к_картинке_предмета}``. Пути `/static`
+    вычисляются от корня проекта, поэтому функция одинаково работает локально
+    и внутри контейнера.
     """
     async with async_session() as session:
         result = await session.execute(
@@ -23,35 +24,31 @@ async def render_ui(layout_key: str, items_map: dict, output_path: str):
         if not layout:
             return False
 
-    bg_path = layout.image_url.lstrip("/")
-    if not os.path.exists(os.path.join(STATIC_ROOT, bg_path)):
-        # Попробуем без STATIC_ROOT если путь абсолютный
-        if not os.path.exists(bg_path):
-             return False
-        full_bg_path = bg_path
-    else:
-        full_bg_path = os.path.join(STATIC_ROOT, bg_path)
+    bg_path = local_asset_path(layout.image_url)
+    if not bg_path or not bg_path.is_file():
+        return False
 
-    bg = Image.open(full_bg_path).convert("RGBA")
-    slots = json.loads(layout.slots_json)
+    bg = Image.open(bg_path).convert("RGBA")
+    try:
+        slots = json.loads(layout.slots_json or "[]")
+    except (TypeError, ValueError):
+        return False
 
     for slot in slots:
-        slot_name = slot["name"]
-        item_img_path = items_map.get(slot_name)
-        
-        if item_img_path:
-            # Превращаем /static/... в admin/static/...
-            if item_img_path.startswith("/static/"):
-                item_full_path = os.path.join(STATIC_ROOT, item_img_path.lstrip("/"))
-            else:
-                item_full_path = item_img_path
+        slot_name = slot.get("name", "")
+        item_path = local_asset_path(items_map.get(slot_name))
+        if not item_path or not item_path.is_file():
+            continue
 
-            if os.path.exists(item_full_path):
-                item_icon = Image.open(item_full_path).convert("RGBA")
-                # Ресайзим иконку под размер слота
-                item_icon = item_icon.resize((slot["w"], slot["h"]), Image.LANCZOS)
-                # Накладываем на фон
-                bg.paste(item_icon, (slot["x"], slot["y"]), item_icon)
+        # Старые разметки могли иметь только `size`; новые — w/h.
+        width = int(slot.get("w", slot.get("size", 80)))
+        height = int(slot.get("h", slot.get("size", 80)))
+        if width <= 0 or height <= 0:
+            continue
+        item_icon = Image.open(item_path).convert("RGBA")
+        item_icon = item_icon.resize((width, height), Image.LANCZOS)
+        bg.paste(item_icon, (int(slot.get("x", 0)), int(slot.get("y", 0))),
+                 item_icon)
 
     bg.save(output_path, "PNG")
     return True

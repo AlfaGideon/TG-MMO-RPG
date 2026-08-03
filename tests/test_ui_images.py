@@ -29,14 +29,17 @@ def test_ui_defaults():
 
     print("\n— Дефолты экранов бота —")
     check({"welcome_ru", "welcome_en", "auction", "leaderboard",
+           "offline", "help", "ideas", "updates", "inventory",
            "splash_winter", "splash_spring", "splash_summer",
            "splash_autumn"} <= set(ui_images.DEFAULTS),
-          f"есть все экраны, включая сезонные {sorted(ui_images.DEFAULTS)}")
-    check(all(v.startswith("/static/branding/")
-              for v in ui_images.DEFAULTS.values()),
+          f"есть все экраны, включая режимы и сезонные {sorted(ui_images.DEFAULTS)}")
+    check(all(v.startswith("/static/") for v in ui_images.DEFAULTS.values()),
           "дефолты ведут в статику админки")
     check(set(ui_images.TITLES) == set(ui_images.DEFAULTS),
           "у каждого экрана есть русское название")
+    for key in ("offline", "help", "ideas", "updates", "inventory"):
+        check(ui_images._usable(ui_images.DEFAULTS[key]),
+              f"{key}: фоновая картинка существует")
     check(ui_images.setting_key("auction") == "ui_image:auction",
           "ключ настройки с префиксом")
 

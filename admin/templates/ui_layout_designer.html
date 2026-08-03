@@ -1,5 +1,10 @@
 {% extends "base.html" %}
+{% import "macros.html" as macros %}
 {% block title %}Редактор разметки: {{ layout.key }}{% endblock %}
+{% block page_title %}🎨 Редактор разметки{% endblock %}
+{% block breadcrumbs %}
+{{ macros.crumbs([('Контент','/content'), ('Разметка UI','/editor/ui-layouts'), (layout.key, none)]) }}
+{% endblock %}
 {% block content %}
 <div class="header-row">
     <div>

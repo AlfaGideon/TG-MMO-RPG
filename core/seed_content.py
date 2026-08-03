@@ -8,6 +8,7 @@ from sqlalchemy import select, func
 
 from core.classes import seed_default_classes
 from core.enums import CraftStation, ItemRarity, ItemType
+from core.npc_images import ensure_npc_images
 from core.models import (
     AppSetting, Cell, Character, CharacterAffinity, CraftIngredient,
     CraftRecipe, DropEntry, Item, Mob, UpgradeRule,
@@ -681,13 +682,17 @@ async def seed_content(session) -> dict:
     stats = {
         "classes": await seed_default_classes(session),
         "materials": await ensure_materials(session),
-        "recipes": 0, "drops": 0, "upgrades": 0, "npcs": 0, "mobs": 0,
+        "recipes": 0, "drops": 0, "upgrades": 0, "npcs": 0,
+        "npc_images": 0, "mobs": 0,
     }
     stats["recipes"] = await ensure_recipes(session)
     stats["drops"] = await ensure_drop_tables(session)
     stats["upgrades"] = await ensure_upgrade_rules(session)
     stats["npcs"] = await ensure_craft_npcs(session)
     stats["auction_npc"] = await ensure_auction_npc(session)
+    # Накатываем портреты и на жителей старой базы, но не меняем ручные
+    # назначения из админки.
+    stats["npc_images"] = await ensure_npc_images(session)
     stats["affinities"] = await ensure_affinities(session)
     stats["mobs"] = await ensure_mob_defaults(session)
     await session.commit()

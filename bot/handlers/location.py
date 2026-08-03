@@ -21,7 +21,9 @@ from bot.keyboards.inline import (
     travel_keyboard, continue_keyboard,
 )
 from bot.utils.texts import location_text, cell_text, loot_text, format_floor_label
-from bot.utils.photos import send_or_edit_photo, get_photo_input, get_npc_image
+from bot.utils.photos import (
+    send_or_edit_photo, get_photo_input, get_npc_image, has_usable_photo,
+)
 from bot.utils.edit import safe_edit_text
 
 router = Router()
@@ -988,7 +990,7 @@ async def talk_npc(callback: CallbackQuery):
         result = await session.execute(
             select(Character)
             .where(Character.user_id == user.id)
-            .options(selectinload(Character.cell))
+            .options(selectinload(Character.cell), selectinload(Character.location))
         )
         character = result.scalar_one_or_none()
         if not character or not character.cell or not character.cell.has_npc:
@@ -1008,9 +1010,15 @@ async def talk_npc(callback: CallbackQuery):
         builder.button(text="◀️ Назад", callback_data="back_to_cell")
         builder.adjust(1)
 
-        image_url = cell.image_url
-        if not image_url and character.location:
-            image_url = get_npc_image(cell.npc_name, cell.npc_type, character.location.name)
+        # Своя картинка клетки из админки всегда важнее. Если в старой БД
+        # остался пустой или битый путь, откатываемся к встроенному портрету
+        # по имени/замку, а не молча отправляем NPC без изображения.
+        image_url = (cell.image_url or "").strip()
+        if not has_usable_photo(image_url):
+            image_url = get_npc_image(
+                cell.npc_name, cell.npc_type,
+                character.location.name if character.location else None,
+            )
 
         await send_or_edit_photo(
             callback,

@@ -528,10 +528,10 @@ body.no-scroll { overflow: hidden; }
     padding-left: 1.95rem;
 }
 
-/* 14 подпунктов «Контент мира» не влезали в 320px — нижние
-   («Квесты», «AI-мастерская», «Обновления») просто обрезались. */
+/* Длинная группа «Контент мира» растёт вместе с новыми редакторами:
+   27 строк вместе с отступами занимают примерно 1 000px. */
 .nav-group.open .nav-subitems {
-    max-height: 40rem;
+    max-height: 64rem;
     opacity: 1;
     margin-top: 0.15rem;
     margin-bottom: 0.3rem;

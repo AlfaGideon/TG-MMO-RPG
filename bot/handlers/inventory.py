@@ -16,7 +16,6 @@ from bot.keyboards.inline import (
 )
 from bot.utils.texts import item_detail_text, item_line
 from bot.utils.photos import send_or_edit_photo
-from bot.utils.edit import safe_edit_text
 
 router = Router()
 
@@ -135,6 +134,10 @@ async def inventory(callback: CallbackQuery):
         buckets = split_sections(items)
         stats = await combat_stats(session, character)
         cap = await stash_core.capacity(session, character)
+        # Раньше красивый фон лежал в static/ui, но этот экран отправлялся
+        # только текстом — поэтому Telegram его вообще не видел.
+        from core import ui_images
+        inventory_img = await ui_images.get(session, "inventory")
 
     counts = {k: len(v) for k, v in buckets.items()}
     counts["stash_cap"] = cap
@@ -161,10 +164,11 @@ async def inventory(callback: CallbackQuery):
         "<i>🎒 сумка теряется при гибели, 🔒 карман — нет.</i>",
     ]
 
-    await safe_edit_text(
+    await send_or_edit_photo(
         callback,
         "\n".join(lines),
         reply_markup=inventory_hub_keyboard(counts),
+        image_url=inventory_img,
         parse_mode="HTML",
     )
 
@@ -185,6 +189,8 @@ async def inventory_section(callback: CallbackQuery):
         items = await load_inventory(session, character.id)
         bucket = split_sections(items)[section]
         cap = await stash_core.capacity(session, character)
+        from core import ui_images
+        inventory_img = await ui_images.get(session, "inventory")
 
     title = SECTIONS[section]
     if section == "stash":
@@ -199,10 +205,11 @@ async def inventory_section(callback: CallbackQuery):
                 + "\n".join("• " + item_line(inv) for inv in bucket[page * 6:page * 6 + 6])
                 + "\n\nОткрой вещь, чтобы прочитать её страницу в книге.")
 
-    await safe_edit_text(
+    await send_or_edit_photo(
         callback,
         text,
         reply_markup=inventory_section_keyboard(bucket, section, page=page),
+        image_url=inventory_img,
         parse_mode="HTML",
     )
 
@@ -255,6 +262,11 @@ async def inventory_book(callback: CallbackQuery):
         elif not stash_core.safe_here(location):
             text += "\n\n<i>Карман открывается только в безопасных землях.</i>"
 
+        # Если у конкретного предмета ещё нет иконки, оставляем игроку
+        # полноценный экран инвентаря вместо внезапного голого текста.
+        from core import ui_images
+        inventory_img = await ui_images.get(session, "inventory")
+
     await send_or_edit_photo(
         callback,
         text,
@@ -264,7 +276,7 @@ async def inventory_book(callback: CallbackQuery):
             can_equip=can_equip, can_use=can_use, can_sell=can_sell,
             in_stash=bool(inv_item.in_stash), can_stash=can_stash,
         ),
-        image_url=item.image_url if item else None,
+        image_url=(item.image_url or inventory_img) if item else inventory_img,
     )
 
 

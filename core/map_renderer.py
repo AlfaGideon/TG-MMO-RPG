@@ -46,14 +46,12 @@ def _dark_bg(size: int) -> Image.Image:
 
 def _load_bg(image_url: str | None) -> Image.Image:
     if image_url:
-        local = None
-        if image_url.startswith("/static/"):
-            local = "admin" + image_url
-        elif os.path.exists(image_url):
-            local = image_url
-        if local and os.path.exists(local):
+        from core.assets import local_asset_path
+        local = local_asset_path(image_url)
+        if local and local.is_file():
             try:
-                return Image.open(local).convert("RGB").resize((TILE_SIZE, TILE_SIZE), Image.LANCZOS)
+                return Image.open(local).convert("RGB").resize(
+                    (TILE_SIZE, TILE_SIZE), Image.LANCZOS)
             except Exception:
                 pass
     return _dark_bg(TILE_SIZE)

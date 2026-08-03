@@ -4,7 +4,6 @@ registered players, and detect/notify players whose in-progress action was
 interrupted by a server restart (deploy, GitHub update, etc).
 """
 import logging
-import os
 
 from sqlalchemy import select
 
@@ -27,13 +26,10 @@ async def broadcast_to_all(bot, text: str, image_path: str | None = None, reply_
         telegram_ids = [row[0] for row in result.all()]
 
     sent = 0
-    photo_input = None
-    if image_path:
-        if image_path.startswith("http://") or image_path.startswith("https://"):
-            photo_input = image_path
-        elif os.path.exists(image_path):
-            from aiogram.types import FSInputFile
-            photo_input = FSInputFile(image_path)
+    # Один резолвер путей для обычных экранов и рассылок: не зависим от
+    # текущей папки процесса (Docker / служба / ярлык Windows).
+    from bot.utils.photos import get_photo_input
+    photo_input = get_photo_input(image_path) if image_path else None
 
     for telegram_id in telegram_ids:
         try:

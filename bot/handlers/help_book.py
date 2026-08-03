@@ -3,8 +3,9 @@
 from aiogram import Router, F
 from aiogram.types import CallbackQuery
 from aiogram.fsm.context import FSMContext
-from bot.utils.edit import safe_edit_text
-from bot.keyboards.inline import help_menu_keyboard, back_to_help_keyboard
+from core import ui_images
+from core.database import async_session
+from bot.utils.photos import send_or_edit_photo
 
 router = Router()
 
@@ -143,5 +144,10 @@ async def show_help_page(callback: CallbackQuery, page: int):
     rows.append(1)
     builder.adjust(*rows)
 
-    await safe_edit_text(callback, text, reply_markup=builder.as_markup(), parse_mode="HTML")
+    async with async_session() as session:
+        image_url = await ui_images.get(session, "help")
+    await send_or_edit_photo(
+        callback, text, reply_markup=builder.as_markup(), image_url=image_url,
+        parse_mode="HTML",
+    )
     await callback.answer()
