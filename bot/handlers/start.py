@@ -373,7 +373,13 @@ async def bot_suggest_handler(callback: CallbackQuery, state: FSMContext):
         "<code>Добавить больше редкого оружия во 2-ю локацию</code>\n\n"
         "<i>Можно отменить отправку кнопкой «Назад».</i>"
     )
-    await safe_edit_text(callback, text, reply_markup=back_to_help_keyboard(), parse_mode="HTML")
+    from core import ui_images
+    async with async_session() as session:
+        image_url = await ui_images.get(session, "ideas")
+    await send_or_edit_photo(
+        callback, text, reply_markup=back_to_help_keyboard(), image_url=image_url,
+        parse_mode="HTML",
+    )
     await callback.answer()
 
 
@@ -399,10 +405,15 @@ async def offline_toggle(callback: CallbackQuery):
             return
         set_offline(character, True)
         await session.commit()
-    await safe_edit_text(callback, "🌙 <b>Ты офлайн</b>\n\n"
+        from core import ui_images
+        image_url = await ui_images.get(session, "offline")
+    await send_or_edit_photo(
+        callback,
+        "🌙 <b>Ты офлайн</b>\n\n"
         "👑 VIP-защита включена: мобы, игроки, бои и катаклизмы тебя не затрагивают.\n\n"
         "Все действия скрыты до возвращения в мир.",
         reply_markup=main_menu_keyboard(has_character=True, is_vip=True, offline=True),
+        image_url=image_url,
         parse_mode="HTML",
     )
 
@@ -453,9 +464,11 @@ async def main_menu(callback: CallbackQuery, state: FSMContext):
         # не в меню, а на прерванный шаг создания.
         if character and await resume_character_creation(callback, session, character):
             return
+        from core import ui_images
+        main_image = await ui_images.get(session, "welcome_ru")
 
     text = READY_TEXT if has_char else WELCOME_TEXT
-    await safe_edit_text(
+    await send_or_edit_photo(
         callback,
         text,
         reply_markup=main_menu_keyboard(
@@ -463,6 +476,7 @@ async def main_menu(callback: CallbackQuery, state: FSMContext):
             is_vip=bool(character and is_vip_active(character)),
             offline=bool(character and offline_protected(character)),
         ),
+        image_url=main_image,
         parse_mode="HTML",
     )
 

@@ -996,6 +996,23 @@ class AppSetting(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
+class ImageAsset(Base):
+    """Вариант изображения в библиотеке админки.
+
+    ``kind`` и ``ref`` повторяют слот библиотеки (например ``mob``/``42``
+    или ``ui``/``help``). Сам активный URL остаётся в модели сущности или
+    app_settings; так старые экраны бота не зависят от новой таблицы.
+    """
+    __tablename__ = "image_assets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    kind = Column(String(32), nullable=False, index=True)
+    ref = Column(String(128), nullable=False, index=True)
+    url = Column(String(512), nullable=False)
+    label = Column(String(160), default="")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class AIGeneration(Base):
     """Черновик AI-мастерской: сгенерированный квест/диалог/лор-запись.
 

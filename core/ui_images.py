@@ -16,6 +16,12 @@ DEFAULTS = {
     "welcome_en": "/static/branding/start_en.png",
     "auction": "/static/branding/auction.png",
     "leaderboard": "/static/branding/leaderboard.png",
+    "offline": "/static/branding/offline.png",
+    "help": "/static/branding/help.png",
+    "ideas": "/static/branding/ideas.png",
+    "updates": "/static/branding/updates.png",
+    # Фон отделений сумки рисовался, но раньше не был подключён к боту.
+    "inventory": "/static/ui/inventory_bg.png",
     "splash_winter": "/static/branding/start_winter.png",
     "splash_spring": "/static/branding/start_spring.png",
     "splash_summer": "/static/branding/start_summer.png",
@@ -28,6 +34,11 @@ TITLES = {
     "welcome_en": "Заставка /start (EN, резерв)",
     "auction": "Картинка аукциона",
     "leaderboard": "Картинка таблицы рейтинга",
+    "offline": "Режим «Я офлайн»",
+    "help": "Книга помощи",
+    "ideas": "Идеи и пожелания",
+    "updates": "Книга обновлений",
+    "inventory": "Фон инвентаря",
     "splash_winter": "Сезонная заставка: зима ❄️",
     "splash_spring": "Сезонная заставка: весна 🌱",
     "splash_summer": "Сезонная заставка: лето ☀️",
@@ -91,15 +102,12 @@ def season_key(month: int | None = None) -> str:
 
 def _usable(url: str) -> bool:
     """Можно ли реально отдать картинку (файл на диске или http-ссылка)."""
-    import os
-
     if not url:
         return False
     if url.startswith(("http://", "https://")):
         return True
-    if url.startswith("/static/"):
-        return os.path.isfile("admin" + url)
-    return os.path.isfile(url)
+    from core.assets import local_asset_exists
+    return local_asset_exists(url)
 
 
 async def seasonal_splash(session, month: int | None = None) -> str:

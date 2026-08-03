@@ -32,6 +32,8 @@
                         <select name="tile_type" id="cell_tile" class="search-box">
                             <option value="grass" {% if cell.tile_type == 'grass' %}selected{% endif %}>🌿 Трава</option>
                             <option value="forest" {% if cell.tile_type == 'forest' %}selected{% endif %}>🌲 Лес</option>
+                            <option value="desert" {% if cell.tile_type == 'desert' %}selected{% endif %}>🏜 Пустыня</option>
+                            <option value="swamp" {% if cell.tile_type == 'swamp' %}selected{% endif %}>🪷 Топь</option>
                             <option value="water" {% if cell.tile_type == 'water' %}selected{% endif %}>💧 Вода</option>
                             <option value="wall" {% if cell.tile_type == 'wall' %}selected{% endif %}>🧱 Стена</option>
                             <option value="road" {% if cell.tile_type == 'road' %}selected{% endif %}>🛤 Дорога</option>
@@ -169,6 +171,7 @@
 
             <fieldset class="field-group">
                 <span class="group-title">🖼 Картинка клетки</span>
+                <p class="hint">Для обычной дороги, леса, пустыни, топи и пещеры фон подбирается автоматически. Своя картинка важнее нейтрального фона и сохраняется как вариант в библиотеке.</p>
                 <img id="cellPreview" class="img-preview"
                      {% if cell.image_url %}src="{{ cell.image_url }}" alt="Превью клетки"{% else %}style="display:none"{% endif %}>
                 <div class="field-row cols-2">

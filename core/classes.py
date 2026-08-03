@@ -199,14 +199,12 @@ def save_faction_image(cls_def, faction: str, url: str) -> None:
 
 def default_faction_image(class_key: str, faction: str) -> str:
     """Файловый путь сгенерированного портрета фракции (если файл есть)."""
-    import os
+    from core.assets import local_asset_exists
 
     url = CLASS_FACTION_IMAGE_TEMPLATE.format(
         class_key=class_key, faction=faction)
-    # Бот и админка стартуют из корня репозитория: /static/... = admin/static/...
-    if url.startswith("/static/") and os.path.isfile("admin" + url):
-        return url
-    return ""
+    # Не опираемся на cwd: Docker/service могут запускать Python не из корня.
+    return url if local_asset_exists(url) else ""
 
 
 def class_image(cls_def, faction: str | None = None) -> str:

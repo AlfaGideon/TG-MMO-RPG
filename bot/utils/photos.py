@@ -1,101 +1,68 @@
-import os
+"""Единая отправка картинок в Telegram и безопасный откат на текст."""
 import logging
-from aiogram.types import CallbackQuery, Message, FSInputFile, InputMediaPhoto
+
+from aiogram.types import CallbackQuery, FSInputFile, InputMediaPhoto
+
+from core.assets import local_asset_path
+from core.npc_images import npc_image_url
+
 
 logger = logging.getLogger(__name__)
 
 
-def get_photo_input(image_url: str):
-    """
-    Converts image_url (URL or local path) to an aiogram photo input (URL string or FSInputFile).
-    Returns None if image_url is empty or local file does not exist.
-    """
-    if not image_url or not image_url.strip():
-        return None
+def get_photo_input(image_url: str | None):
+    """Преобразовать URL/локальный путь в формат фото aiogram.
 
-    url = image_url.strip()
-    if url.startswith("http://") or url.startswith("https://"):
+    ``/static/...`` всегда вычисляется от файла проекта, а не от текущей
+    рабочей папки процесса. Это критично для Docker, службы Windows и
+    запусков ярлыком: раньше такая разница молча превращала экран в текст.
+    Возвращает ``None``, если путь пуст или локальный файл не найден.
+    """
+    url = (image_url or "").strip()
+    if not url:
+        return None
+    if url.startswith(("http://", "https://")):
         return url
 
-    # Local file path handling
-    if url.startswith("/static/"):
-        path = "admin" + url
-    elif url.startswith("static/"):
-        path = "admin/" + url
-    else:
-        path = url
+    path = local_asset_path(url)
+    if path and path.is_file():
+        return FSInputFile(str(path))
 
-    if os.path.exists(path) and os.path.isfile(path):
-        return FSInputFile(path)
-
+    logger.warning("Изображение бота не найдено: %r (путь: %s)", image_url,
+                   path or "неподдерживаемый")
     return None
 
 
-def get_npc_image(npc_name: str, npc_type: str, location_name: str):
+def has_usable_photo(image_url: str | None) -> bool:
+    """Есть ли шанс отправить указанное фото без попытки отправки в Telegram."""
+    url = (image_url or "").strip()
+    if not url:
+        return False
+    if url.startswith(("http://", "https://")):
+        return True
+    path = local_asset_path(url)
+    return bool(path and path.is_file())
+
+
+def get_npc_image(npc_name: str | None, npc_type: str | None = None,
+                  location_name: str | None = None) -> str:
+    """Совместимый фасад для портрета NPC.
+
+    ``npc_type`` оставлен в сигнатуре для старых вызовов; портрет зависит от
+    имени и, если отдельного изображения ещё нет, от стороны локации.
     """
-    Returns a local path to an NPC image based on name or location/faction.
-    """
-    if not npc_name:
-        return None
-
-    # Mapping specific NPCs to their generated images
-    name_map = {
-        "Инквизитор Эдуард": "eduard.jpg",
-        "Интендант Бенедикт": "benedikt.jpg",
-        "Оружейник Рауль": "raul.jpg",
-        "Писарь Иеремия": "jeremia.jpg",
-        "Старейшина Григор": "grigor.jpg",
-        "Лорд Малакар": "malakar.jpg",
-        "Торговец шёпотом Ксавьер": "ksavier.jpg",
-        "Кузнец скверны Кром": "krom.jpg",
-        "Ростовщик Теневой секты": "sect_usurer.jpg",
-        "Тенелов Вирд": "wyrd.jpg",
-        "Главарь банды Грюм": "gryum.jpg",
-        "Скупщик краденого Барни": "barney.jpg",
-        "Оружейник Глубин Шрам": "shram.jpg",
-        "Оценщик Гильдии Клык": "klyk.jpg",
-        "Хранитель ключей": "key_keeper.jpg",
-        "Капитан Радклифф": "radcliffe.jpg",
-        "Лавочник Кормак": "kormak.jpg",
-        "Оружейник Торвальд": "torvald.jpg",
-        "Летописец Пепла Морган": "morgan.jpg",
-        "Торговец Варн": "varn.jpg",
-        "Лекарь Мира": "mira.jpg",
-        "Кузнец Дорн": "dorn.jpg",
-        "Травница Эльса": "elsa.jpg",
-        "Ювелир Кассий": "kassiy.jpg",
-        "Скупщик Молчун": "molchun.jpg",
-    }
-
-    if npc_name in name_map:
-        return f"/static/npcs/{name_map[npc_name]}"
-
-    if not location_name:
-        return None
-
-    if "Рассвета" in location_name:
-        return "/static/npcs/order_npc.jpg"
-    elif "Теней" in location_name:
-        return "/static/npcs/cult_npc.jpg"
-    elif "Глубин" in location_name:
-        return "/static/npcs/scavengers_npc.jpg"
-    elif "Пепла" in location_name:
-        return "/static/npcs/guard_npc.jpg"
-
-    return None
+    del npc_type
+    return npc_image_url(npc_name, location_name)
 
 
 async def send_or_edit_photo(
     event,
     text: str,
     reply_markup=None,
-    image_url: str = None,
+    image_url: str | None = None,
     parse_mode: str = "HTML",
 ):
-    """
-    Sends or edits a Telegram message with optional photo.
-    Falls back gracefully to text if image_url is empty, missing, or fails.
-    """
+    """Отправить/сменить фото с подписью; при ошибке честно откатиться к тексту."""
     photo_input = get_photo_input(image_url) if image_url else None
     msg = event.message if isinstance(event, CallbackQuery) else event
 
@@ -103,18 +70,20 @@ async def send_or_edit_photo(
         if msg and msg.photo:
             try:
                 await msg.edit_media(
-                    media=InputMediaPhoto(media=photo_input, caption=text, parse_mode=parse_mode),
+                    media=InputMediaPhoto(media=photo_input, caption=text,
+                                           parse_mode=parse_mode),
                     reply_markup=reply_markup,
                 )
                 return
-            except Exception as e:
-                logger.debug(f"edit_media failed: {e}")
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("edit_media failed: %s", exc)
 
-        # If not already a photo or edit_media failed: try delete & answer photo
+        # Из текста нельзя превратиться в фото через editMessageText.
+        # Удаляем старое сообщение и отправляем новый экран.
         if msg:
             try:
                 await msg.delete()
-            except Exception:
+            except Exception:  # чужие/старые сообщения Telegram не даст удалить
                 pass
 
             try:
@@ -125,14 +94,15 @@ async def send_or_edit_photo(
                     parse_mode=parse_mode,
                 )
                 return
-            except Exception as e:
-                logger.warning(f"answer_photo failed: {e}")
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Не удалось отправить фото %r: %s", image_url, exc)
 
-    # Fallback to text message if photo_input is None or answer_photo failed
+    # Фото отсутствует, файл сломан или Telegram отверг медиа/подпись.
+    # В любом случае игрок не остаётся с мёртвой кнопкой — получает текст.
     if msg and msg.photo:
         try:
             await msg.delete()
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
         await msg.answer(
             text=text,
@@ -146,14 +116,14 @@ async def send_or_edit_photo(
                 reply_markup=reply_markup,
                 parse_mode=parse_mode,
             )
-        except Exception as e:
-            err_str = str(e).lower()
-            if "message is not modified" not in err_str:
+        except Exception as exc:  # noqa: BLE001
+            if "message is not modified" not in str(exc).lower():
                 try:
                     await msg.answer(
                         text=text,
                         reply_markup=reply_markup,
                         parse_mode=parse_mode,
                     )
-                except Exception:
-                    pass
+                except Exception as fallback_exc:  # noqa: BLE001
+                    logger.warning("Не удалось отправить текстовый экран: %s",
+                                   fallback_exc)

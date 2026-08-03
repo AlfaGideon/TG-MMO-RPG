@@ -73,8 +73,8 @@ def test_menus():
     check("healer_shop" in vip, "лавка лекаря доступна VIP из меню")
     check("profile" in plain and "inventory" in plain,
           "профиль и инвентарь остались на месте")
-    check("show_map" in plain and "journey" in plain,
-          "карта и путешествия — разные кнопки в меню")
+    check("show_map" in plain and "back_to_cell" in plain,
+          "карта и выход в путь — разные кнопки в меню")
     check("world_map" not in plain,
           "карта мира убрана из главного меню — живёт в разделе «Карта»")
 

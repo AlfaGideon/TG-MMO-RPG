@@ -29,14 +29,17 @@ def test_ui_defaults():
 
     print("\n— Дефолты экранов бота —")
     check({"welcome_ru", "welcome_en", "auction", "leaderboard",
+           "offline", "help", "ideas", "updates", "inventory",
            "splash_winter", "splash_spring", "splash_summer",
            "splash_autumn"} <= set(ui_images.DEFAULTS),
-          f"есть все экраны, включая сезонные {sorted(ui_images.DEFAULTS)}")
-    check(all(v.startswith("/static/branding/")
-              for v in ui_images.DEFAULTS.values()),
+          f"есть все экраны, включая режимы и сезонные {sorted(ui_images.DEFAULTS)}")
+    check(all(v.startswith("/static/") for v in ui_images.DEFAULTS.values()),
           "дефолты ведут в статику админки")
     check(set(ui_images.TITLES) == set(ui_images.DEFAULTS),
           "у каждого экрана есть русское название")
+    for key in ("offline", "help", "ideas", "updates", "inventory"):
+        check(ui_images._usable(ui_images.DEFAULTS[key]),
+              f"{key}: фоновая картинка существует")
     check(ui_images.setting_key("auction") == "ui_image:auction",
           "ключ настройки с префиксом")
 
@@ -105,6 +108,16 @@ async def _ui_roundtrip_async():
         await ui_images.set_value(s, "splash_winter", "/static/uploads/ghost.png")
         check((await ui_images.seasonal_splash(s, 12)).endswith("start_ru.png"),
               "несуществующий файл → классическая заставка")
+
+        from core.models import ImageAsset
+        variant = ImageAsset(kind="ui", ref="auction",
+                             url="/static/uploads/library/ui/auction_a.png",
+                             label="Вариант аукциона")
+        s.add(variant)
+        await s.flush()
+        restored = await s.get(ImageAsset, variant.id)
+        check(restored and restored.ref == "auction",
+              "вариант изображения хранится отдельной записью библиотеки")
     await engine.dispose()
 
 
@@ -208,10 +221,19 @@ def test_default_files():
 
 def test_admin_routes():
     print("\n— Маршруты админки —")
-    from admin.main import app
+    from admin.main import _slot, app
     paths = {getattr(r, "path", "") for r in app.routes}
     check("/editor/images" in paths, "GET /editor/images")
     check("/editor/images/set" in paths, "POST /editor/images/set")
+    check("/editor/images/select" in paths and "/editor/images/delete-asset" in paths,
+          "вариант можно выбрать и удалить из библиотеки")
+
+    from types import SimpleNamespace
+    old = SimpleNamespace(id=2, url="/static/uploads/library/npc/old.png", label="старый")
+    selected = SimpleNamespace(id=3, url="/static/uploads/library/npc/new.png", label="новый")
+    slot = _slot("cell", "42", "NPC", selected.url, assets=[old, selected])
+    check(len(slot["assets"]) == 2 and any(a["active"] for a in slot["assets"]),
+          "слот хранит несколько вариантов и помечает активный")
     from bot.handlers import start, auction, character  # noqa: F401
     check(True, "обработчики бота импортируются")
 

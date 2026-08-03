@@ -64,6 +64,8 @@
 .cell-wall{background:#23232f;color:#5a5a6a}
 .cell-grass{background:#162a16}
 .cell-forest{background:#0f2410}
+.cell-desert{background:#58401e}
+.cell-swamp{background:#1d3830}
 .cell-water{background:#0d1b3a}
 .cell-road{background:#302513}
 .cell-village{background:#3a2e12}
@@ -206,6 +208,8 @@
                     <div class="brush-item active" data-brush="wall"><div class="b-icon">🧱</div><div class="b-label">Стена</div><div class="b-desc">не проход.</div></div>
                     <div class="brush-item" data-brush="grass"><div class="b-icon">🌿</div><div class="b-label">Трава</div><div class="b-desc">база</div></div>
                     <div class="brush-item" data-brush="forest"><div class="b-icon">🌲</div><div class="b-label">Лес</div><div class="b-desc">укрытие</div></div>
+                    <div class="brush-item" data-brush="desert"><div class="b-icon">🏜</div><div class="b-label">Пустыня</div><div class="b-desc">песок</div></div>
+                    <div class="brush-item" data-brush="swamp"><div class="b-icon">🪷</div><div class="b-label">Топь</div><div class="b-desc">грязь</div></div>
                     <div class="brush-item" data-brush="water"><div class="b-icon">💧</div><div class="b-label">Вода</div><div class="b-desc">блок</div></div>
                     <div class="brush-item" data-brush="road"><div class="b-icon">🛤</div><div class="b-label">Дорога</div><div class="b-desc">путь</div></div>
                     <div class="brush-item" data-brush="village"><div class="b-icon">🏘</div><div class="b-label">Деревня</div><div class="b-desc">город</div></div>
@@ -379,11 +383,11 @@
     }
 
     function applyVisual(el, brush){
-        el.classList.remove('cell-wall','cell-grass','cell-forest','cell-water','cell-road','cell-village','cell-cave','cell-portal','cell-door','cell-stairs','cell-stairs-up','cell-stairs-down','cell-npc','cell-chest');
+        el.classList.remove('cell-wall','cell-grass','cell-forest','cell-desert','cell-swamp','cell-water','cell-road','cell-village','cell-cave','cell-portal','cell-door','cell-stairs','cell-stairs-up','cell-stairs-down','cell-npc','cell-chest');
         const prevTile = el.dataset.tile || 'grass';
         const passable = el.dataset.passable === '1';
         // default to tile if brush is terrain
-        if(['wall','grass','forest','water','road','village','cave','portal'].includes(brush)){
+        if(['wall','grass','forest','desert','swamp','water','road','village','cave','portal'].includes(brush)){
             el.dataset.tile = brush;
             el.dataset.passable = brush==='wall' || brush==='water' ? '' : '1';
             el.classList.add('cell-'+brush);

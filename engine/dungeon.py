@@ -147,7 +147,11 @@ def cell(store, p, x=None, y=None):
     floor = int(run["floor"])
     key = f"{floor}:{x}:{y}"
     is_exit = (x, y) == EXIT
-    wall = (not is_exit) and rng.random() < 0.20
+    # Выход стоит в углу: хотя бы два ближайших коридора обязаны быть
+    # открыты, иначе иногда герой появлялся в комнате без единой кнопки
+    # движения и подземелье выглядело зависшим.
+    entry_corridor = (x, y) in {(0, 1), (1, 0)}
+    wall = (not is_exit and not entry_corridor) and rng.random() < 0.20
 
     name, desc = ROOMS[rng.randrange(len(ROOMS))]
     mob = (not wall and not is_exit and rng.random() < 0.22

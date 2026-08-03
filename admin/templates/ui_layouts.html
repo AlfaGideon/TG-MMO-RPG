@@ -1,5 +1,10 @@
 {% extends "base.html" %}
+{% import "macros.html" as macros %}
 {% block title %}Разметка интерфейсов{% endblock %}
+{% block page_title %}🎨 Разметка интерфейсов{% endblock %}
+{% block breadcrumbs %}
+{{ macros.crumbs([('Контент','/content'), ('Разметка UI', none)]) }}
+{% endblock %}
 {% block content %}
 <div class="header-row">
     <h1>🎨 Разметка интерфейсов (Pillow)</h1>

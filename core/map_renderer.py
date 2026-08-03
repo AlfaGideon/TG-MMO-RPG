@@ -9,6 +9,8 @@ TILE_COLORS = {
     "wall": (42, 42, 53),
     "grass": (26, 58, 26),
     "forest": (13, 43, 13),
+    "desert": (104, 78, 38),
+    "swamp": (30, 55, 48),
     "water": (10, 26, 58),
     "road": (58, 42, 26),
     "village": (58, 42, 13),
@@ -44,19 +46,21 @@ def _dark_bg(size: int) -> Image.Image:
     return img
 
 
-def _load_bg(image_url: str | None) -> Image.Image:
+def _load_bg(image_url: str | None, rotation: int = 0) -> Image.Image:
+    """Фон сцены в RGBA: поверх него кладётся полупрозрачная карта Pillow."""
     if image_url:
-        local = None
-        if image_url.startswith("/static/"):
-            local = "admin" + image_url
-        elif os.path.exists(image_url):
-            local = image_url
-        if local and os.path.exists(local):
+        from core.assets import local_asset_path
+        local = local_asset_path(image_url)
+        if local and local.is_file():
             try:
-                return Image.open(local).convert("RGB").resize((TILE_SIZE, TILE_SIZE), Image.LANCZOS)
+                image = Image.open(local).convert("RGBA")
+                if rotation % 360:
+                    # PIL вращает против часовой; схема дорог хранит clockwise.
+                    image = image.rotate(-rotation, expand=True, resample=Image.BICUBIC)
+                return image.resize((TILE_SIZE, TILE_SIZE), Image.LANCZOS)
             except Exception:
                 pass
-    return _dark_bg(TILE_SIZE)
+    return _dark_bg(TILE_SIZE).convert("RGBA")
 
 
 def _grid_size_from_cells(cells, default: int = 10) -> int:
@@ -65,15 +69,10 @@ def _grid_size_from_cells(cells, default: int = 10) -> int:
     return max(default, (max(coords) + 1) if coords else default)
 
 
-def _draw_minimap(draw: ImageDraw.Draw, cells, player_x: int, player_y: int,
+def _draw_minimap(img: Image.Image, cells, player_x: int, player_y: int,
                   ox: int, oy: int, grid_size: int | None = None,
                   cell_px: int | None = None):
-    """Draw minimap. x=vertical (north-south), y=horizontal (west-east).
-
-    The old minimap was hard-coded to 10×10. Corner castles and their
-    underground floors are 25×25, so coordinates like [12,12] or [19,5]
-    were outside the drawn area and the player marker disappeared.
-    """
+    """Наложить полупрозрачную тактическую карту поверх фоновой сцены."""
     cells = list(cells)
     size = max(1, int(grid_size or _grid_size_from_cells(cells)))
     cs = max(6, int(cell_px or min(MINIMAP_CELL, 360 // size)))
@@ -81,8 +80,11 @@ def _draw_minimap(draw: ImageDraw.Draw, cells, player_x: int, player_y: int,
     bh = size * cs + 4
     by_pos = {(int(c.x), int(c.y)): c for c in cells}
 
-    draw.rectangle([ox - 2, oy - 2, ox + bw + 2, oy + bh + 2],
-                   fill=(30, 30, 35), outline=(100, 100, 110), width=2)
+    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    draw.rounded_rectangle([ox - 10, oy - 10, ox + bw + 10, oy + bh + 10],
+                           radius=12, fill=(10, 13, 19, 168),
+                           outline=(171, 183, 201, 185), width=2)
 
     gap = 1 if cs <= 10 else 2
     for row in range(size):      # row = x (0=top/north)
@@ -90,47 +92,50 @@ def _draw_minimap(draw: ImageDraw.Draw, cells, player_x: int, player_y: int,
             cell = by_pos.get((row, col))
             px = ox + col * cs   # y goes horizontally
             py = oy + row * cs   # x goes vertically
-
             if row == player_x and col == player_y:
-                color = (220, 220, 220)  # Player - white
+                color = (235, 240, 246, 235)
             elif cell is None or not cell.is_passable:
-                color = (15, 15, 20)     # Wall / outside
+                color = (14, 16, 23, 185)
             else:
-                color = (60, 65, 70)     # Passable - single color
-
+                base = TILE_COLORS.get(cell.tile_type, (60, 65, 70))
+                color = (*base, 195)
             draw.rectangle([px, py, px + cs - gap, py + cs - gap], fill=color)
 
-    # Extra ring so the marker remains visible when a cell is small (25×25).
     if 0 <= player_x < size and 0 <= player_y < size:
         cx = ox + player_y * cs + cs // 2
         cy = oy + player_x * cs + cs // 2
         r = max(3, cs // 3)
-        draw.ellipse([cx - r - 1, cy - r - 1, cx + r + 1, cy + r + 1],
-                     outline=PLAYER_RING, width=max(1, cs // 5))
+        draw.ellipse([cx - r - 2, cy - r - 2, cx + r + 2, cy + r + 2],
+                     fill=(*PLAYER_RING, 235))
+        draw.ellipse([cx - r, cy - r, cx + r, cy + r],
+                     fill=(*PLAYER_COLOR, 245))
+    img.alpha_composite(overlay)
 
 
-def render_cell_image(cell, cells, player_x: int, player_y: int, output_path: str) -> str:
+def render_cell_image(cell, cells, player_x: int, player_y: int, output_path: str,
+                      background_url: str | None = None,
+                      background_rotation: int = 0) -> str:
+    """Сцена перемещения: фон клетки + прозрачный тактический слой Pillow."""
     cells = list(cells)
-    img = _load_bg(cell.image_url)
-    draw = ImageDraw.Draw(img)
+    img = _load_bg(background_url or cell.image_url, background_rotation)
 
     grid_size = _grid_size_from_cells(cells)
     mm_cell = max(6, min(MINIMAP_CELL, 360 // max(1, grid_size)))
     mm_size = grid_size * mm_cell
     mm_x = (TILE_SIZE - mm_size) // 2
     mm_y = (TILE_SIZE - mm_size) // 2 - 20
-    _draw_minimap(draw, cells, player_x, player_y, mm_x, mm_y,
+    _draw_minimap(img, cells, player_x, player_y, mm_x, mm_y,
                   grid_size=grid_size, cell_px=mm_cell)
 
+    draw = ImageDraw.Draw(img)
     font = _fit_font(18)
+    draw.text((20, 12), cell.name, fill=(255, 255, 255, 255),
+              font=font, stroke_width=2, stroke_fill=(0, 0, 0, 210))
+    draw.text((20, TILE_SIZE - 28), f"[{cell.x},{cell.y}]", fill=(210, 216, 224, 255),
+              font=font, stroke_width=2, stroke_fill=(0, 0, 0, 210))
 
-    draw.text((20, 12), cell.name, fill=(255, 255, 255),
-              font=font, stroke_width=2, stroke_fill=(0, 0, 0))
-    draw.text((20, TILE_SIZE - 28), f"[{cell.x},{cell.y}]", fill=(180, 180, 180),
-              font=font, stroke_width=2, stroke_fill=(0, 0, 0))
-
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    img.save(output_path, "JPEG", quality=90)
+    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+    img.convert("RGB").save(output_path, "JPEG", quality=90)
     return output_path
 
 
@@ -145,6 +150,12 @@ def ensure_cell_image(cell, cells, player_x: int, player_y: int) -> str:
     if os.path.exists(path):
         return path
     return render_cell_image(cell, cells, player_x, player_y, path)
+
+
+def get_neutral_scene_path(character_id: int, location_id: int, floor: int,
+                           cell_id: int) -> str:
+    """Временный JPEG экрана перемещения с нейтральным фоном."""
+    return f"data/player_scenes/{character_id}_{location_id}_{floor}_{cell_id}.jpg"
 
 
 def render_dungeon_map(cells, player_x: int, player_y: int, grid_size: int,

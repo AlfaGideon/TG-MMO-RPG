@@ -6,7 +6,8 @@ from aiogram.fsm.context import FSMContext
 from sqlalchemy import select
 from core.database import async_session
 from core.models import GameUpdate
-from bot.utils.edit import safe_edit_text
+from core import ui_images
+from bot.utils.photos import send_or_edit_photo
 
 router = Router()
 
@@ -76,6 +77,7 @@ async def show_updates_page(callback: CallbackQuery, page: int):
             select(GameUpdate).order_by(GameUpdate.created_at.desc()).limit(20)
         )
         db_updates = result.scalars().all()
+        image_url = await ui_images.get(session, "updates")
 
     # Объединяем GitHub + ручные + примеры
     all_updates = []
@@ -125,5 +127,8 @@ async def show_updates_page(callback: CallbackQuery, page: int):
     rows.append(2)
     builder.adjust(*rows)
 
-    await safe_edit_text(callback, text, reply_markup=builder.as_markup(), parse_mode="HTML")
+    await send_or_edit_photo(
+        callback, text, reply_markup=builder.as_markup(), image_url=image_url,
+        parse_mode="HTML",
+    )
     await callback.answer()
