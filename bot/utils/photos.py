@@ -31,6 +31,60 @@ def get_photo_input(image_url: str):
     return None
 
 
+def get_npc_image(npc_name: str, npc_type: str, location_name: str):
+    """
+    Returns a local path to an NPC image based on name or location/faction.
+    """
+    if not npc_name:
+        return None
+
+    # Mapping specific NPCs to their generated images
+    name_map = {
+        "Инквизитор Эдуард": "eduard.jpg",
+        "Интендант Бенедикт": "benedikt.jpg",
+        "Оружейник Рауль": "raul.jpg",
+        "Писарь Иеремия": "jeremia.jpg",
+        "Старейшина Григор": "grigor.jpg",
+        "Лорд Малакар": "malakar.jpg",
+        "Торговец шёпотом Ксавьер": "ksavier.jpg",
+        "Кузнец скверны Кром": "krom.jpg",
+        "Ростовщик Теневой секты": "sect_usurer.jpg",
+        "Тенелов Вирд": "wyrd.jpg",
+        "Главарь банды Грюм": "gryum.jpg",
+        "Скупщик краденого Барни": "barney.jpg",
+        "Оружейник Глубин Шрам": "shram.jpg",
+        "Оценщик Гильдии Клык": "klyk.jpg",
+        "Хранитель ключей": "key_keeper.jpg",
+        "Капитан Радклифф": "radcliffe.jpg",
+        "Лавочник Кормак": "kormak.jpg",
+        "Оружейник Торвальд": "torvald.jpg",
+        "Летописец Пепла Морган": "morgan.jpg",
+        "Торговец Варн": "varn.jpg",
+        "Лекарь Мира": "mira.jpg",
+        "Кузнец Дорн": "dorn.jpg",
+        "Травница Эльса": "elsa.jpg",
+        "Ювелир Кассий": "kassiy.jpg",
+        "Скупщик Молчун": "molchun.jpg",
+    }
+
+    if npc_name in name_map:
+        return f"/static/npcs/{name_map[npc_name]}"
+
+    if not location_name:
+        return None
+
+    if "Рассвета" in location_name:
+        return "/static/npcs/order_npc.jpg"
+    elif "Теней" in location_name:
+        return "/static/npcs/cult_npc.jpg"
+    elif "Глубин" in location_name:
+        return "/static/npcs/scavengers_npc.jpg"
+    elif "Пепла" in location_name:
+        return "/static/npcs/guard_npc.jpg"
+
+    return None
+
+
 async def send_or_edit_photo(
     event,
     text: str,

@@ -28,7 +28,7 @@ from core.models import (
     CharacterClassDef, ItemInstance, DropEntry, CraftRecipe, CraftIngredient,
     UpgradeRule, MobSpawn, ItemHistory, AuctionLot, CharacterAffinity,
     WorldEvent, WorldEventDamage, Grave, GameUpdate, PlayerSuggestion,
-    AIGeneration,
+    AIGeneration, UILayout,
 )
 from core.enums import (
     LocationType, ItemType, ItemRarity, QuestStatus, ItemSource, CraftStation,
@@ -108,6 +108,9 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Shadow Lands Admin", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="admin/static"), name="static")
 templates = Jinja2Templates(directory="admin/templates")
+
+import json
+templates.env.filters["from_json"] = json.loads
 
 # Mini App-вход в панель из Telegram (без пароля, по подписи initData).
 from admin.tgapp import router as tgapp_router  # noqa: E402
@@ -5925,6 +5928,65 @@ async def editor_suggestions_action(
                     pass
                     
     return RedirectResponse(url="/editor/updates", status_code=303)
+
+
+@app.get("/editor/ui-layouts")
+async def editor_ui_layouts(request: Request):
+    guard(request, "manage_content")
+    async with async_session() as session:
+        result = await session.execute(select(UILayout).order_by(UILayout.key))
+        layouts = result.scalars().all()
+    return templates.TemplateResponse(request, "ui_layouts.html", {"layouts": layouts})
+
+
+@app.get("/editor/ui-layout/{layout_id}")
+async def editor_ui_layout_designer(request: Request, layout_id: int):
+    guard(request, "manage_content")
+    async with async_session() as session:
+        layout = await session.get(UILayout, layout_id)
+        if not layout:
+            return RedirectResponse(url="/editor/ui-layouts")
+    return templates.TemplateResponse(request, "ui_layout_designer.html", {"layout": layout})
+
+
+@app.post("/editor/ui-layout/new")
+async def editor_ui_layout_new(request: Request, key: str = Form(...), image_url: str = Form(...)):
+    guard(request, "manage_content")
+    async with async_session() as session:
+        layout = UILayout(key=key.strip(), image_url=image_url.strip(), slots_json="[]")
+        session.add(layout)
+        await session.commit()
+    return RedirectResponse(url=f"/editor/ui-layout/{layout.id}", status_code=303)
+
+
+@app.post("/api/ui-layout/{layout_id}/save")
+async def api_ui_layout_save(request: Request, layout_id: int, slots: list = Form(...)):
+    # В FastAPI list в Form(...) обычно требует специфической обработки или JSON body.
+    # Для простоты примем JSON body.
+    pass
+
+# Переделаю сохранение на JSON эндпоинт
+@app.post("/api/ui-layout/{layout_id}/save-json")
+async def api_ui_layout_save_json(request: Request, layout_id: int):
+    guard(request, "manage_content")
+    data = await request.json()
+    slots_json = data.get("slots_json", "[]")
+    async with async_session() as session:
+        layout = await session.get(UILayout, layout_id)
+        if layout:
+            layout.slots_json = slots_json
+            await session.commit()
+            return {"success": True}
+    return {"success": False, "error": "Layout not found"}
+
+
+@app.post("/editor/ui-layout/{layout_id}/delete")
+async def editor_ui_layout_delete(request: Request, layout_id: int):
+    guard(request, "manage_content")
+    async with async_session() as session:
+        await session.execute(delete(UILayout).where(UILayout.id == layout_id))
+        await session.commit()
+    return RedirectResponse(url="/editor/ui-layouts", status_code=303)
 
 
 # ── API: игроки на конкретной локации (для редактора локаций) ──

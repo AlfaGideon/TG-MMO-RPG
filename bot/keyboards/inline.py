@@ -12,10 +12,10 @@ def main_menu_keyboard(has_character: bool = False, is_admin: bool = False,
     else:
         builder.button(text="🧙 Профиль", callback_data="profile")
         builder.button(text="🎒 Инвентарь", callback_data="inventory")
-        # Карта и путешествия — разные вещи: карта только смотрит мир,
-        # а в дорогу герой отправляется отдельной кнопкой.
+        # Кнопка «В путь» теперь ведет сразу на экран перемещения (стрелки).
+        # «Карта» остается для обзора локации.
         builder.button(text="🗺 Карта", callback_data="show_map")
-        builder.button(text="🥾 В путь", callback_data="journey")
+        builder.button(text="🥾 В путь", callback_data="back_to_cell")
         builder.button(text="👥 Пати", callback_data="party_menu")
         builder.button(text="🧭 Репутация", callback_data="reputation")
         builder.button(text="🏆 Топ", callback_data="leaderboard")
@@ -350,7 +350,7 @@ def cell_movement_keyboard(can_dirs: dict, dungeon_template_id: int | None = Non
 
 
 def map_view_keyboard(zoom: int = 2):
-    """Раздел «Карта»: масштаб + мировая карта + выход в путь.
+    """Раздел «Карта»: масштаб + мировая карта + быстрые путешествия.
 
     Карта крутится кнопками ➕/➖ прямо под картинкой — приближение
     даёт крупный вид вокруг героя, отдаление — всю локацию.
@@ -360,32 +360,30 @@ def map_view_keyboard(zoom: int = 2):
     builder = InlineKeyboardBuilder()
     zoom_w = _zoom_buttons(builder, "map", zoom)
     builder.button(text="🌍 Карта мира", callback_data="world_map")
-    builder.button(text="🥾 В путь", callback_data="journey")
+    builder.button(text="🏠 Быстрое перемещение", callback_data="journey")
     builder.button(text="◀️ Назад", callback_data="back_to_cell")
     builder.adjust(zoom_w, 1, 1, 1)
     return builder.as_markup()
 
 
 def world_map_keyboard():
-    """Мировая карта — только обзор: никаких переходов между замками.
-
-    Путешествия уехали на отдельный экран «В путь», а здесь лишь
-    возврат к карте локации и обратно в мир.
+    """Мировая карта — только обзор.
     """
     builder = InlineKeyboardBuilder()
-    builder.button(text="🗺 Карта локации", callback_data="show_map")
-    builder.button(text="◀️ Назад", callback_data="back_to_cell")
+    builder.button(text="🗺 К карте локации", callback_data="show_map")
+    builder.button(text="◀️ Назад в мир", callback_data="back_to_cell")
     builder.adjust(1)
     return builder.as_markup()
 
 
 def travel_keyboard(destinations: list):
-    """Экран «В путь»: список посещённых локаций для быстрого travel."""
+    """Экран «Быстрое перемещение»: список посещённых локаций.
+    """
     builder = InlineKeyboardBuilder()
     for loc in destinations[:8]:
         builder.button(text=f"🏠 {loc.name}", callback_data=f"travel:{loc.id}")
-    builder.button(text="🗺 Карта", callback_data="show_map")
-    builder.button(text="◀️ Назад", callback_data="back_to_cell")
+    builder.button(text="🗺 К карте локации", callback_data="show_map")
+    builder.button(text="◀️ Назад в мир", callback_data="back_to_cell")
     builder.adjust(1)
     return builder.as_markup()
 

@@ -14,99 +14,141 @@
     <div class="sidebar-overlay" onclick="toggleSidebar(false)"></div>
     <aside class="sidebar">
         <div class="sidebar-brand">
-            <span class="brand-icon">🌑</span>
-            <div>
-                <div class="brand-title">Shadow Lands</div>
-                <div class="brand-sub">
-                    {% if role %}Роль: {{ {'viewer': 'Наблюдатель', 'moderator': 'Модератор', 'admin': 'Админ'}.get(role, role) }}{% else %}Admin panel{% endif %}
-                </div>
+            <div class="brand-logo">
+                <span class="brand-logo-short">ТЗ</span>
+                <span class="brand-logo-full">ТЕНЕВЫЕ<br>ЗЕМЛИ</span>
             </div>
+            <button type="button" class="sidebar-collapse-btn" onclick="collapseSidebar()" title="Свернуть">
+                <span class="collapse-icon">◀</span>
+            </button>
         </div>
         <nav class="sidebar-nav">
-            <a href="/" class="nav-link {% if path == '/' %}active{% endif %}">
-                <span class="nav-icon">📊</span> Dashboard
-            </a>
-
-            <div class="nav-section-label">Игроки</div>
-            <a href="/players" class="nav-link {% if path.startswith('/player') %}active{% endif %}">
-                <span class="nav-icon">👥</span> Игроки
-            </a>
-            {% set player_ctx = request.state.player_ctx if request.state.player_ctx is defined else None %}
-            {% if player_ctx %}
-            <div class="context-submenu">
-                <div class="context-label">👤 {{ player_ctx.name }}</div>
-                <a href="/player/{{ player_ctx.id }}" class="{% if path == '/player/' ~ player_ctx.id %}active{% endif %}">📊 Обзор</a>
-                <a href="/player/{{ player_ctx.id }}#stats" onclick="document.querySelector('[data-tab=tab-stats]')?.click(); return false;">✏️ Характеристики</a>
-                <a href="/player/{{ player_ctx.id }}#inventory" onclick="document.querySelector('[data-tab=tab-inventory]')?.click(); return false;">🎒 Инвентарь</a>
-                <a href="/player/{{ player_ctx.id }}#access" onclick="document.querySelector('[data-tab=tab-access]')?.click(); return false;">👑 VIP и доступ</a>
-                <a href="/player/{{ player_ctx.id }}#chat" onclick="document.querySelector('[data-tab=tab-chat]')?.click(); return false;">💬 Чат</a>
-            </div>
-            {% endif %}
-            <a href="/map" class="nav-link {% if path == '/map' %}active{% endif %}">
-                <span class="nav-icon">🗺</span> Карта игроков
-            </a>
-            <a href="/battles" class="nav-link {% if path == '/battles' %}active{% endif %}">
-                <span class="nav-icon">⚔️</span> Бои
-            </a>
-
-            <div class="nav-section-label">Экономика</div>
-            <a href="/items" class="nav-link {% if path.startswith('/item') and not path.startswith('/instance') %}active{% endif %}">
-                <span class="nav-icon">🎒</span> Предметы
-            </a>
-            <a href="/editor/instances" class="nav-link {% if path.startswith('/editor/instances') or path.startswith('/instance/') %}active{% endif %}">
-                <span class="nav-icon">🆔</span> Экземпляры
-            </a>
-            <a href="/editor/auction" class="nav-link {% if path == '/editor/auction' %}active{% endif %}">
-                <span class="nav-icon">⚖️</span> Аукцион
-            </a>
-            <a href="/editor/merchant" class="nav-link {% if path == '/editor/merchant' %}active{% endif %}">
-                <span class="nav-icon">🧳</span> Бродячий торговец
-            </a>
-
-            {% if role is none or role == 'admin' %}
-            <div class="nav-section-label">Контент мира</div>
-            <div class="nav-group {% if content_active or path == '/content' %}open active{% endif %}" id="content-group">
-                <div class="nav-group-row {% if content_active or path == '/content' %}active{% endif %}">
-                    <a href="/content" class="nav-group-link {% if path == '/content' %}active{% endif %}">
-                        <span class="nav-icon">🧩</span> Контент
-                    </a>
-                    <button type="button" class="nav-group-chevron-btn" onclick="toggleGroup('content-group')" aria-label="Развернуть">
-                        <span class="nav-chevron">▶</span>
-                    </button>
+            {# Группа Обзор #}
+            <div class="nav-group" id="group-overview">
+                <div class="nav-group-row" onclick="toggleGroup('group-overview')">
+                    <div class="nav-group-header">
+                        <span class="nav-icon">🔭</span>
+                        <span class="nav-text">ОБЗОР</span>
+                    </div>
+                    <span class="nav-chevron">▶</span>
                 </div>
                 <div class="nav-subitems">
-                    <a href="/editor/world" class="nav-sublink {% if path == '/editor/world' %}active{% endif %}">🌍 Мир</a>
+                    <a href="/" class="nav-sublink {% if path == '/' %}active{% endif %}">
+                        📊 Dashboard
+                    </a>
+                    <a href="/map" class="nav-sublink {% if path == '/map' %}active{% endif %}">
+                        🗺 Карта игроков
+                    </a>
+                    <a href="/battles" class="nav-sublink {% if path == '/battles' %}active{% endif %}">
+                        ⚔️ Бои
+                    </a>
+                </div>
+            </div>
+
+            {# Группа Игроки #}
+            <div class="nav-group" id="group-players">
+                <div class="nav-group-row" onclick="toggleGroup('group-players')">
+                    <div class="nav-group-header">
+                        <span class="nav-icon">👥</span>
+                        <span class="nav-text">ИГРОКИ</span>
+                    </div>
+                    <span class="nav-chevron">▶</span>
+                </div>
+                <div class="nav-subitems">
+                    <a href="/players" class="nav-sublink {% if path.startswith('/players') or path.startswith('/player/') %}active{% endif %}">
+                        👥 Список игроков
+                    </a>
+                    {% set player_ctx = request.state.player_ctx if request.state.player_ctx is defined else None %}
+                    {% if player_ctx %}
+                    <div class="context-submenu">
+                        <div class="context-label">👤 {{ player_ctx.name }}</div>
+                        <a href="/player/{{ player_ctx.id }}" class="{% if path == '/player/' ~ player_ctx.id %}active{% endif %}">📊 Обзор</a>
+                        <a href="/player/{{ player_ctx.id }}#stats" onclick="document.querySelector('[data-tab=tab-stats]')?.click(); return false;">✏️ Характеристики</a>
+                        <a href="/player/{{ player_ctx.id }}#inventory" onclick="document.querySelector('[data-tab=tab-inventory]')?.click(); return false;">🎒 Инвентарь</a>
+                        <a href="/player/{{ player_ctx.id }}#access" onclick="document.querySelector('[data-tab=tab-access]')?.click(); return false;">👑 VIP и доступ</a>
+                        <a href="/player/{{ player_ctx.id }}#chat" onclick="document.querySelector('[data-tab=tab-chat]')?.click(); return false;">💬 Чат</a>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            {# Группа Экономика #}
+            <div class="nav-group" id="group-economy">
+                <div class="nav-group-row" onclick="toggleGroup('group-economy')">
+                    <div class="nav-group-header">
+                        <span class="nav-icon">⚖️</span>
+                        <span class="nav-text">ЭКОНОМИКА</span>
+                    </div>
+                    <span class="nav-chevron">▶</span>
+                </div>
+                <div class="nav-subitems">
+                    <a href="/items" class="nav-sublink {% if path.startswith('/item') and not path.startswith('/instance') %}active{% endif %}">
+                        🎒 Каталог предметов
+                    </a>
+                    <a href="/editor/instances" class="nav-sublink {% if path.startswith('/editor/instances') or path.startswith('/instance/') %}active{% endif %}">
+                        🆔 Экземпляры
+                    </a>
+                    <a href="/editor/auction" class="nav-sublink {% if path == '/editor/auction' %}active{% endif %}">
+                        ⚖️ Аукцион
+                    </a>
+                    <a href="/editor/merchant" class="nav-sublink {% if path == '/editor/merchant' %}active{% endif %}">
+                        🧳 Бродячий торговец
+                    </a>
+                </div>
+            </div>
+
+            {# Группа Контент мира #}
+            {% if role is none or role == 'admin' %}
+            <div class="nav-group {% if content_active or path == '/content' %}open active{% endif %}" id="group-content">
+                <div class="nav-group-row" onclick="toggleGroup('group-content')">
+                    <div class="nav-group-header">
+                        <span class="nav-icon">🧩</span>
+                        <span class="nav-text">КОНТЕНТ МИРА</span>
+                    </div>
+                    <span class="nav-chevron">▶</span>
+                </div>
+                <div class="nav-subitems">
+                    <a href="/content" class="nav-sublink {% if path == '/content' %}active{% endif %}">🧩 Обзор контента</a>
+                    <a href="/editor/world" class="nav-sublink {% if path == '/editor/world' %}active{% endif %}">🌍 Мировая карта</a>
                     <a href="/editor/locations" class="nav-sublink {% if path.startswith('/editor/location') %}active{% endif %}">🗺 Локации</a>
                     <a href="/editor/dungeons" class="nav-sublink {% if path == '/editor/dungeons' %}active{% endif %}">🕳 Подземелья</a>
                     <a href="/editor/mobs" class="nav-sublink {% if path == '/editor/mobs' %}active{% endif %}">👾 Мобы</a>
                     <a href="/editor/spawns" class="nav-sublink {% if path == '/editor/spawns' %}active{% endif %}">👣 Популяция</a>
                     <a href="/editor/living" class="nav-sublink {% if path == '/editor/living' %}active{% endif %}">♻️ Жизнь мира</a>
-                    <a href="/editor/living#factions" class="nav-sublink {% if path == '/editor/living' and anchor == 'factions' %}active{% endif %}">🧭 Силы (фракции)</a>
-                    <a href="/editor/drops" class="nav-sublink {% if path == '/editor/drops' %}active{% endif %}">🎁 Лут</a>
-                    <a href="/editor/craft" class="nav-sublink {% if path == '/editor/craft' %}active{% endif %}">🔨 Крафт</a>
-                    <a href="/editor/classes" class="nav-sublink {% if path == '/editor/classes' %}active{% endif %}">🎭 Классы</a>
-                    <a href="/editor/images" class="nav-sublink {% if path == '/editor/images' %}active{% endif %}">🖼 Картинки</a>
-                    <a href="/editor/events" class="nav-sublink {% if path == '/editor/events' %}active{% endif %}">🎄 События</a>
-                    <a href="/editor/npcs" class="nav-sublink {% if path == '/editor/npcs' %}active{% endif %}">💬 NPC</a>
+                    <a href="/editor/drops" class="nav-sublink {% if path == '/editor/drops' %}active{% endif %}">🎁 Таблицы лута</a>
+                    <a href="/editor/craft" class="nav-sublink {% if path == '/editor/craft' %}active{% endif %}">🔨 Крафт и заточка</a>
+                    <a href="/editor/classes" class="nav-sublink {% if path == '/editor/classes' %}active{% endif %}">🎭 Классы героев</a>
+                    <a href="/editor/images" class="nav-sublink {% if path == '/editor/images' %}active{% endif %}">🖼 Библиотека картинок</a>
+                    <a href="/editor/events" class="nav-sublink {% if path == '/editor/events' %}active{% endif %}">🎄 События и реликвии</a>
+                    <a href="/editor/npcs" class="nav-sublink {% if path == '/editor/npcs' %}active{% endif %}">💬 Жители (NPC)</a>
                     <a href="/editor/quests" class="nav-sublink {% if path == '/editor/quests' %}active{% endif %}">📜 Квесты</a>
                     <a href="/editor/ai" class="nav-sublink {% if path == '/editor/ai' %}active{% endif %}">✨ AI-мастерская</a>
+                    <a href="/editor/ui-layouts" class="nav-sublink {% if path == '/editor/ui-layouts' %}active{% endif %}">🎨 Разметка UI</a>
                     <a href="/editor/updates" class="nav-sublink {% if path == '/editor/updates' %}active{% endif %}">📢 Обновления и Идеи</a>
                 </div>
             </div>
             {% endif %}
 
+            {# Группа Система #}
             {% if role is none or role == 'admin' %}
-            <div class="nav-section-label">Система</div>
-            <a href="/logs" class="nav-link {% if path == '/logs' %}active{% endif %}">
-                <span class="nav-icon">📜</span> Логи
-            </a>
-            <a href="/settings" class="nav-link {% if path == '/settings' %}active{% endif %}">
-                <span class="nav-icon">⚙️</span> Настройки
-            </a>
+            <div class="nav-group" id="group-system">
+                <div class="nav-group-row" onclick="toggleGroup('group-system')">
+                    <div class="nav-group-header">
+                        <span class="nav-icon">⚙️</span>
+                        <span class="nav-text">СИСТЕМА</span>
+                    </div>
+                    <span class="nav-chevron">▶</span>
+                </div>
+                <div class="nav-subitems">
+                    <a href="/logs" class="nav-sublink {% if path == '/logs' %}active{% endif %}">📜 Логи</a>
+                    <a href="/settings" class="nav-sublink {% if path == '/settings' %}active{% endif %}">⚙️ Настройки</a>
+                </div>
+            </div>
             {% endif %}
+
             {% if role %}
             <a href="/admin-logout" class="nav-link">
-                <span class="nav-icon">🚪</span> Выйти
+                <span class="nav-icon">🚪</span> <span class="nav-text">Выйти</span>
             </a>
             {% endif %}
         </nav>
@@ -173,6 +215,19 @@ function toggleSidebar(force) {
     // Пока открыто мобильное меню — фон не должен прокручиваться
     document.body.classList.toggle('no-scroll', open);
 }
+
+function collapseSidebar() {
+    const layout = document.getElementById('layout');
+    const isCollapsed = layout.classList.toggle('collapsed');
+    localStorage.setItem('admin-sidebar-collapsed', isCollapsed ? '1' : '0');
+}
+
+(function initSidebar() {
+    const layout = document.getElementById('layout');
+    if (localStorage.getItem('admin-sidebar-collapsed') === '1') {
+        layout.classList.add('collapsed');
+    }
+})();
 
 // Esc закрывает мобильное меню (раньше выйти можно было только тапом
 // по затемнению — на узком экране это неочевидно).

@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Разметка интерфейсов{% endblock %}
+{% block content %}
+<div class="header-row">
+    <h1>🎨 Разметка интерфейсов (Pillow)</h1>
+    <button class="btn btn-primary" onclick="document.getElementById('newLayoutModal').classList.add('open')">➕ Создать разметку</button>
+</div>
+
+<p class="text-muted">
+    Здесь вы можете выбрать фоновую картинку (например, инвентарь или экипировку) 
+    и визуально разметить на ней слоты. Координаты будут использоваться ботом для 
+    автоматической отрисовки предметов через Pillow.
+</p>
+
+<div class="card mt-20">
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Ключ (ID)</th>
+                <th>Картинка</th>
+                <th>Слотов</th>
+                <th>Последнее обновление</th>
+                <th>Действия</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for layout in layouts %}
+            <tr>
+                <td><code>{{ layout.key }}</code></td>
+                <td><img src="{{ layout.image_url }}" style="height: 40px; border-radius: 4px;"></td>
+                <td>{{ layout.slots_json|from_json|length }}</td>
+                <td>{{ layout.updated_at.strftime('%d.%m.%Y %H:%M') }}</td>
+                <td>
+                    <div class="btn-group">
+                        <a href="/editor/ui-layout/{{ layout.id }}" class="btn btn-sm">🎨 Редактор</a>
+                        <form action="/editor/ui-layout/{{ layout.id }}/delete" method="post" onsubmit="return confirm('Удалить эту разметку?')" style="display:inline;">
+                            <button type="submit" class="btn btn-sm btn-danger">🗑</button>
+                        </form>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+            {% if not layouts %}
+            <tr>
+                <td colspan="5" class="text-center py-20">Разметок пока нет. Создайте первую!</td>
+            </tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>
+
+<div id="newLayoutModal" class="modal">
+    <div class="modal-box">
+        <h3>Новая разметка</h3>
+        <form action="/editor/ui-layout/new" method="post">
+            <div class="form-group">
+                <label class="form-label">Ключ разметки (лат.)</label>
+                <input type="text" name="key" class="search-box" placeholder="Напр: inventory_order" required>
+                <span class="text-muted small">Уникальный ID для вызова из кода бота.</span>
+            </div>
+            <div class="form-group mt-10">
+                <label class="form-label">URL фоновой картинки</label>
+                <input type="text" name="image_url" class="search-box" placeholder="/static/ui/equipment_order.png" required>
+            </div>
+            <div class="modal-actions mt-20">
+                <button type="button" class="btn" onclick="this.closest('.modal').classList.remove('open')">Отмена</button>
+                <button type="submit" class="btn btn-primary">Создать и перейти к рисованию</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<style>
+    .mt-20 { margin-top: 20px; }
+    .mt-10 { margin-top: 10px; }
+    .py-20 { padding-top: 20px; padding-bottom: 20px; }
+</style>
+{% endblock %}

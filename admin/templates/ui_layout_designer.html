@@ -1,0 +1,213 @@
+{% extends "base.html" %}
+{% block title %}Редактор разметки: {{ layout.key }}{% endblock %}
+{% block content %}
+<div class="header-row">
+    <div>
+        <h1>🎨 Дизайнер интерфейса: <code>{{ layout.key }}</code></h1>
+        <p class="text-muted">Кликайте по картинке, чтобы создать слот. Перетаскивайте за края, чтобы изменить размер.</p>
+    </div>
+    <div class="btn-group">
+        <button class="btn btn-primary" onclick="saveLayout()">💾 Сохранить всё</button>
+        <a href="/editor/ui-layouts" class="btn">◀️ Назад</a>
+    </div>
+</div>
+
+<div class="layout-container mt-20">
+    <div class="designer-canvas-wrap">
+        <div id="designer-root" style="position: relative; display: inline-block;">
+            <img id="bg-image" src="{{ layout.image_url }}" style="display: block; max-width: 1000px; border: 1px solid #444;">
+            <svg id="canvas-overlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; cursor: crosshair;"></svg>
+        </div>
+    </div>
+    
+    <div class="sidebar-controls card">
+        <h3>📦 Слоты</h3>
+        <div id="slots-list" class="slots-list">
+            <!-- JS populated -->
+        </div>
+        <button class="btn btn-sm mt-10 w-full" onclick="addSlot()">➕ Добавить вручную</button>
+    </div>
+</div>
+
+<style>
+    .layout-container { display: flex; gap: 20px; align-items: flex-start; }
+    .designer-canvas-wrap { flex: 1; overflow: auto; background: #222; padding: 20px; border-radius: 8px; }
+    .sidebar-controls { width: 300px; padding: 15px; }
+    .slots-list { max-height: 600px; overflow-y: auto; }
+    .slot-item { border-bottom: 1px solid #444; padding: 10px 0; }
+    .slot-item:last-child { border-bottom: none; }
+    .slot-item-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+    .slot-coords { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; font-family: monospace; font-size: 12px; }
+    .w-full { width: 100%; }
+    
+    .overlay-rect { fill: rgba(0, 255, 255, 0.1); stroke: cyan; stroke-width: 2; cursor: move; }
+    .overlay-rect.selected { fill: rgba(255, 255, 0, 0.2); stroke: yellow; }
+    .resize-handle { fill: white; stroke: #000; cursor: nwse-resize; }
+</style>
+
+<script>
+    let layoutId = {{ layout.id }};
+    let slots = {{ layout.slots_json|safe }};
+    let selectedIndex = -1;
+    const canvas = document.getElementById('canvas-overlay');
+    const bgImg = document.getElementById('bg-image');
+
+    function init() {
+        render();
+        
+        canvas.addEventListener('mousedown', (e) => {
+            if (e.target === canvas) {
+                const rect = canvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                addSlot(x, y, 80, 80);
+            }
+        });
+    }
+
+    function addSlot(x = 50, y = 50, w = 80, h = 80) {
+        const name = 'slot_' + (slots.length + 1);
+        slots.push({ name, x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) });
+        selectedIndex = slots.length - 1;
+        render();
+    }
+
+    function removeSlot(index) {
+        slots.splice(index, 1);
+        if (selectedIndex >= slots.length) selectedIndex = slots.length - 1;
+        render();
+    }
+
+    function render() {
+        // Render List
+        const list = document.getElementById('slots-list');
+        list.innerHTML = '';
+        slots.forEach((s, i) => {
+            const div = document.createElement('div');
+            div.className = 'slot-item' + (i === selectedIndex ? ' selected' : '');
+            div.innerHTML = `
+                <div class="slot-item-head">
+                    <input type="text" value="${s.name}" class="search-box sm" style="width: 150px" onchange="updateSlot(${i}, 'name', this.value)">
+                    <button class="btn btn-sm btn-danger" onclick="removeSlot(${i})">🗑</button>
+                </div>
+                <div class="slot-coords">
+                    <span>X: <input type="number" value="${s.x}" onchange="updateSlot(${i}, 'x', this.value)"></span>
+                    <span>Y: <input type="number" value="${s.y}" onchange="updateSlot(${i}, 'y', this.value)"></span>
+                    <span>W: <input type="number" value="${s.w}" onchange="updateSlot(${i}, 'w', this.value)"></span>
+                    <span>H: <input type="number" value="${s.h}" onchange="updateSlot(${i}, 'h', this.value)"></span>
+                </div>
+            `;
+            list.appendChild(div);
+        });
+
+        // Render Canvas
+        canvas.innerHTML = '';
+        slots.forEach((s, i) => {
+            const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+            
+            const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+            rect.setAttribute('x', s.x);
+            rect.setAttribute('y', s.y);
+            rect.setAttribute('width', s.w);
+            rect.setAttribute('height', s.h);
+            rect.setAttribute('class', 'overlay-rect' + (i === selectedIndex ? ' selected' : ''));
+            
+            rect.addEventListener('mousedown', (e) => {
+                e.stopPropagation();
+                selectedIndex = i;
+                startDrag(e, i, 'move');
+                render();
+            });
+
+            const handle = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+            handle.setAttribute('x', s.x + s.w - 8);
+            handle.setAttribute('y', s.y + s.h - 8);
+            handle.setAttribute('width', 8);
+            handle.setAttribute('height', 8);
+            handle.setAttribute('class', 'resize-handle');
+            handle.addEventListener('mousedown', (e) => {
+                e.stopPropagation();
+                selectedIndex = i;
+                startDrag(e, i, 'resize');
+                render();
+            });
+
+            const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+            text.setAttribute('x', s.x + 5);
+            text.setAttribute('y', s.y + 15);
+            text.setAttribute('fill', 'white');
+            text.setAttribute('font-size', '12px');
+            text.textContent = s.name;
+
+            g.appendChild(rect);
+            g.appendChild(handle);
+            g.appendChild(text);
+            canvas.appendChild(g);
+        });
+    }
+
+    function updateSlot(index, field, value) {
+        if (field === 'name') slots[index][field] = value;
+        else slots[index][field] = parseInt(value);
+        render();
+    }
+
+    let dragData = null;
+    function startDrag(e, index, mode) {
+        const rect = canvas.getBoundingClientRect();
+        dragData = {
+            index, mode,
+            startX: e.clientX,
+            startY: e.clientY,
+            originalX: slots[index].x,
+            originalY: slots[index].y,
+            originalW: slots[index].w,
+            originalH: slots[index].h
+        };
+        window.addEventListener('mousemove', onDrag);
+        window.addEventListener('mouseup', stopDrag);
+    }
+
+    function onDrag(e) {
+        if (!dragData) return;
+        const dx = e.clientX - dragData.startX;
+        const dy = e.clientY - dragData.startY;
+        const s = slots[dragData.index];
+
+        if (dragData.mode === 'move') {
+            s.x = Math.max(0, dragData.originalX + dx);
+            s.y = Math.max(0, dragData.originalY + dy);
+        } else {
+            s.w = Math.max(10, dragData.originalW + dx);
+            s.h = Math.max(10, dragData.originalH + dy);
+        }
+        render();
+    }
+
+    function stopDrag() {
+        dragData = null;
+        window.removeEventListener('mousemove', onDrag);
+        window.removeEventListener('mouseup', stopDrag);
+    }
+
+    async function saveLayout() {
+        try {
+            const resp = await fetch(`/api/ui-layout/${layoutId}/save-json`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ slots_json: JSON.stringify(slots) })
+            });
+            const result = await resp.json();
+            if (result.success) {
+                alert('Разметка сохранена!');
+            } else {
+                alert('Ошибка: ' + result.error);
+            }
+        } catch (e) {
+            alert('Сбой сети при сохранении');
+        }
+    }
+
+    window.onload = init;
+</script>
+{% endblock %}
