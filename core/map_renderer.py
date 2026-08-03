@@ -188,8 +188,29 @@ def get_dungeon_map_path(run_id: int, floor: int) -> str:
     return f"data/dungeon_maps/{run_id}_{floor}.png"
 
 
+# Уровни масштаба карты: 0 — самый близкий вид вокруг героя,
+# ZOOM_LEVELS-1 — вся локация целиком. Кнопки +/- на экранах карты и
+# перемещения двигаются по этим уровням.
+ZOOM_LEVELS = 3
+_ZOOM_FRACTIONS = (0.25, 0.45)  # доля сетки для радиуса окна (уровни 0..N-2)
+DEFAULT_ZOOM = ZOOM_LEVELS - 1  # вся локация — одинаково на карте и в пути
+
+
+def zoom_radius_for(grid_size: int, zoom: int):
+    """Радиус окна вокруг героя (в клетках) для уровня масштаба.
+
+    Максимальный уровень — вся локация (None). Минимальный — окно
+    ~четверть сетки, но не меньше 2 клеток вокруг героя.
+    """
+    zoom = max(0, min(int(zoom), ZOOM_LEVELS - 1))
+    if zoom >= ZOOM_LEVELS - 1:
+        return None
+    return max(2, min(grid_size - 1, round(grid_size * _ZOOM_FRACTIONS[zoom])))
+
+
 def render_player_map(cells, visited: set, player_x: int, player_y: int, grid_size: int,
-                       output_path: str, cell_px: int = 32) -> str:
+                       output_path: str, cell_px: int | None = None,
+                       zoom_radius: int | None = None) -> str:
     """
     Renders a top-down grid map identical in style to the admin panel's cell grid
     (same flat colors per tile type), but only shows cells the player has already
@@ -199,27 +220,45 @@ def render_player_map(cells, visited: set, player_x: int, player_y: int, grid_si
 
     cells: iterable of objects with .x, .y, .tile_type, .is_passable
     visited: set of (x, y) tuples the character has visited in this location/floor
+    zoom_radius: None — вся локация; число — окно (2r+1)×(2r+1) вокруг героя,
+                 скользящее по краям сетки (приближение кнопкой «➕»).
+    Клетка масштабируется автоматически, чтобы картинка была ~720 px
+    на любой локации (10×10 и замки 25×25 выглядят одинаково крупно).
     """
-    size = grid_size * cell_px
+    grid_size = max(1, int(grid_size))
+    if zoom_radius is None:
+        x0 = y0 = 0
+        view = grid_size
+    else:
+        r = max(1, int(zoom_radius))
+        view = min(grid_size, 2 * r + 1)
+        x0 = max(0, min(player_x - r, grid_size - view))
+        y0 = max(0, min(player_y - r, grid_size - view))
+    x1, y1 = x0 + view, y0 + view  # правая/нижняя граница (не включая)
+
+    cell_px = max(8, int(cell_px or max(16, 720 // view)))
+    size = view * cell_px
     img = Image.new("RGB", (size, size), FOG_COLOR)
     draw = ImageDraw.Draw(img)
 
     cells_by_pos = {(c.x, c.y): c for c in cells}
 
     for (x, y) in visited:
+        if not (x0 <= x < x1 and y0 <= y < y1):
+            continue
         cell = cells_by_pos.get((x, y))
         if cell is None:
             continue
         color = TILE_COLORS.get(cell.tile_type, TILE_COLORS["grass"])
         if not cell.is_passable:
             color = TILE_COLORS["wall"]
-        px, py = y * cell_px, x * cell_px
+        px, py = (y - y0) * cell_px, (x - x0) * cell_px
         draw.rectangle([px, py, px + cell_px - 1, py + cell_px - 1], fill=color)
 
     # Player marker — a simple dot, no text/labels, drawn last so it's always visible
-    if (player_x, player_y) in visited or True:
-        cx = player_y * cell_px + cell_px // 2
-        cy = player_x * cell_px + cell_px // 2
+    if x0 <= player_x < x1 and y0 <= player_y < y1:
+        cx = (player_y - y0) * cell_px + cell_px // 2
+        cy = (player_x - x0) * cell_px + cell_px // 2
         r = max(3, cell_px // 4)
         draw.ellipse([cx - r - 2, cy - r - 2, cx + r + 2, cy + r + 2], fill=PLAYER_RING)
         draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=PLAYER_COLOR)
@@ -229,8 +268,10 @@ def render_player_map(cells, visited: set, player_x: int, player_y: int, grid_si
     return output_path
 
 
-def get_player_map_path(character_id: int, location_id: int, floor: int) -> str:
-    return f"data/player_maps/{character_id}_{location_id}_{floor}.png"
+def get_player_map_path(character_id: int, location_id: int, floor: int,
+                        zoom: int | None = None) -> str:
+    suffix = "" if zoom is None else f"_z{zoom}"
+    return f"data/player_maps/{character_id}_{location_id}_{floor}{suffix}.png"
 
 
 # ── Карта мира (сетка локаций) ────────────────────────────

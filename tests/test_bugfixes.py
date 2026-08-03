@@ -228,7 +228,10 @@ async def _world_fixture(sm):
         users = [User(telegram_id=t) for t in (11, 22, 33)]
         s.add_all(users)
         await s.flush()
+        # Кошелёк задаём явно (120🟤 8⚪): герои с нуля рождаются с пустым
+        # кошельком, поэтому фикстура не привязана к дефолтам модели.
         chars = [Character(user_id=u.id, name=f"П{u.id}", gold=1000,
+                           bronze=120, silver=8,
                            level=10, character_class="warrior",
                            location_id=loc.id, cell_id=cell.id)
                  for u in users]
@@ -245,7 +248,9 @@ async def _lot_fixture(sm, price=500):
         us = [User(telegram_id=i) for i in (1, 2, 3)]
         s.add_all(us)
         await s.flush()
-        seller = Character(user_id=us[0].id, name="S", gold=0, level=10,
+        # Кошелёк продавца тоже явный (120🟤 8⚪) — см. _world_fixture.
+        seller = Character(user_id=us[0].id, name="S", gold=0,
+                           bronze=120, silver=8, level=10,
                            character_class="warrior")
         b1 = Character(user_id=us[1].id, name="B1", gold=100000, level=10,
                        character_class="warrior")

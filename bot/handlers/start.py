@@ -104,6 +104,11 @@ def _class_book_text(cls_def, page: int, total: int) -> str:
     )
 
 
+# Заставка игры (1:1) на экране /start: лежит в статике админки рядом с
+# гербами фракций; англоязычный вариант — start_en.png (на будущее).
+START_BANNER_RU = "/static/branding/start_ru.png"
+
+
 @router.message(CommandStart())
 async def cmd_start(message: Message):
     async with async_session() as session:
@@ -134,7 +139,10 @@ async def cmd_start(message: Message):
         if character and await resume_character_creation(message, session, character):
             return
 
-        await message.answer(
+        # Заставка слева от приветствия: если файл не найден или не
+        # загрузился, send_or_edit_photo сама откатится на текст.
+        await send_or_edit_photo(
+            message,
             WELCOME_TEXT,
             reply_markup=main_menu_keyboard(
                 has_character=bool(character),
@@ -142,7 +150,7 @@ async def cmd_start(message: Message):
                 is_vip=bool(character and is_vip_active(character)),
                 offline=bool(character and offline_protected(character)),
             ),
-            parse_mode="HTML",
+            image_url=START_BANNER_RU,
         )
 
 
@@ -443,7 +451,11 @@ async def confirm_class(callback: CallbackQuery):
             character_class=cls_def.key,
             level=1,
             experience=0,
-            gold=50,
+            # Кошелёк на старте пуст: первые деньги герой получит только
+            # от выбранной фракции (база × динамический баланс населённости).
+            bronze=0,
+            silver=0,
+            gold=0,
             # Класс и стартовые статы ещё не помещают героя в мир.
             # Локация и клетка определятся только после принятия статов и
             # осознанного выбора фракции.
@@ -590,6 +602,7 @@ FACTION_CARDS = {
             "нежити и катаклизмы — и не раз падали, чтобы встать снова."
         ),
         "bonus": "+3 Выносливость ❤️",
+        "money": 100,
         "reward": "100🟤",
     },
     "scavengers": {
@@ -603,6 +616,7 @@ FACTION_CARDS = {
             "сокровищам, которые другие боятся взять."
         ),
         "bonus": "+2 Удача 🍀, +1 Ловкость 🏃",
+        "money": 200,
         "reward": "200🟤",
     },
     "cult": {
@@ -616,6 +630,7 @@ FACTION_CARDS = {
             "пророчества."
         ),
         "bonus": "+3 Интеллект 🧠",
+        "money": 100,
         "reward": "100🟤 + Осколок души",
     },
     "order": {
@@ -628,16 +643,21 @@ FACTION_CARDS = {
             "реликвии, сжигает нежить и сдерживает старые клятвы."
         ),
         "bonus": "+2 Сила 💪, +1 Выносливость 🛡",
+        "money": 100,
         "reward": "100🟤",
     },
 }
 
 
-def _faction_page_text(page: int, prefix: str = "") -> str:
+def _faction_page_text(page: int, prefix: str = "", bonus: dict | None = None) -> str:
     """Страница книги выбора: герб + описание + все бонусы фракции.
 
     Влезает в лимит подписи к фото (1024 символа) — проверяется
     тестом, поэтому описания держим ёмкими.
+
+    `bonus` — живой расчёт стартовой выдачи (core.factions.start_bonus):
+    населённость фракции и множитель видны игроку ДО выбора, поэтому
+    балансировка реально работает — новички идут туда, где платят больше.
     """
     from engine.factions import FACTIONS, ORDER
 
@@ -660,13 +680,29 @@ def _faction_page_text(page: int, prefix: str = "") -> str:
         f"🧭 Стартовая репутация: <b>+50</b> (звание «Знакомый»)",
         f"🎁 Награда: <b>{card['reward']}</b>",
     ]
+    if bonus is not None:
+        lines.append(
+            f"👥 Героев во фракции: <b>{bonus['count']}</b>")
+        if bonus["mult"] > 1.0:
+            lines.append(
+                f"🔥 Фракция малочисленна — новичкам здесь доплачивают: "
+                f"<b>×{bonus['mult']:.2f}</b>, итого <b>{bonus['bronze']}🟤</b>")
+        elif bonus["mult"] < 1.0:
+            lines.append(
+                f"📉 Фракция перенаселена — выдача урезана: "
+                f"<b>×{bonus['mult']:.2f}</b>, итого <b>{bonus['bronze']}🟤</b>")
+        else:
+            lines.append(
+                f"⚖️ Населённость в норме — выдача без наценки: "
+                f"<b>{bonus['bronze']}🟤</b>")
     if foe in FACTIONS:
         lines.append(f"⚔️ Соперник: {FACTIONS[foe][0]} {FACTIONS[foe][1]}")
     if ally in FACTIONS:
         lines.append(f"🤝 Союзник: {FACTIONS[ally][0]} {FACTIONS[ally][1]}")
     lines += [
         "",
-        "<i>Листай страницы и сравнивай. Истории сил — в «Книге лора».</i>",
+        "<i>Чем меньше во фракции героев, тем щедрее стартовая выдача — "
+        "так мир держит баланс сил.</i>",
     ]
     return prefix + "\n".join(lines)
 
@@ -676,9 +712,20 @@ async def _show_faction_page(event, char_id: int, page: int = 0, prefix: str = "
     from engine.factions import ORDER
 
     page = max(0, min(page, len(ORDER) - 1))
+    # Живой баланс населённости — считается на каждый показ страницы,
+    # чтобы цифры не устаревали между вызовами.
+    bonus = None
+    try:
+        import core.factions as core_factions
+        async with async_session() as session:
+            bonus = await core_factions.start_bonus(
+                session, ORDER[page], FACTION_CARDS[ORDER[page]]["money"])
+    except Exception:
+        bonus = None  # без боевой сводки страница всё равно открывается
+
     await send_or_edit_photo(
         event,
-        _faction_page_text(page, prefix=prefix),
+        _faction_page_text(page, prefix=prefix, bonus=bonus),
         reply_markup=faction_select_keyboard(char_id, page),
         image_url=FACTION_IMAGES.get(ORDER[page]),
     )
@@ -1018,20 +1065,33 @@ async def start_faction_callback(callback: CallbackQuery):
         character.cell_id = spawn_cell.id if spawn_cell else None
         character.floor = 0
 
+        # Стартовые деньги: только от фракции — её база × динамический
+        # баланс населённости (мало народа — доплата, толпа — урезание).
+        import core.factions as core_factions
+        money = await core_factions.start_bonus(
+            session, faction_key, FACTION_CARDS[faction_key]["money"])
+        # Начисляем бронзу напрямую, без нормализации в серебро: игрок
+        # должен видеть именно ту кучу монет, которую ему обещала карточка.
+        character.bronze = (character.bronze or 0) + money["bronze"]
+        character.faction = faction_key
+
+        if money["mult"] > 1.0:
+            money_desc = f"{money['bronze']}🟤 (🔥 ×{money['mult']:.2f} за малочисленность)"
+        elif money["mult"] < 1.0:
+            money_desc = f"{money['bronze']}🟤 (📉 ×{money['mult']:.2f} за перенаселённость)"
+        else:
+            money_desc = f"{money['bronze']}🟤"
+
         # Apply starting bonuses
-        from engine.currency import add_currency
         if faction_key == "guard":
             character.endurance += 3
-            add_currency(character, bronze=100)
-            bonus_desc = "+3 Выносливость ❤️, 100🟤"
+            bonus_desc = f"+3 Выносливость ❤️, {money_desc}"
         elif faction_key == "scavengers":
             character.luck += 2
             character.agility += 1
-            add_currency(character, bronze=200)
-            bonus_desc = "+2 Удача 🍀, +1 Ловкость 🏃, 200🟤"
+            bonus_desc = f"+2 Удача 🍀, +1 Ловкость 🏃, {money_desc}"
         elif faction_key == "cult":
             character.intelligence += 3
-            add_currency(character, bronze=100)
             from core.models import Item, InventoryItem
             soul_item_res = await session.execute(
                 select(Item).where(Item.name == "Осколок души")
@@ -1043,15 +1103,13 @@ async def start_faction_callback(callback: CallbackQuery):
                     item_id=soul_item.id,
                     quantity=1
                 ))
-            bonus_desc = "+3 Интеллект 🧠, 100🟤, Осколок души 💎"
+            bonus_desc = f"+3 Интеллект 🧠, {money_desc}, Осколок души 💎"
         elif faction_key == "order":
             character.strength += 2
             character.endurance += 1
-            add_currency(character, bronze=100)
-            bonus_desc = "+2 Сила 💪, +1 Выносливость 🛡, 100🟤"
+            bonus_desc = f"+2 Сила 💪, +1 Выносливость 🛡, {money_desc}"
 
         # Initial reputation
-        import core.factions as core_factions
         reputation = {faction_key: 50}
         core_factions.save(character, reputation)
 

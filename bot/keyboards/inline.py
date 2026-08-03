@@ -146,13 +146,17 @@ def continue_keyboard(extra: list | None = None, with_inspect: bool = True):
     return builder.as_markup()
 
 
-def profile_book_keyboard(page: int, total: int, titles: list):
+def profile_book_keyboard(page: int, total: int, titles: list,
+                          free_points: int | None = None):
     """Навигация «книги о герое»: только закладки-разделы и выход в меню.
 
     Раньше здесь были и стрелки «Пред./След.», и закладки всех разделов —
     двойная навигация давала до шести кнопок под маленькой карточкой.
     Закладки сами ведут на любой разворот одним нажатием, поэтому стрелки
     убраны как лишние.
+
+    `free_points` — число свободных очков характеристик; передаётся на
+    странице «📊 Характеристики» и добавляет кнопку распределения очков.
     """
     builder = InlineKeyboardBuilder()
     rows = []
@@ -166,9 +170,43 @@ def profile_book_keyboard(page: int, total: int, titles: list):
     if tabs:
         rows = [2] * (tabs // 2) + ([1] if tabs % 2 else [])
 
+    if free_points is not None:
+        builder.button(
+            text=f"🎯 Очки характеристик ({free_points})",
+            callback_data="stat_alloc",
+        )
+        rows.append(1)
+
     builder.button(text="🏠 Меню", callback_data="main_menu")
     rows.append(1)
     builder.adjust(*rows)
+    return builder.as_markup()
+
+
+def stat_alloc_keyboard(values: dict, free_points: int):
+    """Панель распределения очков характеристик: минус — стратегия — плюс.
+
+    `values`: {ключ стата: (всего, вложено)} — подпись средней кнопки
+    собирается тут, чтобы обработчикам оставалось только хранить очки.
+    Средняя кнопка ничего не переключает — по нажатию показывает, что даёт
+    следующее очко в этот стат.
+    """
+    from core import statpoints
+
+    builder = InlineKeyboardBuilder()
+    for key in statpoints.ALLOCATABLE:
+        emoji, label = statpoints.STAT_LABELS[key]
+        total_v, allocated = values.get(key, (0, 0))
+        minus = "➖" if allocated > 0 else "▫️"
+        plus = "➕" if free_points > 0 else "▫️"
+        alloc_note = f" · +{allocated}" if allocated else ""
+        builder.button(text=minus, callback_data=f"stat_del:{key}")
+        builder.button(text=f"{emoji} {label}: {total_v}{alloc_note}",
+                       callback_data=f"stat_hint:{key}")
+        builder.button(text=plus, callback_data=f"stat_add:{key}")
+    builder.button(text="📊 К характеристикам", callback_data="profile_stats_page")
+    builder.button(text="🏠 Меню", callback_data="main_menu")
+    builder.adjust(*([3] * len(statpoints.ALLOCATABLE)), 1, 1)
     return builder.as_markup()
 
 
@@ -189,12 +227,36 @@ def back_to_help_keyboard():
     return builder.as_markup()
 
 
+def _zoom_buttons(builder, screen: str, zoom: int) -> int:
+    """Ряд «отдалить / масштаб / приблизить» для экранов карты.
+
+    Возвращает ширину добавленного ряда (для builder.adjust).
+    Уровень 0 — самый близкий вид, ZOOM_LEVELS-1 — вся локация.
+    """
+    from core.map_renderer import ZOOM_LEVELS
+
+    zoom = max(0, min(int(zoom), ZOOM_LEVELS - 1))
+    width = 0
+    if zoom < ZOOM_LEVELS - 1:
+        builder.button(text="➖ Отдалить",
+                       callback_data=f"map_zoom:{screen}:{zoom + 1}")
+        width += 1
+    builder.button(text=f"🔍 {zoom + 1}/{ZOOM_LEVELS}", callback_data="noop")
+    width += 1
+    if zoom > 0:
+        builder.button(text="➕ Приблизить",
+                       callback_data=f"map_zoom:{screen}:{zoom - 1}")
+        width += 1
+    return width
+
+
 def cell_movement_keyboard(can_dirs: dict, dungeon_template_id: int | None = None,
                            dir_labels: dict | None = None,
                            current_transition_label: str | None = None,
                            is_vip: bool = False,
                            has_merchant: bool = False,
-                           is_castle_basement: bool = False):
+                           is_castle_basement: bool = False,
+                           zoom: int | None = None):
     """
     3x3 grid: 8 directions + center inspect.
     can_dirs: {'nw': bool, 'n': bool, 'ne': bool, 'w': bool, 'e': bool,
@@ -203,6 +265,8 @@ def cell_movement_keyboard(can_dirs: dict, dungeon_template_id: int | None = Non
                 (transitions) and rocks (blocked cells) directly on arrows.
     current_transition_label: button for the transition on the current cell
                 itself (stairs/floor change).
+    zoom: уровень масштаба карты, если на экране сгенерированная карта
+                (тогда под сеткой направлений появляется ряд +/-).
     """
     builder = InlineKeyboardBuilder()
     dir_labels = dir_labels or {}
@@ -230,6 +294,12 @@ def cell_movement_keyboard(can_dirs: dict, dungeon_template_id: int | None = Non
     btn('se', '↘️', 'ЮВ')
 
     rows = [3, 3, 3]
+
+    # Масштаб карты на экране перемещения (только если показана
+    # сгенерированная цветная карта, а не админская картинка клетки).
+    if zoom is not None:
+        zoom_row = _zoom_buttons(builder, "cell", zoom)
+        rows.append(zoom_row)
 
     if current_transition_label:
         builder.button(text=current_transition_label, callback_data="cell_transition")
@@ -265,13 +335,20 @@ def cell_movement_keyboard(can_dirs: dict, dungeon_template_id: int | None = Non
     return builder.as_markup()
 
 
-def map_view_keyboard():
-    """Раздел «Карта»: текущая карта локации + мировая карта + выход в путь."""
+def map_view_keyboard(zoom: int = 2):
+    """Раздел «Карта»: масштаб + мировая карта + выход в путь.
+
+    Карта крутится кнопками ➕/➖ прямо под картинкой — приближение
+    даёт крупный вид вокруг героя, отдаление — всю локацию.
+    """
+    from core.map_renderer import ZOOM_LEVELS
+
     builder = InlineKeyboardBuilder()
+    zoom_w = _zoom_buttons(builder, "map", zoom)
     builder.button(text="🌍 Карта мира", callback_data="world_map")
     builder.button(text="🥾 В путь", callback_data="journey")
     builder.button(text="◀️ Назад", callback_data="back_to_cell")
-    builder.adjust(1)
+    builder.adjust(zoom_w, 1, 1, 1)
     return builder.as_markup()
 
 
