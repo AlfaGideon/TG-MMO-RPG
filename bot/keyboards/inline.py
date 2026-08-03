@@ -53,13 +53,19 @@ def _clamp_page(page: int, total: int) -> int:
     return max(0, min(page, total - 1))
 
 
-def class_select_keyboard(classes: list, page: int = 0):
+def class_select_keyboard(classes: list, page: int = 0, faction: str | None = None):
     """Книжное листание классов: одна карточка класса на странице.
 
     Игрок сначала видит описание и бонусы текущего класса, листает
     «страницы», а уже затем нажимает выбор. Старое меню-список было
     неудобно: бонусы открывались только после отдельного нажатия.
+
+    Фракция пробрасывается в callback-данные: порядок создания — сначала
+    знамя, потом класс, поэтому страницы показывают портрет класса в
+    цветах выбранной стороны. Без фракции (старые сообщения в чатах)
+    формат данных прежний, всё работает как раньше.
     """
+    sfx = f":{faction}" if faction else ""
     builder = InlineKeyboardBuilder()
     total = len(classes)
     if total <= 0:
@@ -73,30 +79,38 @@ def class_select_keyboard(classes: list, page: int = 0):
 
     builder.button(
         text=f"✅ Выбрать и далее: {icon} {cls_def.name}",
-        callback_data=f"select_class:{cls_def.key}",
+        callback_data=f"select_class:{cls_def.key}{sfx}",
     )
     rows = [1]
 
     nav = 0
     if page > 0:
-        builder.button(text="⬅️ Пред. страница", callback_data=f"class_page:{page - 1}")
+        builder.button(text="⬅️ Пред. страница", callback_data=f"class_page:{page - 1}{sfx}")
         nav += 1
     if page + 1 < total:
-        builder.button(text="След. страница ➡️", callback_data=f"class_page:{page + 1}")
+        builder.button(text="След. страница ➡️", callback_data=f"class_page:{page + 1}{sfx}")
         nav += 1
     if nav:
         rows.append(nav)
 
-    builder.button(text="◀️ Назад", callback_data="main_menu")
+    # Назад — к выбору знамени (фракция идёт первой), в старом формате —
+    # просто в главное меню.
+    if faction:
+        builder.button(text="◀️ К выбору фракции", callback_data="create_character")
+    else:
+        builder.button(text="◀️ Назад", callback_data="main_menu")
     rows.append(1)
     builder.adjust(*rows)
     return builder.as_markup()
 
 
-def confirm_class_keyboard(char_class: str, back_page: int | None = None):
+def confirm_class_keyboard(char_class: str, back_page: int | None = None,
+                           faction: str | None = None):
+    sfx = f":{faction}" if faction else ""
     builder = InlineKeyboardBuilder()
-    builder.button(text="🟢 ✅ Подтвердить", callback_data=f"confirm_class:{char_class}")
-    back_target = f"class_page:{back_page}" if back_page is not None else "create_character"
+    builder.button(text="🟢 ✅ Подтвердить", callback_data=f"confirm_class:{char_class}{sfx}")
+    back_target = (f"class_page:{back_page}{sfx}" if back_page is not None
+                   else "create_character")
     builder.button(text="🔴 ◀️ Другой класс", callback_data=back_target)
     return builder.as_markup()
 

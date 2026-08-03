@@ -127,7 +127,7 @@ def test_default_files():
     from core import classes as cc
 
     print("\n— Сгенерированные портреты в статике —")
-    classes = ("warrior", "mage", "rogue", "cleric")
+    classes = tuple(d["key"] for d in cc.DEFAULT_CLASSES)
     factions = ("guard", "scavengers", "cult", "order")
     found, missing = [], []
     for cls in classes:
@@ -140,10 +140,11 @@ def test_default_files():
                   f"{cls}/{fac}: файл и словарь согласованы")
             (found if on_disk else missing).append(f"{cls}_{fac}")
     print(f"     файлов: {len(found)}, нет ещё: {', '.join(missing) or '—'}")
-    check({"warrior", "mage"} <= {n.split("_")[0] for n in found},
-          "воин и маг есть минимум на одной стороне")
-    check(len(found) >= 8,
-          f"воин и маг покрывают все 4 стороны ({len(found)})")
+    done = {n.split("_")[0] for n in found}
+    check({"warrior", "mage", "rogue", "cleric", "paladin"} <= done,
+          "первые пять классов покрыты портретами")
+    check(len(found) >= 20,
+          f"не меньше 20 портретов классов в статике ({len(found)})")
     # Размеры: всё строго 1×1 (картинка-квадрат под профиль).
     import struct
     for cls in classes:
