@@ -471,3 +471,17 @@ run_all.py; паритет 22/22 (добавлены «Бродячий торг
   при старте, если на них стоял пустой/стандартный `loc1_safe.jpg`; ручной
   фон админа сохраняется. Внутри замкового квартала (`village`) бот уже
   использует `location.image_url`, поэтому игрок увидит именно обзор замка.
+
+## 2026-08-03 — Консоль админки: 403 WebSocket и cartesian warnings
+
+- `ws_live` был объявлен без аннотации `websocket: WebSocket`. FastAPI
+  воспринимал параметр как обязательный query-параметр, отвергал handshake
+  до `accept()` и Uvicorn печатал повторяющиеся `WebSocket /ws/live 403`.
+  Аннотация добавлена; регрессия в `tests/test_admin_realtime.py`.
+- В страницах игроков, предметов и реестра экземпляров общий total считал
+  `Character.id`/`Item.id` СНАРУЖИ своего `base_query.subquery()`. SQLAlchemy
+  добавлял исходную таблицу второй раз (`anon_1 × characters/items`) и честно
+  сообщал `SAWarning: cartesian product`. Теперь используется
+  `select(func.count()).select_from(base_query.order_by(None).subquery())`.
+- В библиотеке появился видимый, read-only раздел «🏰 Замки фракций · 25×25»,
+  чтобы четыре новые карты были доступны сразу, ещё до первого запуска сидера.

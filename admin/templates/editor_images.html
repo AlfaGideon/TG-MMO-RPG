@@ -62,6 +62,7 @@
     </div>
     {% endif %}
 
+    {% if not s.readonly %}
     <form method="post" action="/editor/images/set" enctype="multipart/form-data">
         <input type="hidden" name="kind" value="{{ s.kind }}">
         <input type="hidden" name="ref" value="{{ s.ref }}">
@@ -81,6 +82,7 @@
             {% endif %}
         </div>
     </form>
+    {% endif %}
 </div>
 {% endmacro %}
 

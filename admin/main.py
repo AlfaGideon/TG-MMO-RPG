@@ -516,8 +516,10 @@ async def players(
             needle = f"%{q.strip()}%"
             base_query = base_query.where(Character.name.ilike(needle))
 
+        # Считаем строки ПОДЗАПРОСА, а не обращаемся к Character снаружи:
+        # прежний вариант добавлял таблицу второй раз и давал cartesian product.
         total = await session.scalar(
-            select(func.count(Character.id)).select_from(base_query.subquery())
+            select(func.count()).select_from(base_query.order_by(None).subquery())
         ) or 0
         meta = paginate(total, page, per_page)
 
@@ -1462,8 +1464,10 @@ async def items(
             needle = f"%{q.strip()}%"
             base_query = base_query.where(Item.name.ilike(needle))
 
+        # Нельзя считать Item.id за пределами base_query: это создаёт
+        # вторую таблицу items и SQLAlchemy предупреждает о cartesian product.
         total = await session.scalar(
-            select(func.count(Item.id)).select_from(base_query.subquery())
+            select(func.count()).select_from(base_query.order_by(None).subquery())
         ) or 0
         meta = paginate(total, page, per_page)
 
@@ -4102,7 +4106,8 @@ def _img_group(gid: str, title: str, note: str, slots: list) -> dict:
 
 
 def _slot(kind: str, ref: str, title: str, url: str, sub: str = "",
-          clearable: bool = True, restore: bool = False, assets: list | None = None) -> dict:
+          clearable: bool = True, restore: bool = False, assets: list | None = None,
+          readonly: bool = False) -> dict:
     """Собрать слот с текущим изображением и сохранёнными вариантами."""
     entries, by_url = [], {}
 
@@ -4127,7 +4132,7 @@ def _slot(kind: str, ref: str, title: str, url: str, sub: str = "",
 
     return {"kind": kind, "ref": str(ref), "title": title, "url": current,
             "sub": sub, "clearable": clearable, "restore": restore,
-            "assets": entries}
+            "assets": entries, "readonly": readonly}
 
 
 async def _apply_slot_image(session, kind: str, ref: str, value: str,
@@ -4168,7 +4173,7 @@ async def _apply_slot_image(session, kind: str, ref: str, value: str,
 async def editor_images(request: Request):
     """Все картинки игры + библиотека вариантов для каждого слота."""
     guard(request, "manage_content")
-    from core import ui_images
+    from core import castle_images, ui_images
     from core import classes as cls_mod
     from engine.factions import FACTIONS, ORDER
 
@@ -4252,6 +4257,11 @@ async def editor_images(request: Request):
                    "Загрузки не заменяют друг друга: все варианты остаются в библиотеке.", ui_slots),
         _img_group("factions", "🧭 Гербы фракций",
                    "Герб хранится отдельным файлом; оригинал можно вернуть.", faction_slots),
+        _img_group("castles", "🏰 Замки фракций · 25×25",
+                   "Обзорные карты: замок ровно 10×10 клеток, дороги только по осям. "
+                   "Они автоматически применяются к базовым замкам при старте.",
+                   [_slot("castle", name, name, url, "поле 25×25 · замок 10×10",
+                          readonly=True) for name, url in castle_images.CASTLE_IMAGES.items()]),
         _img_group("locations", "🗺 Локации", "Фон раздела локации в боте.",
                    [entity("location", loc, f"{loc.id}. {loc.name}", "локация") for loc in locations]),
         _img_group("mobs", "👾 Мобы", "Картинка монстра в бою.",
@@ -4912,7 +4922,7 @@ async def editor_instances(
             )
 
         total = await session.scalar(
-            select(func.count(ItemInstance.id)).select_from(base_query.subquery())
+            select(func.count()).select_from(base_query.order_by(None).subquery())
         ) or 0
         meta = paginate(total, page, per_page)
 
@@ -5695,7 +5705,13 @@ async def api_live_portals():
 
 
 @app.websocket("/ws/live")
-async def ws_live(websocket):
+async def ws_live(websocket: WebSocket):
+    """Live-канал панели.
+
+    Аннотация WebSocket обязательна: без неё FastAPI считает параметр
+    обычным query-полем, не находит его при handshake и отвергает соединение
+    HTTP 403 ещё до `accept()`.
+    """
     await websocket.accept()
     q = await RT.subscribe()
     try:
