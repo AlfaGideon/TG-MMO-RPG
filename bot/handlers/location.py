@@ -1,5 +1,6 @@
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, FSInputFile
+from aiogram.fsm.context import FSMContext
 from sqlalchemy import or_, select, func, update
 from sqlalchemy.orm import selectinload
 
@@ -20,7 +21,7 @@ from bot.keyboards.inline import (
     travel_keyboard, continue_keyboard,
 )
 from bot.utils.texts import location_text, cell_text, loot_text, format_floor_label
-from bot.utils.photos import send_or_edit_photo, get_photo_input
+from bot.utils.photos import send_or_edit_photo, get_photo_input, get_npc_image
 from bot.utils.edit import safe_edit_text
 
 router = Router()
@@ -362,28 +363,25 @@ async def _resolve_transition_destination(session, link_cell: Cell, source_locat
 
 
 @router.callback_query(F.data.startswith("move:"))
-async def move_direction(callback: CallbackQuery):
+async def move_direction(callback: CallbackQuery, state: FSMContext):
     direction = callback.data.split(":")[1]
     direction = DIRECTION_ALIASES.get(direction, direction)
     dx, dy = DIRECTIONS.get(direction, (0, 0))
 
     async with async_session() as session:
-        result = await session.execute(
-            select(User).where(User.telegram_id == callback.from_user.id)
-        )
-        user = result.scalar_one_or_none()
-        result = await session.execute(
-            select(Character)
-            .where(Character.user_id == user.id)
-            .options(selectinload(Character.location), selectinload(Character.cell))
-        )
+        # ... (previous code)
         character = result.scalar_one_or_none()
         if not character or not character.cell:
             await callback.answer("Ошибка перемещения.", show_alert=True)
             return
 
+        # Получаем текущий зум из состояния
+        data = await state.get_data()
+        zoom = data.get("map_zoom", DEFAULT_ZOOM)
+
         if character.location:
             await _ensure_floor_stairs_present(session, character.location)
+        # ...
 
         current = character.cell
         new_x, new_y = current.x + dx, current.y + dy
@@ -452,7 +450,7 @@ async def move_direction(callback: CallbackQuery):
                 })
             except Exception:
                 pass
-            await show_cell(callback, character, dest_loc, session)
+            await show_cell(callback, character, dest_loc, session, zoom=zoom)
             return
 
         character.cell_id = target.id
@@ -478,7 +476,7 @@ async def move_direction(callback: CallbackQuery):
             })
         except Exception:
             pass
-        await show_cell(callback, character, character.location, session)
+        await show_cell(callback, character, character.location, session, zoom=zoom)
 
 
 @router.callback_query(F.data == "noop")
@@ -487,7 +485,7 @@ async def noop_handler(callback: CallbackQuery):
 
 
 @router.callback_query(F.data == "cell_transition")
-async def cell_transition(callback: CallbackQuery):
+async def cell_transition(callback: CallbackQuery, state: FSMContext):
     """Use the transition on the current cell: stairs between floors or a door."""
     async with async_session() as session:
         result = await session.execute(
@@ -507,6 +505,10 @@ async def cell_transition(callback: CallbackQuery):
         if not character or not character.cell:
             await callback.answer("Ошибка перехода.", show_alert=True)
             return
+
+        # Получаем текущий зум из состояния
+        data = await state.get_data()
+        zoom = data.get("map_zoom", DEFAULT_ZOOM)
 
         if character.location:
             await _ensure_floor_stairs_present(session, character.location)
@@ -566,10 +568,10 @@ async def cell_transition(callback: CallbackQuery):
                 "via": "cell_transition",
                 "is_vip": vip_active(character),
             })
-        except Exception:
-            pass
+            except Exception:
+                pass
 
-        await show_cell(callback, character, dest_loc, session)
+        await show_cell(callback, character, dest_loc, session, zoom=zoom)
 
 
 @router.callback_query(F.data == "inspect")
@@ -702,12 +704,14 @@ async def _explored_cells(session, character, location_id: int, floor: int):
 
 
 @router.callback_query(F.data == "show_map")
-async def show_map(callback: CallbackQuery):
-    await _show_map(callback, DEFAULT_ZOOM)
+async def show_map(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    zoom = data.get("map_zoom", DEFAULT_ZOOM)
+    await _show_map(callback, zoom)
 
 
 @router.callback_query(F.data.startswith("map_zoom:"))
-async def map_zoom(callback: CallbackQuery):
+async def map_zoom(callback: CallbackQuery, state: FSMContext):
     """Кнопки ➕/➖ на карте: приблизить к герою или показать всю локацию.
 
     Одинаково работает и в разделе «Карта», и на экране перемещения —
@@ -716,6 +720,10 @@ async def map_zoom(callback: CallbackQuery):
     parts = callback.data.split(":")
     screen = parts[1] if len(parts) > 1 else "map"
     zoom = int(parts[2]) if len(parts) > 2 else DEFAULT_ZOOM
+    
+    # Сохраняем зум в состоянии, чтобы он не сбрасывался при перемещении
+    await state.update_data(map_zoom=zoom)
+    
     if screen == "cell":
         async with async_session() as session:
             character = await _map_character(callback, session, need_cell=True)
@@ -936,7 +944,7 @@ async def travel_to(callback: CallbackQuery):
 
 
 @router.callback_query(F.data == "back_to_cell")
-async def back_to_cell(callback: CallbackQuery):
+async def back_to_cell(callback: CallbackQuery, state: FSMContext):
     """Возврат туда, где игрок стоял, — основной способ «продолжить путь».
 
     Если героя или клетки почему-то нет (не создан персонаж, битые данные),
@@ -956,7 +964,9 @@ async def back_to_cell(callback: CallbackQuery):
             )
             character = result.scalar_one_or_none()
         if character and character.cell:
-            await show_cell(callback, character, character.location, session)
+            data = await state.get_data()
+            zoom = data.get("map_zoom", DEFAULT_ZOOM)
+            await show_cell(callback, character, character.location, session, zoom=zoom)
             return
 
     from bot.utils.texts import WELCOME_TEXT
@@ -998,11 +1008,15 @@ async def talk_npc(callback: CallbackQuery):
         builder.button(text="◀️ Назад", callback_data="back_to_cell")
         builder.adjust(1)
 
+        image_url = cell.image_url
+        if not image_url and character.location:
+            image_url = get_npc_image(cell.npc_name, cell.npc_type, character.location.name)
+
         await send_or_edit_photo(
             callback,
             f"💬 <b>{cell.npc_name}</b>\n\n<i>{cell.npc_dialogue}</i>",
             reply_markup=builder.as_markup(),
-            image_url=cell.image_url,
+            image_url=image_url,
         )
 
 

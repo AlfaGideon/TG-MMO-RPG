@@ -17,6 +17,7 @@
     --warning: #f59e0b;
     --border: #2e2e3e;
     --sidebar-width: 264px;
+    --sidebar-collapsed-width: 72px;
     --topbar-height: 64px;
     --radius: 12px;
 
@@ -289,7 +290,33 @@ body.no-scroll { overflow: hidden; }
     bottom: 0;
     overflow: hidden;
     z-index: 60;
-    transition: transform 0.25s ease;
+    transition: width 0.25s ease, transform 0.25s ease;
+}
+
+.layout.collapsed .sidebar {
+    width: var(--sidebar-collapsed-width);
+}
+
+.layout.collapsed .sidebar .brand-title,
+.layout.collapsed .sidebar .brand-sub,
+.layout.collapsed .sidebar .nav-text,
+.layout.collapsed .sidebar .nav-chevron,
+.layout.collapsed .sidebar .nav-section-label,
+.layout.collapsed .sidebar .sidebar-clock,
+.layout.collapsed .sidebar .btn-block,
+.layout.collapsed .sidebar .context-submenu {
+    display: none;
+}
+
+.layout.collapsed .sidebar .nav-link,
+.layout.collapsed .sidebar .nav-group-link {
+    justify-content: center;
+    padding: 0.62rem 0;
+}
+
+.layout.collapsed .sidebar .sidebar-brand {
+    justify-content: center;
+    padding: 1.35rem 0 1.1rem;
 }
 
 .sidebar-brand {
@@ -298,14 +325,67 @@ body.no-scroll { overflow: hidden; }
     gap: 0.75rem;
     padding: 1.35rem 1.25rem 1.1rem;
     border-bottom: 1px solid var(--border);
+    position: relative;
 }
 
-.brand-icon { font-size: 1.75rem; line-height: 1; }
+.sidebar-collapse-btn {
+    position: absolute;
+    right: -12px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 24px;
+    height: 24px;
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 70;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    transition: transform 0.2s;
+}
 
-.brand-title {
-    font-weight: 700;
-    font-size: 1.05rem;
-    color: var(--text);
+.sidebar-collapse-btn:hover { background: var(--accent-hover); }
+
+.layout.collapsed .sidebar-collapse-btn {
+    transform: translateY(-50%) rotate(180deg);
+}
+
+.layout.collapsed .sidebar-brand {
+    padding-right: 0;
+}
+
+.brand-icon { font-size: 1.75rem; line-height: 1; flex-shrink: 0; }
+
+.brand-logo {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 800;
+    line-height: 1;
+    color: var(--accent-text);
+}
+
+.brand-logo-short {
+    display: none;
+    font-size: 1.5rem;
+}
+
+.brand-logo-full {
+    font-size: 1.1rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.layout.collapsed .brand-logo-short {
+    display: block;
+}
+
+.layout.collapsed .brand-logo-full {
+    display: none;
 }
 
 .brand-sub {
@@ -385,27 +465,31 @@ body.no-scroll { overflow: hidden; }
     gap: 0.25rem;
     border-radius: 8px;
     transition: background 0.15s;
+    cursor: pointer;
 }
 
-.nav-group-row.active { background: var(--accent-soft); }
+.nav-group-row:hover { background: var(--bg-hover); }
 
-.nav-group-link {
+.nav-group-header {
     display: flex;
     align-items: center;
     gap: 0.7rem;
     flex: 1;
     padding: 0.62rem 0.75rem;
-    border-radius: 8px;
     color: var(--text-muted);
-    text-decoration: none;
     font-size: 0.9rem;
-    font-weight: 500;
-    transition: background 0.15s, color 0.15s;
-    min-width: 0;
+    font-weight: 600;
+    transition: color 0.15s;
 }
 
-.nav-group-link:hover { background: var(--bg-hover); color: var(--text); }
-.nav-group-link.active { color: var(--accent-text); }
+.nav-group-header .nav-icon {
+    color: var(--accent-text);
+    opacity: 0.8;
+}
+
+.nav-group.open .nav-group-header {
+    color: var(--text);
+}
 
 .nav-group-chevron-btn {
     background: none;
@@ -421,15 +505,17 @@ body.no-scroll { overflow: hidden; }
 }
 
 .nav-group-chevron-btn:hover { background: var(--bg-hover); color: var(--text); }
+.nav-group-chevron-btn { pointer-events: none; } /* Area is clickable via nav-group-row */
 
 .nav-chevron {
     font-size: 0.7rem;
     transition: transform 0.2s ease;
     color: inherit;
     display: inline-block;
+    opacity: 0.5;
 }
 
-.nav-group.open .nav-chevron { transform: rotate(90deg); }
+.nav-group.open .nav-chevron { transform: rotate(90deg); opacity: 1; }
 
 .nav-subitems {
     display: flex;
@@ -551,6 +637,11 @@ body.no-scroll { overflow: hidden; }
     flex-direction: column;
     min-height: 100vh;
     min-width: 0;
+    transition: margin-left 0.25s ease;
+}
+
+.layout.collapsed .main {
+    margin-left: var(--sidebar-collapsed-width);
 }
 
 .topbar {
@@ -609,12 +700,13 @@ body.no-scroll { overflow: hidden; }
 }
 
 @media (max-width: 960px) {
-    .sidebar { transform: translateX(-100%); }
+    .sidebar { transform: translateX(-100%); width: var(--sidebar-width) !important; }
     .layout.sidebar-open .sidebar { transform: translateX(0); }
     .layout.sidebar-open .sidebar-overlay { display: block; }
-    .main { margin-left: 0; }
+    .main { margin-left: 0 !important; }
     .menu-toggle { display: inline-flex; align-items: center; justify-content: center; }
     .container { padding: 1.1rem; }
+    .sidebar-collapse-btn { display: none; }
 }
 
 /* ── Хлебные крошки ───────────────────────────────────────

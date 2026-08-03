@@ -15,7 +15,7 @@ from bot.keyboards.inline import (
     back_to_main_keyboard, reroll_keyboard, help_menu_keyboard, back_to_help_keyboard,
     faction_select_keyboard,
 )
-from bot.utils.texts import WELCOME_TEXT, class_description_text, reroll_text
+from bot.utils.texts import WELCOME_TEXT, READY_TEXT, class_description_text, reroll_text
 from bot.utils.photos import send_or_edit_photo
 from core import magic, statroll
 from core.classes import all_classes, get_class, class_image
@@ -259,9 +259,10 @@ async def start_continue(callback: CallbackQuery):
 
         from core import ui_images
         welcome_img = await ui_images.get(session, "welcome_ru")
+        text = READY_TEXT if character else WELCOME_TEXT
         await send_or_edit_photo(
             callback,
-            WELCOME_TEXT,
+            text,
             reply_markup=main_menu_keyboard(
                 has_character=bool(character),
                 is_admin=bool(user.is_web_admin),
@@ -453,9 +454,10 @@ async def main_menu(callback: CallbackQuery, state: FSMContext):
         if character and await resume_character_creation(callback, session, character):
             return
 
+    text = READY_TEXT if has_char else WELCOME_TEXT
     await safe_edit_text(
         callback,
-        WELCOME_TEXT,
+        text,
         reply_markup=main_menu_keyboard(
             has_character=has_char, is_admin=is_admin,
             is_vip=bool(character and is_vip_active(character)),

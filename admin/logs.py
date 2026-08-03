@@ -73,12 +73,19 @@ _CAPTURE_LOGGERS = (
 
 def install_log_buffer() -> None:
     """Подключает буфер к логгерам. Безопасно вызывать повторно."""
-    if log_buffer in logging.getLogger().handlers:
+    root = logging.getLogger()
+    if log_buffer in root.handlers:
         return
     # Чтобы в панели были видны и INFO-записи даже при прямом запуске
     # «uvicorn admin.main:app» (без launch.py и basicConfig(INFO)).
-    root = logging.getLogger()
     if root.level > logging.INFO:
         root.setLevel(logging.INFO)
-    for name in _CAPTURE_LOGGERS:
-        logging.getLogger(name).addHandler(log_buffer)
+    
+    # Достаточно повесить на root, так как большинство логгеров пробрасывают
+    # записи вверх (propagate=True). Для uvicorn проверяем отдельно.
+    root.addHandler(log_buffer)
+    
+    for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+        l = logging.getLogger(name)
+        if not l.propagate and log_buffer not in l.handlers:
+            l.addHandler(log_buffer)

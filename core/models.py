@@ -1117,3 +1117,19 @@ class GameSettings(Base):
     key = Column(String(64), unique=True, nullable=False)
     value = Column(Text, default="")
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class UILayout(Base):
+    """Координаты слотов для отрисовки интерфейсов через Pillow.
+
+    Позволяет админу «разметить» картинку фона (инвентарь, экипировка)
+    прямо в панели, чтобы бот знал, куда приклеивать иконки предметов.
+    """
+    __tablename__ = "ui_layouts"
+
+    id = Column(Integer, primary_key=True)
+    key = Column(String(64), unique=True, nullable=False, index=True) # "inv", "eq_order", etc.
+    image_url = Column(String(512), nullable=False)
+    # JSON список слотов: [{"name": "helmet", "x": 10, "y": 10, "size": 80}, ...]
+    slots_json = Column(Text, default="[]")
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
