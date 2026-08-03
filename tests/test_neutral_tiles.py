@@ -2,6 +2,7 @@
 
 python3 tests/test_neutral_tiles.py
 """
+import asyncio
 import os
 import sys
 from pathlib import Path
@@ -57,6 +58,42 @@ def test_road_shapes():
           "три соседа → T-перекрёсток")
 
 
+def test_castle_overviews():
+    from core.castle_images import CASTLE_IMAGES
+
+    print("\n— Фракционные замки 25×25 —")
+    expected = {"Замок Рассвета", "Замок Теней", "Замок Глубин", "Замок Пепла"}
+    check(set(CASTLE_IMAGES) == expected, "есть обзор для каждого замка фракции")
+    for name, url in CASTLE_IMAGES.items():
+        path = ROOT / "admin/static" / url.removeprefix("/static/")
+        image = Image.open(path)
+        check(image.size == (1000, 1000), f"{name}: поле 25×25 по 40px")
+
+
+async def test_castle_backfill():
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+    from core.database import Base
+    from core.castle_images import ensure_castle_images
+    from core.models import Location
+
+    print("\n— Накат фонов замков на старую БД —")
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    Session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with Session() as session:
+        generic = Location(name="Замок Рассвета", description="", image_url="https://x/loc1_safe.jpg")
+        manual = Location(name="Замок Теней", description="", image_url="https://artist.example/cult.png")
+        session.add_all((generic, manual))
+        await session.flush()
+        changed = await ensure_castle_images(session)
+        check(changed == 1 and generic.image_url.endswith("order_castle_25.png"),
+              "дефолтный безопасный фон заменяется обзором замка")
+        check(manual.image_url == "https://artist.example/cult.png",
+              "ручной фон замка не перезаписывается")
+    await engine.dispose()
+
+
 def test_terrain_assets_and_scene():
     from core.neutral_tiles import TILE_BACKGROUNDS, background_for
     from core.map_renderer import TILE_SIZE, render_cell_image
@@ -90,6 +127,8 @@ def test_terrain_assets_and_scene():
 
 def main():
     test_road_shapes()
+    test_castle_overviews()
+    asyncio.run(test_castle_backfill())
     test_terrain_assets_and_scene()
     print()
     if FAILED:
