@@ -10,7 +10,9 @@ from core.loot import give_chest_loot
 from core.models import User, Character, Location, Cell, VisitedCell
 from core.spawns import spawn_at_cell
 from core.vip import is_vip_active
-from core.map_renderer import ensure_cell_image, render_player_map, get_player_map_path
+from core.map_renderer import (
+    render_player_map, get_player_map_path, zoom_radius_for, DEFAULT_ZOOM,
+)
 from bot.keyboards.inline import (
     cell_movement_keyboard, inspect_keyboard,
     main_menu_keyboard, map_view_keyboard,
@@ -676,8 +678,56 @@ async def inspect_cell(callback: CallbackQuery):
         )
 
 
+async def _explored_cells(session, character, location_id: int, floor: int):
+    """Клетки локации и множество исследованных — общая выборка для
+    экранов карты и перемещения, чтобы обе карты всегда совпадали."""
+    result = await session.execute(
+        select(Cell)
+        .where(Cell.location_id == location_id)
+        .where(Cell.floor == floor)
+    )
+    cells = result.scalars().all()
+
+    result = await session.execute(
+        select(VisitedCell)
+        .where(VisitedCell.character_id == character.id)
+        .where(VisitedCell.location_id == location_id)
+        .where(VisitedCell.floor == floor)
+    )
+    visited = {(v.x, v.y) for v in result.scalars().all()}
+    # Текущая клетка видна всегда, даже если запись посещения потерялась.
+    if character.cell is not None:
+        visited.add((character.cell.x, character.cell.y))
+    return cells, visited
+
+
 @router.callback_query(F.data == "show_map")
 async def show_map(callback: CallbackQuery):
+    await _show_map(callback, DEFAULT_ZOOM)
+
+
+@router.callback_query(F.data.startswith("map_zoom:"))
+async def map_zoom(callback: CallbackQuery):
+    """Кнопки ➕/➖ на карте: приблизить к герою или показать всю локацию.
+
+    Одинаково работает и в разделе «Карта», и на экране перемещения —
+    обе карты рисует один и тот же цветной рендер с туманом войны.
+    """
+    parts = callback.data.split(":")
+    screen = parts[1] if len(parts) > 1 else "map"
+    zoom = int(parts[2]) if len(parts) > 2 else DEFAULT_ZOOM
+    if screen == "cell":
+        async with async_session() as session:
+            character = await _map_character(callback, session, need_cell=True)
+            if character is None:
+                return
+            await show_cell(callback, character, character.location, session,
+                            zoom=zoom)
+        return
+    await _show_map(callback, zoom)
+
+
+async def _show_map(callback: CallbackQuery, zoom: int = DEFAULT_ZOOM):
     """Раздел «Карта»: текущая карта локации.
 
     Отсюда же открывается мировая карта и экран «В путь» — три экрана
@@ -690,29 +740,14 @@ async def show_map(callback: CallbackQuery):
 
         location = character.location
         floor = character.floor or 0
+        cells, visited = await _explored_cells(
+            session, character, location.id, floor)
 
-        result = await session.execute(
-            select(Cell)
-            .where(Cell.location_id == location.id)
-            .where(Cell.floor == floor)
-        )
-        cells = result.scalars().all()
-
-        result = await session.execute(
-            select(VisitedCell)
-            .where(VisitedCell.character_id == character.id)
-            .where(VisitedCell.location_id == location.id)
-            .where(VisitedCell.floor == floor)
-        )
-        visited_rows = result.scalars().all()
-        visited = {(v.x, v.y) for v in visited_rows}
-        # Always show the current cell even if somehow missing
-        visited.add((character.cell.x, character.cell.y))
-
-        map_path = get_player_map_path(character.id, location.id, floor)
+        map_path = get_player_map_path(character.id, location.id, floor, zoom)
         render_player_map(
             cells, visited, character.cell.x, character.cell.y,
             location.grid_size, map_path,
+            zoom_radius=zoom_radius_for(location.grid_size, zoom),
         )
 
         show_floor = (floor != 0) or (location.floors_count and location.floors_count > 1)
@@ -721,10 +756,10 @@ async def show_map(callback: CallbackQuery):
             f"🗺 <b>{location.name}</b>{floor_label}\n\n"
             f"Исследовано клеток: {len(visited)}\n\n"
             f"<i>Это раздел «Карта»: отсюда можно открыть 🌍 карту мира "
-            f"или отправиться 🥾 в путь.</i>"
+            f"или отправиться 🥾 в путь. Масштаб меняется кнопками ➕/➖.</i>"
         )
 
-        await _send_map_photo(callback, map_path, caption, map_view_keyboard())
+        await _send_map_photo(callback, map_path, caption, map_view_keyboard(zoom))
 
 
 @router.callback_query(F.data == "world_map")
@@ -1067,7 +1102,8 @@ async def open_chest(callback: CallbackQuery):
         )
 
 
-async def show_cell(callback, character, location, session):
+async def show_cell(callback, character, location, session,
+                    zoom: int = DEFAULT_ZOOM):
     cell = character.cell
     if not cell:
         await send_or_edit_photo(
@@ -1143,18 +1179,22 @@ async def show_cell(callback, character, location, session):
         )
         return
 
-    result = await session.execute(
-        select(Cell)
-        .where(Cell.location_id == location.id)
-        .where(Cell.floor == (character.floor or 0))
+    # Экран перемещения рисует ту же цветную карту с туманом войны, что
+    # и раздел «Карта», — больше никакого серо-чёрного минимапа. Масштаб
+    # крутится кнопками ➕/➖ под стрелками направлений.
+    cells, visited = await _explored_cells(
+        session, character, location.id, character.floor or 0)
+    img_path = get_player_map_path(character.id, location.id,
+                                   character.floor or 0, zoom)
+    render_player_map(
+        cells, visited, cell.x, cell.y, location.grid_size, img_path,
+        zoom_radius=zoom_radius_for(location.grid_size, zoom),
     )
-    cells = result.scalars().all()
-
-    img_path = ensure_cell_image(cell, cells, cell.x, cell.y)
     kb = cell_movement_keyboard(can_dirs, portal_template_id, dir_labels,
                                    transition_label, is_vip=vip,
                                    has_merchant=has_merchant,
-                                   is_castle_basement=is_basement)
+                                   is_castle_basement=is_basement,
+                                   zoom=zoom)
 
     await send_or_edit_photo(
         callback,

@@ -18,7 +18,7 @@ from bot.keyboards.inline import (
 from bot.utils.texts import WELCOME_TEXT, class_description_text, reroll_text
 from bot.utils.photos import send_or_edit_photo
 from core import magic, statroll
-from core.classes import all_classes, get_class
+from core.classes import all_classes, get_class, class_image
 from core.vip import is_vip_active, offline_protected, set_offline
 from engine.rules import clean_name
 from bot.utils.edit import safe_edit_text
@@ -65,47 +65,129 @@ async def resume_character_creation(event, session, character) -> bool:
     if character.stats_locked and faction_chosen(character):
         return False
 
+    # Порядок создания — сначала фракция, потом класс; старые герои
+    # могли застрять между принятием статов и финальным спавном:
+    # знамя уже записано на герое, но бонусы и клетка ещё не выданы.
+    if character.stats_locked and (character.faction or "") and not character.location_id:
+        await _finalize_creation(event, session, character, character.faction)
+        return True
+
     cls_def = None
     if not character.stats_locked:
         cls_def = await get_class(session, character.character_class)
 
     if not character.stats_locked and cls_def is not None:
         # Игрок остановился на броске статов — показываем экран переката
-        # с текущим броском и остатком попыток.
+        # с текущим броском и остатком попыток. Портрет — его стороны,
+        # знамя уже выбрано на первом шаге.
         base = cls_def.base_stats()
         rolled = {k: getattr(character, k) for k in statroll.ROLLED_STATS}
         affinities = await magic.get_affinities(session, character.id)
         text = RESUME_HINT + reroll_text(character, cls_def, base, rolled, affinities)
         markup = reroll_keyboard(character.id, character.rerolls_left)
+        portrait = class_image(cls_def, character.faction or None) or cls_def.image_url
+        await send_or_edit_photo(
+            event, text, reply_markup=markup, image_url=portrait,
+        )
         if isinstance(event, CallbackQuery):
-            await send_or_edit_photo(
-                event, text, reply_markup=markup, image_url=cls_def.image_url,
-            )
             await event.answer()
-        else:
-            await send_or_edit_photo(
-                event, text, reply_markup=markup, image_url=cls_def.image_url,
-            )
         return True
 
-    # Статы зафиксированы, но фракция не выбрана (либо класс удалили —
-    # тогда тоже отправляем выбирать фракцию, чтобы не застрять).
+    # Статы зафиксированы, но фракция не выбрана (старый порядок создания
+    # героя, либо класс удалили) — отправляем выбирать знамя, чтобы не
+    # застрять.
     await _show_faction_page(event, character.id, prefix=RESUME_HINT)
     return True
 
 
-def _class_book_text(cls_def, page: int, total: int) -> str:
-    """Текст страницы «книги классов» на старте."""
+def _class_book_text(cls_def, page: int, total: int,
+                     faction: str | None = None) -> str:
+    """Текст страницы «книги классов» на старте.
+
+    Фракция выбирается ДО класса: в шапке страницы видно чужое знамя,
+    а портрет класса рисуется в его цветах.
+    """
+    side = ""
+    if faction:
+        from engine.factions import FACTIONS
+        if faction in FACTIONS:
+            side = (f"\n🚩 Твоя сторона: <b>{FACTIONS[faction][0]} "
+                    f"{FACTIONS[faction][1]}</b>")
     return (
-        f"📖 <b>Книга классов</b> — страница <b>{page + 1}</b> из <b>{total}</b>\n\n"
+        f"📖 <b>Книга классов</b> — страница <b>{page + 1}</b> из <b>{total}</b>{side}\n\n"
         f"{class_description_text(cls_def)}\n\n"
         "<i>Листай страницы, сравнивай бонусы и нажми «Выбрать и далее», "
         "когда определишься.</i>"
     )
 
 
+async def _show_class_book(event, page: int = 0,
+                           faction: str | None = None) -> None:
+    """Страница книги классов; портрет — по выбранной стороне игрока.
+
+    У каждого класса есть портреты всех фракций (админка «🖼 Картинки»),
+    поэтому картинки выбора класса подходят и под класс, и под знамя,
+    за которое игрок пойдёт воевать.
+    """
+    async with async_session() as session:
+        classes = await all_classes(session)
+
+    if not classes:
+        if isinstance(event, CallbackQuery):
+            await event.answer("Классы ещё не настроены. Загляни позже.",
+                               show_alert=True)
+        return
+
+    page = max(0, min(page, len(classes) - 1))
+    cls_def = classes[page]
+    await send_or_edit_photo(
+        event,
+        _class_book_text(cls_def, page, len(classes), faction),
+        reply_markup=class_select_keyboard(classes, page=page, faction=faction),
+        image_url=class_image(cls_def, faction) or cls_def.image_url,
+    )
+    if isinstance(event, CallbackQuery):
+        await event.answer()
+
+
+# Заставка игры (1:1) на экране /start: лежит в статике админки рядом с
+# гербами фракций; англоязычный вариант — start_en.png (на будущее).
+START_BANNER_RU = "/static/branding/start_ru.png"
+
+# Подпись к заставке /start: короткая — название уже КРУПНО на самой
+# картинке, и игрок видит его при каждом входе. Приправа по сезону года
+# подставляется автоматически (core.ui_images.SEASON_FLAVOR).
+SPLASH_TEXT = (
+    "🌑 <b>ТЕНЕВЫЕ ЗЕМЛИ</b>\n\n"
+    "{flavor}\n\n"
+    "<i>Нажми «{button}», чтобы войти в мир.</i>"
+)
+
+
+def _splash_continue_text(has_character: bool) -> str:
+    return "⚔️ Начать путь" if not has_character else "▶️ Продолжить"
+
+
+def start_continue_keyboard(has_character: bool):
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text=_splash_continue_text(has_character),
+        callback_data="start_continue",
+    )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
 @router.message(CommandStart())
 async def cmd_start(message: Message):
+    """Первый экран — ВСЕГДА заставка с названием и кнопкой «Продолжить».
+
+    Раньше /start сразу открывал главное меню, и красивая заставка с
+    названием игры мелькала один раз. Теперь название светится при каждом
+    входе, а картинка сама подбирается под сезон года (зима/весна/лето/
+    осень; в админке «🖼 Картинки» можно повесить и праздничную тему).
+    Весь прежний вход в игру переехал на кнопку «Продолжить».
+    """
     async with async_session() as session:
         result = await session.execute(
             select(User).where(User.telegram_id == message.from_user.id)
@@ -122,6 +204,47 @@ async def cmd_start(message: Message):
             await session.commit()
 
         result = await session.execute(
+            select(Character).where(Character.user_id == user.id)
+        )
+        has_character = result.scalar_one_or_none() is not None
+
+        from core import ui_images
+        season = ui_images.season_key()
+        splash_img = await ui_images.seasonal_splash(session)
+        flavor = ui_images.SEASON_FLAVOR[season]
+
+    button = _splash_continue_text(has_character)
+    await send_or_edit_photo(
+        message,
+        SPLASH_TEXT.format(flavor=flavor, button=button),
+        reply_markup=start_continue_keyboard(has_character),
+        image_url=splash_img,
+    )
+
+
+@router.callback_query(F.data == "start_continue")
+async def start_continue(callback: CallbackQuery):
+    """Кнопка «Продолжить» на заставке — прежний вход в игру.
+
+    Незавершённое создание героя возвращает на прерванный шаг, готовый
+    герой — в главное меню, новичок — к кнопке создания героя.
+    """
+    async with async_session() as session:
+        result = await session.execute(
+            select(User).where(User.telegram_id == callback.from_user.id)
+        )
+        user = result.scalar_one_or_none()
+        if not user:
+            user = User(
+                telegram_id=callback.from_user.id,
+                username=callback.from_user.username,
+                first_name=callback.from_user.first_name,
+                last_name=callback.from_user.last_name,
+            )
+            session.add(user)
+            await session.commit()
+
+        result = await session.execute(
             select(Character)
             .where(Character.user_id == user.id)
             .options(selectinload(Character.location), selectinload(Character.cell))
@@ -131,10 +254,13 @@ async def cmd_start(message: Message):
         # Герой есть, но создание не завершено (перекат статов или выбор
         # фракции прервались, например обновлением сервера) — возвращаем
         # на последний шаг, а не в меню.
-        if character and await resume_character_creation(message, session, character):
+        if character and await resume_character_creation(callback, session, character):
             return
 
-        await message.answer(
+        from core import ui_images
+        welcome_img = await ui_images.get(session, "welcome_ru")
+        await send_or_edit_photo(
+            callback,
             WELCOME_TEXT,
             reply_markup=main_menu_keyboard(
                 has_character=bool(character),
@@ -142,7 +268,7 @@ async def cmd_start(message: Message):
                 is_vip=bool(character and is_vip_active(character)),
                 offline=bool(character and offline_protected(character)),
             ),
-            parse_mode="HTML",
+            image_url=welcome_img,
         )
 
 
@@ -341,50 +467,35 @@ async def main_menu(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "create_character")
 async def create_character(callback: CallbackQuery):
-    """Экран выбора класса. Список берётся из БД, а не из кода —
-    новые классы, добавленные в админке, появляются здесь сразу."""
-    async with async_session() as session:
-        classes = await all_classes(session)
+    """Первый шаг создания — ВЫБОР ФРАКЦИИ, класс идёт следом.
 
-    if not classes:
-        await callback.answer(
-            "Классы ещё не настроены. Загляни позже.", show_alert=True
-        )
-        return
-
-    page = 0
-    cls_def = classes[page]
-    await send_or_edit_photo(
-        callback,
-        _class_book_text(cls_def, page, len(classes)),
-        reply_markup=class_select_keyboard(classes, page=page),
-        image_url=cls_def.image_url,
-    )
+    Раньше порядок был обратным (класс → статы → знамя), и портрет
+    героя заранее не знал, за кого тот будет воевать. Теперь знамя
+    выбирается первым, и книга классов сразу рисует портреты в цветах
+    выбранной стороны. char_id=0: герой ещё не создан, он появится
+    только на подтверждении класса.
+    """
+    await _show_faction_page(callback, 0)
 
 
 @router.callback_query(F.data.startswith("class_page:"))
 async def class_page(callback: CallbackQuery):
-    page = int(callback.data.split(":")[1])
-    async with async_session() as session:
-        classes = await all_classes(session)
+    """Листание книги классов; фракция едет в callback-данных суффиксом.
 
-    if not classes:
-        await callback.answer("Классы ещё не настроены.", show_alert=True)
-        return
-
-    page = max(0, min(page, len(classes) - 1))
-    cls_def = classes[page]
-    await send_or_edit_photo(
-        callback,
-        _class_book_text(cls_def, page, len(classes)),
-        reply_markup=class_select_keyboard(classes, page=page),
-        image_url=cls_def.image_url,
-    )
+    Старые сообщения формата class_page:N (без фракции) продолжают
+    листаться — портреты тогда базовые, без знамени.
+    """
+    parts = callback.data.split(":")
+    page = int(parts[1])
+    faction = parts[2] if len(parts) > 2 and parts[2] else None
+    await _show_class_book(callback, page, faction)
 
 
 @router.callback_query(F.data.startswith("select_class:"))
 async def select_class(callback: CallbackQuery):
-    cls_key = callback.data.split(":")[1]
+    parts = callback.data.split(":")
+    cls_key = parts[1]
+    faction = parts[2] if len(parts) > 2 and parts[2] else None
     async with async_session() as session:
         cls_def = await get_class(session, cls_key)
         classes = await all_classes(session)
@@ -397,8 +508,9 @@ async def select_class(callback: CallbackQuery):
     await send_or_edit_photo(
         callback,
         class_description_text(cls_def),
-        reply_markup=confirm_class_keyboard(cls_key, back_page=back_page),
-        image_url=cls_def.image_url,
+        reply_markup=confirm_class_keyboard(cls_key, back_page=back_page,
+                                            faction=faction),
+        image_url=class_image(cls_def, faction) or cls_def.image_url,
     )
 
 
@@ -407,9 +519,13 @@ async def confirm_class(callback: CallbackQuery):
     """Создаёт героя со случайными статами и бросает дар к магии.
 
     Статы катаются от базы класса в диапазоне −10 %…+20 %, и игроку сразу
-    даётся 10 попыток переката — принять можно любой бросок.
+    даётся 10 попыток переката — принять можно любой бросок. Фракция уже
+    выбрана на первом шаге и записывается герою сразу, но её бонусы,
+    репутация и спавн настанут после принятия статов.
     """
-    cls_key = callback.data.split(":")[1]
+    parts = callback.data.split(":")
+    cls_key = parts[1]
+    faction = parts[2] if len(parts) > 2 and parts[2] in FACTION_CARDS else None
 
     async with async_session() as session:
         result = await session.execute(
@@ -441,12 +557,19 @@ async def confirm_class(callback: CallbackQuery):
             # сообщений бота, куда попадает имя, — чистим на входе.
             name=clean_name(callback.from_user.first_name, "Изгнанник"),
             character_class=cls_def.key,
+            # Знамя выбрано первым шагом: записываем сразу, чтобы портрет
+            # героя уже на экране статов был в цветах его стороны.
+            faction=faction,
             level=1,
             experience=0,
-            gold=50,
+            # Кошелёк на старте пуст: первые деньги герой получит только
+            # от выбранной фракции (база × динамический баланс населённости).
+            bronze=0,
+            silver=0,
+            gold=0,
             # Класс и стартовые статы ещё не помещают героя в мир.
-            # Локация и клетка определятся только после принятия статов и
-            # осознанного выбора фракции.
+            # Локация и клетка определятся после принятия статов —
+            # в стартовом замке уже выбранной фракции.
             location_id=None,
             cell_id=None,
             floor=0,
@@ -472,7 +595,7 @@ async def confirm_class(callback: CallbackQuery):
         callback,
         reroll_text(character, cls_def, base, rolled, affinities),
         reply_markup=reroll_keyboard(char_id, character.rerolls_left),
-        image_url=cls_def.image_url,
+        image_url=class_image(cls_def, faction) or cls_def.image_url,
     )
 
 
@@ -514,8 +637,18 @@ async def reroll_stats(callback: CallbackQuery):
         await session.commit()
         locked = character.stats_locked
         left = character.rerolls_left
+        faction = character.faction or ""
 
     if locked:
+        # Фракция выбрана первым шагом — сразу финишируем: бонусы,
+        # репутация и спавн в её замке. Без фракции (старый порядок) —
+        # как раньше, книга знамён.
+        if faction:
+            async with async_session() as session:
+                await _finalize_creation(
+                    callback, session, await session.get(Character, char_id),
+                    faction)
+            return
         await _show_faction_page(callback, char_id)
         return
 
@@ -550,10 +683,20 @@ async def accept_stats(callback: CallbackQuery):
         cls_def = await get_class(session, character.character_class)
         affinities = await magic.get_affinities(session, character.id)
         await session.commit()
-        base = cls_def.base_stats() if cls_def else {}
-        rolled = {k: getattr(character, k) for k in statroll.ROLLED_STATS}
+        faction = character.faction or ""
+        placed = character.location_id is not None
 
-    await _show_faction_page(callback, char_id)
+    # Знак знамени выбран ПЕРВЫМ — значит это финальный шаг: выдаём
+    # бонусы фракции, репутацию и спавним героя в её замке. Если фракции
+    # нет (герой создан до обновления) — показываем книгу знамён.
+    if faction and not placed:
+        async with async_session() as session:
+            await _finalize_creation(
+                callback, session, await session.get(Character, char_id),
+                faction)
+        return
+    if not faction:
+        await _show_faction_page(callback, char_id)
 
 
 # ── Книга выбора фракции ────────────────────────────────────
@@ -590,6 +733,7 @@ FACTION_CARDS = {
             "нежити и катаклизмы — и не раз падали, чтобы встать снова."
         ),
         "bonus": "+3 Выносливость ❤️",
+        "money": 100,
         "reward": "100🟤",
     },
     "scavengers": {
@@ -603,6 +747,7 @@ FACTION_CARDS = {
             "сокровищам, которые другие боятся взять."
         ),
         "bonus": "+2 Удача 🍀, +1 Ловкость 🏃",
+        "money": 200,
         "reward": "200🟤",
     },
     "cult": {
@@ -616,6 +761,7 @@ FACTION_CARDS = {
             "пророчества."
         ),
         "bonus": "+3 Интеллект 🧠",
+        "money": 100,
         "reward": "100🟤 + Осколок души",
     },
     "order": {
@@ -628,16 +774,21 @@ FACTION_CARDS = {
             "реликвии, сжигает нежить и сдерживает старые клятвы."
         ),
         "bonus": "+2 Сила 💪, +1 Выносливость 🛡",
+        "money": 100,
         "reward": "100🟤",
     },
 }
 
 
-def _faction_page_text(page: int, prefix: str = "") -> str:
+def _faction_page_text(page: int, prefix: str = "", bonus: dict | None = None) -> str:
     """Страница книги выбора: герб + описание + все бонусы фракции.
 
     Влезает в лимит подписи к фото (1024 символа) — проверяется
     тестом, поэтому описания держим ёмкими.
+
+    `bonus` — живой расчёт стартовой выдачи (core.factions.start_bonus):
+    населённость фракции и множитель видны игроку ДО выбора, поэтому
+    балансировка реально работает — новички идут туда, где платят больше.
     """
     from engine.factions import FACTIONS, ORDER
 
@@ -660,13 +811,29 @@ def _faction_page_text(page: int, prefix: str = "") -> str:
         f"🧭 Стартовая репутация: <b>+50</b> (звание «Знакомый»)",
         f"🎁 Награда: <b>{card['reward']}</b>",
     ]
+    if bonus is not None:
+        lines.append(
+            f"👥 Героев во фракции: <b>{bonus['count']}</b>")
+        if bonus["mult"] > 1.0:
+            lines.append(
+                f"🔥 Фракция малочисленна — новичкам здесь доплачивают: "
+                f"<b>×{bonus['mult']:.2f}</b>, итого <b>{bonus['bronze']}🟤</b>")
+        elif bonus["mult"] < 1.0:
+            lines.append(
+                f"📉 Фракция перенаселена — выдача урезана: "
+                f"<b>×{bonus['mult']:.2f}</b>, итого <b>{bonus['bronze']}🟤</b>")
+        else:
+            lines.append(
+                f"⚖️ Населённость в норме — выдача без наценки: "
+                f"<b>{bonus['bronze']}🟤</b>")
     if foe in FACTIONS:
         lines.append(f"⚔️ Соперник: {FACTIONS[foe][0]} {FACTIONS[foe][1]}")
     if ally in FACTIONS:
         lines.append(f"🤝 Союзник: {FACTIONS[ally][0]} {FACTIONS[ally][1]}")
     lines += [
         "",
-        "<i>Листай страницы и сравнивай. Истории сил — в «Книге лора».</i>",
+        "<i>Чем меньше во фракции героев, тем щедрее стартовая выдача — "
+        "так мир держит баланс сил.</i>",
     ]
     return prefix + "\n".join(lines)
 
@@ -676,9 +843,20 @@ async def _show_faction_page(event, char_id: int, page: int = 0, prefix: str = "
     from engine.factions import ORDER
 
     page = max(0, min(page, len(ORDER) - 1))
+    # Живой баланс населённости — считается на каждый показ страницы,
+    # чтобы цифры не устаревали между вызовами.
+    bonus = None
+    try:
+        import core.factions as core_factions
+        async with async_session() as session:
+            bonus = await core_factions.start_bonus(
+                session, ORDER[page], FACTION_CARDS[ORDER[page]]["money"])
+    except Exception:
+        bonus = None  # без боевой сводки страница всё равно открывается
+
     await send_or_edit_photo(
         event,
-        _faction_page_text(page, prefix=prefix),
+        _faction_page_text(page, prefix=prefix, bonus=bonus),
         reply_markup=faction_select_keyboard(char_id, page),
         image_url=FACTION_IMAGES.get(ORDER[page]),
     )
@@ -959,6 +1137,143 @@ async def faction_lore_back_callback(callback: CallbackQuery):
     await _show_faction_page(callback, char_id, sel_page)
 
 
+async def _finalize_creation(event, session, character, faction_key: str) -> None:
+    """Финал создания героя: бонусы знамени, репутация +50, стартовая
+    выдача с балансом населённости и спавн в стартовом замке фракции.
+
+    Знак знамени теперь выбирается ПЕРВЫМ шагом (раньше — последним),
+    поэтому финал наступает после принятия статов. Общая точка для обоих
+    порядков: новый вызывает из accept_stats/reroll_stats по сохранённой
+    на герое фракции, старый — из выбора фракции напрямую. Идемпотентно:
+    повторный вызов бонусы повторно не выдаёт, только доставит героя на
+    стартовую клетку.
+    """
+    import core.factions as core_factions
+
+    loc_name = FACTION_CARDS[faction_key]["castle"]
+    loc_res = await session.execute(
+        select(Location).where(Location.name == loc_name)
+    )
+    loc = loc_res.scalar_one_or_none()
+    if not loc:
+        loc_res = await session.execute(
+            select(Location).where(Location.id == 1)
+        )
+        loc = loc_res.scalar_one()
+
+    # Спавн — в правильном внутреннем замке 10×10 угловой локации
+    # (внешний угол: (0,0)->(5,5), (9,0)->(5,19), (0,9)->(19,5), (9,9)->(19,19)),
+    # а не в центре-площади.
+    from core.seed import castle_spawn_cell
+    spawn_cell = await castle_spawn_cell(session, loc)
+    if spawn_cell is None:
+        cell_res = await session.execute(
+            select(Cell)
+            .where(Cell.location_id == loc.id)
+            .where(Cell.floor == 0)
+            .where(Cell.is_passable == True)
+        )
+        cells = cell_res.scalars().all()
+        center = loc.grid_size // 2
+        spawn_cell = (min(cells, key=lambda c: (c.x - center) ** 2 + (c.y - center) ** 2)
+                      if cells else None)
+
+    character.location_id = loc.id
+    character.cell_id = spawn_cell.id if spawn_cell else None
+    character.floor = 0
+    character.faction = faction_key
+
+    bonus_desc = "уже получены ранее"
+    if not faction_chosen(character):
+        # Стартовые деньги: только от фракции — её база × динамический
+        # баланс населённости (мало народа — доплата, толпа — урезание).
+        money = await core_factions.start_bonus(
+            session, faction_key, FACTION_CARDS[faction_key]["money"])
+        # Начисляем бронзу напрямую, без нормализации в серебро: игрок
+        # должен видеть именно ту кучу монет, которую ему обещала карточка.
+        character.bronze = (character.bronze or 0) + money["bronze"]
+
+        if money["mult"] > 1.0:
+            money_desc = f"{money['bronze']}🟤 (🔥 ×{money['mult']:.2f} за малочисленность)"
+        elif money["mult"] < 1.0:
+            money_desc = f"{money['bronze']}🟤 (📉 ×{money['mult']:.2f} за перенаселённость)"
+        else:
+            money_desc = f"{money['bronze']}🟤"
+
+        # Apply starting bonuses
+        if faction_key == "guard":
+            character.endurance += 3
+            bonus_desc = f"+3 Выносливость ❤️, {money_desc}"
+        elif faction_key == "scavengers":
+            character.luck += 2
+            character.agility += 1
+            bonus_desc = f"+2 Удача 🍀, +1 Ловкость 🏃, {money_desc}"
+        elif faction_key == "cult":
+            character.intelligence += 3
+            from core.models import Item, InventoryItem
+            soul_item_res = await session.execute(
+                select(Item).where(Item.name == "Осколок души")
+            )
+            soul_item = soul_item_res.scalar_one_or_none()
+            if soul_item:
+                session.add(InventoryItem(
+                    character_id=character.id,
+                    item_id=soul_item.id,
+                    quantity=1
+                ))
+            bonus_desc = f"+3 Интеллект 🧠, {money_desc}, Осколок души 💎"
+        elif faction_key == "order":
+            character.strength += 2
+            character.endurance += 1
+            bonus_desc = f"+2 Сила 💪, +1 Выносливость 🛡, {money_desc}"
+
+        # Initial reputation
+        reputation = {faction_key: 50}
+        core_factions.save(character, reputation)
+
+        if spawn_cell:
+            session.add(VisitedCell(
+                character_id=character.id,
+                location_id=loc.id,
+                floor=0,
+                x=spawn_cell.x,
+                y=spawn_cell.y,
+            ))
+
+    await session.commit()
+    loc_name_full = loc.name
+    joined_payload = {
+        "character_id": character.id,
+        "name": character.name,
+        "telegram_id": event.from_user.id,
+        "class": character.character_class,
+        "level": character.level,
+        "location_id": character.location_id,
+    }
+
+    # Для живой карты герой появляется только сейчас: класс и статы уже
+    # приняты, фракция выбрана, реальная стартовая клетка назначена.
+    try:
+        from core.realtime import publish as rt_publish
+        await rt_publish("player_joined", joined_payload)
+    except Exception:
+        pass
+
+    await send_or_edit_photo(
+        event,
+        f"🎉 <b>Твой путь начинается!</b>\n\n"
+        f"Ты примкнул к фракции <b>{core_factions.FACTIONS[faction_key][1]}</b> и стартуешь в локации <b>{loc_name_full}</b>.\n\n"
+        f"🎁 Получены стартовые бонусы:\n"
+        f"• Репутация: <b>+50</b> (звание «Знакомый»)\n"
+        f"• Бонусы: <b>{bonus_desc}</b>\n\n"
+        f"<i>Удачи в Теневых Землях! Нажмите кнопку ниже, чтобы продолжить путь...</i>",
+        reply_markup=main_menu_keyboard(has_character=True),
+        image_url=FACTION_IMAGES.get(faction_key),
+    )
+    if isinstance(event, CallbackQuery):
+        await event.answer("Герой успешно создан!", show_alert=True)
+
+
 @router.callback_query(F.data.startswith("start_faction:"))
 async def start_faction_callback(callback: CallbackQuery):
     parts = callback.data.split(":")
@@ -968,8 +1283,15 @@ async def start_faction_callback(callback: CallbackQuery):
     if faction_key not in FACTION_CARDS:
         await callback.answer("Такой фракции нет.", show_alert=True)
         return
-    loc_name = FACTION_CARDS[faction_key]["castle"]
 
+    # Новый порядок создания: знамя выбирается ПЕРВЫМ, героя ещё нет
+    # (char_id=0) — открываем книгу классов в цветах выбранной стороны.
+    if char_id == 0:
+        await _show_class_book(callback, 0, faction_key)
+        return
+
+    # Старый порядок (герои, начавшие создание до обновления): знамя
+    # выбиралось последним шагом — для них финал остаётся здесь.
     async with async_session() as session:
         character = await session.get(Character, char_id)
         if character is None:
@@ -983,115 +1305,9 @@ async def start_faction_callback(callback: CallbackQuery):
         if not character.stats_locked:
             await callback.answer("Сначала прими стартовые статы.", show_alert=True)
             return
-        if faction_chosen(character):
+        if character.location_id:
             await callback.answer("Фракция уже выбрана.", show_alert=True)
             return
 
-        loc_res = await session.execute(
-            select(Location).where(Location.name == loc_name)
-        )
-        loc = loc_res.scalar_one_or_none()
-        if not loc:
-            loc_res = await session.execute(
-                select(Location).where(Location.id == 1)
-            )
-            loc = loc_res.scalar_one()
+        await _finalize_creation(callback, session, character, faction_key)
 
-        # Спавн — в правильном внутреннем замке 10×10 угловой локации
-        # (внешний угол: (0,0)->(5,5), (9,0)->(5,19), (0,9)->(19,5), (9,9)->(19,19)),
-        # а не в центре-площади.
-        from core.seed import castle_spawn_cell
-        spawn_cell = await castle_spawn_cell(session, loc)
-        if spawn_cell is None:
-            cell_res = await session.execute(
-                select(Cell)
-                .where(Cell.location_id == loc.id)
-                .where(Cell.floor == 0)
-                .where(Cell.is_passable == True)
-            )
-            cells = cell_res.scalars().all()
-            center = loc.grid_size // 2
-            spawn_cell = (min(cells, key=lambda c: (c.x - center) ** 2 + (c.y - center) ** 2)
-                          if cells else None)
-
-        character.location_id = loc.id
-        character.cell_id = spawn_cell.id if spawn_cell else None
-        character.floor = 0
-
-        # Apply starting bonuses
-        from engine.currency import add_currency
-        if faction_key == "guard":
-            character.endurance += 3
-            add_currency(character, bronze=100)
-            bonus_desc = "+3 Выносливость ❤️, 100🟤"
-        elif faction_key == "scavengers":
-            character.luck += 2
-            character.agility += 1
-            add_currency(character, bronze=200)
-            bonus_desc = "+2 Удача 🍀, +1 Ловкость 🏃, 200🟤"
-        elif faction_key == "cult":
-            character.intelligence += 3
-            add_currency(character, bronze=100)
-            from core.models import Item, InventoryItem
-            soul_item_res = await session.execute(
-                select(Item).where(Item.name == "Осколок души")
-            )
-            soul_item = soul_item_res.scalar_one_or_none()
-            if soul_item:
-                session.add(InventoryItem(
-                    character_id=character.id,
-                    item_id=soul_item.id,
-                    quantity=1
-                ))
-            bonus_desc = "+3 Интеллект 🧠, 100🟤, Осколок души 💎"
-        elif faction_key == "order":
-            character.strength += 2
-            character.endurance += 1
-            add_currency(character, bronze=100)
-            bonus_desc = "+2 Сила 💪, +1 Выносливость 🛡, 100🟤"
-
-        # Initial reputation
-        import core.factions as core_factions
-        reputation = {faction_key: 50}
-        core_factions.save(character, reputation)
-
-        if spawn_cell:
-            session.add(VisitedCell(
-                character_id=character.id,
-                location_id=loc.id,
-                floor=0,
-                x=spawn_cell.x,
-                y=spawn_cell.y,
-            ))
-
-        await session.commit()
-        loc_name_full = loc.name
-        joined_payload = {
-            "character_id": character.id,
-            "name": character.name,
-            "telegram_id": callback.from_user.id,
-            "class": character.character_class,
-            "level": character.level,
-            "location_id": character.location_id,
-        }
-
-    # Для живой карты герой появляется только сейчас: класс и статы уже
-    # приняты, фракция выбрана, реальная стартовая клетка назначена.
-    try:
-        from core.realtime import publish as rt_publish
-        await rt_publish("player_joined", joined_payload)
-    except Exception:
-        pass
-
-    await send_or_edit_photo(
-        callback,
-        f"🎉 <b>Твой путь начинается!</b>\n\n"
-        f"Ты примкнул к фракции <b>{core_factions.FACTIONS[faction_key][1]}</b> и стартуешь в локации <b>{loc_name_full}</b>.\n\n"
-        f"🎁 Получены стартовые бонусы:\n"
-        f"• Репутация: <b>+50</b> (звание «Знакомый»)\n"
-        f"• Бонусы: <b>{bonus_desc}</b>\n\n"
-        f"<i>Удачи в Теневых Землях! Нажмите кнопку ниже, чтобы продолжить путь...</i>",
-        reply_markup=main_menu_keyboard(has_character=True),
-        image_url=FACTION_IMAGES.get(faction_key),
-    )
-    await callback.answer("Герой успешно создан!", show_alert=True)

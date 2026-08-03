@@ -28,12 +28,9 @@ def class_description_text(cls_def):
 
     icon = cls_def.icon or "⚔️"
     stats = cls_def.base_stats()
-    growth = cls_def.growth()
 
     def line(label, key, suffix=""):
-        gain = growth.get(key, 0)
-        plus = f" <i>(+{gain}/ур.)</i>" if gain else ""
-        return f"{label}: <b>{stats[key]}</b>{suffix}{plus}"
+        return f"{label}: <b>{stats[key]}</b>{suffix}"
 
     return (
         f"{icon} <b>{cls_def.name}</b>\n\n"
@@ -48,7 +45,9 @@ def class_description_text(cls_def):
         f"🍀 {line('Удача', 'luck')}\n\n"
         f"🔮 <i>{affinity_hint(cls_def)}</i>\n"
         f"🎲 <i>Статы бросаются случайно (−10 %…+20 %), "
-        f"будет 10 попыток переката.</i>"
+        f"будет 10 попыток переката.</i>\n"
+        f"🎯 <i>Рост с уровнями — твой: очки характеристик ты "
+        f"распределяешь сам в профиле.</i>"
     )
 
 
@@ -159,18 +158,32 @@ def profile_page_text(character, page: int, class_def=None, combat=None,
             affinity_line(affinities or []),
         ]
     elif key == "stats":
+        allocated = extra.get("allocated") or {}
+
         def stat_line(emoji, label, skey):
             total_v = stats.get(skey, base.get(skey, 0))
             extra_v = bonus.get(skey, 0)
-            plus = f" <i>(+{extra_v} от вещей)</i>" if extra_v else ""
-            return f"{emoji} {label}: <b>{total_v}</b>{plus}"
+            parts = []
+            if allocated.get(skey):
+                parts.append(f"🎯+{allocated[skey]}")
+            if extra_v:
+                parts.append(f"+{extra_v} от вещей")
+            suffix = f" <i>({', '.join(parts)})</i>" if parts else ""
+            return f"{emoji} {label}: <b>{total_v}</b>{suffix}"
 
+        free = extra.get("free_points", 0)
+        free_note = (f" — жми «🎯 Очки характеристик» ниже и распределяй!"
+                     if free else " — зарабатываются уровнями")
         body = [
             stat_line("💪", "Сила", "strength"),
             stat_line("🏃", "Ловкость", "agility"),
             stat_line("🧠", "Интеллект", "intelligence"),
             stat_line("🛡", "Выносливость", "endurance"),
             stat_line("🍀", "Удача", "luck"),
+            "",
+            f"🎯 Свободных очков: <b>{free}</b>{free_note}",
+            "<i>База зафиксирована на старте; вложенные очки можно "
+            "перекладывать.</i>",
             "",
             "<b>━━ Бой ━━</b>",
             f"⚔️ Урон от оружия: <b>+{stats.get('damage', 0)}</b>",

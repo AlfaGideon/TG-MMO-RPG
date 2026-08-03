@@ -47,6 +47,11 @@ async def auction_menu(callback: CallbackQuery):
         from engine.currency import currency_str
         gold = currency_str(character)
 
+        # Картинка экрана из раздела «🖼 Картинки» админки (праздничные
+        # темы меняются без правки кода), запас — файл из репозитория.
+        from core import ui_images
+        auction_img = await ui_images.get(session, "auction")
+
     await send_or_edit_photo(callback,
         "⚖️ <b>Аукцион Теневых Земель</b>\n\n"
         "<i>Скупщик Молчун не поднимает глаз от гроссбуха.</i>\n\n"
@@ -58,6 +63,7 @@ async def auction_menu(callback: CallbackQuery):
         f"<i>Комиссия аукциона — {int(auction.COMMISSION * 100)} %. "
         f"Непроданный лот вернётся через сутки.</i>",
         reply_markup=auction_menu_keyboard(len(mine)),
+        image_url=auction_img,
         parse_mode="HTML",
     )
 

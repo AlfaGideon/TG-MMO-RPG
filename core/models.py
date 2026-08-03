@@ -94,6 +94,10 @@ class CharacterClassDef(Base):
     growth_mp = Column(Integer, default=5)
 
     image_url = Column(String(512), nullable=True)
+    # Портреты героя по фракциям JSON {"guard": "/static/classes/...", ...}:
+    # в профиле подставляется картинка текущей стороны игрока — сторона
+    # по ходу игры может меняться. Редактируется в админке «🖼 Картинки».
+    faction_images = Column(Text, default="")
     is_enabled = Column(Boolean, default=True)
     sort_order = Column(Integer, default=100)
 
@@ -205,10 +209,12 @@ class Character(Base):
     character_class = Column(ClassKeyType, nullable=False)
     level = Column(Integer, default=1)
     experience = Column(Integer, default=0)
-    # Три валюты: бронза (мелочь), серебро, золото
-    bronze = Column(Integer, default=120)
-    silver = Column(Integer, default=8)
-    gold = Column(Integer, default=2)
+    # Три валюты: бронза (мелочь), серебро, золото.
+    # Герой рождается с пустым кошельком: стартовые деньги выдаёт только
+    # фракция при её выборе (база × динамический баланс населённости).
+    bronze = Column(Integer, default=0)
+    silver = Column(Integer, default=0)
+    gold = Column(Integer, default=0)
 
     strength = Column(Integer, default=10)
     agility = Column(Integer, default=10)
@@ -277,6 +283,15 @@ class Character(Base):
     # Фракции: очки репутации в JSON {"guard": 12, ...} — четыре силы, счёт
     # ведётся так же, как в engine/factions.py.
     reputation = Column(Text, default="")
+    # Стартовая фракция, выбранная при создании героя (ключ из
+    # engine.factions.FACTIONS). По ней считается населённость фракций для
+    # динамического стартового бонуса и значок в топе игроков.
+    faction = Column(String(20), nullable=True)
+    # Очки характеристик: свободные (выдаются с уровнями) и аудит вложенных
+    # в JSON {"strength": 2, ...}. Базовые стартовые статы неизменны —
+    # игрок распределяет и перераспределяет только вложенные очки.
+    stat_points = Column(Integer, default=0)
+    allocated_stats = Column(Text, default="")
     # Раны после гибели: до этого времени статы порезаны.
     wounded_until = Column(DateTime(timezone=True), nullable=True)
     # Осмотренные достопримечательности: список ключей "loc:x:y".

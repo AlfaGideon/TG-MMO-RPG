@@ -163,6 +163,71 @@ async def get_class(session, key: str) -> CharacterClassDef | None:
     return result.scalar_one_or_none()
 
 
+# ── портреты героя по фракциям ──────────────────────────────
+
+# Сгенерированные портреты 1×1 класса на стороне каждой фракции лежат в
+# статике админки по шаблону ниже; admin — корень статики панели, а бот
+# читает /static/... как admin/static/... (bot.utils.photos).
+CLASS_FACTION_IMAGE_TEMPLATE = "/static/classes/{class_key}_{faction}.png"
+
+
+def faction_images(cls_def) -> dict:
+    """Разбор JSON-колонки faction_images: {фракция: url}, без мусора."""
+    import json
+
+    raw = getattr(cls_def, "faction_images", "") or ""
+    try:
+        data = json.loads(raw) if raw else {}
+    except (ValueError, TypeError):
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    return {str(k): str(v) for k, v in data.items() if v}
+
+
+def save_faction_image(cls_def, faction: str, url: str) -> None:
+    """Поставить/убрать портрет фракции у класса (пустой url — удалить)."""
+    import json
+
+    images = faction_images(cls_def)
+    if url:
+        images[faction] = url
+    else:
+        images.pop(faction, None)
+    cls_def.faction_images = json.dumps(images, ensure_ascii=False)
+
+
+def default_faction_image(class_key: str, faction: str) -> str:
+    """Файловый путь сгенерированного портрета фракции (если файл есть)."""
+    import os
+
+    url = CLASS_FACTION_IMAGE_TEMPLATE.format(
+        class_key=class_key, faction=faction)
+    # Бот и админка стартуют из корня репозитория: /static/... = admin/static/...
+    if url.startswith("/static/") and os.path.isfile("admin" + url):
+        return url
+    return ""
+
+
+def class_image(cls_def, faction: str | None = None) -> str:
+    """Портрет героя для экранов: сторона игрока → базовое фото класса.
+
+    Игрок может сменить фракцию по ходу игры — профиль всегда берёт
+    портрет его ТЕКУЩЕЙ стороны; без портрета стороны откатываемся на
+    общую картинку класса.
+    """
+    if cls_def is None:
+        return ""
+    if faction:
+        custom = faction_images(cls_def).get(faction, "")
+        if custom:
+            return custom
+        generated = default_faction_image(str(cls_def.key), faction)
+        if generated:
+            return generated
+    return (cls_def.image_url or "").strip()
+
+
 # Поля, которые появились позже и которые надо один раз проставить
 # уже существующим классам (иначе у них останутся дефолты миграции).
 BACKFILL_FIELDS = ("affinity_chance", "dual_affinity_chance", "preferred_schools")

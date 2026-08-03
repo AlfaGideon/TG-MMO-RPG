@@ -5,8 +5,7 @@ from aiogram.types import CallbackQuery
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from core import magic
-from core.classes import get_class, level_up_gains
+from core import magic, statpoints
 from core.database import async_session
 from core.loot import give_mob_loot
 from core.models import User, Character, Mob, Battle, Cell, MobSpawn
@@ -206,23 +205,19 @@ async def _finish_victory(callback, session, character, mob, spawn, state):
         pass
     character.current_hp = max(1, state["character_hp"])
 
-    cls_def = await get_class(session, character.character_class)
-    gains = level_up_gains(cls_def)
+    # Вместо фиксированного прироста класса уровень даёт очки
+    # характеристик — герой сам вкладывает их в профиле (🎯 Очки).
     levels_gained = 0
+    points_gained = 0
     needed = character.level * 100
     while character.experience >= needed:
         character.experience -= needed
         character.level += 1
         levels_gained += 1
-        character.max_hp += gains["max_hp"]
-        character.max_mp += gains["max_mp"]
-        character.strength += gains["strength"]
-        character.agility += gains["agility"]
-        character.intelligence += gains["intelligence"]
-        character.endurance += gains["endurance"]
-        character.luck += gains["luck"]
+        points_gained += statpoints.perks_for_level(character.level)
         needed = character.level * 100
     if levels_gained:
+        character.stat_points = statpoints.free_points(character) + points_gained
         character.current_hp = character.max_hp
         character.current_mp = character.max_mp
 
@@ -245,7 +240,10 @@ async def _finish_victory(callback, session, character, mob, spawn, state):
     if rep_lines:                      # чем поступок отозвался у фракций
         text += "\n\n" + "\n".join(rep_lines)
     if levels_gained:
-        text += f"\n\n🎖 <b>Новый уровень: {character.level}!</b>\nЗдоровье восстановлено."
+        text += (f"\n\n🎖 <b>Новый уровень: {character.level}!</b>\nЗдоровье восстановлено.\n"
+                 f"🎯 Получено очков характеристик: <b>+{points_gained}</b> "
+                 f"(свободно: {statpoints.free_points(character)}).\n"
+                 f"<i>Распредели их: 🧙 Профиль → 🎯 Очки характеристик.</i>")
     if loot:
         text += "\n\n" + loot_text(loot)
 

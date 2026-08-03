@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% import "macros.html" as macros %}
+
+{% block title %}Картинки — Shadow Lands{% endblock %}
+{% block page_title %}🖼 Картинки{% endblock %}
+
+{% block breadcrumbs %}
+{{ macros.crumbs([('Dashboard','/'), ('Контент','/content'), ('Картинки', none)]) }}
+{% endblock %}
+
+{% block content %}
+<style>
+.img-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 0.9rem; margin-top: 0.7rem; }
+.img-slot { background: var(--bg-dark, #16191f); border: 1px solid rgba(255,255,255,.07); border-radius: 10px; padding: 0.6rem; display: flex; flex-direction: column; gap: 0.45rem; }
+.img-slot-title { font-weight: 600; font-size: 0.85rem; }
+.img-slot-sub { color: var(--text-muted, #9aa0aa); font-size: 0.72rem; }
+.img-slot img { width: 100%; aspect-ratio: 1/1; object-fit: cover; border-radius: 8px; background: #0c0e12; }
+.img-slot-thumb-empty { width: 100%; aspect-ratio: 1/1; border-radius: 8px; background: #0c0e12; display: flex; align-items: center; justify-content: center; font-size: 2rem; color: #43494f; }
+.img-slot form { display: flex; flex-direction: column; gap: 0.35rem; }
+.img-slot input[type="file"] { font-size: 0.72rem; max-width: 100%; }
+.img-slot .slot-actions { display: flex; gap: 0.35rem; flex-wrap: wrap; }
+.anchor-chips { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.anchor-chips a { text-decoration: none; }
+</style>
+
+<div class="card">
+    <h2>🖼 Все картинки игры</h2>
+    <p class="section-sub">
+        Единый раздел замены изображений: каждая картинка из любого сообщения
+        бота меняется отсюда. Загрузи файл или вставь ссылку — бот подхватывает
+        сразу. Раздел подготовлен и под праздничные темы (Новый год, Хеллоуин):
+        заставку и экраны можно переключать заранее.
+        ✖ — убрать картинку (вернуться к пустому/запасному варианту).
+    </p>
+    <div class="anchor-chips">
+        {% for g in groups %}<a href="#{{ g.id }}" class="btn btn-sm">{{ g.title }}</a>{% endfor %}
+        {% for cg in class_groups %}<a href="#{{ cg.id }}" class="btn btn-sm">{{ cg.title }}</a>{% endfor %}
+    </div>
+</div>
+
+{% for g in groups %}
+<div class="card" id="{{ g.id }}">
+    <h2>{{ g.title }} <span class="section-sub">({{ g.slots|length }})</span></h2>
+    {% if g.note %}<p class="section-sub">{{ g.note }}</p>{% endif %}
+    <div class="img-grid">
+        {% for s in g.slots %}
+        <div class="img-slot">
+            <div class="img-slot-title">{{ s.title }}</div>
+            {% if s.url %}
+            <img src="{{ s.url }}" alt="{{ s.title }}" loading="lazy">
+            {% else %}
+            <div class="img-slot-thumb-empty">🖼</div>
+            {% endif %}
+            {% if s.sub %}<div class="img-slot-sub">{{ s.sub }}</div>{% endif %}
+            <form method="post" action="/editor/images/set" enctype="multipart/form-data">
+                <input type="hidden" name="kind" value="{{ s.kind }}">
+                <input type="hidden" name="ref" value="{{ s.ref }}">
+                <input type="file" name="image" accept="image/*">
+                {% if s.kind != 'faction' %}
+                <input type="text" name="url" class="search-box" placeholder="или ссылка https://...">
+                {% endif %}
+                <div class="slot-actions">
+                    <button type="submit" class="btn btn-primary btn-sm">💾 Заменить</button>
+                    {% if s.restore %}
+                    <button type="submit" name="restore" value="1" class="btn btn-sm"
+                            title="Вернуть исходный файл герба">↩️ Оригинал</button>
+                    {% endif %}
+                    {% if s.url and s.clearable %}
+                    <button type="submit" name="clear" value="1" class="btn btn-danger btn-sm"
+                            title="Убрать картинку">✖</button>
+                    {% endif %}
+                </div>
+            </form>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endfor %}
+
+{% for cg in class_groups %}
+<div class="card" id="{{ cg.id }}">
+    <h2>{{ cg.title }} <span class="section-sub">({{ cg.slots|length }})</span></h2>
+    {% if cg.note %}<p class="section-sub">{{ cg.note }}</p>{% endif %}
+    <div class="img-grid">
+        {% for s in cg.slots %}
+        <div class="img-slot">
+            <div class="img-slot-title">{{ s.title }}</div>
+            {% if s.url %}
+            <img src="{{ s.url }}" alt="{{ s.title }}" loading="lazy">
+            {% else %}
+            <div class="img-slot-thumb-empty">🖼</div>
+            {% endif %}
+            {% if s.sub %}<div class="img-slot-sub">{{ s.sub }}</div>{% endif %}
+            <form method="post" action="/editor/images/set" enctype="multipart/form-data">
+                <input type="hidden" name="kind" value="{{ s.kind }}">
+                <input type="hidden" name="ref" value="{{ s.ref }}">
+                <input type="file" name="image" accept="image/*">
+                <input type="text" name="url" class="search-box" placeholder="или ссылка https://...">
+                <div class="slot-actions">
+                    <button type="submit" class="btn btn-primary btn-sm">💾 Заменить</button>
+                    {% if s.url and s.clearable %}
+                    <button type="submit" name="clear" value="1" class="btn btn-danger btn-sm"
+                            title="Убрать картинку (вернётся сгенерированная/основная)">✖</button>
+                    {% endif %}
+                </div>
+            </form>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endfor %}
+{% endblock %}

@@ -6,7 +6,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from core.classes import get_class, level_up_gains
+from core import statpoints
 from core.database import async_session
 from core.enums import ItemSource
 from core.loot import roll_drops, grant_item
@@ -565,23 +565,19 @@ async def dungeon_combat_attack(callback: CallbackQuery):
             character.experience += state["mob_exp"]
             character.current_hp = max(1, state["char_hp"])
 
-            cls_def = await get_class(session, character.character_class)
-            gains = level_up_gains(cls_def)
+            # Уровень даёт очки характеристик (вкладываются вручную в
+            # профиле), а не фиксированный прирост класса — см. battle.py.
             leveled = 0
+            points_gained = 0
             needed = character.level * 100
             while character.experience >= needed:
                 character.experience -= needed
                 character.level += 1
                 leveled += 1
-                character.max_hp += gains["max_hp"]
-                character.max_mp += gains["max_mp"]
-                character.strength += gains["strength"]
-                character.agility += gains["agility"]
-                character.intelligence += gains["intelligence"]
-                character.endurance += gains["endurance"]
-                character.luck += gains["luck"]
+                points_gained += statpoints.perks_for_level(character.level)
                 needed = character.level * 100
             if leveled:
+                character.stat_points = statpoints.free_points(character) + points_gained
                 character.current_hp = character.max_hp
                 character.current_mp = character.max_mp
 
@@ -603,7 +599,10 @@ async def dungeon_combat_attack(callback: CallbackQuery):
                 f"💰 +{state['mob_gold']}🟤 | ⭐ +{state['mob_exp']} опыта"
             )
             if leveled:
-                text += f"\n\n🎖 <b>Новый уровень: {character.level}!</b>"
+                text += (f"\n\n🎖 <b>Новый уровень: {character.level}!</b>\n"
+                         f"🎯 Получено очков характеристик: <b>+{points_gained}</b> "
+                         f"(свободно: {statpoints.free_points(character)}).\n"
+                         f"<i>Распредели их: 🧙 Профиль → 🎯 Очки характеристик.</i>")
             if loot:
                 text += "\n\n" + loot_text(loot)
 

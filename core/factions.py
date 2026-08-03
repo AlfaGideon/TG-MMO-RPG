@@ -55,6 +55,83 @@ def allegiance(character):
     return best if rep[best] >= 30 else None
 
 
+# ── динамический стартовый бонус ────────────────────────────
+
+# Базовые стартовые деньги каждой фракции (до балансировки населённости).
+# У Гильдии больше — это её фирменный бонус за меньшие статы.
+START_MONEY = {
+    "guard": 100,
+    "scavengers": 200,
+    "cult": 100,
+    "order": 100,
+}
+
+# Границы множителя: малочисленная фракция доплачивает новичкам до ×2,
+# перенаселённая урезает выдачу до ×0.5 — так стартовый выбор сам
+# балансирует количество игроков во фракциях.
+START_BONUS_MIN = 0.5
+START_BONUS_MAX = 2.0
+
+
+async def faction_population(session) -> dict:
+    """Сколько героев присягнуло каждой фракции (по стартовому выбору).
+
+    Старые герои без колонки `faction` восстанавливаются по стартовой
+    репутации (allegiance). Герои, не завершившие создание
+    (пустая репутация), никому не принадлежат и не считаются.
+    """
+    counts = {key: 0 for key in FACTIONS}
+    result = await session.execute(
+        select(Character.faction, Character.reputation))
+    for stored, reputation in result.all():
+        key = stored if stored in counts else None
+        if key is None and reputation:
+            try:
+                data = json.loads(reputation)
+            except (ValueError, TypeError):
+                data = {}
+            if data:
+                best = max(data, key=lambda k: data[k])
+                if best in counts and data[best] >= 30:
+                    key = best
+        if key in counts:
+            counts[key] += 1
+    return counts
+
+
+def start_bonus_mult(counts: dict, faction_key) -> float:
+    """Множитель стартовой награды фракции по её населённости.
+
+    Сглаживание по Лапласу (виртуальный житель в каждой фракции): на
+    пустом сервере все множители ровно 1.0; чем фракция меньше среднего,
+    тем жирнее бонус (до START_BONUS_MAX), чем больше — тем скуднее
+    выдача (до START_BONUS_MIN).
+    """
+    total = sum(counts.get(k, 0) for k in FACTIONS)
+    avg = (total + len(FACTIONS)) / len(FACTIONS)
+    mine = counts.get(faction_key, 0) + 1
+    mult = avg / mine if mine else START_BONUS_MAX
+    return max(START_BONUS_MIN, min(START_BONUS_MAX, mult))
+
+
+async def start_bonus(session, faction_key, base: int | None = None) -> dict:
+    """Итог стартовой выдачи фракции: {'base', 'count', 'mult', 'bronze'}.
+
+    Округление до десятков — красивые числа; минимум 10 бронзы, чтобы
+    старт никогда не был совсем пустым.
+    """
+    counts = await faction_population(session)
+    base = base if base is not None else START_MONEY.get(faction_key, 100)
+    mult = start_bonus_mult(counts, faction_key)
+    bronze = max(10, int(round((base * mult) / 10.0)) * 10)
+    return {
+        "base": base,
+        "count": counts.get(faction_key, 0),
+        "mult": mult,
+        "bronze": bronze,
+    }
+
+
 # ── начисление ──────────────────────────────────────────────
 
 def award(character, deed, scale=1):
