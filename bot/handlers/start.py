@@ -139,8 +139,11 @@ async def cmd_start(message: Message):
         if character and await resume_character_creation(message, session, character):
             return
 
-        # Заставка слева от приветствия: если файл не найден или не
-        # загрузился, send_or_edit_photo сама откатится на текст.
+        # Заставка слева от приветствия: берётся из настроек админки
+        # (раздел «🖼 Картинки», там же праздничные темы), запасной
+        # вариант — файл из репозитория. Если файла нет — откат на текст.
+        from core import ui_images
+        welcome_img = await ui_images.get(session, "welcome_ru")
         await send_or_edit_photo(
             message,
             WELCOME_TEXT,
@@ -150,7 +153,7 @@ async def cmd_start(message: Message):
                 is_vip=bool(character and is_vip_active(character)),
                 offline=bool(character and offline_protected(character)),
             ),
-            image_url=START_BANNER_RU,
+            image_url=welcome_img,
         )
 
 

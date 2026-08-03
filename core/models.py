@@ -94,6 +94,10 @@ class CharacterClassDef(Base):
     growth_mp = Column(Integer, default=5)
 
     image_url = Column(String(512), nullable=True)
+    # Портреты героя по фракциям JSON {"guard": "/static/classes/...", ...}:
+    # в профиле подставляется картинка текущей стороны игрока — сторона
+    # по ходу игры может меняться. Редактируется в админке «🖼 Картинки».
+    faction_images = Column(Text, default="")
     is_enabled = Column(Boolean, default=True)
     sort_order = Column(Integer, default=100)
 

@@ -97,6 +97,14 @@ async def _show_profile(callback: CallbackQuery, page: int = 0):
         affinities = await magic.get_affinities(session, character.id)
         extra = await _profile_extra(session, character)
 
+        # Портрет героя — по ТЕКУЩЕЙ стороне игрока (сторона по ходу игры
+        # может меняться): у каждого класса есть портреты всех фракций.
+        from core import factions as core_factions
+        from core.classes import class_image
+        hero_faction = (core_factions.allegiance(character)
+                        or (character.faction or None))
+        portrait = class_image(cls_def, hero_faction) or character.image_url
+
         total = len(PROFILE_PAGES)
         page = max(0, min(page, total - 1))
         extra["allocated"] = statpoints.load_allocated(character)
@@ -115,7 +123,7 @@ async def _show_profile(callback: CallbackQuery, page: int = 0):
             reply_markup=profile_book_keyboard(
                 page, total, [title for _, title in PROFILE_PAGES],
                 free_points=free),
-            image_url=character.image_url,
+            image_url=portrait,
         )
 
 
@@ -131,8 +139,15 @@ async def profile_page(callback: CallbackQuery):
 
 @router.callback_query(F.data == "leaderboard")
 async def leaderboard(callback: CallbackQuery):
-    await safe_edit_text(callback, "🏆 <b>Доска почёта</b>\n\nВыбери категорию:",
+    from core import ui_images
+
+    async with async_session() as session:
+        lb_img = await ui_images.get(session, "leaderboard")
+    await send_or_edit_photo(
+        callback,
+        "🏆 <b>Доска почёта</b>\n\nВыбери категорию:",
         reply_markup=leaderboard_keyboard(),
+        image_url=lb_img,
         parse_mode="HTML",
     )
 
@@ -140,8 +155,11 @@ async def leaderboard(callback: CallbackQuery):
 @router.callback_query(F.data.startswith("lb:"))
 async def leaderboard_view(callback: CallbackQuery):
     from core import factions as core_factions
+    from core import ui_images
 
     sort_by = callback.data.split(":")[1]
+    async with async_session() as session:
+        lb_img = await ui_images.get(session, "leaderboard")
     async with async_session() as session:
         if sort_by == "level":
             result = await session.execute(
@@ -192,8 +210,11 @@ async def leaderboard_view(callback: CallbackQuery):
             icon = ""
         lines.append(f"{medals[idx-1]} {faction_icon}{display} — {val}{icon}")
 
-    await safe_edit_text(callback, "\n".join(lines),
+    await send_or_edit_photo(
+        callback,
+        "\n".join(lines),
         reply_markup=leaderboard_keyboard(),
+        image_url=lb_img,
         parse_mode="HTML",
     )
 
