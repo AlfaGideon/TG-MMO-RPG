@@ -568,8 +568,8 @@ async def cell_transition(callback: CallbackQuery, state: FSMContext):
                 "via": "cell_transition",
                 "is_vip": vip_active(character),
             })
-            except Exception:
-                pass
+        except Exception:
+            pass
 
         await show_cell(callback, character, dest_loc, session, zoom=zoom)
 
