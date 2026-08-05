@@ -5,6 +5,7 @@ from aiogram.types import CallbackQuery, FSInputFile, InputMediaPhoto
 
 from core.assets import local_asset_path
 from core.npc_images import npc_image_url
+from core.mob_images import mob_image_url
 
 
 logger = logging.getLogger(__name__)
@@ -53,6 +54,11 @@ def get_npc_image(npc_name: str | None, npc_type: str | None = None,
     """
     del npc_type
     return npc_image_url(npc_name, location_name)
+
+
+def get_mob_image(mob_name: str | None) -> str:
+    """Путь к стандартному портрету монстра по его имени."""
+    return mob_image_url(mob_name)
 
 
 async def send_or_edit_photo(

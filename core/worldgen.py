@@ -357,10 +357,14 @@ async def link_pair(session, a, b, direction):
         ca.is_passable = True
         ca.tile_type = "road"
         ca.target_location_id, ca.target_x, ca.target_y, ca.target_floor = b.id, *ta, 0
+        ca.name = f"Переход в {b.name}"
+        ca.description = f"Дорога уходит в сторону локации {b.name}."
     if cb:
         cb.is_passable = True
         cb.tile_type = "road"
         cb.target_location_id, cb.target_x, cb.target_y, cb.target_floor = a.id, *tb, 0
+        cb.name = f"Переход в {a.name}"
+        cb.description = f"Дорога уходит в сторону локации {a.name}."
 
     await _carve_single(session, a, direction, mid_a)
     await _carve_single(session, b, OPPOSITE[direction], mid_b)
@@ -526,11 +530,11 @@ async def _carve_to_border(session, loc, direction, gates):
 async def autolink(session, loc):
     """Связывает loc со всеми соседями по мировой карте. Одиночная дверь в центре границы."""
     report = []
+    await unlink_others(session, loc)
     for d in ("n", "e", "s", "w"):
         nb = await neighbor(session, loc, d)
         if not nb:
             continue
-        await unlink_others(session, loc)
         gates = await link_pair(session, loc, nb, d)
         report.append(f"🔗 {DIR_NAMES[d]} ↔ {nb.name} ({gates} дверь)")
     if not report:

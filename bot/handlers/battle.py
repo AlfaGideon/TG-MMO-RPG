@@ -16,7 +16,7 @@ from bot.keyboards.inline import combat_keyboard, continue_keyboard
 from bot.utils.texts import (
     battle_start_text, battle_round_text, victory_text, defeat_text, loot_text,
 )
-from bot.utils.photos import send_or_edit_photo
+from bot.utils.photos import send_or_edit_photo, get_mob_image
 from bot.utils.edit import safe_edit_text
 
 router = Router()
@@ -158,11 +158,12 @@ async def start_cell_battle(callback, character, spawn: MobSpawn, session):
         "damage_taken": 0,
     }
 
+    image_url = mob.image_url or get_mob_image(mob.name)
     await send_or_edit_photo(
         callback,
         battle_start_text(mob, spawn.current_hp),
         reply_markup=combat_keyboard(),
-        image_url=mob.image_url,
+        image_url=image_url,
     )
 
 
@@ -232,6 +233,10 @@ async def _finish_victory(callback, session, character, mob, spawn, state):
     # Моб умирает: место в популяции освобождается, респавн по таймеру
     if spawn:
         await kill_spawn(session, spawn, mob)
+
+    # Задания: продвигаем квесты на убийство
+    from core.quests import advance_hunt
+    await advance_hunt(session, character, mob.name)
 
     await session.commit()
     combat_state.pop(callback.from_user.id, None)
@@ -333,6 +338,7 @@ async def combat_attack(callback: CallbackQuery):
 
         await session.commit()
 
+        image_url = mob.image_url or get_mob_image(mob.name)
         await send_or_edit_photo(
             callback,
             battle_round_text(
@@ -341,7 +347,7 @@ async def combat_attack(callback: CallbackQuery):
                 crit=crit,
             ),
             reply_markup=combat_keyboard(),
-            image_url=mob.image_url,
+            image_url=image_url,
         )
 
 
@@ -386,6 +392,7 @@ async def combat_defend(callback: CallbackQuery):
 
         await session.commit()
 
+    image_url = mob.image_url or get_mob_image(mob.name)
     await send_or_edit_photo(
         callback,
         f"🛡 <b>Ты уходишь в защиту</b>\n\n"
@@ -394,7 +401,7 @@ async def combat_defend(callback: CallbackQuery):
         f"❤️ Ты: {state['character_hp']}/{character.max_hp}\n"
         f"👾 {mob.name}: {state['mob_hp']}",
         reply_markup=combat_keyboard(),
-        image_url=mob.image_url,
+        image_url=image_url,
     )
 
 
@@ -483,6 +490,7 @@ async def combat_skill(callback: CallbackQuery):
     else:
         head = f"✨ <b>Удар силой!</b> (−{cost} MP)"
 
+    image_url = mob.image_url or get_mob_image(mob.name)
     await send_or_edit_photo(
         callback,
         f"{head}\n\n"
@@ -492,7 +500,7 @@ async def combat_skill(callback: CallbackQuery):
         f"💙 MP: {character.current_mp}/{character.max_mp}\n"
         f"👾 {mob.name}: {state['mob_hp']}",
         reply_markup=combat_keyboard(),
-        image_url=mob.image_url,
+        image_url=image_url,
     )
 
 

@@ -12,6 +12,7 @@ def main_menu_keyboard(has_character: bool = False, is_admin: bool = False,
     else:
         builder.button(text="🧙 Профиль", callback_data="profile")
         builder.button(text="🎒 Инвентарь", callback_data="inventory")
+        builder.button(text="📜 Задания", callback_data="quests")
         # Кнопка «В путь» теперь ведет сразу на экран перемещения (стрелки).
         # «Карта» остается для обзора локации.
         builder.button(text="🗺 Карта", callback_data="show_map")
@@ -414,6 +415,15 @@ def merchant_book_keyboard(ware, page: int, total: int, can_buy: bool):
     builder.button(text="◀️ К клетке", callback_data="back_to_cell")
     rows.append(1)
     builder.adjust(*rows)
+    return builder.as_markup()
+
+
+def pvp_select_keyboard(targets: list):
+    builder = InlineKeyboardBuilder()
+    for char in targets:
+        builder.button(text=f"⚔️ {char.name} (ур. {char.level})", callback_data=f"pvp_attack:{char.id}")
+    builder.button(text="◀️ Назад", callback_data="inspect")
+    builder.adjust(1)
     return builder.as_markup()
 
 
