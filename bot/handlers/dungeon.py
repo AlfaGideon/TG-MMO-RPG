@@ -3,7 +3,7 @@ from datetime import datetime
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, FSInputFile
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import selectinload
 
 from core import statpoints
@@ -577,7 +577,7 @@ async def dungeon_combat_attack(callback: CallbackQuery):
                 points_gained += statpoints.perks_for_level(character.level)
                 needed = character.level * 100
             if leveled:
-                character.stat_points = statpoints.free_points(character) + points_gained
+                character.stat_points = (character.stat_points or 0) + points_gained
                 character.current_hp = character.max_hp
                 character.current_mp = character.max_mp
 
@@ -600,8 +600,7 @@ async def dungeon_combat_attack(callback: CallbackQuery):
             )
             if leveled:
                 text += (f"\n\n🎖 <b>Новый уровень: {character.level}!</b>\n"
-                         f"🎯 Получено очков характеристик: <b>+{points_gained}</b> "
-                         f"(свободно: {statpoints.free_points(character)}).\n"
+                         f"🎯 Получено очков характеристик: <b>+{points_gained}</b>.\n"
                          f"<i>Распредели их: 🧙 Профиль → 🎯 Очки характеристик.</i>")
             if loot:
                 text += "\n\n" + loot_text(loot)
@@ -828,6 +827,15 @@ async def show_dungeon_cell(callback, run, session):
         text += "\n🚪 Лестница вниз"
 
     kb = dungeon_movement_keyboard(can_dirs)
-    # Сообщение после карты — фото, а его edit_text редактировать нельзя:
-    # safe_edit_text сам правит подпись фото (карта остаётся) или шлёт новое.
-    await safe_edit_text(callback, text, reply_markup=kb, parse_mode="HTML")
+    
+    # Пытаемся найти подходящую картинку для типа клетки подземелья
+    from core.neutral_tiles import background_for
+    from bot.utils.photos import send_or_edit_photo
+    
+    # DungeonCell не имеет всех полей Cell, но имеет tile_type и name
+    neutral = background_for(current, []) # Передаем пустой список соседей для простоты
+    image_url = None
+    if neutral:
+        image_url, _ = neutral
+        
+    await send_or_edit_photo(callback, text, reply_markup=kb, image_url=image_url)

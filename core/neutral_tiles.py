@@ -13,6 +13,7 @@ TILE_BACKGROUNDS = {
     "swamp": "/static/tiles/swamp.png",
     "water": "/static/tiles/water_shore.png",
     "cave": "/static/tiles/cave_floor.png",
+    "jungle": "/static/tiles/jungle.png",
 }
 
 # Базовые дорожные арты: straight — север↔юг; turn — юг↔восток;
@@ -63,6 +64,22 @@ def road_background(cell, cells) -> tuple[str, int]:
     return ROAD_STRAIGHT, 0
 
 
+def get_time_suffix():
+    """Возвращает суффикс времени суток на основе системного времени."""
+    import datetime
+    hour = datetime.datetime.now().hour
+    if 6 <= hour < 18:
+        return "_day"
+    return "_night"
+
+def get_season_suffix():
+    """Возвращает суффикс сезона на основе месяца."""
+    import datetime
+    month = datetime.datetime.now().month
+    if month in (12, 1, 2):
+        return "_winter"
+    return ""
+
 def background_for(cell, cells) -> tuple[str, int] | None:
     """Вернуть подходящий нейтральный фон клетки или ``None``.
 
@@ -70,7 +87,54 @@ def background_for(cell, cells) -> tuple[str, int] | None:
     и не попадает сюда: ручной фон администратора всегда важнее автоматики.
     """
     tile_type = (getattr(cell, "tile_type", "") or "").lower()
+    time_sfx = get_time_suffix()
+    season_sfx = get_season_suffix()
+    
+    # Приоритет: именной файл -> зима -> день/ночь -> дефолт
+    def get_variant(base_path):
+        from core.assets import local_asset_exists
+        import hashlib
+        ext = ".png"
+        p_base = base_path.replace(ext, "")
+        
+        # 1. Проверяем именной файл (хэш названия)
+        name = getattr(cell, 'name', '')
+        if name:
+            name_hash = hashlib.md5(name.encode()).hexdigest()[:8]
+            named_url = f"/static/tiles/named/{name_hash}{time_sfx}{ext}"
+            if local_asset_exists(named_url):
+                return named_url, 0
+
+        prefix = season_sfx if season_sfx == "_winter" else time_sfx
+        
+        candidates = []
+        # Проверяем наличие пронумерованных вариантов (до 10 штук)
+        for v in range(1, 11):
+            v_url = f"{p_base}{prefix}_{v}{ext}"
+            if local_asset_exists(v_url):
+                candidates.append(v_url)
+        
+        if not candidates:
+            sfx_url = f"{p_base}{prefix}{ext}"
+            if local_asset_exists(sfx_url):
+                candidates.append(sfx_url)
+        
+        if not candidates:
+            candidates.append(base_path)
+            
+        # Используем хэш от названия клетки + ID, чтобы выбор был стабильным,
+        # но зависел от контента клетки (названия).
+        seed_str = f"{getattr(cell, 'name', '')}_{getattr(cell, 'id', 0)}"
+        seed_hash = int(hashlib.md5(seed_str.encode()).hexdigest(), 16)
+        idx = seed_hash % len(candidates)
+        return candidates[idx], 0
+
     if tile_type == "road":
-        return road_background(cell, cells)
+        bg, rot = road_background(cell, cells)
+        return get_variant(bg)
+        
     url = TILE_BACKGROUNDS.get(tile_type)
-    return (url, 0) if url else None
+    if url:
+        return get_variant(url)
+        
+    return None

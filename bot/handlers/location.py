@@ -373,19 +373,30 @@ async def move_direction(callback: CallbackQuery, state: FSMContext):
     dx, dy = DIRECTIONS.get(direction, (0, 0))
 
     async with async_session() as session:
-        # ... (previous code)
+        result = await session.execute(
+            select(User).where(User.telegram_id == callback.from_user.id)
+        )
+        user = result.scalar_one_or_none()
+        if not user:
+            await callback.answer("Ошибка перемещения.", show_alert=True)
+            return
+
+        result = await session.execute(
+            select(Character)
+            .where(Character.user_id == user.id)
+            .options(selectinload(Character.location), selectinload(Character.cell))
+        )
         character = result.scalar_one_or_none()
         if not character or not character.cell:
             await callback.answer("Ошибка перемещения.", show_alert=True)
             return
 
         # Получаем текущий зум из состояния
-        data = await state.get_data()
-        zoom = data.get("map_zoom", DEFAULT_ZOOM)
+        fsm_data = await state.get_data()
+        zoom = fsm_data.get("map_zoom", DEFAULT_ZOOM)
 
         if character.location:
             await _ensure_floor_stairs_present(session, character.location)
-        # ...
 
         current = character.cell
         new_x, new_y = current.x + dx, current.y + dy
@@ -433,6 +444,11 @@ async def move_direction(callback: CallbackQuery, state: FSMContext):
             character.cell_id = dest_cell.id
             character.cell = dest_cell
             await mark_visited(session, character, dest_cell)
+            
+            # Задания: продвигаем квесты на исследование
+            from core.quests import advance_reach
+            await advance_reach(session, character, target.target_location_id)
+
             from core import merchant
             await merchant.maybe_wander(session)
             await session.commit()
@@ -511,8 +527,8 @@ async def cell_transition(callback: CallbackQuery, state: FSMContext):
             return
 
         # Получаем текущий зум из состояния
-        data = await state.get_data()
-        zoom = data.get("map_zoom", DEFAULT_ZOOM)
+        fsm_data = await state.get_data()
+        zoom = fsm_data.get("map_zoom", DEFAULT_ZOOM)
 
         if character.location:
             await _ensure_floor_stairs_present(session, character.location)
@@ -553,6 +569,11 @@ async def cell_transition(callback: CallbackQuery, state: FSMContext):
         character.cell_id = dest_cell.id
         character.cell = dest_cell
         await mark_visited(session, character, dest_cell)
+        
+        # Задания: продвигаем квесты на исследование
+        from core.quests import advance_reach
+        await advance_reach(session, character, current.target_location_id)
+        
         from core import merchant
         await merchant.maybe_wander(session)
         await session.commit()
@@ -601,7 +622,7 @@ async def inspect_cell(callback: CallbackQuery):
         spawn = await spawn_at_cell(session, cell)
         chest_ready = await is_chest_available(session, cell)
 
-        lines = [f"🔍 <b>Осмотр клетки [{cell.x},{cell.y}]</b>\n"]
+        lines = [ f"🔍 <b>Осмотр клетки [{cell.x},{cell.y}]</b>\n" ]
         lines.append(f"<i>{cell.name}</i>\n")
         lines.append(f"{cell.description}\n")
 
@@ -709,8 +730,8 @@ async def _explored_cells(session, character, location_id: int, floor: int):
 
 @router.callback_query(F.data == "show_map")
 async def show_map(callback: CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-    zoom = data.get("map_zoom", DEFAULT_ZOOM)
+    fsm_data = await state.get_data()
+    zoom = fsm_data.get("map_zoom", DEFAULT_ZOOM)
     await _show_map(callback, zoom)
 
 
@@ -968,8 +989,8 @@ async def back_to_cell(callback: CallbackQuery, state: FSMContext):
             )
             character = result.scalar_one_or_none()
         if character and character.cell:
-            data = await state.get_data()
-            zoom = data.get("map_zoom", DEFAULT_ZOOM)
+            fsm_data = await state.get_data()
+            zoom = fsm_data.get("map_zoom", DEFAULT_ZOOM)
             await show_cell(callback, character, character.location, session, zoom=zoom)
             return
 
@@ -1009,6 +1030,18 @@ async def talk_npc(callback: CallbackQuery):
             builder.button(text="🔨 Ремесло и заточка", callback_data="craft_menu")
         if cell.npc_type == "auctioneer":
             builder.button(text="⚖️ Аукцион", callback_data="auction_menu")
+            
+        # Задания у NPC
+        from core.quests import available_quests, active_quests, check_deliver
+        avail = await available_quests(session, character, npc_name=cell.npc_name)
+        for q in avail:
+            builder.button(text=f"📜 Взять: {q.name[:20]}", callback_data=f"q_take:{q.id}")
+            
+        active = await active_quests(session, character)
+        for cq in active:
+            if cq.quest.npc_name == cell.npc_name and await check_deliver(session, character, cq):
+                builder.button(text=f"✅ Сдать: {cq.quest.name[:20]}", callback_data=f"q_finish:{cq.quest.id}")
+
         builder.button(text="◀️ Назад", callback_data="back_to_cell")
         builder.adjust(1)
 
@@ -1022,9 +1055,21 @@ async def talk_npc(callback: CallbackQuery):
                 character.location.name if character.location else None,
             )
 
+        from core import factions as core_factions
+        if core_factions.refuses(character, cell.npc_name, cell.npc_type):
+            await callback.answer(
+                f"😠 {cell.npc_name} даже не смотрит в твою сторону. "
+                f"Твои поступки против {core_factions.FACTIONS[core_factions.npc_faction(cell.npc_name)][1]} "
+                f"не остались незамеченными.", show_alert=True
+            )
+            return
+
+        dialogue = cell.npc_dialogue or "Мне нечего тебе сказать."
+        greeting_text = core_factions.greeting(character, cell.npc_name, cell.npc_type)
+
         await send_or_edit_photo(
             callback,
-            f"💬 <b>{cell.npc_name}</b>\n\n<i>{cell.npc_dialogue}</i>",
+            f"💬 <b>{cell.npc_name}</b>\n\n<i>{dialogue}</i>{greeting_text}",
             reply_markup=builder.as_markup(),
             image_url=image_url,
         )
@@ -1192,6 +1237,7 @@ async def show_cell(callback, character, location, session,
     # Своя картинка клетки (например, портрет NPC) всегда важнее автоматики.
     # Фон всей локации оставляем резервом: обычные клетки получают более
     # читаемую нейтральную сцену по своему типу/форме дороги.
+    # Для больших локаций (замки 25x25) нейтральные фоны не генерируем.
     custom_img = (cell.image_url or "").strip()
     if custom_img and get_photo_input(custom_img):
         await send_or_edit_photo(
@@ -1204,26 +1250,33 @@ async def show_cell(callback, character, location, session,
         )
         return
 
-    cells, visited = await _explored_cells(
-        session, character, location.id, character.floor or 0)
-    neutral = background_for(cell, cells)
-    if neutral:
-        background_url, rotation = neutral
-        scene_path = get_neutral_scene_path(
-            character.id, location.id, character.floor or 0, cell.id)
-        render_cell_image(
-            cell, cells, cell.x, cell.y, scene_path,
-            background_url=background_url, background_rotation=rotation,
+    is_castle_loc = bool(location.grid_size and location.grid_size > 15)
+    cells_list = []
+    if not is_castle_loc:
+        result_cells = await session.execute(
+            select(Cell)
+            .where(Cell.location_id == location.id)
+            .where(Cell.floor == (character.floor or 0))
         )
-        await send_or_edit_photo(
-            callback, text,
-            reply_markup=cell_movement_keyboard(
-                can_dirs, portal_template_id, dir_labels, transition_label,
-                is_vip=vip, has_merchant=has_merchant,
-                is_castle_basement=is_basement),
-            image_url=scene_path,
-        )
-        return
+        cells_list = result_cells.scalars().all()
+        neutral = background_for(cell, cells_list)
+        if neutral:
+            background_url, rotation = neutral
+            scene_path = get_neutral_scene_path(
+                character.id, location.id, character.floor or 0, cell.id)
+            render_cell_image(
+                cell, cells_list, cell.x, cell.y, scene_path,
+                background_url=background_url, background_rotation=rotation,
+            )
+            await send_or_edit_photo(
+                callback, text,
+                reply_markup=cell_movement_keyboard(
+                    can_dirs, portal_template_id, dir_labels, transition_label,
+                    is_vip=vip, has_merchant=has_merchant,
+                    is_castle_basement=is_basement),
+                image_url=scene_path,
+            )
+            return
 
     # Редкие типы без нейтрального арта используют заданный фон локации;
     # иначе остаётся знакомая карта с туманом войны и масштабом.
@@ -1240,6 +1293,8 @@ async def show_cell(callback, character, location, session,
 
     img_path = get_player_map_path(character.id, location.id,
                                    character.floor or 0, zoom)
+    cells, visited = await _explored_cells(
+        session, character, location.id, character.floor or 0)
     render_player_map(
         cells, visited, cell.x, cell.y, location.grid_size, img_path,
         zoom_radius=zoom_radius_for(location.grid_size, zoom),
