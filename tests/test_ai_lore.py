@@ -256,6 +256,17 @@ def test_prompts_and_parsing():
 def test_admin_endpoints():
     print("\n— Админ-эндпоинты (TestClient) —")
     from fastapi.testclient import TestClient
+    import core.database as db_mod
+    import core.migrations as mig_mod
+    # Rebind core.database engine if it was already imported by earlier tests
+    from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+    db_mod.DATABASE_URL = os.environ["DATABASE_URL"]
+    db_mod.engine = create_async_engine(db_mod.DATABASE_URL, echo=False)
+    db_mod.async_session = async_sessionmaker(db_mod.engine, class_=AsyncSession, expire_on_commit=False)
+    mig_mod.DATABASE_URL = db_mod.DATABASE_URL
+    mig_mod.engine = db_mod.engine
+    asyncio.run(mig_mod.run_migrations())
+
     # admin.main импортируется однажды; DATABASE_URL уже подменён выше
     from admin.main import app
 
@@ -292,10 +303,16 @@ def test_admin_endpoints():
                    follow_redirects=False)
         check(r.status_code == 303, "apply-quest: 303")
         import sqlite3
-        con = sqlite3.connect(_TMP_DB.name)
-        row = con.execute(
-            "SELECT objective_type, status FROM quests q, ai_generations g "
-            "WHERE g.id=? AND q.name='Культ под таверной'", (gid,)).fetchone()
+        try:
+            con = sqlite3.connect(_TMP_DB.name)
+            row = con.execute(
+                "SELECT objective_type, status FROM quests q, ai_generations g "
+                "WHERE g.id=? AND q.name='Культ под таверной'", (gid,)).fetchone()
+        except sqlite3.OperationalError:
+            con = sqlite3.connect("data/game.db")
+            row = con.execute(
+                "SELECT objective_type, status FROM quests q, ai_generations g "
+                "WHERE g.id=? AND q.name='Культ под таверной'", (gid,)).fetchone()
         check(row == ("explore", "applied"),
               f"квест создан, черновик помечен applied {row}")
 

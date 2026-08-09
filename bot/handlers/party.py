@@ -178,6 +178,7 @@ async def party_menu(callback: CallbackQuery):
             )).scalars().all()
 
             lines.append(f"👥 <b>Пати: {party.name}</b> · состав {len(members)}/{MAX_SIZE}\n")
+            role_titles = {"tank": "🛡 Танк", "dps": "⚔️ DPS", "support": "🧙 Саппорт"}
             for m in members:
                 crown = "👑 " if m.id == party.leader_id else ""
                 near = (
@@ -186,11 +187,17 @@ async def party_menu(callback: CallbackQuery):
                     and m.location_id == character.location_id
                     and (m.floor or 0) == (character.floor or 0)
                 )
+                m_role = role_titles.get(getattr(m, "party_role", "dps"), "⚔️ DPS")
                 lines.append(
-                    f"{crown}{_faction_badge(m)}{m.name} (ур. {m.level})"
+                    f"{crown}{_faction_badge(m)}{m.name} (ур. {m.level}) — {m_role}"
                     + (" · 📍 рядом" if near else "")
                 )
             is_leader = party.leader_id == character.id
+
+            builder.button(text="🥋 Сменить боевую роль (Танк/DPS/Саппорт)", callback_data="party_role_menu")
+            rows.append(1)
+            builder.button(text="🕯 Совершить обряд союза (+15% опыт)", callback_data="party_ritual")
+            rows.append(1)
 
             if is_leader and len(members) < MAX_SIZE:
                 builder.button(text="🔍 Найти и позвать", callback_data="party_search")
@@ -592,16 +599,24 @@ async def party_leave(callback: CallbackQuery):
         character.party_id = None
         await session.commit()
 
-        # If leader leaves, disband or transfer
-        if party and party.leader_id == character.id:
+        # If leader leaves, disband or transfer; if no members remain, delete party
+        if party:
             result = await session.execute(
                 select(Character).where(Character.party_id == party.id)
             )
             remaining = result.scalars().all()
-            if remaining:
-                party.leader_id = remaining[0].id
-            else:
-                # Висящие заявки распущенной пати закрываем, не оставляя трупов.
+            if party.leader_id == character.id:
+                if remaining:
+                    party.leader_id = remaining[0].id
+                else:
+                    await session.execute(
+                        update(PartyInvite)
+                        .where(PartyInvite.party_id == party.id)
+                        .where(PartyInvite.status == "pending")
+                        .values(status="cancelled")
+                    )
+                    await session.delete(party)
+            elif not remaining:
                 await session.execute(
                     update(PartyInvite)
                     .where(PartyInvite.party_id == party.id)
@@ -613,3 +628,51 @@ async def party_leave(callback: CallbackQuery):
 
     await callback.answer("Ты покинул пати.")
     await party_menu(callback)
+
+
+# ── БОЕВЫЕ РОЛИ И ОБРЯДЫ СОЮЗА ──────────────────────────────
+
+@router.callback_query(F.data == "party_role_menu")
+async def party_role_menu_callback(callback: CallbackQuery):
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🛡 Авангард (Танк) — держит удар, +25% брони", callback_data="party_set_role:tank")
+    builder.button(text="⚔️ Фланговый (DPS) — +30% урон, +10% крит", callback_data="party_set_role:dps")
+    builder.button(text="🧙 Тыл (Саппорт) — исцеляет союзников каждый ход", callback_data="party_set_role:support")
+    builder.button(text="◀️ Назад в пати", callback_data="party_menu")
+    builder.adjust(1)
+    await safe_edit_text(
+        callback,
+        "🥋 <b>Выбор тактической роли в отряде</b>\n\nРаспределение ролей даёт мощные синергии в совместных боях!",
+        reply_markup=builder.as_markup(),
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data.startswith("party_set_role:"))
+async def party_set_role_callback(callback: CallbackQuery):
+    role = callback.data.split(":")[1]
+    async with async_session() as session:
+        user, character = await _me(session, callback.from_user.id)
+        if character:
+            character.party_role = role
+            await session.commit()
+    role_titles = {"tank": "🛡 Танк", "dps": "⚔️ DPS", "support": "🧙 Саппорт"}
+    await callback.answer(f"Твоя роль изменена на: {role_titles.get(role, role)}!", show_alert=True)
+    await party_menu(callback)
+
+
+@router.callback_query(F.data == "party_ritual")
+async def party_ritual_callback(callback: CallbackQuery):
+    from datetime import datetime, timedelta, timezone
+    async with async_session() as session:
+        user, character = await _me(session, callback.from_user.id)
+        if not character or not character.party_id:
+            await callback.answer("Ты не в пати.", show_alert=True)
+            return
+
+        character.ritual_blessing_until = datetime.now(timezone.utc) + timedelta(hours=2)
+        await session.commit()
+
+    await callback.answer("🕯 Обряд союза завершён! Вы получили благословение «Священный союз» (+15% опыт на 2 часа)!", show_alert=True)
+    await party_menu(callback)
+

@@ -124,11 +124,13 @@ def _generate_dungeon(run_id: int, seed: int, floor: int, template=None):
                 mob_defense=random.randint(1, 4) + floor,
                 mob_gold=random.randint(5, 20) + floor * 5,
                 mob_exp=random.randint(10, 30) + floor * 10,
-                has_chest=(not is_wall and random.random() < cfg["chest_chance"]),
-                chest_gold=random.randint(10, 40) + floor * 10,
-                has_exit=(x == 0 and y == 0),
-            )
-            cells.append(cell)
+            has_chest=(not is_wall and random.random() < cfg["chest_chance"]),
+            chest_gold=random.randint(10, 40) + floor * 10,
+            has_exit=(x == 0 and y == 0),
+            has_altar=(not is_wall and random.random() < 0.05 and (x, y) != (spawn_x, spawn_y) and (x, y) != (0, 0)),
+            altar_type=random.choice(["abyssal", "blood", "insight"]),
+        )
+        cells.append(cell)
     return cells
 
 
@@ -287,6 +289,10 @@ async def _enter_dungeon(callback: CallbackQuery, template_id: int):
             await callback.answer("Портал уже закрылся для новых искателей.", show_alert=True)
             return
 
+        import json
+        from core import dungeons as core_dungeons
+        affs = core_dungeons.roll_affixes(2)
+
         seed = random.randint(1, 1000000)
         run = DungeonRun(
             character_id=character.id,
@@ -294,6 +300,9 @@ async def _enter_dungeon(callback: CallbackQuery, template_id: int):
             seed=seed,
             floor=1,
             is_active=True,
+            affixes_json=json.dumps(affs),
+            is_endless=True,
+            deepest_floor=1,
         )
         session.add(run)
         await session.flush()
@@ -617,8 +626,16 @@ async def dungeon_combat_attack(callback: CallbackQuery):
         if state["char_hp"] <= 0:
             character.current_hp = 1
             # Паритет с боем на поверхности и с браузерным стеком: смерть
-            # в подземелье — это рана и надгробие с частью добра, а не
-            # просто «едва унёс ноги» без последствий.
+            # в подземелье — это рана, закрытие забега и надгробие с частью добра.
+            result_run = await session.execute(
+                select(DungeonRun)
+                .where(DungeonRun.character_id == character.id)
+                .where(DungeonRun.is_active == True)  # noqa: E712
+            )
+            active_run = result_run.scalar_one_or_none()
+            if active_run:
+                active_run.is_active = False
+                active_run.completed_at = datetime.utcnow()
             from bot.handlers.battle import _lose_bag
             note = await _lose_bag(session, character)
             await session.commit()
@@ -674,6 +691,26 @@ async def dungeon_open_chest(callback: CallbackQuery):
 
         if not current.has_chest:
             await callback.answer("Здесь нет сундука.", show_alert=True)
+            return
+
+        if current.is_mimic:
+            current.has_chest = False
+            current.is_mimic = False
+            current.has_mob = True
+            current.mob_name = "Монстр-Мимик"
+            current.mob_level = run.floor + 2
+            current.mob_hp = 60 + run.floor * 20
+            current.mob_damage = 10 + run.floor * 3
+            current.mob_defense = 4 + run.floor
+            current.mob_gold = (current.chest_gold or 20) * 2
+            current.mob_exp = 50 + run.floor * 25
+            await session.commit()
+            await safe_edit_text(
+                callback,
+                "😱 <b>СУНДУК ОЖИЛ! ЭТО МИМИК!</b>\n\nИз крышки сундука показались острые клыки и длинный фиолетовый язык! Враг готов к броску!",
+                reply_markup=dungeon_movement_keyboard(await _get_can_dirs(session, run, current)),
+                parse_mode="HTML"
+            )
             return
 
         from engine.currency import add_currency, CONVERSION
@@ -824,10 +861,149 @@ async def show_dungeon_cell(callback, run, session):
         text += f"\n👾 {current.mob_name} (ур. {current.mob_level})"
     if current.has_chest:
         text += "\n📦 Сундук поблизости"
+    if current.has_altar:
+        text += "\n🕯 <b>Осквернённый алтарь искушения</b>"
     if current.has_exit:
-        text += "\n🚪 Лестница вниз"
+        text += "\n🚪 Лестница вниз на следующий этаж"
 
-    kb = dungeon_movement_keyboard(can_dirs)
-    # Сообщение после карты — фото, а его edit_text редактировать нельзя:
-    # safe_edit_text сам правит подпись фото (карта остаётся) или шлёт новое.
+    from bot.keyboards.inline import dungeon_movement_keyboard, altar_keyboard, endless_stair_keyboard, trap_keyboard, captive_keyboard
+    if current.has_trap and not current.has_mob:
+        text += f"\n⚠️ <b>Осторожно: механическая ловушка!</b>"
+        kb = trap_keyboard(current.id)
+    elif current.has_captive and not current.has_mob:
+        text += f"\n🕊 <b>В клетке сидит {current.captive_name or 'пленник'}!</b>"
+        kb = captive_keyboard(current.id)
+    elif current.has_altar and not current.has_mob:
+        kb = altar_keyboard(run.id, current.altar_type or "abyssal")
+    elif current.has_exit and not current.has_mob:
+        kb = endless_stair_keyboard(run.id, run.floor + 1)
+    else:
+        kb = dungeon_movement_keyboard(can_dirs)
+
     await safe_edit_text(callback, text, reply_markup=kb, parse_mode="HTML")
+
+
+@router.callback_query(F.data.startswith("dungeon_disarm:"))
+async def dungeon_disarm_callback(callback: CallbackQuery):
+    cell_id = int(callback.data.split(":")[1])
+    async with async_session() as session:
+        user = (await session.execute(
+            select(User).where(User.telegram_id == callback.from_user.id)
+        )).scalar_one_or_none()
+        character = (await session.execute(
+            select(Character).where(Character.user_id == user.id)
+        )).scalar_one_or_none() if user else None
+        cell = await session.get(DungeonCell, cell_id)
+        if not character or not cell:
+            await callback.answer("Ошибка.", show_alert=True)
+            return
+
+        # Ловкость помогает обезвредить
+        success = random.random() < min(0.90, 0.40 + (character.agility or 10) * 0.02)
+        cell.has_trap = False
+        from engine.currency import add_currency
+        if success:
+            add_currency(character, bronze=50)
+            character.experience = (character.experience or 0) + 40
+            msg = "🛠 <b>Ловушка успешно обезврежена!</b>\n\nТы извлёк ценные пружины и механизм (+50🟤, +40⭐ опыта)!"
+        else:
+            dmg = random.randint(10, 25)
+            character.current_hp = max(1, (character.current_hp or 100) - dmg)
+            msg = f"💥 <b>ЩЁЛК! Ловушка сработала!</b>\n\nШипы нанесли тебе {dmg} урона!"
+        await session.commit()
+
+    await safe_edit_text(callback, msg, reply_markup=continue_keyboard(), parse_mode="HTML")
+
+
+@router.callback_query(F.data.startswith("dungeon_free:"))
+async def dungeon_free_callback(callback: CallbackQuery):
+    cell_id = int(callback.data.split(":")[1])
+    async with async_session() as session:
+        user = (await session.execute(
+            select(User).where(User.telegram_id == callback.from_user.id)
+        )).scalar_one_or_none()
+        character = (await session.execute(
+            select(Character).where(Character.user_id == user.id)
+        )).scalar_one_or_none() if user else None
+        cell = await session.get(DungeonCell, cell_id)
+        if not character or not cell:
+            await callback.answer("Ошибка.", show_alert=True)
+            return
+
+        name = cell.captive_name or "Пленник"
+        cell.has_captive = False
+
+        from engine.currency import add_currency
+        add_currency(character, bronze=100)
+        character.experience = (character.experience or 0) + 100
+        from core import factions as core_factions
+        core_factions.award(character, "undead_slain", scale=2)
+        await session.commit()
+
+    await safe_edit_text(
+        callback,
+        f"🕊 <b>{name} спасён!</b>\n\n"
+        "— Спасибо тебе, благородный путник! Я выберусь наружу по твоим следам!\n\n"
+        f"Награда: +100🟤 | +100⭐ опыта | +Репутация фракции",
+        reply_markup=continue_keyboard(),
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data.startswith("dungeon_altar:"))
+async def dungeon_altar_callback(callback: CallbackQuery):
+    parts = callback.data.split(":")
+    run_id, altar_type = int(parts[1]), parts[2]
+    async with async_session() as session:
+        user = (await session.execute(
+            select(User).where(User.telegram_id == callback.from_user.id)
+        )).scalar_one_or_none()
+        character = (await session.execute(
+            select(Character).where(Character.user_id == user.id)
+        )).scalar_one_or_none() if user else None
+        run = await session.get(DungeonRun, run_id)
+        if not character or not run:
+            await callback.answer("Ошибка.", show_alert=True)
+            return
+
+        from core import dungeons as core_dungeons
+        res = await core_dungeons.use_corrupted_altar(session, character, run, altar_type)
+        current = await _current_cell(session, run)
+        if current:
+            current.has_altar = False
+        await session.commit()
+
+    await safe_edit_text(
+        callback,
+        f"<b>{res['title']}</b>\n\n{res['desc']}",
+        reply_markup=continue_keyboard(),
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data.startswith("dungeon_dive:"))
+async def dungeon_dive_callback(callback: CallbackQuery):
+    run_id = int(callback.data.split(":")[1])
+    async with async_session() as session:
+        user = (await session.execute(
+            select(User).where(User.telegram_id == callback.from_user.id)
+        )).scalar_one_or_none()
+        character = (await session.execute(
+            select(Character).where(Character.user_id == user.id)
+        )).scalar_one_or_none() if user else None
+        run = await session.get(DungeonRun, run_id)
+        if not character or not run or not run.is_active:
+            await callback.answer("Забег завершён.", show_alert=True)
+            return
+
+        # Переход на следующий этаж
+        run.floor += 1
+        run.deepest_floor = max(run.deepest_floor or 1, run.floor)
+        template = await _get_template(session, run)
+        new_cells = _generate_dungeon(run.id, run.seed, run.floor, template)
+        for c in new_cells:
+            session.add(c)
+        await session.commit()
+
+        await show_dungeon_cell(callback, run, session)
+

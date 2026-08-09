@@ -75,13 +75,46 @@ async def _sync_missing_columns(conn, tables: set) -> list:
     return added
 
 
+async def _sync_missing_columns_postgres(conn, tables: set) -> list:
+    """Добирает в существующие таблицы PostgreSQL недостающие колонки из моделей."""
+    from sqlalchemy.dialects import postgresql
+    added = []
+    for table_name, table in Base.metadata.tables.items():
+        if table_name not in tables:
+            continue
+        result = await conn.execute(text(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = :tname"
+        ), {"tname": table_name})
+        existing = {row[0] for row in result.fetchall()}
+        for column in table.columns:
+            if column.name in existing:
+                continue
+            try:
+                col_type = column.type.compile(dialect=postgresql.dialect())
+            except Exception:
+                col_type = "TEXT"
+            ddl = f'ALTER TABLE "{table_name}" ADD COLUMN IF NOT EXISTS "{column.name}" {col_type}'
+            literal = _default_literal(column)
+            if literal is not None:
+                ddl += f" DEFAULT {literal}"
+            await conn.execute(text(ddl))
+            added.append(f"{table_name}.{column.name}")
+    return added
+
+
 async def run_migrations():
-    """Simple migration runner for SQLite."""
+    """Simple migration runner for SQLite and PostgreSQL."""
     if not DATABASE_URL.startswith("sqlite"):
-        # На Postgres таблицы как минимум должны существовать (колонками
-        # там тоже управляет create_all на свежих базах).
+        # На Postgres создаём новые таблицы и добираем недостающие колонки
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            res = await conn.execute(text(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema='public'"
+            ))
+            tables = {row[0] for row in res.fetchall()}
+            added = await _sync_missing_columns_postgres(conn, tables)
+            if added:
+                logger.info("Postgres auto-migrated columns: %s", ", ".join(added))
         return
 
     async with engine.begin() as conn:

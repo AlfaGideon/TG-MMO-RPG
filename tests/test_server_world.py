@@ -216,12 +216,13 @@ async def run():
         check(abs(share1 - 0.8) < 0.01, f"вклад лидера {share1:.0%}")
         check(share1 > share2, "вклад считается по каждому")
 
-        gold1, gold2 = ch.gold, ch2.gold
+        from engine.currency import total_in_bronze
+        gold1, gold2 = total_in_bronze(ch), total_in_bronze(ch2)
         await core_events.hit_boss(s, ch, boss.hp)
         await s.commit()
         check(not boss.is_active, "босс повержен")
-        check(ch.gold > gold1 and ch2.gold > gold2, "награду получили оба")
-        check(ch.gold - gold1 > ch2.gold - gold2, "лидер получил больше")
+        check(total_in_bronze(ch) > gold1 and total_in_bronze(ch2) > gold2, "награду получили оба")
+        check(total_in_bronze(ch) - gold1 > total_in_bronze(ch2) - gold2, "лидер получил больше")
 
     print("\n— Надгробия —")
     maker = await make_session()

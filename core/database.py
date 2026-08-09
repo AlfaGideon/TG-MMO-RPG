@@ -4,6 +4,9 @@ from sqlalchemy.orm import declarative_base
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./data/game.db")
 
+if DATABASE_URL.startswith("sqlite") and "/data/" in DATABASE_URL:
+    os.makedirs("./data", exist_ok=True)
+
 # Fix Render.com postgres:// prefix
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)

@@ -287,6 +287,34 @@ class Character(Base):
     # engine.factions.FACTIONS). По ней считается населённость фракций для
     # динамического стартового бонуса и значок в топе игроков.
     faction = Column(String(20), nullable=True)
+    # Питомцы-фамильяры и Колизей
+    familiar_type = Column(String(32), nullable=True)  # "crow", "firefly", "hound"
+    familiar_level = Column(Integer, default=1)
+    familiar_name = Column(String(64), default="")
+    arena_rating = Column(Integer, default=1000)
+    gladiator_tokens = Column(Integer, default=0)
+    soul_ash = Column(Integer, default=0)  # Прах предков для призрачного торговца
+
+    # Тактические роли отряда, наставничество и алтарные ритуалы
+    party_role = Column(String(16), default="dps")  # "tank", "dps", "support"
+    mentor_character_id = Column(Integer, ForeignKey("characters.id"), nullable=True)
+    honor_points = Column(Integer, default=0)
+    ritual_blessing_until = Column(DateTime(timezone=True), nullable=True)
+
+    # Подклассы, созвездия талантов, карма, титулы и перерождение
+    subclass = Column(String(32), nullable=True)  # "berserker", "paladin", "archmage", "necromancer", "assassin", "tracker"
+    talent_points = Column(Integer, default=0)
+    talents_json = Column(Text, default="[]")
+    karma_score = Column(Integer, default=0)  # −500 (Осквернитель) .. +500 (Благочестивый)
+    unlocked_titles_json = Column(Text, default="[]")
+    active_title = Column(String(64), nullable=True)
+    rebirth_count = Column(Integer, default=0)
+
+    # Бестиарий и Археология
+    bestiary_kills_json = Column(Text, default="{}")
+    relic_fragments = Column(Integer, default=0)
+    treasure_map_coord = Column(String(32), nullable=True)  # "loc:3:x:5:y:5"
+
     # Очки характеристик: свободные (выдаются с уровнями) и аудит вложенных
     # в JSON {"strength": 2, ...}. Базовые стартовые статы неизменны —
     # игрок распределяет и перераспределяет только вложенные очки.
@@ -354,6 +382,8 @@ class Location(Base):
     # World map coordinates for seamless world (0..9 by default, world is 10x10 locations of 10x10 cells = 100x100)
     world_x = Column(Integer, default=0)
     world_y = Column(Integer, default=0)
+    # Геополитическое влияние фракций: {"guard": 35, "scavengers": 20, "cult": 15, "order": 30}
+    influence_json = Column(Text, default="{}")
 
     cells = relationship("Cell", back_populates="location", foreign_keys="Cell.location_id", cascade="all, delete-orphan")
     mobs = relationship("Mob", back_populates="location")
@@ -371,6 +401,7 @@ class Cell(Base):
     description = Column(Text, default="")
     image_url = Column(String(512), nullable=True)
     is_passable = Column(Boolean, default=True)
+    is_illusory_wall = Column(Boolean, default=False)  # Скрытый иллюзорный проход
 
     tile_type = Column(String(32), default="grass")
 
@@ -491,6 +522,11 @@ class Item(Base):
     # Школа магии, которую усиливает предмет (для посохов, амулетов и т.п.)
     magic_school = Column(String(16), nullable=True)
     magic_power = Column(Integer, default=0)
+
+    # Гнёзда под руны и рунические слова
+    socket_1 = Column(String(32), nullable=True)  # "rune_fire", "rune_iron", "rune_void", "rune_light"
+    socket_2 = Column(String(32), nullable=True)
+    runeword = Column(String(64), nullable=True)  # "Пламенная сталь", "Взор Бездны", "Благословение Рассвета"
 
     BONUS_FIELDS = (
         "bonus_strength", "bonus_agility", "bonus_intelligence",
@@ -811,6 +847,9 @@ class MobSpawn(Base):
     last_move_at = Column(DateTime(timezone=True), nullable=True)
     # Кто сейчас в бою с этим мобом (чтобы моб не ушёл посреди боя)
     engaged_by_id = Column(Integer, ForeignKey("characters.id"), nullable=True)
+    # Охота за головами: сколько героев сразил этот моб и титул убийцы
+    kill_count = Column(Integer, default=0)
+    bounty_title = Column(String(64), nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -939,6 +978,10 @@ class DungeonRun(Base):
     seed = Column(Integer, default=0)
     floor = Column(Integer, default=1)
     is_active = Column(Boolean, default=True)
+    affixes_json = Column(Text, default="[]")  # ["ash", "bloodlust", "gold_vein", "elemental_surge"]
+    is_endless = Column(Boolean, default=False)
+    deepest_floor = Column(Integer, default=1)
+    altar_boon = Column(String(64), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     completed_at = Column(DateTime(timezone=True), nullable=True)
 
@@ -970,8 +1013,54 @@ class DungeonCell(Base):
     chest_gold = Column(Integer, default=0)
     has_exit = Column(Boolean, default=False)
     is_visited = Column(Boolean, default=False)
+    has_altar = Column(Boolean, default=False)
+    altar_type = Column(String(32), nullable=True)  # "abyssal", "blood", "insight"
+    has_trap = Column(Boolean, default=False)
+    trap_type = Column(String(32), nullable=True)  # "spikes", "poison_darts", "mana_drain"
+    has_captive = Column(Boolean, default=False)
+    captive_name = Column(String(64), nullable=True)
+    captive_type = Column(String(32), nullable=True)  # "alchemist", "blacksmith", "monk"
+    is_mimic = Column(Boolean, default=False)
 
     run = relationship("DungeonRun", back_populates="cells")
+
+
+class CraftOrder(Base):
+    """Публичные ремесленные заказы игроков."""
+    __tablename__ = "craft_orders"
+
+    id = Column(Integer, primary_key=True)
+    creator_character_id = Column(Integer, ForeignKey("characters.id"), nullable=False, index=True)
+    recipe_id = Column(Integer, ForeignKey("craft_recipes.id"), nullable=False, index=True)
+    reward_bronze = Column(Integer, default=500)
+    status = Column(String(32), default="open", index=True)  # "open", "completed", "cancelled"
+    completed_by_character_id = Column(Integer, ForeignKey("characters.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+    creator = relationship("Character", foreign_keys=[creator_character_id])
+    recipe = relationship("CraftRecipe")
+    completed_by = relationship("Character", foreign_keys=[completed_by_character_id])
+
+
+class CharacterShadow(Base):
+    """Слепок тени героя для асинхронных дуэлей на Арене Колизея."""
+    __tablename__ = "character_shadows"
+
+    id = Column(Integer, primary_key=True)
+    character_id = Column(Integer, ForeignKey("characters.id"), unique=True, nullable=False)
+    name = Column(String(64), nullable=False)
+    character_class = Column(String(32), default="warrior")
+    level = Column(Integer, default=1)
+    gear_score = Column(Integer, default=100)
+    max_hp = Column(Integer, default=100)
+    damage = Column(Integer, default=15)
+    defense = Column(Integer, default=5)
+    faction = Column(String(32), default="guard")
+    arena_rating = Column(Integer, default=1000)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    character = relationship("Character")
 
 
 class AdminMessage(Base):
@@ -1150,3 +1239,85 @@ class UILayout(Base):
     # JSON список слотов: [{"name": "helmet", "x": 10, "y": 10, "size": 80}, ...]
     slots_json = Column(Text, default="[]")
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class FactionOutpost(Base):
+    """Пограничный аванпост / сторожевая башня, за которую воюют фракции."""
+    __tablename__ = "faction_outposts"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(64), nullable=False)
+    location_id = Column(Integer, ForeignKey("locations.id"), nullable=False, index=True)
+    cell_id = Column(Integer, ForeignKey("cells.id"), nullable=False, index=True)
+    controlling_faction = Column(String(32), nullable=True, index=True)  # "guard", "scavengers", "cult", "order"
+    defense_hp = Column(Integer, default=500)
+    max_defense_hp = Column(Integer, default=500)
+    bonus_type = Column(String(32), default="defense")  # "defense", "auction", "magic", "exp"
+    last_captured_at = Column(DateTime(timezone=True), nullable=True)
+
+    location = relationship("Location")
+    cell = relationship("Cell")
+
+
+class FactionDecree(Base):
+    """Казна фракции и активные указы лидера."""
+    __tablename__ = "faction_decrees"
+
+    id = Column(Integer, primary_key=True)
+    faction = Column(String(32), unique=True, nullable=False, index=True)
+    treasury_bronze = Column(Integer, default=0)
+    active_decree = Column(String(32), default="none")  # "militarization", "trade_boom", "citadel", "knowledge"
+    active_until = Column(DateTime(timezone=True), nullable=True)
+    enacted_by_character_id = Column(Integer, ForeignKey("characters.id"), nullable=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class TownInvestment(Base):
+    """Инвестиции игроков в торговые лавки поселений."""
+    __tablename__ = "town_investments"
+
+    id = Column(Integer, primary_key=True)
+    location_id = Column(Integer, ForeignKey("locations.id"), nullable=False, index=True)
+    character_id = Column(Integer, ForeignKey("characters.id"), nullable=False, index=True)
+    invested_bronze = Column(Integer, default=0)
+    earned_dividends = Column(Integer, default=0)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    location = relationship("Location")
+    character = relationship("Character")
+
+
+class PawnLoan(Base):
+    """Залоговые ссуды и ломбард у ростовщика."""
+    __tablename__ = "pawn_loans"
+
+    id = Column(Integer, primary_key=True)
+    character_id = Column(Integer, ForeignKey("characters.id"), nullable=False, index=True)
+    instance_id = Column(Integer, ForeignKey("item_instances.id"), nullable=False, unique=True)
+    item_id = Column(Integer, ForeignKey("items.id"), nullable=False)
+    loan_bronze = Column(Integer, nullable=False)
+    buyback_price = Column(Integer, nullable=False)
+    is_redeemed = Column(Boolean, default=False)
+    is_liquidated = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+
+    character = relationship("Character")
+    instance = relationship("ItemInstance")
+    item = relationship("Item")
+
+
+class ServerRecord(Base):
+    """Исторические подвиги сервера (Server Firsts / Hall of Legends)."""
+    __tablename__ = "server_records"
+
+    id = Column(Integer, primary_key=True)
+    record_key = Column(String(64), unique=True, nullable=False, index=True)
+    title = Column(String(128), nullable=False)
+    holder_character_name = Column(String(64), nullable=False)
+    holder_character_id = Column(Integer, ForeignKey("characters.id"), nullable=True)
+    detail = Column(Text, default="")
+    achieved_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    holder = relationship("Character")
+

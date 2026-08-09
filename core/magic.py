@@ -159,3 +159,54 @@ def spell_bonus(affinities, character_intelligence: int) -> int:
     if best is None:
         return 0
     return int(round(character_intelligence * 0.35 * grade_multiplier(best.grade)))
+
+
+# ── ЭЛЕМЕНТАЛЬНЫЕ РЕАКЦИИ И КОМБО-МАГИЯ ─────────────────────
+
+REACTIONS = {
+    frozenset(["fire", "nature"]): {
+        "name": "🔥🌿 Воспламенение спор",
+        "mult": 1.45,
+        "effect": "burn",
+        "desc": "Взрыв растительных спор: мощный периодический урон огнём!",
+    },
+    frozenset(["ice", "storm"]): {
+        "name": "❄️⚡ Сверхпроводимость",
+        "mult": 1.50,
+        "effect": "broken_armor",
+        "desc": "Ледяная корка трескается от молнии: броня врага расколота!",
+    },
+    frozenset(["light", "dark"]): {
+        "name": "✨🌑 Аннигиляция Бездны",
+        "mult": 1.60,
+        "effect": "pure_damage",
+        "desc": "Столкновение света и тьмы: чистый урон, игнорирующий броню!",
+    },
+    frozenset(["fire", "ice"]): {
+        "name": "🔥❄️ Термоудар",
+        "mult": 1.35,
+        "effect": "burst",
+        "desc": "Резкий перепад температур разрывает плоть врага!",
+    },
+    frozenset(["storm", "nature"]): {
+        "name": "⚡🌿 Электролиз корней",
+        "mult": 1.30,
+        "effect": "stun",
+        "desc": "Заряженные соки парализуют противника на 1 ход!",
+    },
+    frozenset(["storm", "fire"]): {
+        "name": "⚡🔥 Плазменный разряд",
+        "mult": 1.45,
+        "effect": "burn",
+        "desc": "Ионизированное пламя прожигает врага насквозь!",
+    },
+}
+
+
+def trigger_elemental_reaction(primer_school: str | None, trigger_school: str | None) -> dict | None:
+    """Проверяет синергию двух стихий и возвращает параметры комбо-реакции."""
+    if not primer_school or not trigger_school or primer_school == trigger_school:
+        return None
+    pair = frozenset([primer_school, trigger_school])
+    return REACTIONS.get(pair)
+

@@ -1412,6 +1412,16 @@ async def _delete_player(session, char: Character):
         .values(engaged_by_id=None)
     )
     # Зависимости персонажа.
+    char_instances_res = await session.execute(
+        select(ItemInstance.id).where(ItemInstance.owner_character_id == cid)
+    )
+    char_inst_ids = [row[0] for row in char_instances_res.all()]
+    if char_inst_ids:
+        await session.execute(delete(ItemHistory).where(ItemHistory.instance_id.in_(char_inst_ids)))
+        await session.execute(delete(InventoryItem).where(InventoryItem.instance_id.in_(char_inst_ids)))
+        await session.execute(delete(AuctionLot).where(AuctionLot.instance_id.in_(char_inst_ids)))
+        await session.execute(delete(ItemInstance).where(ItemInstance.id.in_(char_inst_ids)))
+
     await session.execute(delete(InventoryItem).where(InventoryItem.character_id == cid))
     await session.execute(delete(ItemInstance).where(ItemInstance.owner_character_id == cid))
     await session.execute(delete(ItemHistory).where(ItemHistory.character_id == cid))
@@ -3322,7 +3332,6 @@ async def quest_edit(
     return RedirectResponse(url="/editor/quests", status_code=303)
 
 
-@app.post("/editor/quests/{quest_id}/delete")
 @app.post("/editor/quests/{quest_id}/clone")
 async def quest_clone(request: Request, quest_id: int):
     guard(request, "manage_content")
@@ -3979,7 +3988,6 @@ async def class_edit(
     return RedirectResponse(url="/editor/classes", status_code=303)
 
 
-@app.post("/editor/classes/{class_id}/delete")
 @app.post("/editor/classes/{class_id}/clone")
 async def class_clone(request: Request, class_id: int):
     guard(request, "manage_content")

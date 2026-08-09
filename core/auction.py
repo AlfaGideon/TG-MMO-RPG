@@ -66,7 +66,8 @@ async def _claim_lot(session, lot: AuctionLot, new_status: str) -> bool:
 
 def suggested_price(instance: ItemInstance, item: Item) -> int:
     """Ориентир цены: базовая стоимость с учётом качества и заточки."""
-    base = instance_price(instance, item.price or 10)
+    price_base = (item.price if item else 10) or 10
+    base = instance_price(instance, price_base)
     # За «намоленность» — вещь с историей ценится чуть выше
     base = int(base * (1 + 0.05 * min(5, instance.trade_count or 0)))
     if instance.is_one_of_a_kind:
