@@ -256,7 +256,9 @@ async def _reward_boss(session, ev):
         ch = await session.get(Character, r.character_id)
         if ch is None:
             continue
-        ch.gold += max(10, int(b.get("hp", 1000) * share * 0.5))
+        from engine.currency import add_currency
+        reward_bronze = max(10, int(b.get("hp", 1000) * share * 0.5))
+        add_currency(ch, bronze=reward_bronze)
         ch.experience += max(10, int(b.get("hp", 1000) * share * 0.8))
         from core import factions as core_factions
         core_factions.award(ch, "boss_slain")
@@ -292,3 +294,64 @@ async def sweep(session):
     if done:
         await session.flush()
     return done
+
+
+# ── ОСАДЫ ЦИТАДЕЛЕЙ И КАРАВАНЫ ─────────────────────────────
+
+async def active_sieges(session, location_id=None):
+    """Активные осады замков."""
+    await sweep(session)
+    q = select(WorldEvent).where(WorldEvent.kind == "siege") \
+                          .where(WorldEvent.is_active == True)
+    if location_id is not None:
+        q = q.where(WorldEvent.location_id == location_id)
+    result = await session.execute(q)
+    return result.scalars().all()
+
+
+async def start_siege(session, castle_location_id: int, attacking_faction: str, hp: int = 3000, hours: float = 4.0):
+    """Начать осаду цитадели вражеской фракцией."""
+    ev = WorldEvent(
+        kind="siege",
+        key=f"siege_{attacking_faction}",
+        location_id=castle_location_id,
+        is_global=False,
+        hp=hp,
+        max_hp=hp,
+        phase=0,
+        until=_now() + timedelta(hours=hours),
+        is_active=True,
+    )
+    session.add(ev)
+    await session.flush()
+    return ev
+
+
+async def active_caravans(session, location_id=None):
+    """Активные торговые караваны."""
+    await sweep(session)
+    q = select(WorldEvent).where(WorldEvent.kind == "caravan") \
+                          .where(WorldEvent.is_active == True)
+    if location_id is not None:
+        q = q.where(WorldEvent.location_id == location_id)
+    result = await session.execute(q)
+    return result.scalars().all()
+
+
+async def spawn_caravan(session, location_id: int, hours: float = 6.0):
+    """Появление контрабандного каравана на тракте."""
+    ev = WorldEvent(
+        kind="caravan",
+        key="contraband_caravan",
+        location_id=location_id,
+        is_global=False,
+        hp=500,
+        max_hp=500,
+        phase=0,
+        until=_now() + timedelta(hours=hours),
+        is_active=True,
+    )
+    session.add(ev)
+    await session.flush()
+    return ev
+

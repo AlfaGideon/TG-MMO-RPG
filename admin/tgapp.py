@@ -132,7 +132,7 @@ def validate_init_data(init_data: str, bot_token: str, now: int | None = None):
     except ValueError:
         return None
     now = int(time.time()) if now is None else now
-    if auth_date <= 0 or now - auth_date > MAX_AUTH_AGE:
+    if auth_date <= 0 or now - auth_date > MAX_AUTH_AGE or auth_date > now + 300:
         return None
 
     user_raw = pairs.get("user")

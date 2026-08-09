@@ -254,7 +254,7 @@ def greeting(character, npc_name: str, npc_type: str = "") -> str:
 def card_text(character) -> str:
     """Экран репутации для бота."""
     rep = load(character)
-    lines = ["🧭 <b>Репутация</b>", ""]
+    lines = ["🧭 <b>Репутация и Геополитика</b>", ""]
     for key in ORDER:
         icon, name, motto, _foe = FACTIONS[key]
         points = rep.get(key, 0)
@@ -274,3 +274,325 @@ def card_text(character) -> str:
         lines.append(f"💵 Скидка в лавке: <b>{int(disc * 100)}%</b>")
     lines.append("\n<i>Помощь одной силе злит противоположную — выбирай.</i>")
     return "\n".join(lines)
+
+
+# ── ВЛИЯНИЕ ФРАКЦИЙ НА ЛОКАЦИИ (INFLUENCE MAP) ───────────────
+
+def get_location_influence(location) -> dict:
+    """Распределение очков контроля фракций в локации."""
+    raw = getattr(location, "influence_json", "") or ""
+    try:
+        data = json.loads(raw) if raw else {}
+    except (ValueError, TypeError):
+        data = {}
+    return {k: int(data.get(k, 25)) for k in ORDER}
+
+
+def save_location_influence(location, influence: dict) -> None:
+    location.influence_json = json.dumps(
+        {k: int(v) for k, v in influence.items() if k in ORDER},
+        ensure_ascii=False
+    )
+
+
+async def add_location_influence(session, location, faction_key: str, points: int = 5) -> dict:
+    """Увеличивает влияние фракции в регионе за совершённые подвиги."""
+    if not faction_key or faction_key not in ORDER or location is None:
+        return {}
+    inf = get_location_influence(location)
+    inf[faction_key] = inf.get(faction_key, 0) + points
+    save_location_influence(location, inf)
+    await session.flush()
+    return inf
+
+
+def get_dominant_faction(location) -> tuple[str | None, int]:
+    """Определяет доминирующую фракцию и процент её контроля."""
+    inf = get_location_influence(location)
+    total = sum(inf.values()) or 1
+    best_faction = max(inf, key=lambda k: inf[k])
+    pct = int((inf[best_faction] / total) * 100)
+    if pct <= 28:
+        return None, pct  # Паритет сил
+    return best_faction, pct
+
+
+def location_influence_text(location) -> str:
+    """Текстовая полоса геополитического контроля для экрана локации."""
+    inf = get_location_influence(location)
+    total = sum(inf.values()) or 1
+    parts = []
+    for k in ORDER:
+        pct = int((inf[k] / total) * 100)
+        icon = FACTIONS[k][0]
+        parts.append(f"{icon} {pct}%")
+    dom, dom_pct = get_dominant_faction(location)
+    dom_str = f"👑 Контроль: <b>{FACTIONS[dom][1]}</b> ({dom_pct}%)" if dom else "⚖️ Баланс сил"
+    return f"{dom_str}\n" + " | ".join(parts)
+
+
+from datetime import datetime, timedelta, timezone
+from core.models import FactionOutpost, FactionDecree, Cell
+
+
+def _now():
+    return datetime.now(timezone.utc)
+
+
+def _aware(dt):
+    if dt is None:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+async def get_outposts(session) -> list[FactionOutpost]:
+    """Список всех пограничных аванпостов мира."""
+    result = await session.execute(
+        select(FactionOutpost).order_by(FactionOutpost.id)
+    )
+    return result.scalars().all()
+
+
+async def get_outpost_at_cell(session, cell_id: int) -> FactionOutpost | None:
+    """Аванпост на конкретной клетке мира."""
+    result = await session.execute(
+        select(FactionOutpost).where(FactionOutpost.cell_id == cell_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def faction_outpost_bonuses(session, faction_key: str) -> dict:
+    """Глобальные бонусы, которые фракция получает от захваченных аванпостов."""
+    if not faction_key:
+        return {"outposts_count": 0, "damage_pct": 0, "defense_pct": 0, "exp_pct": 0, "gold_pct": 0}
+
+    result = await session.execute(
+        select(FactionOutpost).where(FactionOutpost.controlling_faction == faction_key)
+    )
+    outposts = result.scalars().all()
+    count = len(outposts)
+    return {
+        "outposts_count": count,
+        "damage_pct": count * 5,    # +5% урона за каждый удерживаемый форт
+        "defense_pct": count * 4,   # +4% защиты за форт
+        "exp_pct": count * 6,       # +6% опыта за форт
+        "gold_pct": count * 5,      # +5% золота за форт
+    }
+
+
+async def attack_outpost(session, character, outpost: FactionOutpost, damage: int) -> dict:
+    """Атака аванпоста для ослабления и перехвата контроля."""
+    my_f = allegiance(character)
+    if not my_f:
+        return {"ok": False, "reason": "Чтобы захватывать аванпосты, присягни одной из фракций!"}
+    if outpost.controlling_faction == my_f:
+        # Ремонт своего аванпоста
+        heal = min(outpost.max_defense_hp - outpost.defense_hp, max(10, damage))
+        if heal <= 0:
+            return {"ok": False, "reason": "Аванпост твоей фракции уже укреплён на максимум!"}
+        outpost.defense_hp += heal
+        await session.flush()
+        return {"ok": True, "repaired": True, "amount": heal, "current": outpost.defense_hp}
+
+    # Нанесение урона укреплениям вражеского аванпоста
+    dmg = max(5, damage)
+    outpost.defense_hp -= dmg
+    captured = False
+    if outpost.defense_hp <= 0:
+        outpost.controlling_faction = my_f
+        outpost.defense_hp = outpost.max_defense_hp // 2
+        outpost.last_captured_at = _now()
+        captured = True
+        award(character, "boss_slain", scale=1.5)  # Большая награда за взятие крепости
+
+    await session.flush()
+    return {
+        "ok": True,
+        "captured": captured,
+        "damage": dmg,
+        "remaining_hp": max(0, outpost.defense_hp),
+        "faction": my_f,
+    }
+
+
+# ── КАЗНА ФРАКЦИИ И УКАЗЫ ЛИДЕРА ────────────────────────────
+
+DECREES = {
+    "militarization": {
+        "name": "⚔️ Милитаризация",
+        "desc": "+15% к урону всей фракции во всех битвах",
+        "cost": 1000,
+        "damage_mult": 1.15,
+        "defense_mult": 1.0,
+        "gold_mult": 1.0,
+        "exp_mult": 1.0,
+    },
+    "trade_boom": {
+        "name": "💰 Торговый бум",
+        "desc": "+20% золота и трофеев со всех побед и сундуков",
+        "cost": 1200,
+        "damage_mult": 1.0,
+        "defense_mult": 1.0,
+        "gold_mult": 1.20,
+        "exp_mult": 1.0,
+    },
+    "citadel": {
+        "name": "🛡 Неприступная цитадель",
+        "desc": "+15% к броне и защите от ран",
+        "cost": 1000,
+        "damage_mult": 1.0,
+        "defense_mult": 1.15,
+        "gold_mult": 1.0,
+        "exp_mult": 1.0,
+    },
+    "knowledge": {
+        "name": "🔮 Тайные знания",
+        "desc": "+25% к опыту при исследовании мира и битвах",
+        "cost": 1500,
+        "damage_mult": 1.0,
+        "defense_mult": 1.0,
+        "gold_mult": 1.0,
+        "exp_mult": 1.25,
+    },
+}
+
+
+async def get_or_create_decree(session, faction_key: str) -> FactionDecree:
+    result = await session.execute(
+        select(FactionDecree).where(FactionDecree.faction == faction_key)
+    )
+    dec = result.scalar_one_or_none()
+    if dec is None:
+        dec = FactionDecree(faction=faction_key, treasury_bronze=500, active_decree="none")
+        session.add(dec)
+        await session.flush()
+    return dec
+
+
+async def active_decree_bonuses(session, faction_key: str) -> dict:
+    """Множители от активного указа лидера фракции."""
+    if not faction_key:
+        return {"damage_mult": 1.0, "defense_mult": 1.0, "gold_mult": 1.0, "exp_mult": 1.0, "name": "Нет"}
+    dec = await get_or_create_decree(session, faction_key)
+    if not dec.active_decree or dec.active_decree == "none":
+        return {"damage_mult": 1.0, "defense_mult": 1.0, "gold_mult": 1.0, "exp_mult": 1.0, "name": "Нет"}
+
+    until = _aware(dec.active_until)
+    if until and _now() > until:
+        dec.active_decree = "none"
+        await session.flush()
+        return {"damage_mult": 1.0, "defense_mult": 1.0, "gold_mult": 1.0, "exp_mult": 1.0, "name": "Истёк"}
+
+    row = DECREES.get(dec.active_decree, {})
+    return {
+        "damage_mult": row.get("damage_mult", 1.0),
+        "defense_mult": row.get("defense_mult", 1.0),
+        "gold_mult": row.get("gold_mult", 1.0),
+        "exp_mult": row.get("exp_mult", 1.0),
+        "name": row.get("name", dec.active_decree),
+    }
+
+
+async def donate_treasury(session, character, faction_key: str, bronze: int) -> dict:
+    """Пожертвование в казну фракции."""
+    from engine.currency import total_in_bronze, deduct_currency
+    if bronze <= 0:
+        return {"ok": False, "reason": "Сумма должна быть больше нуля."}
+    if total_in_bronze(character) < bronze:
+        return {"ok": False, "reason": f"Не хватает {bronze - total_in_bronze(character)}🟤."}
+
+    deduct_currency(character, bronze)
+    dec = await get_or_create_decree(session, faction_key)
+    dec.treasury_bronze = (dec.treasury_bronze or 0) + bronze
+
+    # Награда репутацией за щедрость
+    award(character, "undead_slain", scale=max(1, bronze // 100))
+    await session.flush()
+    return {"ok": True, "donated": bronze, "treasury": dec.treasury_bronze}
+
+
+async def enact_decree(session, character, faction_key: str, decree_key: str, hours: int = 12) -> dict:
+    """Лидер издаёт указ, расходуя казну."""
+    if decree_key not in DECREES:
+        return {"ok": False, "reason": "Неизвестный указ."}
+    dec = await get_or_create_decree(session, faction_key)
+    cost = DECREES[decree_key]["cost"]
+    if (dec.treasury_bronze or 0) < cost:
+        return {"ok": False, "reason": f"В казне не хватает средств! Нужно {cost}🟤, есть {dec.treasury_bronze or 0}🟤."}
+
+    dec.treasury_bronze -= cost
+    dec.active_decree = decree_key
+    dec.active_until = _now() + timedelta(hours=hours)
+    dec.enacted_by_character_id = character.id
+    await session.flush()
+    return {"ok": True, "decree": DECREES[decree_key]["name"], "until": dec.active_until}
+
+
+# ── ДИВЕРСИИ И ШПИОНАЖ В ПОДКОПАХ ───────────────────────────
+
+async def sabotage_tunnel(session, character, target_location_id: int, sabotage_type: str) -> dict:
+    """Проведение диверсии в подвалах вражеского замка."""
+    from engine.currency import add_currency
+    my_f = allegiance(character)
+    if not my_f:
+        return {"ok": False, "reason": "Для диверсий требуется принадлежность к фракции!"}
+
+    if sabotage_type == "poison_supplies":
+        award(character, "grave_looted", scale=2)
+        add_currency(character, bronze=150)
+        return {
+            "ok": True,
+            "title": "☠️ Яд в колодцах",
+            "desc": "Ты скрытно отравил запасы провианта вражеского замка! Получено +150🟤 и уважение соратников.",
+        }
+    elif sabotage_type == "scout_alarm":
+        award(character, "undead_slain", scale=2)
+        add_currency(character, bronze=100)
+        return {
+            "ok": True,
+            "title": "🔔 Сигнальные растяжки",
+            "desc": "Ты установил скрытые ловушки и сигнальные колокольчики в тоннеле! Получено +100🟤.",
+        }
+    elif sabotage_type == "disrupt_forge":
+        award(character, "boss_slain", scale=1)
+        add_currency(character, bronze=200)
+        return {
+            "ok": True,
+            "title": "🔨 Порча наковален",
+            "desc": "Ты вывел из строя кузнечные меха врага и унёс ценные заготовки! Получено +200🟤.",
+        }
+    return {"ok": False, "reason": "Неизвестный тип диверсии."}
+
+
+# ── КОНТРАБАНДНЫЕ КАРАВАНЫ ──────────────────────────────────
+
+async def caravan_action(session, character, caravan_event, action: str) -> dict:
+    """Сопровождение или нападение на торговый караван."""
+    from engine.currency import add_currency
+    my_f = allegiance(character)
+    if action == "escort":
+        # Стража / Орден защищают
+        gold = 250
+        exp = 300
+        add_currency(character, bronze=gold)
+        character.experience = (character.experience or 0) + exp
+        award(character, "undead_slain", scale=3)
+        return {
+            "ok": True,
+            "title": "🛡 Обоз успешно сопровождён",
+            "desc": f"Ты отбил нападение разбойников и доставил купцов в целости!\nНаграда: +{gold}🟤 | +{exp}⭐ опыта.",
+        }
+    elif action == "ambush":
+        # Падальщики / Культ грабят
+        gold = 400
+        exp = 150
+        add_currency(character, bronze=gold)
+        character.experience = (character.experience or 0) + exp
+        award(character, "grave_looted", scale=3)
+        return {
+            "ok": True,
+            "title": "⚔️ Караван разграблен",
+            "desc": f"Ты перебил охрану каравана и вскрыл сундуки с контрабандой!\nДобыча: +{gold}🟤 | +{exp}⭐ опыта.",
+        }
+    return {"ok": False, "reason": "Неизвестное действие с караваном."}
+

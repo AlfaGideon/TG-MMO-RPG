@@ -86,6 +86,10 @@ async def reputation(callback: CallbackQuery):
             if leader_char:
                 leader_name = leader_char.name
 
+        # Decrees and Outposts summary
+        dec_info = await core_factions.active_decree_bonuses(session, my_faction)
+        outpost_info = await core_factions.faction_outpost_bonuses(session, my_faction)
+
         text = core_factions.card_text(character)
 
         from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -93,10 +97,14 @@ async def reputation(callback: CallbackQuery):
 
         if my_faction:
             text += f"\n\n👑 <b>Лидер твоей фракции:</b> {leader_name}"
+            text += f"\n📜 <b>Активный указ:</b> {dec_info['name']}"
+            text += f"\n🏰 <b>Удерживаемых аванпостов:</b> {outpost_info['outposts_count']} (+{outpost_info['damage_pct']}% атака, +{outpost_info['exp_pct']}% опыт)"
             is_leader = (leader_id == character.id)
             if is_leader:
                 text += " <i>(Ты являешься лидером этой фракции! 👑)</i>"
-            elif my_rep >= 300:
+
+            builder.button(text="🏛 Казна и Указы фракции", callback_data=f"faction_treasury:{my_faction}")
+            if not is_leader and my_rep >= 300:
                 builder.button(text="👑 Стать лидером фракции (50k🟤)", callback_data=f"become_leader:{my_faction}")
 
         builder.button(text="◀️ Назад", callback_data="main_menu")
@@ -108,6 +116,87 @@ async def reputation(callback: CallbackQuery):
         reply_markup=builder.as_markup(),
         parse_mode="HTML",
     )
+
+
+@router.callback_query(F.data.startswith("faction_treasury:"))
+async def faction_treasury_menu(callback: CallbackQuery):
+    faction_key = callback.data.split(":")[1]
+    async with async_session() as session:
+        character = await _character(session, callback.from_user.id)
+        if not character:
+            await callback.answer("Ошибка.", show_alert=True)
+            return
+
+        from core import factions as core_factions
+        from core.models import AppSetting
+        dec = await core_factions.get_or_create_decree(session, faction_key)
+        leader_row = await session.scalar(
+            select(AppSetting).where(AppSetting.key == f"faction_leader_{faction_key}")
+        )
+        is_leader = (leader_row and leader_row.value and int(leader_row.value) == character.id)
+
+        from bot.keyboards.inline import faction_treasury_keyboard
+        active_dec = core_factions.DECREES.get(dec.active_decree, {}).get("name", "Нет")
+        until_str = dec.active_until.strftime("%d.%m %H:%M") if dec.active_until else "—"
+
+        text = (
+            f"🏛 <b>Казна и Совет фракции: {core_factions.FACTIONS[faction_key][1]}</b>\n\n"
+            f"💰 В казне фракции: <b>{dec.treasury_bronze or 0}🟤</b>\n"
+            f"📜 Текущий указ: <b>{active_dec}</b> (до {until_str})\n\n"
+            f"<i>Пожертвования пополняют общую казну и повышают репутацию. "
+            f"Лидер фракции может издавать указы, усиливающие всех соратников на 12 часов.</i>"
+        )
+
+    await safe_edit_text(
+        callback,
+        text,
+        reply_markup=faction_treasury_keyboard(faction_key, is_leader=is_leader),
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data.startswith("treasury_donate:"))
+async def treasury_donate_callback(callback: CallbackQuery):
+    parts = callback.data.split(":")
+    faction_key, amount = parts[1], int(parts[2])
+    async with async_session() as session:
+        character = await _character(session, callback.from_user.id)
+        if not character:
+            await callback.answer("Ошибка.", show_alert=True)
+            return
+
+        from core import factions as core_factions
+        res = await core_factions.donate_treasury(session, character, faction_key, amount)
+        await session.commit()
+
+    if not res["ok"]:
+        await callback.answer(res["reason"], show_alert=True)
+        return
+
+    await callback.answer(f"💰 Ты пожертвовал {amount}🟤 в казну фракции! (В казне: {res['treasury']}🟤)", show_alert=True)
+    await faction_treasury_menu(callback)
+
+
+@router.callback_query(F.data.startswith("decree_enact:"))
+async def decree_enact_callback(callback: CallbackQuery):
+    parts = callback.data.split(":")
+    faction_key, dec_key = parts[1], parts[2]
+    async with async_session() as session:
+        character = await _character(session, callback.from_user.id)
+        if not character:
+            await callback.answer("Ошибка.", show_alert=True)
+            return
+
+        from core import factions as core_factions
+        res = await core_factions.enact_decree(session, character, faction_key, dec_key)
+        await session.commit()
+
+    if not res["ok"]:
+        await callback.answer(res["reason"], show_alert=True)
+        return
+
+    await callback.answer(f"📜 Указ «{res['decree']}» успешно издан для всей фракции!", show_alert=True)
+    await faction_treasury_menu(callback)
 
 
 @router.callback_query(F.data.startswith("become_leader:"))
@@ -287,12 +376,12 @@ async def boss_hit(callback: CallbackQuery):
             await callback.answer(f"Нужен {b['level']} уровень.", show_alert=True)
             return
 
-        dealt = max(1, character.strength * 2 + random.randint(0, 10)
+        dealt = max(1, (character.strength or 0) * 2 + random.randint(0, 10)
                     - b["defense"])
         left, phased = await core_events.hit_boss(session, character, dealt)
         back = max(0, int(b["damage"] * random.uniform(0.5, 1.0))
-                   - character.endurance // 3)
-        character.current_hp = max(1, character.current_hp - back)
+                   - (character.endurance or 0) // 3)
+        character.current_hp = max(1, (character.current_hp or 1) - back)
         await session.commit()
 
     if left <= 0:
@@ -305,3 +394,73 @@ async def boss_hit(callback: CallbackQuery):
         return
     await callback.answer(f"Ты нанёс {dealt}. Получил {back}. Осталось {left}.")
     await world_boss(callback)
+
+
+# ── КОЛИЗЕЙ ТЕНЕЙ (АСИНХРОННЫЙ PVP) ─────────────────────────
+
+@router.callback_query(F.data == "arena_menu")
+async def arena_menu_handler(callback: CallbackQuery):
+    async with async_session() as session:
+        character = await _character(session, callback.from_user.id)
+        if not character:
+            await callback.answer("Сначала создай персонажа!", show_alert=True)
+            return
+
+        from core import arena as core_arena
+        from bot.keyboards.inline import arena_menu_keyboard
+
+        await core_arena.update_character_shadow(session, character)
+        opponents = await core_arena.get_shadow_opponents(session, character, limit=4)
+        await session.commit()
+
+        rating = character.arena_rating or 1000
+        tokens = character.gladiator_tokens or 0
+
+        text = (
+            f"⚔️ <b>Колизей Теней</b>\n\n"
+            f"Здесь бродят астральные слепки других героев. Брось вызов их теням, чтобы доказать превосходство!\n\n"
+            f"🏆 Твой рейтинг Арены: <b>{rating}</b>\n"
+            f"🩸 Кровавых жетонов: <b>{tokens}</b>\n\n"
+            f"<i>Выбери соперника для дуэли:</i>"
+        )
+
+    await safe_edit_text(
+        callback,
+        text,
+        reply_markup=arena_menu_keyboard(opponents, rating, tokens),
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data.startswith("arena_duel:"))
+async def arena_duel_handler(callback: CallbackQuery):
+    shadow_id = int(callback.data.split(":")[1])
+    async with async_session() as session:
+        character = await _character(session, callback.from_user.id)
+        from core.models import CharacterShadow
+        shadow = await session.get(CharacterShadow, shadow_id)
+        if not character or not shadow:
+            await callback.answer("Соперник не найден.", show_alert=True)
+            return
+
+        from core import arena as core_arena
+        res = await core_arena.duel_shadow(session, character, shadow)
+        await session.commit()
+
+    title = "🏆 <b>ПОБЕДА НА АРЕНЕ!</b>" if res["victory"] else "💀 <b>ПОРАЖЕНИЕ НА АРЕНЕ</b>"
+    log_text = "\n".join(res["log"][-4:])
+    sign = "+" if res["rating_change"] > 0 else ""
+    reward_text = f"\n\nРейтинг: {sign}{res['rating_change']} (Итог: {res['new_rating']} 🏆)\nНаграда: +{res['tokens']} 🩸 Кровавых жетонов"
+
+    builder = InlineKeyboardBuilder()
+    builder.button(text="⚔️ К списку дуэлей", callback_data="arena_menu")
+    builder.button(text="◀️ Меню", callback_data="main_menu")
+    builder.adjust(1)
+
+    await safe_edit_text(
+        callback,
+        f"{title}\n\n{log_text}{reward_text}",
+        reply_markup=builder.as_markup(),
+        parse_mode="HTML"
+    )
+

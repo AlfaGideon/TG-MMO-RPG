@@ -21,6 +21,7 @@ from bot.keyboards.inline import (
     main_menu_keyboard, map_view_keyboard,
     world_map_keyboard,
     travel_keyboard, continue_keyboard,
+    outpost_keyboard, caravan_keyboard, sabotage_menu_keyboard,
 )
 from bot.utils.texts import location_text, cell_text, loot_text, format_floor_label
 from bot.utils.photos import (
@@ -664,6 +665,29 @@ async def inspect_cell(callback: CallbackQuery):
                 names_list.append(f"{f_icon} <b>{oc.name}</b> (ур. {oc.level})")
             found.append("👥 <b>Другие герои здесь:</b>\n" + ", ".join(names_list))
 
+        # Аванпосты фракций
+        from core import factions as core_factions
+        from core import worldevents as core_worldevents
+        outpost = await core_factions.get_outpost_at_cell(session, cell.id)
+        has_outpost = outpost is not None
+        if outpost:
+            ctrl = core_factions.FACTIONS.get(outpost.controlling_faction, ("", "Нейтральный"))[1]
+            found.append(f"🏰 <b>{outpost.name}</b>\n   Контроль: <b>{ctrl}</b> | Защита: {outpost.defense_hp}/{outpost.max_defense_hp}")
+
+        # Караваны и осады
+        caravans = await core_worldevents.active_caravans(session, cell.location_id)
+        has_caravan = len(caravans) > 0
+        if has_caravan:
+            found.append("🐫 <b>На тракте замечен торговый караван!</b>")
+
+        sieges = await core_worldevents.active_sieges(session, cell.location_id)
+        has_siege = len(sieges) > 0
+        if has_siege:
+            found.append("🔥 <b>Врата замка осаждены вражеской армией!</b>")
+
+        has_water = (cell.tile_type == "water")
+        has_forest = (cell.tile_type in ("forest", "swamp"))
+
         if found:
             lines.append("\n" + "\n".join(found))
         else:
@@ -679,6 +703,11 @@ async def inspect_cell(callback: CallbackQuery):
                 has_landmark=has_landmark,
                 has_grave=grave is not None,
                 has_players=has_others,
+                has_outpost=has_outpost,
+                has_caravan=has_caravan,
+                has_siege=has_siege,
+                has_water=has_water,
+                has_forest=has_forest,
             ),
             parse_mode="HTML",
         )
@@ -1312,7 +1341,7 @@ async def dig_tunnel_menu(callback: CallbackQuery):
             "к замкам соседних враждебных фракций, чтобы устраивать неожиданные рейды и диверсии!\n\n"
             "Копать можно к двум соседним замкам (по кругу вражды). Диагональный союзник неприкосновен.\n\n"
             "<b>Стоимость прокопки:</b>\n"
-            "• 🧱 Железный лом ×10\n"
+            "• 🧱 Ржавый лом ×10\n"
             "• 🧱 Стальной слиток ×5\n"
             "• 🟤 500 бронзы (авторазмен)\n\n"
             "<b>Доступные направления:</b>\n"
@@ -1370,17 +1399,30 @@ async def dig_to_callback(callback: CallbackQuery):
         loc = character.location
 
         from core.crafting import _count_material, _consume_material
+        from core.models import Item
         from engine.currency import total_in_bronze, deduct_currency
 
-        iron_have = await _count_material(session, character.id, 0)
-        steel_have = await _count_material(session, character.id, 3)
+        iron_item_res = await session.execute(
+            select(Item).where(Item.name.in_(["Ржавый лом", "Железный лом"]))
+        )
+        iron_item = iron_item_res.scalars().first()
+        steel_item_res = await session.execute(
+            select(Item).where(Item.name == "Стальной слиток")
+        )
+        steel_item = steel_item_res.scalars().first()
+
+        iron_id = iron_item.id if iron_item else 0
+        steel_id = steel_item.id if steel_item else 0
+
+        iron_have = await _count_material(session, character.id, iron_id) if iron_id else 0
+        steel_have = await _count_material(session, character.id, steel_id) if steel_id else 0
         gold_have = total_in_bronze(character)
 
         if iron_have < 10 or steel_have < 5 or gold_have < 500:
             await callback.answer(
                 f"Недостаточно ресурсов!\n"
                 f"Требуется:\n"
-                f"• Железный лом: {iron_have}/10\n"
+                f"• {iron_item.name if iron_item else 'Ржавый лом'}: {iron_have}/10\n"
                 f"• Стальной слиток: {steel_have}/5\n"
                 f"• Бронза: {gold_have}/500",
                 show_alert=True
@@ -1425,8 +1467,10 @@ async def dig_to_callback(callback: CallbackQuery):
         landing_a = await _nearby_landing_cell(session, cell_a) or cell_a
         landing_b = await _nearby_landing_cell(session, cell_b) or cell_b
 
-        await _consume_material(session, character.id, 0, 10)
-        await _consume_material(session, character.id, 3, 5)
+        if iron_id:
+            await _consume_material(session, character.id, iron_id, 10)
+        if steel_id:
+            await _consume_material(session, character.id, steel_id, 5)
         deduct_currency(character, 500)
 
         cell_a.target_location_id = target_loc.id
@@ -1447,3 +1491,329 @@ async def dig_to_callback(callback: CallbackQuery):
 
     await callback.answer("Подкоп успешно прокопан! Проход открыт!", show_alert=True)
     await dig_tunnel_menu(callback)
+
+
+# ── ОБРАБОТЧИКИ АВАНПОСТОВ И КАРАВАНОВ ──────────────────────
+
+@router.callback_query(F.data == "outpost_menu")
+async def outpost_menu(callback: CallbackQuery):
+    async with async_session() as session:
+        character = await session.execute(
+            select(Character).join(User).where(User.telegram_id == callback.from_user.id)
+        )
+        char = character.scalar_one_or_none()
+        if not char or not char.cell_id:
+            await callback.answer("Персонаж не найден.", show_alert=True)
+            return
+
+        from core import factions as core_factions
+        outpost = await core_factions.get_outpost_at_cell(session, char.cell_id)
+        if not outpost:
+            await callback.answer("Здесь нет аванпоста.", show_alert=True)
+            return
+
+        my_f = core_factions.allegiance(char)
+        is_mine = (outpost.controlling_faction == my_f)
+        ctrl_name = core_factions.FACTIONS.get(outpost.controlling_faction, ("", "Нейтральный"))[1] if outpost.controlling_faction else "Нейтральный"
+
+        text = (
+            f"🏰 <b>{outpost.name}</b>\n\n"
+            f"Фракция контроля: <b>{ctrl_name}</b>\n"
+            f"Прочность стен: <b>{outpost.defense_hp}/{outpost.max_defense_hp}</b> HP\n\n"
+            f"<i>Удержание аванпостов усиливает всю фракцию (+5% урона, +4% защиты и +6% опыта за каждый форт).</i>"
+        )
+        can_attack = bool(my_f and outpost.controlling_faction != my_f)
+        can_repair = bool(my_f and is_mine and outpost.defense_hp < outpost.max_defense_hp)
+
+    await safe_edit_text(
+        callback,
+        text,
+        reply_markup=outpost_keyboard(outpost.id, can_attack=can_attack, can_repair=can_repair),
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data.startswith("outpost_hit:"))
+async def outpost_hit_callback(callback: CallbackQuery):
+    outpost_id = int(callback.data.split(":")[1])
+    async with async_session() as session:
+        char = (await session.execute(
+            select(Character).join(User).where(User.telegram_id == callback.from_user.id)
+        )).scalar_one_or_none()
+        from core.models import FactionOutpost
+        outpost = await session.get(FactionOutpost, outpost_id)
+        if not char or not outpost:
+            await callback.answer("Ошибка.", show_alert=True)
+            return
+
+        from core import factions as core_factions
+        dmg = max(15, (char.strength or 10) * 2)
+        res = await core_factions.attack_outpost(session, char, outpost, dmg)
+        await session.commit()
+
+    if not res["ok"]:
+        await callback.answer(res["reason"], show_alert=True)
+        return
+
+    if res.get("repaired"):
+        await callback.answer(f"🔨 Ты укрепил стены на +{res['amount']} HP! (Текущая прочность: {res['current']})", show_alert=True)
+    elif res.get("captured"):
+        await callback.answer("🚩 Аванпост успешно захвачен под знамя твоей фракции!", show_alert=True)
+    else:
+        await callback.answer(f"⚔️ Удар по стенам! Нанесено {res['damage']} урона. Осталось {res['remaining_hp']} HP.", show_alert=True)
+
+    await outpost_menu(callback)
+
+
+@router.callback_query(F.data == "caravan_menu")
+async def caravan_menu(callback: CallbackQuery):
+    async with async_session() as session:
+        char = (await session.execute(
+            select(Character).join(User).where(User.telegram_id == callback.from_user.id)
+        )).scalar_one_or_none()
+        if not char or not char.location_id:
+            await callback.answer("Ошибка.", show_alert=True)
+            return
+
+        from core import worldevents as core_worldevents
+        caravans = await core_worldevents.active_caravans(session, char.location_id)
+        if not caravans:
+            await callback.answer("Караван уже скрылся за горизонтом.", show_alert=True)
+            return
+
+        caravan = caravans[0]
+        text = (
+            "🐫 <b>Торговый караван на тракте</b>\n\n"
+            "Купцы везут тюки с редкими тканями, сталью и заморскими специями под охраной наёмников.\n\n"
+            "• <b>Стража и Орден</b> могут сопроводить обоз в целости за жалование и опыт.\n"
+            "• <b>Падальщики и Культ</b> могут атаковать охрану и сорвать жирный куш контрабанды!"
+        )
+
+    await safe_edit_text(
+        callback,
+        text,
+        reply_markup=caravan_keyboard(caravan.id),
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data.startswith("caravan_act:"))
+async def caravan_act_callback(callback: CallbackQuery):
+    parts = callback.data.split(":")
+    event_id, action = int(parts[1]), parts[2]
+    async with async_session() as session:
+        char = (await session.execute(
+            select(Character).join(User).where(User.telegram_id == callback.from_user.id)
+        )).scalar_one_or_none()
+        from core.models import WorldEvent
+        ev = await session.get(WorldEvent, event_id)
+        if not char or not ev or not ev.is_active:
+            await callback.answer("Караван уже ушёл.", show_alert=True)
+            return
+
+        from core import factions as core_factions
+        res = await core_factions.caravan_action(session, char, ev, action)
+        await session.commit()
+
+    await safe_edit_text(
+        callback,
+        f"<b>{res['title']}</b>\n\n{res['desc']}",
+        reply_markup=main_menu_keyboard(has_character=True),
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data == "siege_menu")
+async def siege_menu_callback(callback: CallbackQuery):
+    async with async_session() as session:
+        char = (await session.execute(
+            select(Character).join(User).where(User.telegram_id == callback.from_user.id)
+        )).scalar_one_or_none()
+        if not char or not char.location_id:
+            await callback.answer("Ошибка.", show_alert=True)
+            return
+
+        from core import worldevents as core_worldevents
+        sieges = await core_worldevents.active_sieges(session, char.location_id)
+        if not sieges:
+            await callback.answer("Осада снята.", show_alert=True)
+            return
+
+        s = sieges[0]
+        text = (
+            "🔥 <b>Осада Цитадели!</b>\n\n"
+            f"Вражеские осадные орудия бьют по главным воротам замка!\n"
+            f"Осадная мощь: <b>{s.hp}/{s.max_hp}</b> HP\n\n"
+            "<i>Защити ворота своей цитадели или добей укрепления врагов!</i>"
+        )
+    builder = InlineKeyboardBuilder()
+    builder.button(text="◀️ Назад", callback_data="inspect")
+    await safe_edit_text(callback, text, reply_markup=builder.as_markup(), parse_mode="HTML")
+
+
+@router.callback_query(F.data.startswith("sabotage_menu:"))
+async def sabotage_menu_callback(callback: CallbackQuery):
+    target_loc_id = int(callback.data.split(":")[1])
+    await safe_edit_text(
+        callback,
+        "☠️ <b>План тайной диверсии</b>\n\nВыбери цель для удара в подвалах вражеского замка:",
+        reply_markup=sabotage_menu_keyboard(target_loc_id),
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data.startswith("sabotage_do:"))
+async def sabotage_do_callback(callback: CallbackQuery):
+    parts = callback.data.split(":")
+    target_loc_id, sab_type = int(parts[1]), parts[2]
+    async with async_session() as session:
+        char = (await session.execute(
+            select(Character).join(User).where(User.telegram_id == callback.from_user.id)
+        )).scalar_one_or_none()
+        if not char:
+            await callback.answer("Ошибка.", show_alert=True)
+            return
+
+        from core import factions as core_factions
+        res = await core_factions.sabotage_tunnel(session, char, target_loc_id, sab_type)
+        await session.commit()
+
+    if not res["ok"]:
+        await callback.answer(res["reason"], show_alert=True)
+        return
+
+    await safe_edit_text(
+        callback,
+        f"<b>{res['title']}</b>\n\n{res['desc']}",
+        reply_markup=continue_keyboard(),
+        parse_mode="HTML"
+    )
+
+
+# ── СБОР РЕСУРСОВ И ПРИЗРАЧНЫЙ ТОРГОВЕЦ ───────────────────────
+
+@router.callback_query(F.data == "gather_fish")
+async def gather_fish_callback(callback: CallbackQuery):
+    async with async_session() as session:
+        char = (await session.execute(
+            select(Character).join(User).where(User.telegram_id == callback.from_user.id)
+        )).scalar_one_or_none()
+        if not char:
+            await callback.answer("Ошибка.", show_alert=True)
+            return
+
+        from core import gathering as core_gathering
+        res = await core_gathering.fish_on_water(session, char)
+        await session.commit()
+
+    await safe_edit_text(
+        callback,
+        f"<b>{res['title']}</b>\n\n{res['desc']}",
+        reply_markup=continue_keyboard(),
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data == "gather_herbs")
+async def gather_herbs_callback(callback: CallbackQuery):
+    async with async_session() as session:
+        char = (await session.execute(
+            select(Character).join(User).where(User.telegram_id == callback.from_user.id)
+        )).scalar_one_or_none()
+        if not char:
+            await callback.answer("Ошибка.", show_alert=True)
+            return
+
+        from core import gathering as core_gathering
+        res = await core_gathering.gather_herbs(session, char)
+        await session.commit()
+
+    await safe_edit_text(
+        callback,
+        f"<b>{res['title']}</b>\n\n{res['desc']}",
+        reply_markup=continue_keyboard(),
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data == "harvest_ash")
+async def harvest_ash_callback(callback: CallbackQuery):
+    async with async_session() as session:
+        char = (await session.execute(
+            select(Character).join(User).where(User.telegram_id == callback.from_user.id)
+        )).scalar_one_or_none()
+        if not char or not char.cell:
+            await callback.answer("Ошибка.", show_alert=True)
+            return
+
+        from core import death as core_death
+        from core import spectral as core_spectral
+        grave = await core_death.at(session, char.location_id, char.cell.x, char.cell.y, floor=char.floor or 0)
+        if not grave:
+            await callback.answer("Здесь нет могилы.", show_alert=True)
+            return
+
+        res = await core_spectral.harvest_soul_ash(session, char, grave)
+        await session.commit()
+
+    await callback.answer(f"🕯 Ты собрал +{res['gained']} Праха предков! (Всего: {res['total_ash']} 🕯)", show_alert=True)
+    await inspect_cell(callback)
+
+
+@router.callback_query(F.data == "spectral_nomad_menu")
+async def spectral_nomad_menu_callback(callback: CallbackQuery):
+    async with async_session() as session:
+        char = (await session.execute(
+            select(Character).join(User).where(User.telegram_id == callback.from_user.id)
+        )).scalar_one_or_none()
+        if not char:
+            await callback.answer("Ошибка.", show_alert=True)
+            return
+
+        from core import spectral as core_spectral
+        from bot.keyboards.inline import spectral_nomad_keyboard
+        wares = core_spectral.get_spectral_wares()
+        ash = char.soul_ash or 0
+
+        text = (
+            "👻 <b>Бродячий Призрак Павшего Торговца</b>\n\n"
+            "<i>Полупрозрачный силуэт витает над сырой землей.</i>\n\n"
+            "— Я помню звон монет... но здесь ценен лишь Прах предков 🕯. Что выменяешь?\n\n"
+            f"🕯 У тебя праха: <b>{ash}</b>"
+        )
+
+    await safe_edit_text(
+        callback,
+        text,
+        reply_markup=spectral_nomad_keyboard(wares, ash),
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data.startswith("spec_buy:"))
+async def spec_buy_callback(callback: CallbackQuery):
+    key = callback.data.split(":")[1]
+    async with async_session() as session:
+        char = (await session.execute(
+            select(Character).join(User).where(User.telegram_id == callback.from_user.id)
+        )).scalar_one_or_none()
+        if not char:
+            await callback.answer("Ошибка.", show_alert=True)
+            return
+
+        from core import spectral as core_spectral
+        res = await core_spectral.buy_spectral_item(session, char, key)
+        await session.commit()
+
+    if not res["ok"]:
+        await callback.answer(res["reason"], show_alert=True)
+        return
+
+    await safe_edit_text(
+        callback,
+        f"<b>{res['title']}</b>\n\n{res['desc']}",
+        reply_markup=continue_keyboard(),
+        parse_mode="HTML"
+    )
+
+

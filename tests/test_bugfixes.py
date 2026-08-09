@@ -484,13 +484,15 @@ async def test_boss_double_finish_async():
         check(0 in r, f"босс пал ({r})")
 
         async with sm() as s:
+            from engine.currency import total_in_bronze
             golds = []
             for cid in (c1, c2):
                 ch = await s.get(Character, cid)
-                golds.append(ch.gold)
+                golds.append(total_in_bronze(ch))
         # пул награды = max_hp*0.5 = 2000 (+ минималки 10). Вдвое больше —
         # значит, _reward_boss отработал дважды (исходный баг).
-        total_reward = sum(g - 1000 for g in golds)
+        base_bronze = 1000 * 10000 + 8 * 100 + 120
+        total_reward = sum(g - base_bronze for g in golds)
         check(10 <= total_reward <= 2020,
               f"награда однократна: пул=2000, выдано={total_reward}")
         await engine.dispose()
@@ -680,6 +682,49 @@ async def test_editor_cell_garbage_async():
     await engine.dispose()
 
 
+async def test_bury_coordinate_precision_async():
+    """Могила создаётся на реальных координатах клетки персонажа, а не [0, 0]."""
+    print("\n— Могилы: реальные координаты клетки —")
+    from core import death
+    from core.models import Cell, Character, Grave, Location, User
+    engine, sm = await _make_db()
+    async with sm() as s:
+        loc = Location(name="Тест", description="d")
+        s.add(loc)
+        await s.flush()
+        cell = Cell(location_id=loc.id, x=7, y=9, floor=0, is_passable=True)
+        s.add(cell)
+        user = User(telegram_id=77)
+        s.add(user)
+        await s.flush()
+        ch = Character(user_id=user.id, name="Рыцарь", level=5,
+                       character_class="warrior", location_id=loc.id,
+                       cell_id=cell.id)
+        ch.cell = cell
+        s.add(ch)
+        await s.commit()
+
+        grave = await death.bury(s, ch, 100)
+        await s.commit()
+        check(grave is not None and grave.x == 7 and grave.y == 9,
+              f"координаты надгробия верные ({grave.x if grave else None},{grave.y if grave else None})")
+    await engine.dispose()
+
+
+async def test_admin_endpoint_routes_async():
+    """Эндпоинты удаления квестов и классов не перебиваются клонированием."""
+    print("\n— Админка: маршруты delete/clone —")
+    import admin.main as A
+    from fastapi import FastAPI
+    app = A.app
+    # Проверяем список маршрутов
+    routes = {r.path: r.methods for r in app.routes if hasattr(r, "methods")}
+    check("/editor/quests/{quest_id}/clone" in routes and "/editor/quests/{quest_id}/delete" in routes,
+          "роуты квестов разделены")
+    check("/editor/classes/{class_id}/clone" in routes and "/editor/classes/{class_id}/delete" in routes,
+          "роуты классов разделены")
+
+
 def main():
     test_flee_restores_reinforcements()
     test_victory_respawns_at_origin()
@@ -698,6 +743,7 @@ def main():
         asyncio.run(test_mob_claim_race_async())
         test_display_timezones()
         test_dungeon_defeat_penalty()
+        asyncio.run(test_bury_coordinate_precision_async())
     else:
         print("⚠ Пропуск серверной части: нет sqlalchemy/aiosqlite "
               "(pip install -r requirements.txt)")
@@ -708,6 +754,7 @@ def main():
         print("⚠ Пропуск бот-тестов: нет aiogram/Pillow")
     if _have_server_deps() and _have_admin_deps():
         asyncio.run(test_editor_cell_garbage_async())
+        asyncio.run(test_admin_endpoint_routes_async())
     else:
         print("⚠ Пропуск админ-теста: нет fastapi/jinja2")
     print("\n" + "=" * 46)

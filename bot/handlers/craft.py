@@ -440,3 +440,61 @@ async def upgrade_do(callback: CallbackQuery):
         reply_markup=upgrade_item_keyboard(inv_id, True, station),
         parse_mode="HTML",
     )
+
+
+# ── СТОЛ РЕМЕСЛЕННЫХ ЗАКАЗОВ ────────────────────────────────
+
+@router.callback_query(F.data == "craft_orders_menu")
+async def craft_orders_menu_handler(callback: CallbackQuery):
+    async with async_session() as session:
+        character = await _character(session, callback.from_user.id)
+        if not character:
+            await callback.answer("Ошибка.", show_alert=True)
+            return
+
+        from core import craft_orders as core_orders
+        from bot.keyboards.inline import craft_orders_keyboard
+        orders = await core_orders.list_open_orders(session)
+
+        lines = [
+            "📋 <b>Стол публичных ремесленных заказов</b>\n\n"
+            "Здесь другие искатели приключений оставляют заказы на ковку предметов со щедрым вознаграждением!\n\n"
+        ]
+        if orders:
+            for idx, o in enumerate(orders[:5], 1):
+                rec_name = o.recipe.result_item.name if o.recipe and o.recipe.result_item else "Предмет"
+                creator_name = o.creator.name if o.creator else "Игрок"
+                lines.append(f"{idx}. <b>{rec_name}</b> для {creator_name} — Награда: <b>+{o.reward_bronze}🟤</b>")
+        else:
+            lines.append("<i>Сейчас нет открытых заказов. Загляни позже!</i>")
+
+    await safe_edit_text(
+        callback,
+        "\n".join(lines),
+        reply_markup=craft_orders_keyboard(orders),
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data.startswith("fulfill_order:"))
+async def fulfill_order_handler(callback: CallbackQuery):
+    order_id = int(callback.data.split(":")[1])
+    async with async_session() as session:
+        character = await _character(session, callback.from_user.id)
+        if not character:
+            await callback.answer("Ошибка.", show_alert=True)
+            return
+
+        from core import craft_orders as core_orders
+        res = await core_orders.fulfill_order(session, character, order_id)
+        await session.commit()
+
+    if not res["ok"]:
+        await callback.answer(res["reason"], show_alert=True)
+        return
+
+    await callback.answer(
+        f"🔨 Заказ выполнен! Ты получил +{res['reward']}🟤 и опыт кузнеца!",
+        show_alert=True
+    )
+    await craft_orders_menu_handler(callback)

@@ -59,20 +59,43 @@ def sum_bonuses(inv_items) -> dict:
 
 
 async def combat_stats(session, character) -> dict:
-    """Полная сводка: база + экипировка. Используется боем и профилем."""
+    """Полная сводка: база + экипировка + фракционные бонусы. Используется боем и профилем."""
     gear = await equipped_items(session, character.id)
     bonus = sum_bonuses(gear)
 
+    from core import factions as core_factions
+    my_f = core_factions.allegiance(character)
+    decree_b = await core_factions.active_decree_bonuses(session, my_f)
+    outpost_b = await core_factions.faction_outpost_bonuses(session, my_f)
+
+    from core import subclasses as core_subs
+    from core import talents as core_talents
+    from core import titles as core_titles
+
+    sub_b = core_subs.subclass_bonuses(character)
+    tal_b = core_talents.talent_bonuses(character)
+    tit_b = core_titles.title_bonus(character)
+
+    damage_mult = decree_b.get("damage_mult", 1.0) * (1.0 + outpost_b.get("damage_pct", 0) / 100.0) * sub_b.get("damage_mult", 1.0)
+    defense_mult = decree_b.get("defense_mult", 1.0) * (1.0 + outpost_b.get("defense_pct", 0) / 100.0) * sub_b.get("defense_mult", 1.0)
+    exp_mult = decree_b.get("exp_mult", 1.0) * (1.0 + outpost_b.get("exp_pct", 0) / 100.0)
+    gold_mult = decree_b.get("gold_mult", 1.0) * (1.0 + outpost_b.get("gold_pct", 0) / 100.0)
+
     stats = {
-        "strength": character.strength + bonus["strength"],
-        "agility": character.agility + bonus["agility"],
-        "intelligence": character.intelligence + bonus["intelligence"],
-        "endurance": character.endurance + bonus["endurance"],
-        "luck": character.luck + bonus["luck"],
-        "max_hp": character.max_hp + bonus["max_hp"],
-        "max_mp": character.max_mp + bonus["max_mp"],
-        "damage": bonus["damage"],
-        "defense": bonus["defense"],
+        "strength": (character.strength or 0) + bonus["strength"],
+        "agility": (character.agility or 0) + bonus["agility"],
+        "intelligence": (character.intelligence or 0) + bonus["intelligence"],
+        "endurance": (character.endurance or 0) + bonus["endurance"],
+        "luck": (character.luck or 0) + bonus["luck"] + tal_b.get("luck", 0) + tit_b.get("luck", 0),
+        "max_hp": (character.max_hp or 0) + bonus["max_hp"] + tit_b.get("hp", 0),
+        "max_mp": (character.max_mp or 0) + bonus["max_mp"],
+        "damage": bonus["damage"] + tal_b.get("damage", 0) + tit_b.get("damage", 0),
+        "defense": bonus["defense"] + tal_b.get("defense", 0) + tit_b.get("defense", 0),
+        "damage_mult": damage_mult,
+        "defense_mult": defense_mult,
+        "exp_mult": exp_mult,
+        "gold_mult": gold_mult,
+        "vampirism_pct": sub_b.get("vampirism_pct", 0),
         "gear": gear,
         "bonus": bonus,
     }
@@ -80,12 +103,40 @@ async def combat_stats(session, character) -> dict:
 
 
 def attack_power(stats: dict, character) -> int:
-    """Базовый урон: сила/интеллект по классу + урон оружия."""
+    """Базовый урон: сила/интеллект по классу + урон оружия + фракционные бонусы."""
     # Магические классы бьют интеллектом, если он заметно выше силы
     scaling = max(stats["strength"], int(stats["intelligence"] * 0.9))
-    return max(1, scaling + stats["damage"])
+    base = max(1, scaling + stats["damage"])
+    mult = stats.get("damage_mult", 1.0)
+    return max(1, int(base * mult))
 
 
 def damage_reduction(stats: dict) -> int:
     """Сколько урона срезает броня и выносливость."""
-    return stats["defense"] + stats["endurance"] // 5
+    base = stats["defense"] + stats["endurance"] // 5
+    mult = stats.get("defense_mult", 1.0)
+    return int(base * mult)
+
+
+def simulate_gear_loadout(character, hypothetical_items: list) -> dict:
+    """Симулятор экипировки: предпросмотр параметров до покупки на аукционе."""
+    bonus = sum_bonuses(hypothetical_items)
+    from engine.stats import calculate_gear_score
+
+    simulated_stats = {
+        "strength": (character.strength or 10) + bonus["strength"],
+        "agility": (character.agility or 10) + bonus["agility"],
+        "intelligence": (character.intelligence or 10) + bonus["intelligence"],
+        "endurance": (character.endurance or 10) + bonus["endurance"],
+        "luck": (character.luck or 10) + bonus["luck"],
+        "max_hp": (character.max_hp or 100) + bonus["max_hp"],
+        "max_mp": (character.max_mp or 50) + bonus["max_mp"],
+        "damage": bonus["damage"],
+        "defense": bonus["defense"],
+    }
+    return {
+        "stats": simulated_stats,
+        "attack_power": max(1, simulated_stats["strength"] + simulated_stats["damage"]),
+        "damage_reduction": simulated_stats["defense"] + simulated_stats["endurance"] // 5,
+    }
+

@@ -791,6 +791,34 @@ async def seed_database():
         ]
         session.add_all(quests)
 
+        # ── Фракционные декреты и казна ──
+        from core.models import FactionDecree, FactionOutpost
+        for f_key in ("guard", "scavengers", "cult", "order"):
+            dec_exists = await session.scalar(select(FactionDecree).where(FactionDecree.faction == f_key))
+            if not dec_exists:
+                session.add(FactionDecree(faction=f_key, treasury_bronze=500, active_decree="none"))
+
+        # ── Стартовые аванпосты на башнях/трактах ──
+        outpost_cfgs = [
+            ("Северный форт Стражи", "guard", tower_locs[0].id if len(tower_locs) > 0 else 2),
+            ("Южный аванпост Падальщиков", "scavengers", tower_locs[1].id if len(tower_locs) > 1 else 3),
+            ("Восточная башня Культа", "cult", tower_locs[2].id if len(tower_locs) > 2 else 4),
+            ("Западная цитадель Ордена", "order", tower_locs[3].id if len(tower_locs) > 3 else 5),
+        ]
+        for op_name, f_ctrl, loc_id in outpost_cfgs:
+            op_cell = await session.scalar(
+                select(Cell).where(Cell.location_id == loc_id).where(Cell.is_passable == True).limit(1)
+            )
+            if op_cell:
+                session.add(FactionOutpost(
+                    name=op_name,
+                    location_id=loc_id,
+                    cell_id=op_cell.id,
+                    controlling_faction=f_ctrl,
+                    defense_hp=500,
+                    max_defense_hp=500,
+                ))
+
         await session.commit()
         print(f"Database seeded: {len(locations)} locations "
               f"(4 castles + 4 towers + 4 gates + 4-cell fortress + "

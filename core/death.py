@@ -44,11 +44,24 @@ async def bury(session, character, gold: int, item_ids=()):
     for old in result.scalars().all():
         await session.delete(old)
 
+    x, y = 0, 0
+    cell = character.__dict__.get("cell")
+    if cell is not None and hasattr(cell, "x") and hasattr(cell, "y"):
+        x, y = cell.x, cell.y
+    elif getattr(character, "cell_id", None) is not None:
+        from core.models import Cell
+        cell_row = await session.get(Cell, character.cell_id)
+        if cell_row is not None:
+            x, y = cell_row.x, cell_row.y
+    else:
+        x = getattr(character, "cell_x", 0) or 0
+        y = getattr(character, "cell_y", 0) or 0
+
     grave = Grave(
         character_id=character.id, owner_name=character.name,
         location_id=character.location_id,
-        x=getattr(character, "cell_x", 0) or 0,
-        y=getattr(character, "cell_y", 0) or 0,
+        x=x,
+        y=y,
         floor=character.floor or 0,
         gold=int(gold), items=json.dumps(item_ids),
     )

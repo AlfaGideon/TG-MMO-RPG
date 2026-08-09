@@ -365,3 +365,97 @@ async def stat_hint(callback: CallbackQuery):
             show_alert=True)
     else:
         await callback.answer()
+
+
+# ── ФАМИЛЬЯРЫ И ПИТОМЦЫ ──────────────────────────────────────
+
+@router.callback_query(F.data == "familiar_menu")
+async def familiar_menu_handler(callback: CallbackQuery):
+    async with async_session() as session:
+        result = await session.execute(
+            select(Character).join(User).where(User.telegram_id == callback.from_user.id)
+        )
+        character = result.scalar_one_or_none()
+        if not character:
+            await callback.answer("Ошибка.", show_alert=True)
+            return
+
+        from core import familiars as core_familiars
+        from bot.keyboards.inline import familiar_menu_keyboard
+        text = core_familiars.familiar_card_text(character)
+        has_fam = bool(character.familiar_type)
+
+    await safe_edit_text(
+        callback,
+        text,
+        reply_markup=familiar_menu_keyboard(has_familiar=has_fam),
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data.startswith("familiar_adopt:"))
+async def familiar_adopt_handler(callback: CallbackQuery):
+    ftype = callback.data.split(":")[1]
+    async with async_session() as session:
+        result = await session.execute(
+            select(Character).join(User).where(User.telegram_id == callback.from_user.id)
+        )
+        character = result.scalar_one_or_none()
+        if not character:
+            await callback.answer("Ошибка.", show_alert=True)
+            return
+
+        from core import familiars as core_familiars
+        from engine.currency import total_in_bronze, deduct_currency
+
+        cost = core_familiars.FAMILIARS[ftype]["cost"]
+        if total_in_bronze(character) < cost:
+            await callback.answer(f"Не хватает средств! Нужно {cost}🟤.", show_alert=True)
+            return
+
+        deduct_currency(character, cost)
+        core_familiars.set_familiar(character, ftype)
+        await session.commit()
+
+    await callback.answer(f"🐾 Ты успешно приручил спутника: {core_familiars.FAMILIARS[ftype]['name']}!", show_alert=True)
+    await familiar_menu_handler(callback)
+
+
+@router.callback_query(F.data == "familiar_change")
+async def familiar_change_handler(callback: CallbackQuery):
+    async with async_session() as session:
+        result = await session.execute(
+            select(Character).join(User).where(User.telegram_id == callback.from_user.id)
+        )
+        character = result.scalar_one_or_none()
+        if character:
+            character.familiar_type = None
+            await session.commit()
+    await callback.answer("Ты отпустил прежнего спутника на волю.", show_alert=True)
+    await familiar_menu_handler(callback)
+
+
+@router.callback_query(F.data == "familiar_feed")
+async def familiar_feed_handler(callback: CallbackQuery):
+    async with async_session() as session:
+        result = await session.execute(
+            select(Character).join(User).where(User.telegram_id == callback.from_user.id)
+        )
+        character = result.scalar_one_or_none()
+        if not character or not character.familiar_type:
+            await callback.answer("У тебя нет фамильяра.", show_alert=True)
+            return
+
+        from engine.currency import total_in_bronze, deduct_currency
+        feed_cost = 200 * (character.familiar_level or 1)
+        if total_in_bronze(character) < feed_cost:
+            await callback.answer(f"Для тренировки требуется {feed_cost}🟤.", show_alert=True)
+            return
+
+        deduct_currency(character, feed_cost)
+        character.familiar_level = (character.familiar_level or 1) + 1
+        await session.commit()
+
+    await callback.answer(f"🍖 Фамильяр полакомился и стал сильнее! (Уровень: {character.familiar_level})", show_alert=True)
+    await familiar_menu_handler(callback)
+

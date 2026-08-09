@@ -420,8 +420,16 @@ def merchant_book_keyboard(ware, page: int, total: int, can_buy: bool):
 def inspect_keyboard(has_mob: bool, has_npc: bool, has_chest: bool,
                      is_crafter: bool = False, is_auctioneer: bool = False,
                      has_landmark: bool = False, has_grave: bool = False,
-                     has_players: bool = False):
+                     has_players: bool = False, has_outpost: bool = False,
+                     has_caravan: bool = False, has_siege: bool = False,
+                     has_water: bool = False, has_forest: bool = False):
     builder = InlineKeyboardBuilder()
+    if has_outpost:
+        builder.button(text="🏰 Аванпост фракций", callback_data="outpost_menu")
+    if has_siege:
+        builder.button(text="🔥 Осада Цитадели", callback_data="siege_menu")
+    if has_caravan:
+        builder.button(text="🐫 Торговый караван", callback_data="caravan_menu")
     if has_mob:
         builder.button(text="⚔️ Атаковать", callback_data="cell_attack")
     if has_players:
@@ -430,6 +438,12 @@ def inspect_keyboard(has_mob: bool, has_npc: bool, has_chest: bool,
         builder.button(text="❇️ Изучить", callback_data="study_landmark")
     if has_grave:
         builder.button(text="💰 Забрать из могилы", callback_data="claim_grave")
+        builder.button(text="🕯 Почтить память (+Прах предков)", callback_data="harvest_ash")
+        builder.button(text="👻 Призрачный торговец", callback_data="spectral_nomad_menu")
+    if has_water:
+        builder.button(text="🎣 Закинуть удочку (Рыбалка)", callback_data="gather_fish")
+    if has_forest:
+        builder.button(text="🌿 Сбор трав (Травничество)", callback_data="gather_herbs")
     if has_npc:
         builder.button(text="💬 Поговорить", callback_data="talk_npc")
     if is_crafter:
@@ -443,13 +457,94 @@ def inspect_keyboard(has_mob: bool, has_npc: bool, has_chest: bool,
     return builder.as_markup()
 
 
-def combat_keyboard():
+def spectral_nomad_keyboard(wares: list, my_ash: int):
     builder = InlineKeyboardBuilder()
+    for w in wares:
+        builder.button(text=f"{w['name']} ({w['cost_ash']} 🕯)", callback_data=f"spec_buy:{w['key']}")
+    builder.button(text="◀️ Назад", callback_data="inspect")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def bounty_board_keyboard(bounties: list):
+    builder = InlineKeyboardBuilder()
+    for b in bounties:
+        mname = b.mob.name if b.mob else "Монстр"
+        loc_name = b.location.name if b.location else "Мир"
+        builder.button(text=f"💀 {b.bounty_title or 'Убийца'}: {mname} ({loc_name})", callback_data=f"bounty_track:{b.id}")
+    builder.button(text="◀️ Меню", callback_data="main_menu")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def outpost_keyboard(outpost_id: int, can_attack: bool = True, can_repair: bool = False):
+    builder = InlineKeyboardBuilder()
+    if can_attack:
+        builder.button(text="⚔️ Штурмовать аванпост", callback_data=f"outpost_hit:{outpost_id}")
+    if can_repair:
+        builder.button(text="🔨 Укрепить аванпост (+HP)", callback_data=f"outpost_hit:{outpost_id}")
+    builder.button(text="◀️ Назад", callback_data="inspect")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def caravan_keyboard(event_id: int):
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🛡 Сопроводить обоз (+Опыт, Защита)", callback_data=f"caravan_act:{event_id}:escort")
+    builder.button(text="⚔️ Разграбить караван (+Добыча)", callback_data=f"caravan_act:{event_id}:ambush")
+    builder.button(text="◀️ Назад", callback_data="inspect")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def sabotage_menu_keyboard(target_loc_id: int):
+    builder = InlineKeyboardBuilder()
+    builder.button(text="☠️ Отравить запасы колодцев", callback_data=f"sabotage_do:{target_loc_id}:poison_supplies")
+    builder.button(text="🔔 Поставить сигнальные растяжки", callback_data=f"sabotage_do:{target_loc_id}:scout_alarm")
+    builder.button(text="🔨 Испортить кузнечные меха", callback_data=f"sabotage_do:{target_loc_id}:disrupt_forge")
+    builder.button(text="◀️ Назад", callback_data="dig_tunnel")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def faction_treasury_keyboard(faction_key: str, is_leader: bool = False):
+    builder = InlineKeyboardBuilder()
+    builder.button(text="💰 Пожертвовать 100🟤", callback_data=f"treasury_donate:{faction_key}:100")
+    builder.button(text="💰 Пожертвовать 500🟤", callback_data=f"treasury_donate:{faction_key}:500")
+    if is_leader:
+        builder.button(text="⚔️ Указ: Милитаризация", callback_data=f"decree_enact:{faction_key}:militarization")
+        builder.button(text="💰 Указ: Торговый бум", callback_data=f"decree_enact:{faction_key}:trade_boom")
+        builder.button(text="🛡 Указ: Цитадель", callback_data=f"decree_enact:{faction_key}:citadel")
+        builder.button(text="🔮 Указ: Тайные знания", callback_data=f"decree_enact:{faction_key}:knowledge")
+    builder.button(text="◀️ Назад", callback_data="reputation")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def combat_keyboard(is_channeling: bool = False, stance: str = "balanced"):
+    builder = InlineKeyboardBuilder()
+    if is_channeling:
+        builder.button(text="💥 ПРЕРВАТЬ ЗАКЛИНАНИЕ!", callback_data="combat_interrupt")
     builder.button(text="🔴 ⚔️ Атаковать", callback_data="combat_attack")
     builder.button(text="🔵 🛡️ Защита", callback_data="combat_defend")
     builder.button(text="🟡 ✨ Умение", callback_data="combat_skill")
+    builder.button(text="🥋 Стойка", callback_data="combat_stance_menu")
     builder.button(text="⚪ 🏃 Побег", callback_data="combat_flee")
-    builder.adjust(2)
+    if is_channeling:
+        builder.adjust(1, 2, 2, 1)
+    else:
+        builder.adjust(2, 2, 1)
+    return builder.as_markup()
+
+
+def combat_stance_keyboard(current_stance: str = "balanced"):
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🗡 Берсерк (+30% урон, −20% броня)", callback_data="combat_set_stance:berserk")
+    builder.button(text="🛡 Парирование (+25% броня, контратака)", callback_data="combat_set_stance:parry")
+    builder.button(text="🧘 Концентрация (+25% магия, +MP)", callback_data="combat_set_stance:focus")
+    builder.button(text="⚖️ Баланс (обычная)", callback_data="combat_set_stance:balanced")
+    builder.button(text="◀️ Назад в бой", callback_data="combat_back")
+    builder.adjust(1)
     return builder.as_markup()
 
 
@@ -710,6 +805,7 @@ def auction_my_lots_keyboard(lots: list):
 def craft_menu_keyboard(station: str = "any"):
     builder = InlineKeyboardBuilder()
     builder.button(text="📜 Рецепты", callback_data=f"craft_list:{station}:0")
+    builder.button(text="📋 Стол заказов игроков", callback_data="craft_orders_menu")
     builder.button(text="🔨 Заточить предмет", callback_data="upgrade_list:0")
     builder.button(text="◀️ Назад", callback_data="back_to_cell")
     builder.adjust(1)
@@ -924,4 +1020,83 @@ def faction_select_keyboard(char_id: int, page: int = 0):
     builder.button(text="📖 Книга лора фракций", callback_data=f"faction_lore:{char_id}:{page}")
     rows.append(1)
     builder.adjust(*rows)
+    return builder.as_markup()
+
+
+# ── КЛАВИАТУРЫ КОЛИЗЕЯ, ФАМИЛЬЯРОВ И АЛТАРЕЙ ─────────────────
+
+def arena_menu_keyboard(opponents: list, my_rating: int, my_tokens: int):
+    builder = InlineKeyboardBuilder()
+    for opp in opponents:
+        builder.button(
+            text=f"⚔️ {opp.name} ({opp.arena_rating} 🏆 | GS: {opp.gear_score})",
+            callback_data=f"arena_duel:{opp.id}"
+        )
+    builder.button(text="🔄 Обновить список", callback_data="arena_menu")
+    builder.button(text="◀️ Меню", callback_data="main_menu")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def familiar_menu_keyboard(has_familiar: bool = False):
+    builder = InlineKeyboardBuilder()
+    if not has_familiar:
+        builder.button(text="🦅 Приручить Ворона-падальщика (500🟤)", callback_data="familiar_adopt:crow")
+        builder.button(text="💡 Приручить Светляка Бездны (500🟤)", callback_data="familiar_adopt:firefly")
+        builder.button(text="🐺 Приручить Теневого пса (600🟤)", callback_data="familiar_adopt:hound")
+    else:
+        builder.button(text="🍗 Покормить и развить спутника", callback_data="familiar_feed")
+        builder.button(text="🔄 Сменить питомца", callback_data="familiar_change")
+    builder.button(text="◀️ В профиль", callback_data="profile")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def altar_keyboard(run_id: int, altar_type: str):
+    builder = InlineKeyboardBuilder()
+    if altar_type == "abyssal":
+        builder.button(text="🖤 Принять Дар Бездны (+40% урон, −25% HP)", callback_data=f"dungeon_altar:{run_id}:abyssal")
+    elif altar_type == "blood":
+        builder.button(text="🩸 Заключить Кровавую сделку (100% Heal, −150🟤)", callback_data=f"dungeon_altar:{run_id}:blood")
+    else:
+        builder.button(text="👁 Прикоснуться к Оку Прозрения (Открыть карту)", callback_data=f"dungeon_altar:{run_id}:insight")
+    builder.button(text="🚶 Пройти мимо", callback_data="dungeon_menu")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def endless_stair_keyboard(run_id: int, next_floor: int):
+    builder = InlineKeyboardBuilder()
+    builder.button(text=f"🪜 Спуститься на этаж {next_floor} (Сложнее + Лут)", callback_data=f"dungeon_dive:{run_id}")
+    builder.button(text="💰 Забрать добычу и выйти наружу", callback_data="dungeon_exit")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def trap_keyboard(cell_id: int):
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🛠 Обезвредить ловушку (Ловкость)", callback_data=f"dungeon_disarm:{cell_id}")
+    builder.button(text="🏃 Осторожно перешагнуть", callback_data="dungeon_menu")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def captive_keyboard(cell_id: int):
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🕊 Освободить пленника (+Награда)", callback_data=f"dungeon_free:{cell_id}")
+    builder.button(text="🚶 Пройти мимо", callback_data="dungeon_menu")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def craft_orders_keyboard(orders: list):
+    builder = InlineKeyboardBuilder()
+    for o in orders:
+        rec_name = o.recipe.result_item.name if o.recipe and o.recipe.result_item else "Предмет"
+        builder.button(
+            text=f"🔨 {rec_name} (+{o.reward_bronze}🟤)",
+            callback_data=f"fulfill_order:{o.id}"
+        )
+    builder.button(text="◀️ В мастерскую", callback_data="craft_menu")
+    builder.adjust(1)
     return builder.as_markup()

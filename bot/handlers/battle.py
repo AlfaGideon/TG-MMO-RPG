@@ -12,7 +12,7 @@ from core.models import User, Character, Mob, Battle, Cell, MobSpawn
 from core.enums import BattleResult
 from core.spawns import kill_spawn, spawn_at_cell
 from core.stats import attack_power, combat_stats, damage_reduction
-from bot.keyboards.inline import combat_keyboard, continue_keyboard
+from bot.keyboards.inline import combat_keyboard, combat_stance_keyboard, continue_keyboard
 from bot.utils.texts import (
     battle_start_text, battle_round_text, victory_text, defeat_text, loot_text,
 )
@@ -128,9 +128,6 @@ async def start_cell_battle(callback, character, spawn: MobSpawn, session):
         await callback.answer("С этим врагом уже кто-то сражается.", show_alert=True)
         return
 
-    # Атомарный захват: двое, ударившие одного моба одновременно, раньше
-    # оба «захватывали» его и каждый получал награду. Отщёлкиваем одним
-    # UPDATE — у второго rowcount == 0.
     from sqlalchemy import or_, update
     claimed = await session.execute(
         update(MobSpawn)
@@ -156,6 +153,10 @@ async def start_cell_battle(callback, character, spawn: MobSpawn, session):
         "rounds": 0,
         "damage_dealt": 0,
         "damage_taken": 0,
+        "stance": "balanced",
+        "primer_school": None,
+        "statuses": {},
+        "channeling": None,
     }
 
     await send_or_edit_photo(
@@ -179,15 +180,21 @@ async def _finish_victory(callback, session, character, mob, spawn, state):
         base_gold = int(mob.gold_reward * random.uniform(0.8, 1.2))
     base_exp = mob.exp_reward
 
-    gold = apply_vip_gold(base_gold, character)
-    exp = apply_vip_exp(base_exp, character)
+    from core import factions as core_factions
+    my_f = core_factions.allegiance(character)
+    decree_b = await core_factions.active_decree_bonuses(session, my_f)
+    outpost_b = await core_factions.faction_outpost_bonuses(session, my_f)
+    f_gold_mult = decree_b.get("gold_mult", 1.0) * (1.0 + outpost_b.get("gold_pct", 0) / 100.0)
+    f_exp_mult = decree_b.get("exp_mult", 1.0) * (1.0 + outpost_b.get("exp_pct", 0) / 100.0)
+
+    gold = int(apply_vip_gold(base_gold, character) * f_gold_mult)
+    exp = int(apply_vip_exp(base_exp, character) * f_exp_mult)
 
     from engine.currency import add_currency
     add_currency(character, bronze=gold)
     character.experience += exp
 
     # Фракции: за нежить хвалит стража, за зверьё — тоже, но меньше.
-    from core import factions as core_factions
     rep_lines = core_factions.award_for_mob(character, mob)
 
     # Realtime: победа в бою
@@ -255,6 +262,30 @@ async def _finish_victory(callback, session, character, mob, spawn, state):
     )
 
 
+async def _finish_defeat(callback, session, character, mob, spawn, state):
+    """Поражение в бою: надгробие с частью добра, ранение и сброс моба."""
+    character.current_hp = 1
+    session.add(Battle(
+        character_id=character.id, mob_id=mob.id, result=BattleResult.DEFEAT,
+        rounds=state["rounds"], damage_dealt=state["damage_dealt"],
+        damage_taken=state["damage_taken"],
+    ))
+    if spawn is not None:
+        spawn.engaged_by_id = None
+        # Моб зализывает раны, а не остаётся с 1 HP навсегда
+        spawn.current_hp = mob.hp
+    note = await _lose_bag(session, character)
+    await session.commit()
+    combat_state.pop(callback.from_user.id, None)
+
+    await safe_edit_text(
+        callback,
+        defeat_text() + note,
+        reply_markup=continue_keyboard(),
+        parse_mode="HTML",
+    )
+
+
 @router.callback_query(F.data == "combat_attack")
 async def combat_attack(callback: CallbackQuery):
     state = combat_state.get(callback.from_user.id)
@@ -282,24 +313,64 @@ async def combat_attack(callback: CallbackQuery):
             return
 
         stats = await combat_stats(session, character)
+        stance = state.get("stance", "balanced")
+        statuses = state.setdefault("statuses", {})
+
+        # Эффект стойки
+        stance_dmg_mult = 1.30 if stance == "berserk" else 1.0
+        stance_def_mult = 0.80 if stance == "berserk" else (1.25 if stance == "parry" else 1.0)
+        if stance == "focus":
+            mp_regen = max(2, (character.max_mp or 50) // 10)
+            character.current_mp = min(character.max_mp or 50, (character.current_mp or 0) + mp_regen)
+
+        # Расколотая броня от элементальных реакций
+        mob_def = (mob.defense or 0)
+        if "broken_armor" in statuses:
+            mob_def = mob_def // 2
 
         # Урон игрока: статы + оружие, минус защита моба
-        char_dmg = max(
-            1,
-            attack_power(stats, character) + random.randint(-2, 4) - (mob.defense or 0) // 2,
-        )
-        # Критический удар от удачи
-        crit = random.random() < min(0.35, stats["luck"] * 0.008)
+        base_atk = attack_power(stats, character) + random.randint(-2, 4) - mob_def // 2
+        char_dmg = max(1, int(base_atk * stance_dmg_mult))
+        crit = random.random() < min(0.35, (stats.get("luck", 10)) * 0.008)
         if crit:
             char_dmg = int(char_dmg * 1.7)
 
-        mob_dmg = max(0, mob.damage - damage_reduction(stats) + random.randint(-1, 2))
+        # Обработка входящего урона (или оглушения)
+        is_stunned = "stun" in statuses
+        counter_dmg = 0
+        if is_stunned:
+            mob_dmg = 0
+            del statuses["stun"]
+        elif state.get("channeling"):
+            # Враг завершил подготовку заклинания!
+            chan = state.pop("channeling")
+            mob_dmg = max(5, int(chan["damage"] - damage_reduction(stats) * stance_def_mult))
+        else:
+            base_mob_dmg = mob.damage - damage_reduction(stats) * stance_def_mult + random.randint(-1, 2)
+            mob_dmg = max(0, int(base_mob_dmg * (1.20 if stance == "berserk" else 1.0)))
+            # Парирование и контратака
+            if stance == "parry" and mob_dmg > 0 and random.random() < 0.35:
+                counter_dmg = max(2, char_dmg // 2)
+                char_dmg += counter_dmg
+                mob_dmg = mob_dmg // 2
 
-        state["mob_hp"] -= char_dmg
+        # Тики периодического урона (горение / кровотечение)
+        dot_dmg = 0
+        if "burn" in statuses:
+            dot_dmg += max(3, int(mob.hp * 0.08))
+            statuses["burn"] -= 1
+            if statuses["burn"] <= 0:
+                del statuses["burn"]
+
+        state["mob_hp"] -= (char_dmg + dot_dmg)
         state["character_hp"] -= mob_dmg
         state["rounds"] += 1
-        state["damage_dealt"] += char_dmg
+        state["damage_dealt"] += (char_dmg + dot_dmg)
         state["damage_taken"] += mob_dmg
+
+        # Шанс моба начать подготовку сильного удара на следующем ходе
+        if not state.get("channeling") and state["rounds"] % 3 == 0 and state["mob_hp"] > 0 and random.random() < 0.45:
+            state["channeling"] = {"name": f"🔥 Разрушительный выпад {mob.name}", "damage": int(mob.damage * 2.2)}
 
         if spawn is not None:
             spawn.current_hp = max(0, state["mob_hp"])
@@ -309,38 +380,33 @@ async def combat_attack(callback: CallbackQuery):
             return
 
         if state["character_hp"] <= 0:
-            character.current_hp = 1
-            session.add(Battle(
-                character_id=character.id, mob_id=mob.id, result=BattleResult.DEFEAT,
-                rounds=state["rounds"], damage_dealt=state["damage_dealt"],
-                damage_taken=state["damage_taken"],
-            ))
-            if spawn is not None:
-                spawn.engaged_by_id = None
-                # Моб зализывает раны, а не остаётся с 1 HP навсегда
-                spawn.current_hp = mob.hp
-            note = await _lose_bag(session, character)
-            await session.commit()
-            combat_state.pop(callback.from_user.id, None)
-
-            await safe_edit_text(
-                callback,
-                defeat_text() + note,
-                reply_markup=continue_keyboard(),
-                parse_mode="HTML",
-            )
+            await _finish_defeat(callback, session, character, mob, spawn, state)
             return
 
         await session.commit()
 
+        extra_notes = []
+        if counter_dmg:
+            extra_notes.append(f"🛡 <b>Парирование!</b> Контратака на +{counter_dmg} урона!")
+        if is_stunned:
+            extra_notes.append("💫 <i>Враг оглушён и пропускает ход!</i>")
+        if dot_dmg:
+            extra_notes.append(f"🔥 <i>Периодический урон стихий: +{dot_dmg}</i>")
+        if state.get("channeling"):
+            extra_notes.append(f"⚠️ <b>ВНИМАНИЕ: {mob.name} готовит {state['channeling']['name']}! Прерви каст!</b>")
+
+        round_txt = battle_round_text(
+            character.name, mob.name, char_dmg, mob_dmg,
+            state["character_hp"], state["mob_hp"], character.max_hp,
+            crit=crit,
+        )
+        if extra_notes:
+            round_txt += "\n\n" + "\n".join(extra_notes)
+
         await send_or_edit_photo(
             callback,
-            battle_round_text(
-                character.name, mob.name, char_dmg, mob_dmg,
-                state["character_hp"], state["mob_hp"], character.max_hp,
-                crit=crit,
-            ),
-            reply_markup=combat_keyboard(),
+            round_txt,
+            reply_markup=combat_keyboard(is_channeling=bool(state.get("channeling")), stance=stance),
             image_url=mob.image_url,
         )
 
@@ -361,27 +427,22 @@ async def combat_defend(callback: CallbackQuery):
             await callback.answer("Бой прерван.", show_alert=True)
             return
 
+        spawn = await session.get(MobSpawn, state["spawn_id"]) if state.get("spawn_id") else None
+
         stats = await combat_stats(session, character)
+        stance = state.get("stance", "balanced")
         mob_dmg = max(0, (mob.damage - damage_reduction(stats)) // 2)
         state["character_hp"] -= mob_dmg
         state["rounds"] += 1
         state["damage_taken"] += mob_dmg
 
         # В глухой обороне понемногу восстанавливается дыхание
-        heal = max(1, character.max_hp // 40)
-        state["character_hp"] = min(character.max_hp, state["character_hp"] + heal)
+        max_hp_val = character.max_hp or 100
+        heal = max(1, max_hp_val // 40)
+        state["character_hp"] = min(max_hp_val, state["character_hp"] + heal)
 
         if state["character_hp"] <= 0:
-            character.current_hp = 1
-            note = await _lose_bag(session, character)
-            await session.commit()
-            combat_state.pop(callback.from_user.id, None)
-            await safe_edit_text(
-                callback,
-                defeat_text() + note,
-                reply_markup=continue_keyboard(),
-                parse_mode="HTML",
-            )
+            await _finish_defeat(callback, session, character, mob, spawn, state)
             return
 
         await session.commit()
@@ -393,14 +454,14 @@ async def combat_defend(callback: CallbackQuery):
         f"Ты переводишь дыхание: +{heal} HP.\n\n"
         f"❤️ Ты: {state['character_hp']}/{character.max_hp}\n"
         f"👾 {mob.name}: {state['mob_hp']}",
-        reply_markup=combat_keyboard(),
+        reply_markup=combat_keyboard(is_channeling=bool(state.get("channeling")), stance=stance),
         image_url=mob.image_url,
     )
 
 
 @router.callback_query(F.data == "combat_skill")
 async def combat_skill(callback: CallbackQuery):
-    """Умение: сильный удар за ману."""
+    """Умение: заклинание или сильный удар с элементальными комбо-реакциями."""
     state = combat_state.get(callback.from_user.id)
     if not state:
         await callback.answer("Бой не найден.", show_alert=True)
@@ -414,21 +475,22 @@ async def combat_skill(callback: CallbackQuery):
             await callback.answer("Бой прерван.", show_alert=True)
             return
 
-        cost = max(5, character.max_mp // 8)
-        if character.current_mp < cost:
+        cost = max(5, (character.max_mp or 50) // 8)
+        if (character.current_mp or 0) < cost:
             await callback.answer(f"Не хватает маны (нужно {cost}).", show_alert=True)
             return
 
         stats = await combat_stats(session, character)
-        character.current_mp -= cost
+        character.current_mp = max(0, (character.current_mp or cost) - cost)
+        stance = state.get("stance", "balanced")
+        statuses = state.setdefault("statuses", {})
 
-        # Магический дар усиливает умение: без дара это просто сильный удар,
-        # с талантом — полноценное заклинание.
+        # Магический дар и элементальные реакции
         affinities = await magic.get_affinities(session, character.id)
         school_bonus = magic.spell_bonus(affinities, stats["intelligence"])
         best = magic.best_affinity(affinities)
 
-        # Фокус нужной школы в руках добавляет ещё сверху
+        # Фокус нужной школы в руках
         focus_bonus = 0
         if best is not None:
             for inv in stats.get("gear", []):
@@ -436,12 +498,21 @@ async def combat_skill(callback: CallbackQuery):
                 if inst is not None and inst.magic_school == best.school:
                     focus_bonus += inst.magic_power or 0
 
-        char_dmg = max(
-            2,
-            int(attack_power(stats, character) * 1.8)
-            + stats["intelligence"] // 2
-            + school_bonus + focus_bonus,
-        )
+        stance_spell_mult = 1.25 if stance == "focus" else (1.30 if stance == "berserk" else 1.0)
+        base_char_dmg = int(attack_power(stats, character) * 1.8) + stats["intelligence"] // 2 + school_bonus + focus_bonus
+        char_dmg = max(2, int(base_char_dmg * stance_spell_mult))
+
+        # Проверка элементарной реакции (комбо со стихией предыдущего каста)
+        reaction_note = ""
+        if best is not None:
+            reaction = magic.trigger_elemental_reaction(state.get("primer_school"), best.school)
+            if reaction:
+                char_dmg = int(char_dmg * reaction["mult"])
+                reaction_note = f"\n💥 <b>{reaction['name']}!</b> {reaction['desc']}"
+                if reaction["effect"] in ("burn", "broken_armor", "stun"):
+                    statuses[reaction["effect"]] = 2
+            state["primer_school"] = best.school
+
         mob_dmg = max(0, mob.damage - damage_reduction(stats) + random.randint(-1, 2))
 
         state["mob_hp"] -= char_dmg
@@ -459,18 +530,7 @@ async def combat_skill(callback: CallbackQuery):
             return
 
         if state["character_hp"] <= 0:
-            character.current_hp = 1
-            if spawn is not None:
-                spawn.engaged_by_id = None
-                spawn.current_hp = mob.hp
-            await session.commit()
-            combat_state.pop(callback.from_user.id, None)
-            await safe_edit_text(
-                callback,
-                defeat_text(),
-                reply_markup=continue_keyboard(),
-                parse_mode="HTML",
-            )
+            await _finish_defeat(callback, session, character, mob, spawn, state)
             return
 
         await session.commit()
@@ -486,14 +546,99 @@ async def combat_skill(callback: CallbackQuery):
     await send_or_edit_photo(
         callback,
         f"{head}\n\n"
-        f"Ты вкладываешься полностью: {char_dmg} урона!\n"
+        f"Ты вкладываешься полностью: {char_dmg} урона!{reaction_note}\n"
         f"{mob.name} отвечает {mob_dmg} урона.\n\n"
         f"❤️ Ты: {state['character_hp']}/{character.max_hp}\n"
         f"💙 MP: {character.current_mp}/{character.max_mp}\n"
         f"👾 {mob.name}: {state['mob_hp']}",
-        reply_markup=combat_keyboard(),
+        reply_markup=combat_keyboard(is_channeling=bool(state.get("channeling")), stance=stance),
         image_url=mob.image_url,
     )
+
+
+@router.callback_query(F.data == "combat_interrupt")
+async def combat_interrupt(callback: CallbackQuery):
+    """Прерывание смертоносного заклинания врага щитом/ударом."""
+    state = combat_state.get(callback.from_user.id)
+    if not state or not state.get("channeling"):
+        await callback.answer("Враг сейчас ничего не готовит.", show_alert=True)
+        return
+
+    async with async_session() as session:
+        character = await _load_character(session, callback.from_user.id)
+        result = await session.execute(select(Mob).where(Mob.id == state["mob_id"]))
+        mob = result.scalar_one_or_none()
+        if not character or not mob:
+            await callback.answer("Бой прерван.", show_alert=True)
+            return
+
+        # Прерывание сбивает каст и оглушает моба!
+        chan_name = state["channeling"]["name"]
+        state["channeling"] = None
+        state.setdefault("statuses", {})["stun"] = 1
+        bash_dmg = max(5, (character.strength or 10) // 2)
+        state["mob_hp"] -= bash_dmg
+
+        spawn = await session.get(MobSpawn, state["spawn_id"]) if state.get("spawn_id") else None
+        if spawn is not None:
+            spawn.current_hp = max(0, state["mob_hp"])
+
+        if state["mob_hp"] <= 0:
+            await _finish_victory(callback, session, character, mob, spawn, state)
+            return
+
+        await session.commit()
+
+    await send_or_edit_photo(
+        callback,
+        f"💥 <b>ЗАКЛИНАНИЕ ПРЕРВАНО!</b>\n\n"
+        f"Ты вовремя нанёс сокрушительный удар щитом ({bash_dmg} урона) и сбил {chan_name}!\n"
+        f"💫 <b>{mob.name} оглушён на 1 ход!</b>\n\n"
+        f"❤️ Ты: {state['character_hp']}/{character.max_hp}\n"
+        f"👾 {mob.name}: {state['mob_hp']}",
+        reply_markup=combat_keyboard(is_channeling=False, stance=state.get("stance", "balanced")),
+        image_url=mob.image_url,
+    )
+
+
+@router.callback_query(F.data == "combat_stance_menu")
+async def combat_stance_menu(callback: CallbackQuery):
+    state = combat_state.get(callback.from_user.id)
+    if not state:
+        await callback.answer("Бой не найден.", show_alert=True)
+        return
+    cur = state.get("stance", "balanced")
+    await safe_edit_text(
+        callback,
+        f"🥋 <b>Выбор боевой стойки</b>\n\n"
+        f"Текущая стойка: <b>{cur}</b>\n\n"
+        f"• 🗡 <b>Берсерк:</b> +30% к урону, но входящий урон выше на 20%.\n"
+        f"• 🛡 <b>Парирование:</b> +25% брони и 35% шанс контратаки.\n"
+        f"• 🧘 <b>Концентрация:</b> +25% к магии и восстановление маны каждый ход.",
+        reply_markup=combat_stance_keyboard(cur),
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data.startswith("combat_set_stance:"))
+async def combat_set_stance(callback: CallbackQuery):
+    stance = callback.data.split(":")[1]
+    state = combat_state.get(callback.from_user.id)
+    if not state:
+        await callback.answer("Бой не найден.", show_alert=True)
+        return
+    state["stance"] = stance
+    await callback.answer(f"Стойка изменена на: {stance}!")
+    await combat_attack(callback)
+
+
+@router.callback_query(F.data == "combat_back")
+async def combat_back(callback: CallbackQuery):
+    state = combat_state.get(callback.from_user.id)
+    if not state:
+        await callback.answer("Бой не найден.", show_alert=True)
+        return
+    await combat_attack(callback)
 
 
 @router.callback_query(F.data == "combat_flee")

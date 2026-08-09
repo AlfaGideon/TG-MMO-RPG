@@ -99,5 +99,31 @@ def get_history(limit: int = 50):
     return list(_history)[-limit:]
 
 
+def format_radar_event(ev: dict) -> str:
+    """Форматирует событие в строку живого радара."""
+    etype = ev.get("type", "")
+    p = ev.get("payload", {})
+    t_str = time.strftime("%H:%M:%S", time.localtime(ev.get("ts", time.time())))
+
+    if etype == "battle_victory":
+        return f"⚔️ [{t_str}] <b>{p.get('character_name', 'Герой')}</b> поверг <b>{p.get('mob_name', 'врага')}</b> (+{p.get('gold', 0)}🟤, +{p.get('exp', 0)}⭐)"
+    elif etype == "chest_opened":
+        return f"📦 [{t_str}] <b>{p.get('name', 'Искатель')}</b> вскрыл сундук с сокровищами!"
+    elif etype == "player_move":
+        return f"🧭 [{t_str}] <b>{p.get('name', 'Путник')}</b> прибыл в {p.get('location_name', 'новые земли')} [Этаж {p.get('floor', 0)}]"
+    elif etype == "portal_opened":
+        return f"🌀 [{t_str}] <b>ВРАТА БЕЗДНЫ ОТКРЫТЫ:</b> {p.get('template_name', 'Подземелье')}!"
+    elif etype == "outpost_captured":
+        return f"🚩 [{t_str}] <b>Аванпост {p.get('outpost_name', '')}</b> захвачен фракцией {p.get('faction', '')}!"
+    else:
+        return f"📡 [{t_str}] Событие мира: {etype}"
+
+
+def get_radar_feed(limit: int = 15) -> list[str]:
+    """Возвращает форматированную ленту последних событий радара."""
+    hist = get_history(limit)
+    return [format_radar_event(ev) for ev in reversed(hist)]
+
+
 def clear():
     _history.clear()

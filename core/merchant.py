@@ -251,7 +251,7 @@ async def buy(session, character: Character, index: int) -> dict:
         for inv in added:
             if inv.instance_id:
                 await history.record(
-                    session, inv.instance, "created", character,
+                    session, inv.instance, "bought", character,
                     detail="куплено у бродячего торговца", price=price,
                 )
     await session.flush()
