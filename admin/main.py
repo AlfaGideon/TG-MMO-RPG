@@ -65,6 +65,22 @@ install_log_buffer()
 async def lifespan(app: FastAPI):
     os.makedirs("data", exist_ok=True)
     await run_migrations()
+
+    # Панель может запускаться напрямую через Docker/uvicorn, минуя
+    # launch.py и seed_database(). Поэтому миграцию старой раскладки замков
+    # выполняем и здесь: Тени должны быть в СВ-углу своей 25×25 карты,
+    # Глубины — в ЮЗ, независимо от способа запуска панели.
+    try:
+        async with async_session() as session:
+            repaired = await W.repair_corner_castles(session)
+            if repaired:
+                await session.commit()
+                logging.getLogger(__name__).info(
+                    "Исправлена раскладка угловых замков: %s", repaired)
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "Не удалось проверить раскладку угловых замков")
+
     try:
         from core.seed_content import seed_content
         from core.spawns import ensure_all_populations
