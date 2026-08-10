@@ -40,6 +40,26 @@ def test_all_templates_pass_static_checks():
     )
 
 
+def test_checker_handles_legacy_console_encoding():
+    """Проверщик не падает на Windows-консоли с кодировкой cp1251."""
+    env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "cp1251"
+    proc = subprocess.run(
+        [sys.executable, CHECKER],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        encoding="cp1251",
+        errors="replace",
+    )
+    assert proc.returncode == 0, (
+        f"Проверка в legacy-кодировке провалилась (exit {proc.returncode}):\n"
+        f"{proc.stdout}\n{proc.stderr}"
+    )
+    assert "UnicodeEncodeError" not in proc.stderr
+
+
 def test_checker_detects_builtin_call(tmp_path, monkeypatch):
     """Вызов set() в шаблоне обязан быть пойман (тот самый баг)."""
     bad = tmp_path / "bad.html"

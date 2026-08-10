@@ -25,6 +25,31 @@ import builtins
 import os
 import sys
 
+
+def _configure_console_output():
+    """Не падай из-за emoji в консоли с legacy-кодировкой Windows.
+
+    Например, ``cp1251`` умеет печатать русский текст, но не умеет
+    символы 🧪/❌/✅. Оставляем выбранную системой кодировку (это важно для
+    ``launch.py``, который читает вывод проверщика через ``text=True``), но
+    заменяем неподдерживаемые символы вместо ``UnicodeEncodeError``.
+    ``reconfigure`` есть не у всех файловых объектов, поэтому проверка
+    остаётся совместимой с перенаправленным и тестовым выводом.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(errors="replace")
+        except (AttributeError, OSError, TypeError, ValueError):
+            # Поток может быть уже закрыт или предоставлен тестом как
+            # нестандартный объект. Это не должно ломать саму проверку.
+            pass
+
+
+_configure_console_output()
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TPL_DIR = os.path.join(ROOT, "admin", "templates")
 
