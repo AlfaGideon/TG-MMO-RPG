@@ -401,30 +401,42 @@ async def _carve_single(session, loc, direction, mid):
 
 
 # ═══════════════════════════════════════════════════════════
-# Угловые замки: 25×25, замки по углам, NPC внутри, мобы снаружи
+# Угловые замки: 25×25 — КАЖДАЯ локация имеет ТОЛЬКО ОДИН замок в своём углу
 # ═══════════════════════════════════════════════════════════
 
-async def build_corner_castle(session, loc, stories, rng=None, npcs=None):
-    """Генерирует угловую локацию 25×25 с замками по углам.
+async def build_corner_castle(session, loc, stories, rng=None, npcs=None, castle_corner=None):
+    """
+    Генерирует локацию 25×25 с **одним** замком в указанном углу.
 
-    Разбивка 25 = 10 + 5 + 10: в четырёх углах сетки — замки 10×10
-    (безопасные клетки «village», там живут NPC), крест шириной 5 между
-    ними — опасные пустоши (туда селятся мобы) и решётка дорог (ряды и
-    колонны 10/12/14), в центре — площадь. Каждый замок примыкает
-    к дороге, поэтому все четыре достижимы; недостижимое становится стеной.
+    castle_corner — один из: "nw", "ne", "sw", "se"
+        nw = Замок Рассвета   (0-9, 0-9)
+        ne = Замок Теней      (0-9, 15-24)
+        sw = Замок Глубин     (15-24, 0-9)
+        se = Замок Пепла      (15-24, 15-24)
 
-    `npcs` — 4 списка (по числу замков) кортежей (имя, диалог, тип):
-    жители расставляются на свободных клетках внутри своих замков.
+    Всё остальное — обычные земли/угодья (трава, лес, камни и т.д.).
+    NPC только внутри замка.
     """
     rng = rng or random
     size = max(25, int(loc.grid_size or 25))
-    cx, cy = size // 2, size // 2
     s = size
-    b = s // 2 - 3                         # 9: последний ряд углового квартала
-    blocks = [((0, b), (0, b)),            # северо-западный замок 10×10
-              ((0, b), (s - b - 1, s - 1)),   # северо-восточный
-              ((s - b - 1, s - 1), (0, b)),   # юго-западный
-              ((s - b - 1, s - 1), (s - b - 1, s - 1))]  # юго-восточный
+
+    # Определяем единственный блок замка по углу
+    if castle_corner == "nw":
+        blocks = [((0, 9), (0, 9))]          # северо-запад
+    elif castle_corner == "ne":
+        blocks = [((0, 9), (15, 24))]        # северо-восток
+    elif castle_corner == "sw":
+        blocks = [((15, 24), (0, 9))]        # юго-запад
+    elif castle_corner == "se":
+        blocks = [((15, 24), (15, 24))]      # юго-восток
+    else:
+        # fallback — старое поведение (все 4 угла) — не должно использоваться
+        b = s // 2 - 3
+        blocks = [((0, b), (0, b)),
+                  ((0, b), (s - b - 1, s - 1)),
+                  ((s - b - 1, s - 1), (0, b)),
+                  ((s - b - 1, s - 1), (s - b - 1, s - 1))]
 
     def in_block(x, y):
         return any(x0 <= x <= x1 and y0 <= y <= y1
@@ -435,33 +447,27 @@ async def build_corner_castle(session, loc, stories, rng=None, npcs=None):
         if c and not c.is_passable:
             c.is_passable = True
             c.tile_type = "road"
-            c.name, c.description = "Тракт", "Утоптанная дорога между замками."
+            c.name, c.description = "Тракт", "Утоптанная дорога."
 
     for floor in range(max(1, loc.floors_count or 1)):
         cells = []
         for x in range(size):
             for y in range(size):
-                is_center = abs(x - cx) <= 2 and abs(y - cy) <= 2
                 border = x == 0 or x == size - 1 or y == 0 or y == size - 1
                 if in_block(x, y):
                     wall = False
                     tile = "village"
                     name_s, desc_s = "Замок", "Каменные стены замка. Здесь безопасно."
-                elif is_center:
-                    wall = False
-                    tile = "grass"
-                    name_s, desc_s = "Центральная площадь", "Площадь с патрулями."
                 elif border:
-                    is_door = (x == cx and y in (0, size - 1)) or (y == cy and x in (0, size - 1))
+                    is_door = (x in (0, size-1) and y == size//2) or (y in (0, size-1) and x == size//2)
                     wall = not is_door
                     tile = "wall" if wall else "road"
                     name_s, desc_s = ("Ворота" if is_door else "Стена",
                                       "Ворота замка." if is_door else "Глухая стена.")
                 else:
-                    wall = rng.random() < 0.3
+                    wall = rng.random() < 0.25
                     tile = "grass" if not wall else "wall"
-                    name_s, desc_s = ("Пустошь", "Опасная земля между замками."
-                                      if not wall else "Скала.")
+                    name_s, desc_s = ("Поле", "Земли возле замка." if not wall else "Скала.")
                 cell = Cell(
                     location_id=loc.id, x=x, y=y, floor=floor,
                     name=name_s, description=desc_s,
@@ -470,34 +476,26 @@ async def build_corner_castle(session, loc, stories, rng=None, npcs=None):
                 )
                 session.add(cell)
                 cells.append(cell)
+
         by_pos = {(c.x, c.y): c for c in cells}
-        # Решётка дорог: ряды и колонны 10, 12, 14 — от ворот к воротам.
-        # Каждый замок 10×10 примыкает к дороге своей стороной.
-        for row in (b + 1, cx, b + 3):
-            for y in range(1, s - 1):
-                open_(by_pos, row, y)
-        for col in (b + 1, cy, b + 3):
-            for x in range(1, s - 1):
-                open_(by_pos, x, col)
-        # Площадь остаётся площадью, а не перекрёстком дорог.
-        for x in range(cx - 2, cx + 3):
-            for y in range(cy - 2, cy + 3):
-                c = by_pos.get((x, y))
-                if c:
-                    c.is_passable = True
-                    c.tile_type = "grass"
-                    c.name, c.description = "Центральная площадь", "Площадь с патрулями."
+
+        # Дорога от центра к границе (для дверей)
+        cx, cy = size // 2, size // 2
+        for y in range(1, size - 1):
+            open_(by_pos, cx, y)
+        for x in range(1, size - 1):
+            open_(by_pos, x, cy)
+
         ensure_connectivity(cells, size)
-        # Жители по замкам: по одному на свободную клетку цитадели.
-        # `npcs` — 4 списка кортежей (имя, диалог, тип); одиночный кортеж
-        # принимается как список из одного жителя.
+
+        # NPC только внутри замка
         if npcs:
-            for bi in range(min(4, len(npcs))):
+            for bi in range(min(1, len(npcs))):   # только один замок
                 castle_npcs = npcs[bi]
                 if castle_npcs and isinstance(castle_npcs[0], str):
                     castle_npcs = [castle_npcs]
-                x0, x1 = blocks[bi][0]
-                y0, y1 = blocks[bi][1]
+                x0, x1 = blocks[0][0]
+                y0, y1 = blocks[0][1]
                 spot = [c for c in cells
                         if x0 <= c.x <= x1 and y0 <= c.y <= y1
                         and c.is_passable and not c.has_npc]

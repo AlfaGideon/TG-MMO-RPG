@@ -571,8 +571,15 @@ async def seed_database():
         # ── Клетки локаций ──
         for loc in locations:
             if loc.name in CORNER_NAMES:
+                corner = {
+                    "Замок Рассвета": "nw",
+                    "Замок Теней": "ne",
+                    "Замок Глубин": "sw",
+                    "Замок Пепла": "se",
+                }.get(loc.name, "nw")
                 await W.build_corner_castle(session, loc, CELL_STORIES,
-                                            rng=random.Random(seed + loc.id), npcs=None)
+                                            rng=random.Random(seed + loc.id),
+                                            npcs=None, castle_corner=corner)
                 await W.ensure_stairs(session, loc)
             else:
                 await W.build_cells(session, loc, CELL_STORIES,
