@@ -68,8 +68,47 @@ def _port_busy(host: str, port: int) -> bool:
             return True
 
 
+def check_templates() -> bool:
+    """Статическая проверка Jinja2-шаблонов панели ДО старта сервера.
+
+    Ловит то, что иначе валит страницы в рантайме 500-ми: синтаксические
+    ошибки шаблона и вызовы встроенных функций Python, которых нет в
+    Jinja2 (например, `set()` в editor_world.html — UndefinedError при
+    каждом открытии редактора мира). Подробности в tools/check_templates.py.
+
+    Временное отключение: SKIP_TEMPLATE_CHECK=1.
+    """
+    if os.getenv("SKIP_TEMPLATE_CHECK") == "1":
+        logger.info("Проверка шаблонов пропущена (SKIP_TEMPLATE_CHECK=1)")
+        return True
+
+    import subprocess
+
+    checker = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           "tools", "check_templates.py")
+    try:
+        result = subprocess.run(
+            [sys.executable, checker], capture_output=True, text=True, timeout=120
+        )
+    except Exception as exc:
+        logger.warning("Не удалось запустить проверку шаблонов: %s", exc)
+        return True
+
+    if result.stdout.strip():
+        print(result.stdout.strip())
+    if result.returncode == 0:
+        return True
+
+    print("❌ Шаблоны панели не прошли проверку — сервер не запущен.")
+    print("   Исправь ошибки выше и запусти ещё раз.")
+    return False
+
+
 def main():
     os.makedirs("data", exist_ok=True)
+
+    if not check_templates():
+        sys.exit(1)
 
     if _port_busy(admin_settings.ADMIN_HOST, admin_settings.ADMIN_PORT):
         print(
