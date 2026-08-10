@@ -21,8 +21,8 @@ def test_files():
     from engine import data
 
     print("\n— Полноразмерные боевые монстры —")
-    check(len(set(MOB_IMAGES.values())) == 27,
-          "готовы три серии — 27 полноразмерных портретов")
+    check(len(set(MOB_IMAGES.values())) == 37,
+          "готовы четыре серии — 37 полноразмерных портретов")
     paths = [ROOT / "admin/static/mobs" / filename for filename in set(MOB_IMAGES.values())]
     check(all(path.is_file() and path.stat().st_size > 150_000 for path in paths),
           "все изображения настоящие, не заглушки")
