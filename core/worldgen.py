@@ -547,7 +547,17 @@ async def repair_corner_castles(session) -> int:
                     ((size - 10, 0) if corner == "sw" else (size - 10, size - 10)))
         x1, y1 = x0 + 9, y0 + 9
         cells_result = await session.execute(select(Cell).where(Cell.location_id == loc.id))
-        cells = cells_result.scalars().all()
+        # Подземные этажи (−1, −2, …) имеют собственную планировку и не
+        # являются «вторым замком»: исправляем только наземные уровни.
+        cells = [c for c in cells_result.scalars().all() if (c.floor or 0) >= 0]
+        # Счётчик нужен только для журнала миграции: не сообщаем каждый
+        # запуск, что «исправили» уже корректную раскладку.
+        needs_layout_repair = any(
+            ((x0 <= c.x <= x1 and y0 <= c.y <= y1) and
+             (c.tile_type != "village" or not c.is_passable)) or
+            (not (x0 <= c.x <= x1 and y0 <= c.y <= y1) and c.tile_type == "village")
+            for c in cells
+        )
         by_floor = {}
         for c in cells:
             by_floor.setdefault(int(c.floor or 0), []).append(c)
@@ -589,7 +599,8 @@ async def repair_corner_castles(session) -> int:
                 c = by_pos.get((x, size // 2))
                 if c: c.is_passable, c.tile_type = True, "road"
             ensure_connectivity(floor_cells, size)
-        changed += 1
+        if needs_layout_repair:
+            changed += 1
     if changed:
         await session.flush()
     return changed
@@ -607,13 +618,20 @@ async def _carve_to_border(session, loc, direction, gates):
 
 
 async def autolink(session, loc):
-    """Связывает loc со всеми соседями по мировой карте. Одиночная дверь в центре границы."""
+    """Связывает loc со всеми соседями по мировой карте.
+
+    Сначала снимаем устаревшие швы один раз, затем создаём переходы во все
+    стороны. Вызов ``unlink_others`` внутри цикла был критической ошибкой:
+    при наличии двух и более соседей очередная итерация стирала дверь,
+    созданную предыдущей. В итоге оставался только последний (западный)
+    переход, хотя на карте локации соприкасались со всех сторон.
+    """
+    await unlink_others(session, loc)
     report = []
     for d in ("n", "e", "s", "w"):
         nb = await neighbor(session, loc, d)
         if not nb:
             continue
-        await unlink_others(session, loc)
         gates = await link_pair(session, loc, nb, d)
         report.append(f"🔗 {DIR_NAMES[d]} ↔ {nb.name} ({gates} дверь)")
     if not report:
