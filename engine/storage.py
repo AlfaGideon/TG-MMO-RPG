@@ -6,6 +6,90 @@ from engine import data, world
 from engine.models import Cell, Player
 
 
+def _unify_floor_stairs(cells, floors=None, sizes=None):
+    """Миграция старого мира: две лестничные клетки → одна площадка."""
+    floors, sizes = floors or {}, sizes or {}
+    changed = False
+    for raw_li, raw_count in floors.items():
+        li, count = int(raw_li), max(1, int(raw_count or 1))
+        if count < 2:
+            continue
+        size = world._size_of(sizes, li)
+        sx, sy = size // 2, size // 2
+        for lower in range(count - 1):
+            old_y = sy + lower
+            for floor in (lower, lower + 1):
+                old = world.cell_at(cells, li, sx, old_y, floor)
+                if (old and old.link and len(old.link) >= 4
+                        and old.link[0] == li and old.link[3] != floor):
+                    old.link = ()
+                    changed = True
+        for floor in range(count):
+            stair = world.cell_at(cells, li, sx, sy, floor)
+            if stair is None:
+                continue
+            links = []
+            if floor > 0:
+                links.append((li, sx, sy, floor - 1))
+            if floor + 1 < count:
+                links.append((li, sx, sy, floor + 1))
+            desired = tuple(links)
+            if tuple(stair.floor_links or ()) != desired:
+                stair.floor_links, changed = desired, True
+            if stair.link:
+                stair.link, changed = (), True
+            for attr, value in (("name", "Лестничная площадка"),
+                                ("desc", "Отсюда можно перейти на соседний этаж."),
+                                ("tile", "road"), ("passable", True)):
+                if getattr(stair, attr) != value:
+                    setattr(stair, attr, value)
+                    changed = True
+    return changed
+
+
+def _repair_corner_castles(cells, grid=None, sizes=None):
+    """Миграция localStorage со старой схемы четырёх замков."""
+    grid, sizes = grid or world.DEFAULT_GRID, sizes or world.DEFAULT_SIZES
+    fixed = 0
+    for li in range(len(data.LOCATIONS)):
+        if not world.is_castle(data.LOCATIONS, li):
+            continue
+        size = world._size_of(sizes, li, 25)
+        wx, wy = grid.get(str(li), [0, 0])
+        corner = ("ne" if wx >= 5 and wy < 5 else "sw" if wx < 5 and wy >= 5
+                  else "se" if wx >= 5 and wy >= 5 else "nw")
+        x0, y0 = {"nw": (0, 0), "ne": (0, size - 10),
+                  "sw": (size - 10, 0), "se": (size - 10, size - 10)}[corner]
+        positions = {int(k): tuple(v) for k, v in grid.items()}
+        wx, wy = positions.get(li, [wx, wy])
+        neighbours = {"w": (wx - 1, wy) in positions.values(),
+                      "e": (wx + 1, wy) in positions.values(),
+                      "n": (wx, wy - 1) in positions.values(),
+                      "s": (wx, wy + 1) in positions.values()}
+        changed = False
+        for cell in cells.values():
+            if cell.loc != li:
+                continue
+            inside = x0 <= cell.x < x0 + 10 and y0 <= cell.y < y0 + 10
+            if inside and (cell.tile != "village" or not cell.passable):
+                cell.tile, cell.passable, changed = "village", True, True
+            elif not inside:
+                if cell.tile == "village":
+                    cell.tile, changed = "grass", True
+                if cell.npc >= 0:
+                    cell.npc, changed = -1, True
+            if cell.x in (0, size - 1) or cell.y in (0, size - 1):
+                door = ((cell.y == 0 and cell.x == size // 2 and neighbours["w"]) or
+                        (cell.y == size - 1 and cell.x == size // 2 and neighbours["e"]) or
+                        (cell.x == 0 and cell.y == size // 2 and neighbours["n"]) or
+                        (cell.x == size - 1 and cell.y == size // 2 and neighbours["s"]))
+                wanted = "road" if door else "wall"
+                if cell.tile != wanted or cell.passable != door:
+                    cell.tile, cell.passable, changed = wanted, door, True
+        fixed += int(changed)
+    return fixed
+
+
 class Store:
     def __init__(self, backend):
         self.backend = backend        # объект с get(key)/set(key, value)
@@ -43,6 +127,7 @@ class Store:
                 self.world = {k: Cell(**v) for k, v in blob.get("world", {}).items()}
                 for c in self.world.values():
                     c.link = tuple(c.link)
+                    c.floor_links = tuple(tuple(link) for link in c.floor_links)
             except Exception:
                 self.players, self.world = {}, {}
         self.sync_locations()
@@ -50,7 +135,7 @@ class Store:
         # четыре village-квартала. Исправляем сохранённые клетки без сброса
         # игроков и ручных правок.
         if self.world:
-            repaired = world.repair_corner_castles(
+            repaired = _repair_corner_castles(
                 self.world, self.settings.get("world_grid"),
                 self.settings.get("world_sizes"))
             if repaired:
@@ -61,6 +146,9 @@ class Store:
         self.settings.setdefault("world_grid", dict(world.DEFAULT_GRID))
         self.settings.setdefault("world_sizes", dict(world.DEFAULT_SIZES))
         expected_floors = self.settings.get("location_floors", {}) or {}
+        if self.world and _unify_floor_stairs(
+                self.world, expected_floors, self.settings.get("world_sizes")):
+            self.save()
         missing_floor = any(
             int(n or 1) > 1 and not any(
                 c.loc == int(li) and c.floor == 1 for c in self.world.values()
@@ -254,6 +342,15 @@ class Store:
                     c.link = ()
                 elif l > li:
                     c.link = (l - 1, x, y, *tail)
+            shifted_floor_links = []
+            for link in c.floor_links:
+                l, x, y, floor = link[:4]
+                if l == li:
+                    continue
+                shifted_floor_links.append(
+                    (l - 1 if l > li else l, x, y, floor)
+                )
+            c.floor_links = tuple(shifted_floor_links)
             reborn[c.key] = c
         self.world = reborn
 
@@ -329,4 +426,5 @@ def default_dungeons():
 def _cell_dict(c):
     return dict(loc=c.loc, floor=c.floor, x=c.x, y=c.y, name=c.name, desc=c.desc, tile=c.tile,
                 passable=c.passable, mob=c.mob, npc=c.npc, chest=c.chest,
-                link=list(c.link), mob_at=c.mob_at, chest_at=c.chest_at)
+                link=list(c.link), floor_links=[list(link) for link in c.floor_links],
+                mob_at=c.mob_at, chest_at=c.chest_at)

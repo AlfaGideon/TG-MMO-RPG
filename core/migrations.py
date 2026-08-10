@@ -213,6 +213,8 @@ async def run_migrations():
                 await conn.execute(text("ALTER TABLE cells ADD COLUMN floor INTEGER DEFAULT 0"))
             if "dungeon_template_id" not in cols:
                 await conn.execute(text("ALTER TABLE cells ADD COLUMN dungeon_template_id INTEGER"))
+            if "stairs_key" not in cols:
+                await conn.execute(text("ALTER TABLE cells ADD COLUMN stairs_key VARCHAR(64)"))
 
         # Add missing columns to characters (floor)
         if "characters" in tables:

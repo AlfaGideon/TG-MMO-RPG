@@ -276,6 +276,16 @@ def test_nav_fits():
           f"{count} пунктов (~{need:.0f}px) влезают в max-height {limit:.0f}px")
 
 
+def test_dungeons_visible_in_content():
+    print("\n— Подземелья доступны из Контента —")
+    base = open(os.path.join(TPL_DIR, "base.html"), encoding="utf-8").read()
+    hub = open(os.path.join(TPL_DIR, "content.html"), encoding="utf-8").read()
+    check('href="/editor/dungeons"' in base and 'href="/editor/dungeons"' in hub,
+          "ссылка на подземелья есть и в меню, и в обзоре Контента")
+    check("has_capability(role, 'manage_content', custom_caps)" in base,
+          "раздел виден гейм-мастеру по правам, а не только admin-роли")
+
+
 def main():
     print("=" * 46)
     print("Вёрстка админки")
@@ -287,6 +297,7 @@ def main():
     test_css_sane()
     test_contrast()
     test_nav_fits()
+    test_dungeons_visible_in_content()
 
     print("\n" + "=" * 46)
     if FAILED:

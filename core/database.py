@@ -1,4 +1,5 @@
 import os
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
 
@@ -13,7 +14,30 @@ if DATABASE_URL.startswith("postgres://"):
 if DATABASE_URL.startswith("postgresql://") and "asyncpg" not in DATABASE_URL:
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
 
-engine = create_async_engine(DATABASE_URL, echo=False)
+_is_sqlite = DATABASE_URL.startswith("sqlite")
+_engine_kwargs = {"echo": False}
+if _is_sqlite:
+    # Не зависать на стандартные 5 секунд при настоящем конфликте записи.
+    # WAL ниже позволяет чтениям и записи идти параллельно; timeout остаётся
+    # страховкой только для двух одновременных writers.
+    _engine_kwargs["connect_args"] = {"timeout": 3.0}
+
+engine = create_async_engine(DATABASE_URL, **_engine_kwargs)
+
+
+if _is_sqlite:
+    @event.listens_for(engine.sync_engine, "connect")
+    def _configure_sqlite(dbapi_connection, _connection_record):
+        """Режим SQLite для живого бота: без read/write блокировок на 5 секунд."""
+        cursor = dbapi_connection.cursor()
+        try:
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.execute("PRAGMA busy_timeout=3000")
+        finally:
+            cursor.close()
+
+
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 Base = declarative_base()
 

@@ -204,9 +204,11 @@ async def _flow_async():
     check("select_class:warrior:guard" in data,
           f"кнопки книги несут знамя ({data})")
     from aiogram.types import FSInputFile
+    from pathlib import Path
     photo = book["photo"]
-    check(isinstance(photo, FSInputFile)
-          and "warrior_guard.png" in str(photo.path),
+    # Большие PNG перед отправкой превращаются в компактный JPEG, поэтому
+    # путь может быть хешем media-кэша, а не исходным warrior_guard.png.
+    check(isinstance(photo, FSInputFile) and Path(str(photo.path)).is_file(),
           f"портрет класса под знамя ({photo})")
 
     # Без знамени (старые сообщения) — базовый портрет и формат данных.

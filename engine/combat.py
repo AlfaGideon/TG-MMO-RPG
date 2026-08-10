@@ -157,10 +157,11 @@ def _release(store, p):
 
 
 def view(p):
+    mob_index = int(p.combat.get("mob", -1))
     return Reply(text=texts.battle_view(p, p.combat), keyboard=[
         [("⚔️ Атака", "fight:hit"), ("🛡 Защита", "fight:block")],
         [("✨ Умение", "fight:skill"), ("🏃 Бежать", "fight:flee")],
-    ])
+    ], image_url=data.mob_battle_image(mob_index, browser=True))
 
 
 def _slay(p, world, store=None):

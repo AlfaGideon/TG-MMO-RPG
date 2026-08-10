@@ -200,14 +200,28 @@ class Game:
                 else:
                     row.append(("⬛", "wall"))
             rows.append(row)
-        # Если игрок оказался непосредственно на клетке-переходе, стрелки
-        # больше не помогают: явная кнопка делает переход доступным сразу.
-        if cell.link:
-            if len(cell.link) >= 4 and cell.link[0] == cell.loc:
-                label = "🪜 Спуститься на следующий этаж" if cell.link[3] > getattr(p, "floor", 0) else "🪜 Подняться на верхний этаж"
+        # Единая лестничная площадка: сразу под стрелками показываем обе
+        # доступные стороны. В браузерном стеке этажи — подуровни, поэтому
+        # меньший номер означает подъём, больший — спуск.
+        floor_buttons = []
+        current_floor = getattr(p, "floor", 0)
+        links = sorted(
+            (tuple(link) for link in (cell.floor_links or ())),
+            key=lambda link: (link[3] > current_floor, link[3]),
+        )
+        for link in links:
+            target_floor = int(link[3])
+            if target_floor < current_floor:
+                label = f"🪜⬆️ Подняться: этаж {target_floor + 1}"
             else:
-                label = "🚪 Перейти через дверь"
-            rows.append([(label, "transition")])
+                label = f"🪜⬇️ Спуститься: этаж {target_floor + 1}"
+            floor_buttons.append((label, f"floor:{target_floor}"))
+        if floor_buttons:
+            rows.append(floor_buttons)
+
+        # Старые/обычные двери остаются одиночным переходом.
+        if cell.link:
+            rows.append([("🚪 Перейти через дверь", "transition")])
         rows.append([("🏕 Отдых", "rest"), ("🎒 Инвентарь", "bag")])
         rows.append([("🗺 Карта", "map"), ("◀️ Меню", "menu")])
         alarm = cataclysm.banner(self.store, p.loc)
@@ -222,6 +236,27 @@ class Game:
         return reply
 
     do_wall = lambda self, p, arg="": Reply(alert="Туда нельзя пройти.")
+
+    def do_floor(self, p, target_floor=""):
+        """Перейти только на соседний этаж текущей лестничной площадки."""
+        if p.combat:
+            return Reply(alert="Сначала закончи бой!")
+        cell = self._cell(p)
+        try:
+            wanted = int(target_floor)
+        except (TypeError, ValueError):
+            return Reply(alert="Некорректный этаж.")
+        allowed = [tuple(link) for link in (getattr(cell, "floor_links", ()) or ())]
+        target = next((link for link in allowed if int(link[3]) == wanted), None)
+        if target is None:
+            return Reply(alert="Можно перейти только на соседний этаж.")
+        dest = world.cell_at(self.world, *target)
+        if dest is None or not dest.passable:
+            return Reply(alert="Лестница повреждена.")
+        p.loc, p.x, p.y, p.floor = target[:4]
+        mapview.mark_visited(p)
+        merchant.roll(self.store, p)
+        return self.do_world(p)
 
     def do_transition(self, p, arg=""):
         """Использовать переход на текущей клетке (дверь/шов локаций)."""

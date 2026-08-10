@@ -25,8 +25,9 @@
     <form action="/settings/save-token" method="post" class="field" style="margin-bottom:1.5rem;">
         <label class="form-label" for="bot_token">Telegram Bot Token</label>
         <div class="form-inline">
-            <input type="text" id="bot_token" name="bot_token" class="search-box"
+            <input type="password" id="bot_token" name="bot_token" class="search-box"
                    style="flex:1; min-width:280px; max-width:600px;"
+                   autocomplete="new-password" spellcheck="false"
                    placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz" required>
             <button type="submit" class="btn btn-primary">💾 Сохранить</button>
         </div>
@@ -65,11 +66,11 @@
              role="status" aria-live="polite"></div>
     </form>
 
-    {% if bot_error %}
-    <p class="hint" style="color: var(--danger);">Последняя ошибка бота: <code>{{ bot_error }}</code></p>
+    <p id="bot-error" class="hint" style="color: var(--danger); {{ '' if bot_error else 'display:none;' }}">
+        Последняя ошибка бота: <span>{{ bot_error or '' }}</span>
+    </p>
     {% if bot_error_tip %}
     <p class="hint" style="color: var(--warning); margin-top:-0.4rem;">{{ bot_error_tip }}</p>
-    {% endif %}
     {% endif %}
 
     <div class="form-actions" style="margin-top:0;">
@@ -223,17 +224,18 @@ async function checkProxy() {
 async function startBot() {
     const msg = document.getElementById('msg');
     msg.style.color = 'var(--text-muted)';
-    msg.textContent = 'Запускаю...';
+    msg.textContent = 'Проверяю токен в Telegram и запускаю...';
     try {
         const r = await fetch('/api/bot/start', {method: 'POST'});
         const data = await r.json();
         if (data.success) {
             msg.style.color = 'var(--success)';
-            msg.textContent = '✅ Бот запущен!';
-            updateStatus(true);
+            msg.textContent = '✅ Токен проверен, бот запущен!';
+            updateStatus(true, null);
         } else {
             msg.style.color = 'var(--danger)';
             msg.textContent = '❌ ' + (data.error || 'Ошибка запуска');
+            updateStatus(false, data.error || 'Ошибка запуска');
         }
     } catch (e) {
         msg.style.color = 'var(--danger)';
@@ -276,7 +278,7 @@ async function stopBot() {
         if (data.success) {
             msg.style.color = 'var(--success)';
             msg.textContent = '✅ Бот остановлен.';
-            updateStatus(false);
+            updateStatus(false, null);
         } else {
             msg.style.color = 'var(--danger)';
             msg.textContent = '❌ ' + (data.error || 'Ошибка остановки');
@@ -287,26 +289,33 @@ async function stopBot() {
     }
 }
 
-function updateStatus(running) {
+function updateStatus(running, error) {
     // Цвет точки задаётся классом .ok/.down на строке статуса,
     // а не инлайновым background — иначе тема его не переопределит.
     const row = document.getElementById('status-row');
     const txt = document.getElementById('status-text');
+    const errorBox = document.getElementById('bot-error');
     if (row) {
         row.classList.toggle('ok', !!running);
         row.classList.toggle('down', !running);
     }
     if (txt) txt.textContent = running ? 'Бот работает' : 'Бот остановлен';
+    if (errorBox) {
+        const value = error || '';
+        const body = errorBox.querySelector('span');
+        if (body) body.textContent = value;
+        errorBox.style.display = value ? '' : 'none';
+    }
 }
 
-// Poll status every 5s
+// Частый лёгкий опрос нужен только панели: он не влияет на Telegram polling.
 setInterval(async () => {
     try {
         const r = await fetch('/api/bot/status');
         const data = await r.json();
-        updateStatus(data.running);
+        updateStatus(data.running, data.error);
     } catch (e) {}
-}, 5000);
+}, 2000);
 </script>
 
 <div class="card">

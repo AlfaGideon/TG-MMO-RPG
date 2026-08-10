@@ -117,6 +117,20 @@ def test_menus():
     check("dungeon_menu" in cell_vip, "на клетке подземелье есть у VIP")
     check("main_menu" in cell_plain and "show_map" in cell_plain,
           "меню и карта на клетке никуда не делись")
+    stairs_kb = K.cell_movement_keyboard(
+        can,
+        current_transitions=[
+            ("🪜⬆️ Подняться", "floor_transition:10"),
+            ("🪜⬇️ Спуститься", "floor_transition:20"),
+        ],
+        zoom=1,
+    )
+    stair_rows = [[button.callback_data for button in row]
+                  for row in stairs_kb.inline_keyboard]
+    check(stair_rows[3] == ["floor_transition:10", "floor_transition:20"],
+          "две кнопки этажей стоят одним рядом сразу под стрелками")
+    check(any(data.startswith("map_zoom:") for data in stair_rows[4]),
+          "масштаб карты расположен после кнопок этажей")
 
     print("\n— Возврат к действию —")
     cont = datas(K.continue_keyboard())
@@ -319,6 +333,36 @@ def test_item_book_text():
     check("без бонусов" in mtext, "у материала честно сказано про бонусы")
 
 
+async def test_floor_transition_choices():
+    """На средней площадке серверный бот предлагает оба направления."""
+    from bot.handlers.location import _current_transitions
+    from core import worldgen as W
+    from core.models import Cell
+
+    print("\n— Единая лестничная площадка —")
+    Session = await make_session()
+    async with Session() as session:
+        loc = Location(name="Башня", description="", location_type=LocationType.DANGEROUS,
+                       grid_size=10, floors_count=3)
+        session.add(loc)
+        await session.flush()
+        cx, cy = W.center_of(10)
+        for floor in range(3):
+            session.add(Cell(location_id=loc.id, floor=floor, x=cx, y=cy,
+                             name="центр", description="", is_passable=True))
+        await session.flush()
+        await W.ensure_stairs(session, loc)
+        middle = await W.cell_at(session, loc.id, cx, cy, 1)
+        buttons, hint = await _current_transitions(session, middle, loc)
+        check(len(buttons) == 2, "на среднем этаже доступны вверх и вниз")
+        check("Подняться" in buttons[0][0] and "Спуститься" in buttons[1][0],
+              "кнопки упорядочены: вверх, затем вниз")
+        check(all(data.startswith("floor_transition:") for _, data in buttons),
+              "обе кнопки используют защищённый переход по площадкам")
+        check("вверх" in hint and "вниз" in hint,
+              "описание клетки сообщает оба направления")
+
+
 # ── 7: мировая карта ────────────────────────────────────────
 
 def test_world_map():
@@ -380,6 +424,7 @@ async def main():
     test_profile_book()
     await test_inventory_sections()
     test_item_book_text()
+    await test_floor_transition_choices()
     test_world_map()
     test_admin_grid_axes()
 

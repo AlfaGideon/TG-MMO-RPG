@@ -52,6 +52,14 @@ def main():
     check(len(cells) == expected_cells, f"клеток {len(cells)} = {expected_cells}")
     spawn = world.cell_at(cells, 0, 5, 5)
     check(spawn and spawn.passable, "спавн [5,5] проходим")
+    stacked = world.generate(
+        locations=[data.LOCATIONS[0]], grid={"0": [0, 0]}, floors={"0": 3}
+    )
+    middle_stair = world.cell_at(stacked, 0, 5, 5, 1)
+    check(middle_stair and len(middle_stair.floor_links) == 2,
+          "браузерный стек: одна клетка среднего этажа ведёт вверх и вниз")
+    check(all((link[1], link[2]) == (5, 5) for link in middle_stair.floor_links),
+          "браузерный стек: обе кнопки остаются на тех же координатах")
     castle = next((c for c in cells.values() if c.loc == 5), None)
     check(castle is not None and castle.loc == 5 and
           sum(1 for c in cells.values() if c.loc == 5) == 625,
@@ -103,6 +111,19 @@ def main():
     game.handle(p, "make:warrior")
     check(p.cls == "warrior" and p.hp == 140, "воин создан (140 HP)")
     check("Сила" in game.handle(p, "profile").text, "профиль отрисован")
+
+    original_world = game.world
+    game.world = stacked
+    p.loc, p.floor, p.x, p.y = 0, 1, 5, 5
+    floor_view = game.handle(p, "world")
+    floor_actions = [data for row in floor_view.keyboard for _, data in row]
+    check("floor:0" in floor_actions and "floor:2" in floor_actions,
+          "браузерный бот показывает обе кнопки этажей")
+    game.handle(p, "floor:2")
+    check((p.floor, p.x, p.y) == (2, 5, 5),
+          "браузерный бот переходит по общей площадке")
+    game.world = original_world
+    p.loc, p.floor, p.x, p.y = 0, 0, 5, 5
 
     print("\n— Перемещение —")
     ok = world.neighbours(cells, p.loc, p.x, p.y)

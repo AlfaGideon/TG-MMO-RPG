@@ -129,6 +129,7 @@ STORIES = [
 # имён, поэтому весь код продолжает читать data.MOBS, data.ITEMS и т.д.
 from engine.content import (  # noqa: E402,F401
     BEHAVIORS, DEFAULT_BEHAVIOR, ITEMS, MOBS, NPCS, QUESTS,
+    MOB_BATTLE_IMAGES, mob_battle_image,
 )
 
 EMPTY_LOOK = [

@@ -21,6 +21,14 @@ from bot.utils.edit import safe_edit_text
 
 router = Router()
 
+
+def _mob_image(mob) -> str:
+    if (getattr(mob, "image_url", None) or "").strip():
+        return mob.image_url
+    from core.mob_images import mob_image_url
+    return mob_image_url(getattr(mob, "name", ""))
+
+
 combat_state = {}
 
 
@@ -163,7 +171,7 @@ async def start_cell_battle(callback, character, spawn: MobSpawn, session):
         callback,
         battle_start_text(mob, spawn.current_hp),
         reply_markup=combat_keyboard(),
-        image_url=mob.image_url,
+        image_url=_mob_image(mob),
     )
 
 
@@ -407,7 +415,7 @@ async def combat_attack(callback: CallbackQuery):
             callback,
             round_txt,
             reply_markup=combat_keyboard(is_channeling=bool(state.get("channeling")), stance=stance),
-            image_url=mob.image_url,
+            image_url=_mob_image(mob),
         )
 
 
@@ -455,7 +463,7 @@ async def combat_defend(callback: CallbackQuery):
         f"❤️ Ты: {state['character_hp']}/{character.max_hp}\n"
         f"👾 {mob.name}: {state['mob_hp']}",
         reply_markup=combat_keyboard(is_channeling=bool(state.get("channeling")), stance=stance),
-        image_url=mob.image_url,
+        image_url=_mob_image(mob),
     )
 
 
@@ -552,7 +560,7 @@ async def combat_skill(callback: CallbackQuery):
         f"💙 MP: {character.current_mp}/{character.max_mp}\n"
         f"👾 {mob.name}: {state['mob_hp']}",
         reply_markup=combat_keyboard(is_channeling=bool(state.get("channeling")), stance=stance),
-        image_url=mob.image_url,
+        image_url=_mob_image(mob),
     )
 
 
@@ -597,7 +605,7 @@ async def combat_interrupt(callback: CallbackQuery):
         f"❤️ Ты: {state['character_hp']}/{character.max_hp}\n"
         f"👾 {mob.name}: {state['mob_hp']}",
         reply_markup=combat_keyboard(is_channeling=False, stance=state.get("stance", "balanced")),
-        image_url=mob.image_url,
+        image_url=_mob_image(mob),
     )
 
 

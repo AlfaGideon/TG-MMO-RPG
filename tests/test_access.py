@@ -123,6 +123,10 @@ def main():
         ctx.state["content_tab"] = tab
         html = page_content.render(ctx)
         check("data-act=" in html and "clickable" in html, f"вкладка {tab}: строки кликабельны")
+    ctx.state["content_tab"] = "dungeons"
+    dungeon_content = page_content.render(ctx)
+    check("Шаблоны подземелий" in dungeon_content and "dungeon-create" in dungeon_content,
+          "страница подземелий снова доступна прямо из Контента")
     check("mf_name" in page_content.mob_form(ctx, 0), "форма моба открывается")
     check("if_name" in page_content.item_form(ctx, 0), "форма предмета открывается")
     check("nf_name" in page_content.npc_form(ctx, 0), "форма NPC открывается")
