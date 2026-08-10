@@ -66,7 +66,7 @@ logo, border, cartoon accessories glued onto a slime
 
 ## Готовые серии
 
-Утверждённое направление применено к 37 одиночным портретам:
+Утверждённое направление применено к 46 одиночным портретам:
 
 - `garbage_rat.jpg`, `swamp_zombie.jpg`, `forest_worg.jpg`
 - `weaver_spider.jpg`, `trickster_leshy.jpg`, `rotten_boar.jpg`
@@ -81,6 +81,9 @@ logo, border, cartoon accessories glued onto a slime
 - `abyss_spawn.jpg`, `rift_guardian.jpg`, `rock_predator.jpg`
 - `ash_wolf.jpg`, `frozen_zombie.jpg`, `mountain_troll.jpg`
 - `stone_skin_guardian.jpg`
+- `blizzard_ghost.jpg`, `northern_ghoul.jpg`, `ash_predator.jpg`
+- `cinder_spirit.jpg`, `burned_skeleton.jpg`, `ash_guardian.jpg`
+- `swamp_ghoul.jpg`, `undead_heron.jpg`, `rotten_knight.jpg`
 
 Они лежат в `admin/static/mobs/`. Следующая серия должна точно продолжать
 этот стиль. Один портрет мародёра используется и для стрелка, и для
