@@ -27,7 +27,7 @@ def render(ctx):
   </p>
   <div class="mapgrid" id="worldGrid" style="grid-template-columns: repeat(10, 1fr); max-width:520px; gap:6px;">{cells}</div>
   <div style="margin-top:.8rem;display:flex;gap:.5rem;flex-wrap:wrap">
-    <button class="btn" data-act="world-relink">🔗 Пересшить (1 дверь)</button>
+    <button class="btn" data-act="world-relink">🚪 Заменить двери (по 1 на границу)</button>
     <button class="btn" data-act="world-shuffle">🔀 Перемешать без удаления</button>
   </div>
 </div>

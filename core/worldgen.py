@@ -431,12 +431,18 @@ async def build_corner_castle(session, loc, stories, rng=None, npcs=None, castle
     elif castle_corner == "se":
         blocks = [((15, 24), (15, 24))]      # юго-восток
     else:
-        # fallback — старое поведение (все 4 угла) — не должно использоваться
-        b = s // 2 - 3
-        blocks = [((0, b), (0, b)),
-                  ((0, b), (s - b - 1, s - 1)),
-                  ((s - b - 1, s - 1), (0, b)),
-                  ((s - b - 1, s - 1), (s - b - 1, s - 1))]
+        # Старые вызовы не должны снова создавать четыре замка. Определяем
+        # угол по мировой позиции локации; для ручной локации без позиции
+        # безопасно используем северо-запад.
+        wx, wy = int(loc.world_x or 0), int(loc.world_y or 0)
+        inferred = ("ne" if wx >= 5 and wy < 5 else
+                    "sw" if wx < 5 and wy >= 5 else
+                    "se" if wx >= 5 and wy >= 5 else "nw")
+        corner = inferred
+        if corner == "nw": blocks = [((0, 9), (0, 9))]
+        elif corner == "ne": blocks = [((0, 9), (15, 24))]
+        elif corner == "sw": blocks = [((15, 24), (0, 9))]
+        else: blocks = [((15, 24), (15, 24))]
 
     def in_block(x, y):
         return any(x0 <= x <= x1 and y0 <= y <= y1
@@ -459,9 +465,12 @@ async def build_corner_castle(session, loc, stories, rng=None, npcs=None, castle
                     tile = "village"
                     name_s, desc_s = "Замок", "Каменные стены замка. Здесь безопасно."
                 elif border:
-                    is_door = (x in (0, size-1) and y == size//2) or (y in (0, size-1) and x == size//2)
-                    wall = not is_door
-                    tile = "wall" if wall else "road"
+                    # Двери создаются только relink_all/link_pair на
+                    # реальной границе с соседом. На внешнем краю мира
+                    # нельзя оставлять выходы «в пустоту».
+                    is_door = False
+                    wall = True
+                    tile = "wall"
                     name_s, desc_s = ("Ворота" if is_door else "Стена",
                                       "Ворота замка." if is_door else "Глухая стена.")
                 else:
@@ -508,6 +517,82 @@ async def build_corner_castle(session, loc, stories, rng=None, npcs=None, castle
                     spot[i].npc_dialogue = dialogue
                     spot[i].npc_type = npc_type
     await session.flush()
+
+
+async def repair_corner_castles(session) -> int:
+    """Одноразово исправляет старый сид с четырьмя замками в каждой 25×25.
+
+    Ранние версии уже успели записать клетки в базу, поэтому одной правки
+    генератора недостаточно: seed_database видит существующие локации и
+    больше ничего не строит. Здесь оставляем по одному кварталу в углу,
+    соответствующем мировой позиции каждой цитадели, и убираем старые
+    ``village``/NPC из трёх лишних углов. Операция идемпотентна.
+    """
+    result = await session.execute(
+        select(Location).where(Location.name.in_({
+            "Замок Рассвета", "Замок Теней", "Замок Глубин", "Замок Пепла"
+        }))
+    )
+    castles = result.scalars().all()
+    all_locations = (await session.execute(select(Location))).scalars().all()
+    occupied = {(int(l.world_x), int(l.world_y)) for l in all_locations}
+    changed = 0
+    for loc in castles:
+        size = max(25, int(loc.grid_size or 25))
+        wx, wy = int(loc.world_x or 0), int(loc.world_y or 0)
+        corner = ("ne" if wx >= 5 and wy < 5 else
+                  "sw" if wx < 5 and wy >= 5 else
+                  "se" if wx >= 5 and wy >= 5 else "nw")
+        x0, y0 = (0, 0) if corner == "nw" else ((0, size - 10) if corner == "ne" else
+                    ((size - 10, 0) if corner == "sw" else (size - 10, size - 10)))
+        x1, y1 = x0 + 9, y0 + 9
+        cells_result = await session.execute(select(Cell).where(Cell.location_id == loc.id))
+        cells = cells_result.scalars().all()
+        by_floor = {}
+        for c in cells:
+            by_floor.setdefault(int(c.floor or 0), []).append(c)
+        for floor_cells in by_floor.values():
+            by_pos = {(c.x, c.y): c for c in floor_cells}
+            for c in floor_cells:
+                inside = x0 <= c.x <= x1 and y0 <= c.y <= y1
+                if inside:
+                    c.is_passable = True
+                    c.tile_type = "village"
+                    c.name, c.description = "Замок", "Каменные стены замка. Здесь безопасно."
+                else:
+                    # Внешняя территория больше не должна выглядеть как
+                    # второй/третий замок. Сохраняем проходимость клеток.
+                    if c.tile_type == "village":
+                        c.tile_type = "grass"
+                    if c.has_npc:
+                        c.has_npc = False
+                        c.npc_name = c.npc_dialogue = c.npc_type = None
+                    if c.tile_type == "village":
+                        c.tile_type = "grass"
+                if c.x in (0, size - 1) or c.y in (0, size - 1):
+                    door = ((c.y == 0 and c.x == size // 2 and
+                             (int(loc.world_x) - 1, int(loc.world_y)) in occupied) or
+                            (c.y == size - 1 and c.x == size // 2 and
+                             (int(loc.world_x) + 1, int(loc.world_y)) in occupied) or
+                            (c.x == 0 and c.y == size // 2 and
+                             (int(loc.world_x), int(loc.world_y) - 1) in occupied) or
+                            (c.x == size - 1 and c.y == size // 2 and
+                             (int(loc.world_x), int(loc.world_y) + 1) in occupied))
+                    if not inside:
+                        c.is_passable = door
+                        c.tile_type = "road" if door else "wall"
+            # Гарантируем путь от центра к четырём сторонам.
+            for y in range(1, size - 1):
+                c = by_pos.get((size // 2, y))
+                if c: c.is_passable, c.tile_type = True, "road"
+            for x in range(1, size - 1):
+                c = by_pos.get((x, size // 2))
+                if c: c.is_passable, c.tile_type = True, "road"
+            ensure_connectivity(floor_cells, size)
+        changed += 1
+    if changed:
+        await session.flush()
+    return changed
 
 
 # ═══════════════════════════════════════════════════════════

@@ -46,6 +46,15 @@ class Store:
             except Exception:
                 self.players, self.world = {}, {}
         self.sync_locations()
+        # Миграция старых localStorage: раньше каждый 25×25 замок рисовал
+        # четыре village-квартала. Исправляем сохранённые клетки без сброса
+        # игроков и ручных правок.
+        if self.world:
+            repaired = world.repair_corner_castles(
+                self.world, self.settings.get("world_grid"),
+                self.settings.get("world_sizes"))
+            if repaired:
+                self.save()
         # Сетка мира должна существовать до первой генерации, иначе мир
         # соберётся цепочкой, а панель покажет другую раскладку. То же для
         # размеров сеток локаций (угловые замки 25×25).
@@ -143,8 +152,12 @@ class Store:
         sizes = self.settings.setdefault("world_sizes", dict(world.DEFAULT_SIZES))
         if world.is_castle(data.LOCATIONS, li):
             sizes[str(li)] = 25
+            corner = ("ne" if wx >= 5 and wy < 5 else
+                      "sw" if wx < 5 and wy >= 5 else
+                      "se" if wx >= 5 and wy >= 5 else "nw")
             batch, _ = world.gen_castle_cells(
-                li, rnd, 25, story_rnd=random.Random(sd["stories"] + li))
+                li, rnd, 25, story_rnd=random.Random(sd["stories"] + li),
+                castle_corner=corner)
         else:
             batch, _ = world.gen_cells(li, rnd,
                                        story_rnd=random.Random(sd["stories"] + li))

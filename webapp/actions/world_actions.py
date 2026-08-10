@@ -199,7 +199,7 @@ def _grid_shuffle(app):
     for k, (wx, wy) in zip(list(grid.keys()), coords):
         grid[k] = [wx, wy]
     _reseam(app, grid)
-    dom.toast(f"Перемешано {len(grid)} локаций, переходы пересшиты")
+    dom.toast(f"Перемешано {len(grid)} локаций, двери заменены")
     app.render()
 
 
@@ -214,7 +214,7 @@ def _grid_remove(app, loc_idx):
 
 def _relink(app):
     _reseam(app, app.store.settings.get("world_grid", {}))
-    dom.toast("Переходы пересшиты по сетке мира")
+    dom.toast("Старые двери заменены: по одной на каждую границу")
     app.render()
 
 
