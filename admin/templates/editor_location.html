@@ -153,10 +153,11 @@
             {% for d, label in [("n", "⬆️ Север"), ("e", "➡️ Восток"), ("s", "⬇️ Юг"), ("w", "⬅️ Запад")] %}
                 {% set nb = neighbors.get(d) %}
                 {% if nb %}
-                    <div style="display:flex;justify-content:space-between;align-items:center;font-size:0.8rem;padding:4px 6px;background:var(--bg-hover);border-radius:8px">
+                    <form method="post" action="/editor/location/{{ location.id }}/manual_link" style="display:flex;justify-content:space-between;align-items:center;font-size:0.8rem;padding:4px 6px;background:var(--bg-hover);border-radius:8px;margin:0">
+                        <input type="hidden" name="direction" value="{{ d }}">
                         <span>{{ label }}: {{ nb.name }}</span>
-                        {% if d in linked_dirs %}<span title="есть дверь" style="color:var(--success)">🚪🔗</span>{% else %}<span style="color:var(--danger)">⚠️ нет</span>{% endif %}
-                    </div>
+                        <button type="submit" class="btn btn-sm" style="padding:1px 6px;font-size:0.7rem">{% if d in linked_dirs %}🔄 Переподключить{% else %}🔗 Связать{% endif %}</button>
+                    </form>
                 {% else %}
                     <div style="font-size:0.78rem;color:var(--text-muted);padding:2px 4px">{{ label }}: — пусто</div>
                 {% endif %}
