@@ -19,6 +19,7 @@ from core.database import init_db, async_session
 from core.migrations import run_migrations
 from core import worldgen as W, worldops as WO
 from core import realtime as RT
+from core.seed import seal_fortress_and_link_gates
 from engine import rules as engine_rules
 from core import dates
 from core import vip as VIP
@@ -73,8 +74,12 @@ async def lifespan(app: FastAPI):
     try:
         async with async_session() as session:
             repaired = await W.repair_corner_castles(session)
+            # relink_all стирает нестандартные диагональные порталы. Проверяем
+            # их на каждом старте: так старый мир получает переходы в четыре
+            # центральные клетки цитадели без ручной пересборки карты.
+            await seal_fortress_and_link_gates(session)
+            await session.commit()
             if repaired:
-                await session.commit()
                 logging.getLogger(__name__).info(
                     "Исправлена раскладка угловых замков: %s", repaired)
     except Exception:
@@ -2407,6 +2412,7 @@ async def editor_location_save(
             ok, msg = await WO.move_location(session, location, world_x, world_y)
             notes.append(msg)
             pairs = await W.relink_all(session)
+            await seal_fortress_and_link_gates(session)
             notes.append(f"Пересобрано бесшовных швов: {pairs}.")
 
         # Смена размера сетки/этажей: реальная миграция клеток.
@@ -2657,6 +2663,7 @@ async def editor_world_place(request: Request, location_id: int = Form(...), wor
             return JSONResponse({"success": False, "error": "Локация не найдена"})
         ok, msg = await WO.move_location(session, loc, world_x, world_y)
         await W.relink_all(session)
+        await seal_fortress_and_link_gates(session)
         await session.commit()
         # realtime
         try:
@@ -2688,6 +2695,7 @@ async def editor_world_shuffle(request: Request):
             loc.world_y = wy
 
         pairs = await W.relink_all(session)
+        await seal_fortress_and_link_gates(session)
         await session.commit()
 
         try:
@@ -2812,6 +2820,7 @@ async def editor_world_relink(request: Request):
     guard(request, "manage_content")
     async with async_session() as session:
         pairs = await W.relink_all(session)
+        await seal_fortress_and_link_gates(session)
         await session.commit()
     return RedirectResponse(url=f"/editor/world?relinked={pairs}", status_code=303)
 
