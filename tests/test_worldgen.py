@@ -22,7 +22,7 @@ from core import worldgen as W, worldops as WO
 from core.database import Base
 from core.enums import LocationType
 from core.models import Location, Cell, Character, User, Mob, MobSpawn, Quest, VisitedCell
-from core.seed import CELL_STORIES, build_underground
+from core.seed import CELL_STORIES, build_underground, seal_fortress_and_link_gates
 
 FAILED = []
 
@@ -306,55 +306,33 @@ async def main():
                               .where(Location.id == victim.id))
         check(left == 0, "локация удалена из БД")
 
-    print("\n— Угловой замок 25×25 с замками 10×10 по углам —")
+    print("\n— Угловой замок 25×25 с одним кварталом 10×10 —")
     async with Session() as s:
         castle = Location(name="Замок Испытаний", description="т", location_type=LocationType.SAFE,
                           min_level=1, grid_size=25, floors_count=1, world_x=0, world_y=7)
         s.add(castle)
         await s.flush()
-        npcs = [
-            [("Комендант", "Стой.", "storyteller"), ("Лекарь", "Лечу.", "healer")],
-            [("Дозорный", "Тихо.", "storyteller")],
-            [("Казначей", "Денег нет.", "merchant")],
-            [("Паладин", "Свет.", "storyteller")],
-        ]
+        npcs = [[("Комендант", "Стой.", "storyteller"),
+                 ("Лекарь", "Лечу.", "healer")]]
+        # Юго-запад: x растёт на юг, y — на восток.
         await W.build_corner_castle(s, castle, CELL_STORIES,
-                                    rng=random.Random(11), npcs=npcs)
+                                    rng=random.Random(11), npcs=npcs,
+                                    castle_corner="sw")
         await s.commit()
         cells = (await s.execute(
             select(Cell).where(Cell.location_id == castle.id))).scalars().all()
         check(len(cells) == 625, f"25×25 = 625 клеток ({len(cells)})")
         village = [c for c in cells if c.tile_type == "village"]
-        check(len(village) >= 400,
-              f"четыре замка 10×10 по углам (village: {len(village)})")
-        # 25 = 10 + 5 + 10: угловые кварталы 0-9 и 15-24
-        blocks = [((0, 9), (0, 9)), ((0, 9), (15, 24)),
-                  ((15, 24), (0, 9)), ((15, 24), (15, 24))]
-        for (x0, x1), (y0, y1) in blocks:
-            block = [c for c in cells
-                     if x0 <= c.x <= x1 and y0 <= c.y <= y1]
-            check(len(block) == 100 and all(c.tile_type == "village" for c in block),
-                  f"замок {x0},{y0}–{x1},{y1} — 10×10 village")
+        expected = {(x, y) for x in range(15, 25) for y in range(0, 10)}
+        check({(c.x, c.y) for c in village} == expected,
+              "единственный замок 10×10 стоит в юго-западном углу")
         npc_cells = [c for c in cells if c.has_npc]
-        check(len(npc_cells) == 5, f"жители расставлены по замкам ({len(npc_cells)})")
-        check(all(c.tile_type == "village" for c in npc_cells),
-              "жители живут внутри замков")
-        # все четыре замка достижимы из центра
+        check(len(npc_cells) == 2 and all(c.tile_type == "village" for c in npc_cells),
+              "жители находятся внутри единственного замка")
+        # Замок достижим из центра.
         cx, cy = W.center_of(25)
-        by_pos = {(c.x, c.y): c for c in cells}
-        seen, q = {(cx, cy)}, [(cx, cy)]
-        while q:
-            x, y = q.pop(0)
-            for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-                n = (x + dx, y + dy)
-                c = by_pos.get(n)
-                if c and c.is_passable and n not in seen:
-                    seen.add(n)
-                    q.append(n)
-        for (x0, x1), (y0, y1) in blocks:
-            reachable = any((x, y) in seen for x in range(x0, x1 + 1)
-                            for y in range(y0, y1 + 1))
-            check(reachable, f"замок ({x0},{y0})–({x1},{y1}) достижим")
+        check(await passable_path(s, castle, cx, cy, 19, 5),
+              "до замка проложен путь от центра")
         # шов с соседом работает и для 25×25: одна дверь в центре границы
         nb = await make_loc(s, "Сосед Замка", 1, 7)
         await W.link_pair(s, castle, nb, "e")
@@ -364,6 +342,32 @@ async def main():
               and seam.target_y == 1, "дверь 25×25 ведёт в зеркальную клетку")
         check(await passable_path(s, castle, 12, 12, 12, 24),
               "от центра замка прорублена дорога до ворот")
+
+    print("\n— Центральная цитадель: четыре воротных портала переживают relink —")
+    async with Session() as s:
+        gates, forts = {}, {}
+        pairs = [
+            ("Северо-западные врата", (3, 3), "Цитадель Погибели: Северо-запад", (4, 4), (9, 9), (0, 0)),
+            ("Северо-восточные врата", (6, 3), "Цитадель Погибели: Северо-восток", (5, 4), (9, 0), (0, 11)),
+            ("Юго-западные врата", (3, 6), "Цитадель Погибели: Юго-запад", (4, 5), (0, 9), (11, 0)),
+            ("Юго-восточные врата", (6, 6), "Цитадель Погибели: Юго-восток", (5, 5), (0, 0), (11, 11)),
+        ]
+        for gate_name, gate_pos, fort_name, fort_pos, _, _ in pairs:
+            gate = await make_loc(s, gate_name, *gate_pos)
+            fort = await make_loc(s, fort_name, *fort_pos, grid_size=12,
+                                  ltype=LocationType.BOSS)
+            gates[gate_name], forts[fort_name] = gate, fort
+        await W.relink_all(s)
+        await seal_fortress_and_link_gates(s)
+        await s.commit()
+        for gate_name, _, fort_name, _, gate_cell_pos, fort_cell_pos in pairs:
+            gate_cell = await W.cell_at(s, gates[gate_name].id, *gate_cell_pos)
+            fort_cell = await W.cell_at(s, forts[fort_name].id, *fort_cell_pos)
+            check(gate_cell.target_location_id == forts[fort_name].id and
+                  (gate_cell.target_x, gate_cell.target_y) == fort_cell_pos and
+                  fort_cell.target_location_id == gates[gate_name].id and
+                  (fort_cell.target_x, fort_cell.target_y) == gate_cell_pos,
+                  f"{gate_name}: двусторонний вход в центральную клетку")
 
     print("\n" + "=" * 46)
     if FAILED:

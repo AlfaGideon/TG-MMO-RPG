@@ -263,8 +263,11 @@
             </div>
         </div>
         <div class="cell-grid" id="cellGrid">
-            {% for y in range(location.grid_size) %}
-                {% for x in range(location.grid_size) %}
+            {# x — строка (север→юг), y — столбец (запад→восток).
+               Это та же ориентация, что у карты игрока и worldgen: не
+               разворачиваем локальную карту относительно дверей на мировой. #}
+            {% for x in range(location.grid_size) %}
+                {% for y in range(location.grid_size) %}
                     {% set cell = cells_dict.get((x, y)) %}
                     {% if cell %}
                         {% set is_door = cell.target_location_id is not none and cell.target_location_id != location.id %}

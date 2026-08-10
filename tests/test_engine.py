@@ -63,18 +63,19 @@ def main():
     check(len(rim) == 36, f"по краям мировой карты 36 локаций ({len(rim)})")
     check(all(any(c.tile == "village" for c in cells.values() if c.loc == li)
               for li in (5, 6, 7, 8)), "в каждом замке по углам — цитадели")
-    # Внутри 25×25-локации — четыре замка 10×10 по углам (10+5+10=25).
-    for li in (5, 6, 7, 8):
+    # Каждая 25×25-локация содержит ОДИН замок 10×10 во внешнем углу
+    # мировой карты. Раньше все четыре квартала были village, из-за чего
+    # Тени и Глубины визуально оказывались в неправильных местах.
+    castle_corners = {5: (0, 0), 6: (0, 15), 7: (15, 0), 8: (15, 15)}
+    for li, (x0, y0) in castle_corners.items():
         castle_cells = [c for c in cells.values() if c.loc == li
                         and c.tile == "village"]
-        check(len(castle_cells) >= 400,
-              f"в локации {li} четыре замка 10×10 (village: {len(castle_cells)})")
-        # Углы локации заняты замками.
-        corners_ok = all(
-            any(c.tile == "village" and (c.x, c.y) == corner
-                for c in cells.values() if c.loc == li)
-            for corner in ((0, 0), (0, 24), (24, 0), (24, 24)))
-        check(corners_ok, f"замки стоят по углам локации {li}")
+        check(len(castle_cells) == 100,
+              f"в локации {li} один замок 10×10 (village: {len(castle_cells)})")
+        expected = {(x, y) for x in range(x0, x0 + 10)
+                    for y in range(y0, y0 + 10)}
+        actual = {(c.x, c.y) for c in castle_cells}
+        check(actual == expected, f"замок стоит в верном углу локации {li}")
     # Тракт-локации между углами — опасные
     trakts = [l for l in data.LOCATIONS if str(l[0]).startswith("Тракт")]
     check(len(trakts) == 32 and all(t[2] == "dangerous" for t in trakts),
