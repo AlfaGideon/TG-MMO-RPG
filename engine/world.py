@@ -136,9 +136,12 @@ def is_castle(locs, li):
         return False
 
 
-def gen_castle_cells(li, rnd, size=25, story_rnd=None):
-    """Клетки углового замка 25×25: в четырёх углах — замки 10×10
-    с жителями, между ними — опасные пустоши с мобами.
+def gen_castle_cells(li, rnd, size=25, story_rnd=None, castle_corner=None):
+    """Клетки углового замка 25×25 с одним замком в его мировом углу.
+
+    `castle_corner` — nw/ne/sw/se. Старые сохранения и вызовы без аргумента
+    определяют угол по DEFAULT_GRID, поэтому четыре квартала больше не
+    появляются даже при обычном пересоздании мира.
 
     Разбивка 25 = 10 + 5 + 10: угловые кварталы 10×10 — замки (village,
     безопасно, там NPC), крест шириной 5 между ними — пустоши и дороги
@@ -151,10 +154,20 @@ def gen_castle_cells(li, rnd, size=25, story_rnd=None):
     cx, cy = size // 2, size // 2          # 12, 12
     s = size
     b = s // 2 - 3                         # 9: последний ряд углового квартала
-    blocks = [((0, b), (0, b)),            # северо-западный замок 10×10
-              ((0, b), (s - b - 1, s - 1)),   # северо-восточный
-              ((s - b - 1, s - 1), (0, b)),   # юго-западный
-              ((s - b - 1, s - 1), (s - b - 1, s - 1))]  # юго-восточный
+    if castle_corner is None:
+        wx, wy = DEFAULT_GRID.get(str(li), [0, 0])
+        castle_corner = ("ne" if wx >= 5 and wy < 5 else
+                         "sw" if wx < 5 and wy >= 5 else
+                         "se" if wx >= 5 and wy >= 5 else "nw")
+    # 25 = 10 + 5 + 10; только один квартал, соответствующий углу.
+    b = s // 2 - 3
+    lo = s - b - 1
+    blocks = {
+        "nw": [((0, b), (0, b))],
+        "ne": [((0, b), (lo, s - 1))],
+        "sw": [((lo, s - 1), (0, b))],
+        "se": [((lo, s - 1), (lo, s - 1))],
+    }.get(castle_corner, [((0, b), (0, b))])
 
     def in_block(x, y):
         return any(x0 <= x <= x1 and y0 <= y <= y1
@@ -169,11 +182,13 @@ def gen_castle_cells(li, rnd, size=25, story_rnd=None):
                 wall, tile = False, "grass"
                 name, desc = "Центральная площадь", "Площадь с патрулями."
             elif x in (0, s - 1) or y in (0, s - 1):
-                is_door = ((x == cx and y in (0, s - 1)) or
-                           (y == cy and x in (0, s - 1)))
-                wall = not is_door
-                tile = "wall" if wall else "road"
-                name = "Ворота" if is_door else "Стена"
+                # Ворота открывает только _link_by_grid, если за этой
+                # стороной действительно есть соседняя локация. Иначе на
+                # краю мира появлялись двери «в пустоту».
+                is_door = False
+                wall = True
+                tile = "wall"
+                name = "Стена"
                 desc = "Ворота замка." if is_door else "Глухая стена."
             else:
                 wall = rnd.random() < 0.3
@@ -230,7 +245,13 @@ def generate(seed=1337, locations=None, grid=None, seeds=None, floors=None,
         size = _size_of(sizes, li)
         count = max(1, int(floors.get(str(li), floors.get(li, 1)) or 1))
         for floor in range(count):
-            batch, story = (gen_castle_cells(li, rnd, size, story_rnd)
+            corner = None
+            if is_castle(locs, li):
+                wx, wy = (grid or DEFAULT_GRID).get(str(li), DEFAULT_GRID.get(str(li), [0, 0]))
+                corner = ("ne" if wx >= 5 and wy < 5 else
+                          "sw" if wx < 5 and wy >= 5 else
+                          "se" if wx >= 5 and wy >= 5 else "nw")
+            batch, story = (gen_castle_cells(li, rnd, size, story_rnd, corner)
                             if is_castle(locs, li) else
                             gen_cells(li, rnd, story, story_rnd, size))
             for c in batch:
@@ -470,6 +491,57 @@ def _populate(cells, rnd, locs=None, seeds=None, sizes=None):
             chest_rnd.shuffle(spots)
             for c in spots[:5]:
                 c.chest = True
+
+
+def repair_corner_castles(cells, grid=None, sizes=None):
+    """Миграция сохранённого браузерного мира со старой схемы 4×замок.
+
+    Возвращает число исправленных локаций. Нужна именно для localStorage:
+    пересоздание мира по умолчанию там не запускается, если клетки уже есть.
+    """
+    grid = grid or DEFAULT_GRID
+    sizes = sizes or DEFAULT_SIZES
+    fixed = 0
+    for li in range(len(data.LOCATIONS)):
+        if not is_castle(data.LOCATIONS, li):
+            continue
+        size = _size_of(sizes, li, 25)
+        wx, wy = grid.get(str(li), [0, 0])
+        corner = ("ne" if wx >= 5 and wy < 5 else
+                  "sw" if wx < 5 and wy >= 5 else
+                  "se" if wx >= 5 and wy >= 5 else "nw")
+        x0, y0 = {"nw": (0, 0), "ne": (0, size - 10),
+                  "sw": (size - 10, 0), "se": (size - 10, size - 10)}[corner]
+        positions = {int(k): tuple(v) for k, v in grid.items()}
+        wx, wy = positions.get(li, [wx, wy])
+        neighbours = {"w": (wx - 1, wy) in positions.values(),
+                      "e": (wx + 1, wy) in positions.values(),
+                      "n": (wx, wy - 1) in positions.values(),
+                      "s": (wx, wy + 1) in positions.values()}
+        changed = False
+        for c in cells.values():
+            if c.loc != li:
+                continue
+            inside = x0 <= c.x < x0 + 10 and y0 <= c.y < y0 + 10
+            if inside:
+                if c.tile != "village" or not c.passable:
+                    c.tile, c.passable = "village", True; changed = True
+            else:
+                if c.tile == "village":
+                    c.tile = "grass"; changed = True
+                if c.npc >= 0:
+                    c.npc = -1; changed = True
+            if c.x in (0, size - 1) or c.y in (0, size - 1):
+                door = ((c.y == 0 and c.x == size // 2 and neighbours["w"]) or
+                        (c.y == size - 1 and c.x == size // 2 and neighbours["e"]) or
+                        (c.x == 0 and c.y == size // 2 and neighbours["n"]) or
+                        (c.x == size - 1 and c.y == size // 2 and neighbours["s"]))
+                wanted = "road" if door else "wall"
+                if c.tile != wanted or c.passable != door:
+                    c.tile, c.passable = wanted, door; changed = True
+        if changed:
+            fixed += 1
+    return fixed
 
 
 def cell_at(cells, loc, x, y, floor=0):

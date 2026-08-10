@@ -485,6 +485,13 @@ async def seed_database():
     async with async_session() as session:
         result = await session.execute(select(Location))
         if result.scalars().first():
+            # База могла быть создана до фикса 65: старый сид уже содержит
+            # четыре квартала-замка в каждой 25×25. Исправляем существующий
+            # мир при старте, а не только будущую генерацию.
+            repaired = await W.repair_corner_castles(session)
+            if repaired:
+                await session.commit()
+                print(f"Repaired {repaired} corner castles: one castle per location.")
             return
 
         # ── Сид: из настроек или случайный (раньше был зашит 1337) ──
