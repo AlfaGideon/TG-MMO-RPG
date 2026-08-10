@@ -157,7 +157,7 @@
                     {% if pop_by_loc.get(loc.id) %}<span class="wc-pop">👥{{ pop_by_loc.get(loc.id) }}</span>{% endif %}
                     <span class="wc-coords">{{ wx }},{{ wy }}</span>
                     <!-- Только подтверждённые Cell.target_location_id, а не все стороны карточки. -->
-                    {% set loc_dirs = connected_dirs.get(loc.id, set()) %}
+                    {% set loc_dirs = connected_dirs.get(loc.id, []) %}
                     <div class="doors">
                         {% if 'n' in loc_dirs %}<div class="door n" title="Переход на север"></div>{% endif %}
                         {% if 's' in loc_dirs %}<div class="door s" title="Переход на юг"></div>{% endif %}
