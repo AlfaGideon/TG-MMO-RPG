@@ -374,7 +374,19 @@ async def move_direction(callback: CallbackQuery, state: FSMContext):
     dx, dy = DIRECTIONS.get(direction, (0, 0))
 
     async with async_session() as session:
-        # ... (previous code)
+        result = await session.execute(
+            select(User).where(User.telegram_id == callback.from_user.id)
+        )
+        user = result.scalar_one_or_none()
+        if not user:
+            await callback.answer("Ошибка перемещения.", show_alert=True)
+            return
+
+        result = await session.execute(
+            select(Character)
+            .where(Character.user_id == user.id)
+            .options(selectinload(Character.location), selectinload(Character.cell))
+        )
         character = result.scalar_one_or_none()
         if not character or not character.cell:
             await callback.answer("Ошибка перемещения.", show_alert=True)
