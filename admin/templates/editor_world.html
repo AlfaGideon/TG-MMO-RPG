@@ -125,7 +125,7 @@
         <span>➕ свободно • клик = создать</span>
         <span>👥 онлайн в локации</span>
         <span>🏢×N = этажей</span>
-        <span>🟢 = есть проход</span>
+        <span>🟢 = фактический переход в этом направлении</span>
     </div>
 
     <div class="world-100" id="worldGrid">
@@ -156,13 +156,13 @@
                     </div>
                     {% if pop_by_loc.get(loc.id) %}<span class="wc-pop">👥{{ pop_by_loc.get(loc.id) }}</span>{% endif %}
                     <span class="wc-coords">{{ wx }},{{ wy }}</span>
-                    <!-- индикаторы дверей: в реальности 1 дверь, показываем наличие связи -->
+                    <!-- Только подтверждённые Cell.target_location_id, а не все стороны карточки. -->
+                    {% set loc_dirs = connected_dirs.get(loc.id, set()) %}
                     <div class="doors">
-                        <!-- эти 4 точки всегда есть если сосед существует, подсвечиваются JS -->
-                        <div class="door n" data-dir="n" title="Север"></div>
-                        <div class="door s" data-dir="s" title="Юг"></div>
-                        <div class="door w" data-dir="w" title="Запад"></div>
-                        <div class="door e" data-dir="e" title="Восток"></div>
+                        {% if 'n' in loc_dirs %}<div class="door n" title="Переход на север"></div>{% endif %}
+                        {% if 's' in loc_dirs %}<div class="door s" title="Переход на юг"></div>{% endif %}
+                        {% if 'w' in loc_dirs %}<div class="door w" title="Переход на запад"></div>{% endif %}
+                        {% if 'e' in loc_dirs %}<div class="door e" title="Переход на восток"></div>{% endif %}
                     </div>
                 </div>
                 {% else %}

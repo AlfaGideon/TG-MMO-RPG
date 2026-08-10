@@ -607,13 +607,20 @@ async def _carve_to_border(session, loc, direction, gates):
 
 
 async def autolink(session, loc):
-    """Связывает loc со всеми соседями по мировой карте. Одиночная дверь в центре границы."""
+    """Связывает loc со всеми соседями по мировой карте.
+
+    Сначала снимаем устаревшие швы один раз, затем создаём переходы во все
+    стороны. Вызов ``unlink_others`` внутри цикла был критической ошибкой:
+    при наличии двух и более соседей очередная итерация стирала дверь,
+    созданную предыдущей. В итоге оставался только последний (западный)
+    переход, хотя на карте локации соприкасались со всех сторон.
+    """
+    await unlink_others(session, loc)
     report = []
     for d in ("n", "e", "s", "w"):
         nb = await neighbor(session, loc, d)
         if not nb:
             continue
-        await unlink_others(session, loc)
         gates = await link_pair(session, loc, nb, d)
         report.append(f"🔗 {DIR_NAMES[d]} ↔ {nb.name} ({gates} дверь)")
     if not report:

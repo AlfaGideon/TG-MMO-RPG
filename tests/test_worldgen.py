@@ -113,6 +113,21 @@ async def main():
         check(await passable_path(s, b, *W.center_of(10), mid, 0),
               "от центра B прорублена дорога до ворот")
 
+        # При создании/автосвязке локации с несколькими соседями все швы
+        # должны сохраниться. Регрессия: unlink_others внутри цикла стирал
+        # предыдущую дверь, оставляя только последнюю сторону.
+        c = await make_loc(s, "Южный лес", 0, 1)
+        await W.autolink(s, a)
+        await s.commit()
+        east = await W.cell_at(s, a.id, mid, 9)
+        south = await W.cell_at(s, a.id, 9, mid)
+        east_back = await W.cell_at(s, b.id, mid, 0)
+        south_back = await W.cell_at(s, c.id, 0, mid)
+        check(east.target_location_id == b.id and south.target_location_id == c.id,
+              "автосвязка сохраняет переходы ко всем соседям")
+        check(east_back.target_location_id == a.id and south_back.target_location_id == a.id,
+              "все переходы после автосвязки двусторонние")
+
     print("\n— Лестницы двусторонние —")
     async with Session() as s:
         t = await make_loc(s, "Шахта", 2, 0, floors=3)

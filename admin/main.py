@@ -2571,6 +2571,34 @@ async def editor_world(request: Request):
             .group_by(Character.location_id)
         )
         pop_by_loc = {row[1]: row[0] for row in result.all()}
+
+        # Индикаторы на мировой карте должны отражать не соседство клеток
+        # сетки, а реальные переходы Cell.target_location_id.  Раньше шаблон
+        # рисовал четыре зелёные точки каждой локации без проверки данных,
+        # поэтому карта утверждала, что проход есть даже после его удаления.
+        result = await session.execute(
+            select(Cell.location_id, Cell.target_location_id)
+            .where(Cell.target_location_id.isnot(None))
+            .where(Cell.target_location_id != Cell.location_id)
+        )
+        world_links = set(result.all())
+        positions = {loc.id: (loc.world_x, loc.world_y) for loc in locations}
+        connected_dirs = {}
+        direction_by_delta = {
+            (0, -1): "n", (1, 0): "e", (0, 1): "s", (-1, 0): "w",
+        }
+        for source_id, target_id in world_links:
+            source = positions.get(source_id)
+            target = positions.get(target_id)
+            if not source or not target:
+                continue
+            direction = direction_by_delta.get(
+                (target[0] - source[0], target[1] - source[1])
+            )
+            # Диагональные переходы (ворота → цитадель) не имеют стороны
+            # карточки и намеренно не подменяют собой север/юг/запад/восток.
+            if direction:
+                connected_dirs.setdefault(source_id, set()).add(direction)
         
         # Загружаем сид из настроек (если мир ещё не сеялся — None, тогда
         # генератор подберёт случайный).
@@ -2596,6 +2624,7 @@ async def editor_world(request: Request):
         {
             "locations": locations, "grid": grid, "grid_range": range(WORLD_GRID_SIZE),
             "world_grid_size": WORLD_GRID_SIZE, "pop_by_loc": pop_by_loc,
+            "connected_dirs": connected_dirs,
             "seed": seed, "loc_count": loc_count, "world_outdated": world_outdated,
             "saved_seeds": saved_seeds,
         },
