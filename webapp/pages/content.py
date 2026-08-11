@@ -1,12 +1,14 @@
 """Страница: контент игры — мобы, предметы, NPC, классы. Всё редактируемо."""
 from engine import data, rules
 from webapp.html import esc
+from webapp.pages import dungeons as page_dungeons
 
 TITLE = "📦 Контент"
 CRUMBS = [("Контент", "content")]
 
 TABS = [("mobs", "👾 Мобы"), ("items", "⚔️ Предметы"),
-        ("npcs", "🎭 NPC"), ("classes", "🧙 Классы")]
+        ("npcs", "🎭 NPC"), ("classes", "🧙 Классы"),
+        ("dungeons", "🕳 Подземелья")]
 
 
 def render(ctx):
@@ -16,8 +18,13 @@ def render(ctx):
         f"data-act='content-tab' data-arg='{key}'>{label}</button> "
         for key, label in TABS)
 
-    body = {"mobs": _mobs, "items": _items,
-            "npcs": _npcs, "classes": _classes}[tab](ctx)
+    renderers = {"mobs": _mobs, "items": _items,
+                 "npcs": _npcs, "classes": _classes,
+                 "dungeons": page_dungeons.render}
+    if tab not in renderers:
+        tab = "mobs"
+        ctx.state["content_tab"] = tab
+    body = renderers[tab](ctx)
 
     return f"""
 <div class="card">

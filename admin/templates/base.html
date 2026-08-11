@@ -10,6 +10,7 @@
 {% set path = request.path %}
 {% set content_active = path.startswith('/editor/') %}
 {% set role = request.state.role if request is defined else None %}
+{% set custom_caps = request.state.caps if request is defined and request.state.caps is defined else None %}
 <div class="layout" id="layout">
     <div class="sidebar-overlay" onclick="toggleSidebar(false)"></div>
     <aside class="sidebar">
@@ -97,8 +98,8 @@
                 </div>
             </div>
 
-            {# Группа Контент мира #}
-            {% if role is none or role == 'admin' %}
+            {# Группа Контент мира: видна по реальным правам, а не только admin-роли. #}
+            {% if has_capability(role, 'manage_content', custom_caps) %}
             <div class="nav-group {% if content_active or path == '/content' %}open active{% endif %}" id="group-content">
                 <div class="nav-group-row" onclick="toggleGroup('group-content')">
                     <div class="nav-group-header">
@@ -113,6 +114,7 @@
                     <a href="/editor/locations" class="nav-sublink {% if path.startswith('/editor/location') %}active{% endif %}">🗺 Локации</a>
                     <a href="/editor/dungeons" class="nav-sublink {% if path == '/editor/dungeons' %}active{% endif %}">🕳 Подземелья</a>
                     <a href="/editor/mobs" class="nav-sublink {% if path == '/editor/mobs' %}active{% endif %}">👾 Мобы</a>
+                    <a href="/editor/pets" class="nav-sublink {% if path == '/editor/pets' %}active{% endif %}">🐾 Питомцы</a>
                     <a href="/editor/spawns" class="nav-sublink {% if path == '/editor/spawns' %}active{% endif %}">👣 Популяция</a>
                     <a href="/editor/living" class="nav-sublink {% if path == '/editor/living' %}active{% endif %}">♻️ Жизнь мира</a>
                     <a href="/editor/drops" class="nav-sublink {% if path == '/editor/drops' %}active{% endif %}">🎁 Таблицы лута</a>

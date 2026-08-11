@@ -201,7 +201,9 @@
             <div class="cell-preview">
                 <div class="hint" style="margin-top:0;">
                     Тип: {{ cell.tile_type }} · Проходима: {{ 'да' if cell.is_passable else 'нет' }}
-                    {% if cell.target_location_id %}
+                    {% if cell.stairs_key %}
+                    <br>🪜 Лестничная площадка: <code>{{ cell.stairs_key }}</code> — кнопки вверх/вниз появятся на клетке.
+                    {% elif cell.target_location_id %}
                     <br>🌍 Переход: {{ cell.target_location.name if cell.target_location else 'Локация ' ~ cell.target_location_id }} [{{ cell.target_x }},{{ cell.target_y }}]
                     {% endif %}
                 </div>

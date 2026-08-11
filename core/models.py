@@ -431,6 +431,12 @@ class Cell(Base):
     target_y = Column(Integer, nullable=True)
     target_floor = Column(Integer, nullable=True)
 
+    # Одна лестничная клетка может соединять сразу несколько этажей.
+    # Все площадки одной лестницы имеют одинаковый stairs_key; кнопки
+    # «вверх/вниз» вычисляются по соседним этажам, а target_* остаётся для
+    # обычных дверей и бесшовных переходов между локациями.
+    stairs_key = Column(String(64), nullable=True)
+
     location = relationship("Location", back_populates="cells", foreign_keys=[location_id])
     mob = relationship("Mob")
     target_location = relationship("Location", foreign_keys=[target_location_id])
@@ -1100,6 +1106,31 @@ class ImageAsset(Base):
     url = Column(String(512), nullable=False)
     label = Column(String(160), default="")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class PetTemplate(Base):
+    """Будущий питомец/фамильяр, редактируемый из админ-панели.
+
+    Пока это каталог концептов и изображений. Поля специализации и бонусов
+    оставлены строками/JSON, чтобы позже подключить механику без новой
+    миграции таблицы.
+    """
+    __tablename__ = "pet_templates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String(64), unique=True, nullable=False, index=True)
+    name = Column(String(128), nullable=False)
+    description = Column(Text, default="")
+    family = Column(String(64), default="slime")
+    rarity = Column(String(24), default="common")
+    slime_trait = Column(String(64), default="")
+    bonuses_json = Column(Text, default="{}")
+    image_url = Column(String(512), nullable=True)
+    is_active = Column(Boolean, default=True)
+    sort_order = Column(Integer, default=100)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(),
+                        onupdate=func.now())
 
 
 class AIGeneration(Base):

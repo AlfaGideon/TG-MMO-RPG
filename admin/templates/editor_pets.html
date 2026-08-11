@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% import "macros.html" as macros %}
+
+{% block title %}Питомцы — Shadow Lands{% endblock %}
+{% block page_title %}🐾 Питомцы и фамильяры{% endblock %}
+{% block breadcrumbs %}
+{{ macros.crumbs([('Dashboard','/'), ('Контент','/content'), ('Питомцы', none)]) }}
+{% endblock %}
+{% block topbar_actions %}<a href="#pet-new" class="btn btn-primary">➕ Новый питомец</a>{% endblock %}
+
+{% block content %}
+{% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+
+<div class="card">
+    <h2>🎨 Концепты питомцев-слаймов</h2>
+    <p class="section-sub">
+        Эти листы сохранены <b>как будущие питомцы</b>, а не как боевые монстры.
+        Здесь их можно открыть в полном размере и скачать для последующей ручной
+        нарезки. Боевые портреты мобов хранятся отдельно в редакторе «Мобы».
+    </p>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:1rem">
+        {% for url in concept_sheets %}
+        <article style="border:1px solid var(--border);border-radius:12px;padding:.7rem;background:var(--bg-hover)">
+            <a href="{{ url }}" target="_blank" rel="noopener">
+                <img src="{{ url }}" alt="Лист концептов питомцев {{ loop.index }}"
+                     style="display:block;width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px">
+            </a>
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:.5rem;margin-top:.6rem">
+                <b>Лист {{ loop.index }} · 3×3</b>
+                <a href="{{ url }}" download class="btn btn-sm">⬇️ Скачать</a>
+            </div>
+        </article>
+        {% else %}
+        <div class="empty-state"><div class="empty-icon">🖼</div>Концепт-листы ещё не добавлены.</div>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="card">
+    <h2>🐾 Каталог будущих питомцев ({{ pets|length }})</h2>
+    <p class="section-sub">
+        Каталог уже готов под будущую механику. Добавление записи пока не выдаёт
+        питомца игрокам — оно сохраняет вид, изображение, редкость и черновые бонусы.
+    </p>
+    {% if pets %}
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:1rem">
+        {% for pet in pets %}
+        <article class="field-group" style="margin:0">
+            <form action="/editor/pets/{{ pet.id }}/edit" method="post" enctype="multipart/form-data">
+                <div style="display:flex;gap:.8rem;align-items:flex-start;margin-bottom:.8rem">
+                    {% if pet.image_url %}
+                    <img src="{{ pet.image_url }}" alt="{{ pet.name }}"
+                         style="width:92px;height:92px;object-fit:cover;border-radius:10px;border:1px solid var(--border)">
+                    {% else %}
+                    <div class="thumb-empty" style="width:92px;height:92px;display:grid;place-items:center;font-size:2rem">🐾</div>
+                    {% endif %}
+                    <div>
+                        <h3 style="margin:.1rem 0">{{ pet.name }}</h3>
+                        <code>{{ pet.key }}</code><br>
+                        <span class="badge">{{ rarity_labels.get(pet.rarity, pet.rarity) }}</span>
+                        {% if pet.is_active %}<span class="badge badge-success">активен</span>{% else %}<span class="badge">черновик</span>{% endif %}
+                    </div>
+                </div>
+                <div class="field-row cols-2">
+                    <div><label class="form-label">Ключ</label><input class="search-box" name="key" value="{{ pet.key }}"></div>
+                    <div><label class="form-label">Имя</label><input class="search-box" name="name" value="{{ pet.name }}" required></div>
+                    <div><label class="form-label">Семейство</label><input class="search-box" name="family" value="{{ pet.family or 'slime' }}"></div>
+                    <div><label class="form-label">Редкость</label><select class="search-box" name="rarity">{% for value in rarities %}<option value="{{ value }}" {% if pet.rarity == value %}selected{% endif %}>{{ rarity_labels[value] }}</option>{% endfor %}</select></div>
+                    <div><label class="form-label">Слизeвая черта</label><input class="search-box" name="slime_trait" value="{{ pet.slime_trait or '' }}" placeholder="яд, лёд, прозрачность..."></div>
+                    <div><label class="form-label">Порядок</label><input class="search-box" type="number" name="sort_order" value="{{ pet.sort_order }}"></div>
+                </div>
+                <div style="margin-top:.6rem"><label class="form-label">Описание</label><textarea class="search-box" name="description" style="width:100%;max-width:none">{{ pet.description or '' }}</textarea></div>
+                <div style="margin-top:.6rem"><label class="form-label">Бонусы JSON</label><input class="search-box" name="bonuses_json" value='{{ pet.bonuses_json or "{}" }}' style="max-width:none"></div>
+                <div class="field-row cols-2" style="margin-top:.6rem">
+                    <div><label class="form-label">URL изображения</label><input class="search-box" name="image_url" value="{{ pet.image_url or '' }}"></div>
+                    <div><label class="form-label">Новый файл</label><input class="search-box" type="file" name="image" accept="image/*"></div>
+                </div>
+                <label class="check-label" style="margin-top:.7rem"><input type="checkbox" name="is_active" {% if pet.is_active %}checked{% endif %}> Готов к будущему подключению</label>
+                <div class="form-actions">
+                    <button class="btn btn-primary" type="submit">💾 Сохранить</button>
+                </div>
+            </form>
+            <form action="/editor/pets/{{ pet.id }}/delete" method="post" data-confirm="Удалить питомца «{{ pet.name }}»?">
+                <button class="btn btn-danger btn-sm" type="submit">🗑 Удалить</button>
+            </form>
+        </article>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-icon">🐾</div>
+        <div>Отдельные питомцы ещё не заведены. Концепт-листы выше сохранены и ждут ручной нарезки.</div>
+    </div>
+    {% endif %}
+</div>
+
+<div class="card" id="pet-new">
+    <h2>➕ Добавить будущего питомца</h2>
+    <form action="/editor/pets/new" method="post" enctype="multipart/form-data" data-validate>
+        <div class="field-row cols-3">
+            <div><label class="form-label">Имя</label><input class="search-box" name="name" required placeholder="Призрачный слизеволк"></div>
+            <div><label class="form-label">Ключ</label><input class="search-box" name="key" placeholder="ghost_slimewolf"></div>
+            <div><label class="form-label">Семейство</label><input class="search-box" name="family" value="slime"></div>
+            <div><label class="form-label">Редкость</label><select class="search-box" name="rarity">{% for value in rarities %}<option value="{{ value }}">{{ rarity_labels[value] }}</option>{% endfor %}</select></div>
+            <div><label class="form-label">Слизевая черта</label><input class="search-box" name="slime_trait" placeholder="прозрачная шерсть"></div>
+            <div><label class="form-label">Порядок</label><input class="search-box" type="number" name="sort_order" value="100"></div>
+        </div>
+        <div style="margin-top:.7rem"><label class="form-label">Описание</label><textarea class="search-box" name="description" style="width:100%;max-width:none"></textarea></div>
+        <div style="margin-top:.7rem"><label class="form-label">Черновые бонусы JSON</label><input class="search-box" name="bonuses_json" value="{}" style="max-width:none"></div>
+        <div class="field-row cols-2" style="margin-top:.7rem">
+            <div><label class="form-label">Файл</label><input class="search-box" type="file" name="image" accept="image/*"></div>
+            <div><label class="form-label">Или URL</label><input class="search-box" name="image_url"></div>
+        </div>
+        <label class="check-label" style="margin-top:.7rem"><input type="checkbox" name="is_active"> Готов к будущему подключению</label>
+        <div class="form-actions"><button class="btn btn-primary" type="submit">💾 Добавить питомца</button></div>
+    </form>
+</div>
+{% endblock %}

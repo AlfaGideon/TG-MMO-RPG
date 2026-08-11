@@ -122,6 +122,9 @@ REGISTRY = [
     Feature("Расширенные статы и Gear Score",
             browser=["engine/stats.py"],
             server=["core/stats.py"]),
+    Feature("Полноразмерные слизевые монстры",
+            browser=["engine/content.py", "engine/combat.py"],
+            server=["core/mob_images.py", "bot/handlers/battle.py"]),
 
     # ── ниже: механики без паритета, причина обязательна ──
     Feature("Трёхвалютная экономика",

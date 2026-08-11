@@ -15,7 +15,10 @@ class Cell:
     npc: int = -1            # индекс в data.NPCS
     chest: bool = False
     floor: int = 0
-    link: tuple = ()         # (loc, x, y[, floor]) — переход/лестница
+    link: tuple = ()         # (loc, x, y[, floor]) — обычная дверь/шов
+    # Несколько целей одной лестничной площадки. На среднем этаже здесь
+    # сразу два перехода, поэтому UI рисует кнопки вверх и вниз.
+    floor_links: tuple = ()  # ((loc, x, y, floor), ...)
     mob_at: float = 0.0      # когда тварь вернётся сюда (0 — не ждём)
     chest_at: float = 0.0    # когда здесь снова появится сундук
 

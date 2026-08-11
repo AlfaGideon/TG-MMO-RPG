@@ -78,6 +78,7 @@
 .cell-stairs::before{position:absolute;font-size:0.9rem}
 .cell-stairs-up::before{content:'⬆️'}
 .cell-stairs-down::before{content:'⬇️'}
+.cell-stairs-up.cell-stairs-down::before{content:'↕️'}
 .cell-npc::after{content:'💬';position:absolute;top:2px;right:2px;font-size:0.7rem}
 .cell-chest::after{content:'📦';position:absolute;bottom:1px;left:2px;font-size:0.7rem}
 .cell-mob::after{content:'👾';position:absolute;top:2px;left:2px;font-size:0.65rem}
@@ -224,8 +225,8 @@
                     <div class="brush-item" data-brush="npc"><div class="b-icon">💬</div><div class="b-label">NPC</div><div class="b-desc">житель</div></div>
                     <div class="brush-item" data-brush="chest"><div class="b-icon">📦</div><div class="b-label">Сундук</div><div class="b-desc">лут</div></div>
                     <div class="brush-item" data-brush="door"><div class="b-icon">🚪</div><div class="b-label">Дверь</div><div class="b-desc">переход</div></div>
-                    <div class="brush-item" data-brush="stairs_up"><div class="b-icon">⬆️</div><div class="b-label">Вверх</div><div class="b-desc">этаж+1</div></div>
-                    <div class="brush-item" data-brush="stairs_down"><div class="b-icon">⬇️</div><div class="b-label">Вниз</div><div class="b-desc">этаж-1</div></div>
+                    <div class="brush-item" data-brush="stairs_up" title="Связать эту же клетку с этажом выше"><div class="b-icon">🪜⬆️</div><div class="b-label">Этаж выше</div><div class="b-desc">та же клетка</div></div>
+                    <div class="brush-item" data-brush="stairs_down" title="Связать эту же клетку с этажом ниже"><div class="b-icon">🪜⬇️</div><div class="b-label">Этаж ниже</div><div class="b-desc">та же клетка</div></div>
                     <div class="brush-item" data-brush="clear_door"><div class="b-icon">🚫</div><div class="b-label">Убр. дверь</div><div class="b-desc">очист.</div></div>
                     <div class="brush-item" data-brush="clear"><div class="b-icon">🧹</div><div class="b-label">Очист.</div><div class="b-desc">NPC/сун</div></div>
                     <div class="brush-item" data-brush="erase"><div class="b-icon">🧽</div><div class="b-label">Стереть</div><div class="b-desc">в траву</div></div>
@@ -243,7 +244,7 @@
         <!-- GRID -->
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.6rem;flex-wrap:wrap;gap:0.5rem">
             <h3 style="margin:0">🗺 Сетка клеток — этаж {{ current_floor }} {% if (location.floors_count or 1)>1 %}<span class="badge">🏢 {{ location.floors_count }} этажей (подуровни визуально как слои)</span>{% endif %}</h3>
-            <div class="hint">Двери: одна клетка на сторону • Лестницы: двусторонние • Подуровни на карте мира — стопка</div>
+            <div class="hint">Двери: одна клетка на сторону • Лестница: одна клетка с кнопками вверх/вниз • Подуровни на карте мира — стопка</div>
         </div>
 
         <!-- Игроки на локации с фильтрацией по этажам -->
@@ -271,20 +272,18 @@
                     {% set cell = cells_dict.get((x, y)) %}
                     {% if cell %}
                         {% set is_door = cell.target_location_id is not none and cell.target_location_id != location.id %}
-                        {% set is_stairs = cell.target_location_id == location.id and cell.target_floor != cell.floor %}
-                        {% set stairs_up = is_stairs and (cell.target_floor or 0) > (cell.floor or 0) %}
-                        {% set stairs_down = is_stairs and (cell.target_floor or 0) < (cell.floor or 0) %}
+                        {% set is_stairs = cell.stairs_key is not none %}
                         <div class="cell cell-{{ cell.tile_type }}
                             {% if not cell.is_passable %}cell-wall{% endif %}
                             {% if is_door %}cell-door{% endif %}
-                            {% if is_stairs %}cell-stairs {% if stairs_up %}cell-stairs-up{% else %}cell-stairs-down{% endif %}{% endif %}
+                            {% if is_stairs %}cell-stairs cell-stairs-up cell-stairs-down{% endif %}
                             {% if cell.has_npc %}cell-npc{% endif %}
                             {% if cell.has_chest %}cell-chest{% endif %}
                             {% if cell.mob_id %}cell-mob{% endif %}"
                              data-id="{{ cell.id }}" data-x="{{ x }}" data-y="{{ y }}"
                              data-tile="{{ cell.tile_type }}" data-passable="{{ '1' if cell.is_passable else '' }}"
                              data-target="{{ cell.target_location_id or '' }}"
-                             title="[{{ x }},{{ y }}] {{ cell.tile_type }}{% if is_door %} → 🚪 в {{ cell.target_location_id }}{% endif %}{% if is_stairs %} → {% if stairs_up %}⬆️{% else %}⬇️{% endif %} этаж {{ cell.target_floor }}{% endif %}">
+                             title="[{{ x }},{{ y }}] {{ cell.tile_type }}{% if is_door %} → 🚪 в {{ cell.target_location_id }}{% endif %}{% if is_stairs %} · 🪜 единая площадка (вверх/вниз){% endif %}">
                             <span style="font-size:0.55rem;opacity:.6">{{ x }},{{ y }}</span>
                         </div>
                     {% else %}
@@ -404,8 +403,9 @@
         if(brush==='npc') el.classList.add('cell-npc');
         if(brush==='chest') el.classList.add('cell-chest');
         if(brush==='door') el.classList.add('cell-door');
-        if(brush==='stairs_up'){ el.classList.add('cell-stairs','cell-stairs-up'); }
-        if(brush==='stairs_down'){ el.classList.add('cell-stairs','cell-stairs-down'); }
+        if(brush==='stairs_up' || brush==='stairs_down'){
+            el.classList.add('cell-stairs','cell-stairs-up','cell-stairs-down');
+        }
         if(brush==='clear'){ el.classList.remove('cell-npc','cell-chest'); }
         if(brush==='clear_door'){ el.dataset.target=''; }
         if(brush==='erase'){ el.dataset.tile='grass'; el.dataset.passable='1'; el.classList.remove('cell-wall'); el.classList.add('cell-grass'); }

@@ -75,7 +75,15 @@ class TelegramBot:
         data = await self.transport.call(self.token, method, params)
         if not data.get("ok"):
             self.counters["errors"] += 1
-            self.log("err", f"{method}: {data.get('description', '?')}")
+            description = str(data.get("description", "?"))
+            if data.get("error_code") == 401 or "unauthorized" in description.lower():
+                self.log(
+                    "err",
+                    f"{method}: Telegram отклонил токен. Получи новый токен "
+                    "у @BotFather и сохрани его в настройках.",
+                )
+            else:
+                self.log("err", f"{method}: {description}")
         return data
 
     # ── жизненный цикл ──────────────────────────────────────
@@ -91,7 +99,13 @@ class TelegramBot:
             if data.get("network"):
                 return False, ("Telegram недоступен напрямую из браузера. "
                                "Включи прокси в разделе «Бот» → Транспорт.")
-            return False, data.get("description", "Неверный токен")
+            description = str(data.get("description", "Неверный токен"))
+            if data.get("error_code") == 401 or "unauthorized" in description.lower():
+                return False, (
+                    "Telegram отклонил токен. Получи новый токен у @BotFather, "
+                    "сохрани его и повтори запуск."
+                )
+            return False, description
         self.me = data["result"]
         self.running = True
         self.store.settings["token"] = self.token
@@ -131,6 +145,7 @@ class TelegramBot:
             pass
 
     async def _loop(self, gen: int):
+        failures = 0
         try:
             while self.running and gen == self._loop_gen:
                 try:
@@ -140,6 +155,21 @@ class TelegramBot:
                     )
                     if not self.running or gen != self._loop_gen:
                         return
+                    if not data.get("ok"):
+                        description = str(data.get("description", "Ошибка Telegram"))
+                        if data.get("error_code") == 401 or "unauthorized" in description.lower():
+                            # Не устраиваем быстрый бесконечный цикл запросов с
+                            # отозванным токеном. getMe проверяет токен на старте,
+                            # а эта ветка нужна, если его отозвали уже в работе.
+                            self.running = False
+                            self._loop_gen += 1
+                            return
+                        failures += 1
+                        # Transport возвращает сетевые ошибки как обычный dict,
+                        # поэтому раньше цикл крутился без паузы и забивал relay.
+                        await asyncio.sleep(min(5, failures))
+                        continue
+                    failures = 0
                     for upd in data.get("result", []) or []:
                         if not self.running or gen != self._loop_gen:
                             return
@@ -264,8 +294,18 @@ class TelegramBot:
                                   for row in reply.keyboard]}
         self.counters["sent"] += 1
 
-        if getattr(reply, "image_url", None) and reply.image_url.startswith(("http://", "https://")):
-            photo_args = dict(chat_id=chat, photo=reply.image_url, caption=reply.text, parse_mode="HTML", reply_markup=kb)
+        image_url = getattr(reply, "image_url", None) or ""
+        if image_url and not image_url.startswith(("http://", "https://")):
+            try:
+                # GitHub Pages: превращаем admin/static/... в публичный URL,
+                # который Telegram может скачать со страницы проекта.
+                from js import URL, location
+                image_url = str(URL.new(image_url.lstrip("/"), location.href).href)
+            except Exception:
+                image_url = ""
+        if image_url:
+            photo_args = dict(chat_id=chat, photo=image_url, caption=reply.text,
+                              parse_mode="HTML", reply_markup=kb)
             res = await self.call("sendPhoto", **photo_args)
             if res.get("ok"):
                 p.msg_id = res["result"]["message_id"]

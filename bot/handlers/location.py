@@ -63,13 +63,8 @@ DIRECTION_ARROWS = {
 }
 
 
-def _current_transition(cell: Cell, location: Location):
-    """Button label + text hint for transition located on the current cell.
-
-    Movement arrows show transitions on neighboring cells, but when a player
-    already stands on a stair/door cell (common after adding floors to the
-    стартовая локация), they need an explicit action button.
-    """
+def _legacy_transition(cell: Cell, location: Location):
+    """Старая одиночная ссылка: двери и сохранённые ручные переходы."""
     if (
         cell is None
         or cell.target_location_id is None
@@ -113,54 +108,88 @@ def _current_transition(cell: Cell, location: Location):
     return button, hint
 
 
+def _floor_goes_up(location: Location, current_floor: int,
+                    target_floor: int, stairs_key: str) -> bool:
+    """Физическое направление (у замкового подвала нумерация обратная)."""
+    castle_basement = (
+        stairs_key == "ordinary"
+        and location.name.startswith("Замок")
+        and {current_floor, target_floor} == {0, 1}
+    )
+    return target_floor < current_floor if castle_basement else target_floor > current_floor
+
+
+async def _current_transitions(session, cell: Cell, location: Location):
+    """Кнопки лестницы на текущей клетке и пояснение для текста.
+
+    Одинаковый ``stairs_key`` объединяет одну площадку на разных этажах.
+    Доступны только два соседних элемента отсортированного списка, поэтому
+    подделанный callback не позволяет перепрыгнуть через этаж.
+    """
+    if not cell.stairs_key:
+        label, hint = _legacy_transition(cell, location)
+        return ([(label, "cell_transition")] if label else []), hint
+
+    result = await session.execute(
+        select(Cell)
+        .where(Cell.location_id == cell.location_id)
+        .where(Cell.stairs_key == cell.stairs_key)
+        .order_by(Cell.floor, Cell.id)
+    )
+    platforms = result.scalars().all()
+    try:
+        pos = next(i for i, item in enumerate(platforms) if item.id == cell.id)
+    except StopIteration:
+        return [], None
+
+    candidates = []
+    if pos > 0:
+        candidates.append(platforms[pos - 1])
+    if pos + 1 < len(platforms):
+        candidates.append(platforms[pos + 1])
+
+    buttons, hints = [], []
+    current_floor = cell.floor or 0
+    # В интерфейсе порядок всегда «вверх», затем «вниз».
+    candidates.sort(
+        key=lambda target: not _floor_goes_up(
+            location, current_floor, target.floor or 0, cell.stairs_key
+        )
+    )
+    for target in candidates:
+        target_floor = target.floor or 0
+        floor_label = format_floor_label(
+            target_floor, location.floors_count or 1, location.name
+        )
+        going_up = _floor_goes_up(
+            location, current_floor, target_floor, cell.stairs_key
+        )
+        if going_up:
+            buttons.append((f"🪜⬆️ Подняться: {floor_label}",
+                            f"floor_transition:{target.id}"))
+            hints.append(f"⬆️ вверх — <b>{floor_label}</b>")
+        else:
+            buttons.append((f"🪜⬇️ Спуститься: {floor_label}",
+                            f"floor_transition:{target.id}"))
+            hints.append(f"⬇️ вниз — <b>{floor_label}</b>")
+
+    hint = ("🪜 <b>Лестничная площадка:</b> " + "; ".join(hints) + "."
+            if hints else None)
+    return buttons, hint
+
+
 async def _ensure_floor_stairs_present(session, location: Location):
-    """Lazy safety net for broken floor links in existing databases.
+    """Лениво перевести старые раздельные лестницы на одну площадку.
 
-    There are two independent kinds of floors:
-
-    * ordinary non-negative floors from ``Location.floors_count`` (tower floors
-      and the castle basement used by sabotage tunnels);
-    * negative underground floors (-1, -2, ...) generated under corner castles.
-
-    The old underground builder reused the central ordinary-stair cell and
-    linked each negative level only downward. As a result a player could fall
-    from Замок Рассвета into the depths, lose the surface stair, and never
-    climb back. We now verify the exact standard stair cells, not just the
-    total number of links (old broken underground links used to fool that
-    count).
+    Обе функции идемпотентны: на исправленной карте ничего не записывают.
+    Это позволяет безопасно чинить существующую БД при первом же открытии
+    клетки без отдельной ручной миграции мира.
     """
     from core import worldgen as W
 
-    changed = False
-    floors = max(1, location.floors_count or 1)
-    if floors >= 2:
-        # Check the standard positive stair pair explicitly. Counting all
-        # self-links is not enough because negative underground links are also
-        # self-links and made broken castles look "healthy".
-        cx, cy = W.center_of(location.grid_size)
-        dx, dy = (1, 0) if cx + 1 < (location.grid_size or 10) - 1 else (-1, 0)
-        expected = []
-        for floor in range(floors):
-            if floor < floors - 1:
-                expected.append((cx, cy, floor, floor + 1))
-            if floor > 0:
-                expected.append((cx + dx, cy + dy, floor, floor - 1))
-        ok = True
-        for x, y, floor, target_floor in expected:
-            c = await W.cell_at(session, location.id, x, y, floor)
-            if not (
-                c and c.is_passable and c.target_location_id == location.id
-                and c.target_x == x and c.target_y == y
-                and c.target_floor == target_floor
-            ):
-                ok = False
-                break
-        if not ok:
-            changed = await W.ensure_stairs(session, location) or changed
-
+    changed = await W.ensure_stairs(session, location)
     if await W.underground_floors(session, location):
         changed = await W.ensure_underground_stairs(session, location) or changed
-
     if changed:
         await session.commit()
 
@@ -499,6 +528,94 @@ async def move_direction(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "noop")
 async def noop_handler(callback: CallbackQuery):
     await callback.answer("Туда нельзя пройти.", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("floor_transition:"))
+async def floor_transition(callback: CallbackQuery, state: FSMContext):
+    """Перейти на соседнюю площадку той же лестницы."""
+    try:
+        target_id = int(callback.data.split(":", 1)[1])
+    except (TypeError, ValueError):
+        await callback.answer("Некорректный этаж.", show_alert=True)
+        return
+
+    async with async_session() as session:
+        user = (await session.execute(
+            select(User).where(User.telegram_id == callback.from_user.id)
+        )).scalar_one_or_none()
+        if not user:
+            await callback.answer("Ошибка перехода.", show_alert=True)
+            return
+
+        character = (await session.execute(
+            select(Character)
+            .where(Character.user_id == user.id)
+            .options(selectinload(Character.location), selectinload(Character.cell))
+        )).scalar_one_or_none()
+        if not character or not character.cell or not character.location:
+            await callback.answer("Ошибка перехода.", show_alert=True)
+            return
+
+        await _ensure_floor_stairs_present(session, character.location)
+        current = character.cell
+        if not current.stairs_key:
+            await callback.answer("Здесь нет лестницы.", show_alert=True)
+            return
+
+        platforms = (await session.execute(
+            select(Cell)
+            .where(Cell.location_id == current.location_id)
+            .where(Cell.stairs_key == current.stairs_key)
+            .order_by(Cell.floor, Cell.id)
+        )).scalars().all()
+        try:
+            pos = next(i for i, item in enumerate(platforms) if item.id == current.id)
+        except StopIteration:
+            await callback.answer("Лестница повреждена.", show_alert=True)
+            return
+        allowed = []
+        if pos > 0:
+            allowed.append(platforms[pos - 1])
+        if pos + 1 < len(platforms):
+            allowed.append(platforms[pos + 1])
+        target = next((item for item in allowed if item.id == target_id), None)
+        if target is None or not target.is_passable:
+            await callback.answer("Можно перейти только на соседний этаж.", show_alert=True)
+            return
+
+        old_floor = character.floor or 0
+        character.floor = target.floor or 0
+        character.cell_id = target.id
+        character.cell = target
+        await mark_visited(session, character, target)
+        from core import merchant
+        await merchant.maybe_wander(session)
+        await session.commit()
+
+        try:
+            from core.realtime import publish as rt_publish
+            from core.vip import is_vip_active as vip_active
+            await rt_publish("player_move", {
+                "character_id": character.id,
+                "name": character.name,
+                "location_id": character.location_id,
+                "location_name": character.location.name,
+                "floor": character.floor,
+                "x": target.x,
+                "y": target.y,
+                "from_floor": old_floor,
+                "via": "floor_transition",
+                "is_vip": vip_active(character),
+            })
+        except Exception:
+            pass
+
+        data = await state.get_data()
+        await callback.answer()
+        await show_cell(
+            callback, character, character.location, session,
+            zoom=data.get("map_zoom", DEFAULT_ZOOM),
+        )
 
 
 @router.callback_query(F.data == "cell_transition")
@@ -1209,7 +1326,9 @@ async def show_cell(callback, character, location, session,
             # до нажатия стрелки, а направление всё равно остаётся на кнопке.
             dir_labels[direction] = f"🚪{DIRECTION_ARROWS.get(direction, '')}"
 
-    transition_label, transition_hint = _current_transition(cell, location)
+    current_transitions, transition_hint = await _current_transitions(
+        session, cell, location
+    )
     portal_template_id = await _active_portal_template_id(session, cell)
     vip = is_vip_active(character)
     text = cell_text(
@@ -1238,8 +1357,8 @@ async def show_cell(callback, character, location, session,
         await send_or_edit_photo(
             callback, text,
             reply_markup=cell_movement_keyboard(
-                can_dirs, portal_template_id, dir_labels, transition_label,
-                is_vip=vip, has_merchant=has_merchant,
+                can_dirs, portal_template_id, dir_labels,
+                current_transitions=current_transitions, is_vip=vip, has_merchant=has_merchant,
                 is_castle_basement=is_basement),
             image_url=custom_img,
         )
@@ -1259,8 +1378,8 @@ async def show_cell(callback, character, location, session,
         await send_or_edit_photo(
             callback, text,
             reply_markup=cell_movement_keyboard(
-                can_dirs, portal_template_id, dir_labels, transition_label,
-                is_vip=vip, has_merchant=has_merchant,
+                can_dirs, portal_template_id, dir_labels,
+                current_transitions=current_transitions, is_vip=vip, has_merchant=has_merchant,
                 is_castle_basement=is_basement),
             image_url=scene_path,
         )
@@ -1272,8 +1391,8 @@ async def show_cell(callback, character, location, session,
         await send_or_edit_photo(
             callback, text,
             reply_markup=cell_movement_keyboard(
-                can_dirs, portal_template_id, dir_labels, transition_label,
-                is_vip=vip, has_merchant=has_merchant,
+                can_dirs, portal_template_id, dir_labels,
+                current_transitions=current_transitions, is_vip=vip, has_merchant=has_merchant,
                 is_castle_basement=is_basement),
             image_url=location.image_url,
         )
@@ -1286,7 +1405,7 @@ async def show_cell(callback, character, location, session,
         zoom_radius=zoom_radius_for(location.grid_size, zoom),
     )
     kb = cell_movement_keyboard(can_dirs, portal_template_id, dir_labels,
-                                transition_label, is_vip=vip,
+                                current_transitions=current_transitions, is_vip=vip,
                                 has_merchant=has_merchant,
                                 is_castle_basement=is_basement, zoom=zoom)
     await send_or_edit_photo(callback, text, reply_markup=kb, image_url=img_path)

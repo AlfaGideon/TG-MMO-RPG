@@ -161,6 +161,68 @@ MOBS = [
      "hunter"),
 ]
 
+# Первые утверждённые одиночные боевые портреты. Слизь формирует тело
+# полноценного монстра, а не круглый маскот с приклеенными деталями.
+MOB_BATTLE_IMAGES = {
+    0: "garbage_rat.jpg",
+    1: "swamp_zombie.jpg",
+    2: "forest_worg.jpg",
+    3: "weaver_spider.jpg",
+    4: "trickster_leshy.jpg",
+    5: "rotten_boar.jpg",
+    6: "skeleton_warrior.jpg",
+    7: "gnoll_raider.jpg",
+    8: "rusty_knight.jpg",
+    9: "marauder_marksman.jpg",
+    10: "war_hound.jpg",
+    11: "cave_troll.jpg",
+    12: "shadow_ghost.jpg",
+    13: "bone_priest.jpg",
+    14: "grave_worm.jpg",
+    15: "banshee_mourner.jpg",
+    16: "bone_golem.jpg",
+    17: "abyss_cultist.jpg",
+    18: "abyss_spawn.jpg",
+    19: "rift_guardian.jpg",
+    20: "world_devourer.jpg",
+    21: "marauder_marksman.jpg",
+    22: "northern_buzzard.jpg",
+    23: "rock_predator.jpg",
+    24: "dark_tracker.jpg",
+    25: "ash_wolf.jpg",
+    26: "ash_warlock.jpg",
+    27: "grave_guardian.jpg",
+    28: "rotting_giant.jpg",
+    29: "ice_scavenger.jpg",
+    30: "blizzard_ghost.jpg",
+    31: "frozen_zombie.jpg",
+    32: "snow_wolf.jpg",
+    33: "bone_wanderer.jpg",
+    34: "northern_ghoul.jpg",
+    35: "ash_predator.jpg",
+    36: "cinder_spirit.jpg",
+    37: "burned_skeleton.jpg",
+    38: "carrion_harpy.jpg",
+    39: "ash_warlock.jpg",
+    40: "ash_guardian.jpg",
+    41: "bog_serpent.jpg",
+    42: "swamp_ghoul.jpg",
+    43: "mire_golem.jpg",
+    44: "undead_heron.jpg",
+    45: "rotten_knight.jpg",
+    49: "mountain_troll.jpg",
+    52: "stone_skin_guardian.jpg",
+    60: "carrion_harpy.jpg",
+}
+
+
+def mob_battle_image(mob_index, browser=False):
+    filename = MOB_BATTLE_IMAGES.get(int(mob_index), "")
+    if not filename:
+        return ""
+    return f"admin/static/mobs/{filename}" if browser else f"/static/mobs/{filename}"
+
+
 # (name, type, rarity, price, icon, bonuses)
 ITEMS = [
     # ── оружие ──

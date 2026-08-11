@@ -268,6 +268,7 @@ def cell_movement_keyboard(can_dirs: dict, dungeon_template_id: int | None = Non
                            dir_labels: dict | None = None,
                            current_transition_label: str | None = None,
                            is_vip: bool = False,
+                           current_transitions: list | None = None,
                            has_merchant: bool = False,
                            is_castle_basement: bool = False,
                            zoom: int | None = None):
@@ -277,8 +278,9 @@ def cell_movement_keyboard(can_dirs: dict, dungeon_template_id: int | None = Non
                'sw': bool, 's': bool, 'se': bool}
     dir_labels: optional per-direction button text. Used to show doors
                 (transitions) and rocks (blocked cells) directly on arrows.
-    current_transition_label: button for the transition on the current cell
-                itself (stairs/floor change).
+    current_transition_label: совместимость со старой одиночной ссылкой.
+    current_transitions: список (текст, callback) для общей лестничной клетки;
+                на среднем этаже содержит сразу «вверх» и «вниз».
     zoom: уровень масштаба карты, если на экране сгенерированная карта
                 (тогда под сеткой направлений появляется ряд +/-).
     """
@@ -309,15 +311,21 @@ def cell_movement_keyboard(can_dirs: dict, dungeon_template_id: int | None = Non
 
     rows = [3, 3, 3]
 
-    # Масштаб карты на экране перемещения (только если показана
-    # сгенерированная цветная карта, а не админская картинка клетки).
+    # Лестница всегда сразу под стрелками. На промежуточном этаже обе
+    # кнопки стоят в одном ряду: «вверх» и «вниз».
+    transitions = list(current_transitions or [])
+    if not transitions and current_transition_label:
+        transitions = [(current_transition_label, "cell_transition")]
+    for label, callback_data in transitions:
+        builder.button(text=label, callback_data=callback_data)
+    if transitions:
+        rows.append(len(transitions))
+
+    # Масштаб идёт уже после этажей, чтобы кнопки лестницы не терялись
+    # между стрелками перемещения и служебной навигацией карты.
     if zoom is not None:
         zoom_row = _zoom_buttons(builder, "cell", zoom)
         rows.append(zoom_row)
-
-    if current_transition_label:
-        builder.button(text=current_transition_label, callback_data="cell_transition")
-        rows.append(1)
 
     if dungeon_template_id:
         builder.button(text="🕳 Войти в подземелье", callback_data=f"dungeon_enter_tpl:{dungeon_template_id}")

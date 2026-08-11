@@ -107,8 +107,10 @@ def glyph(cell, portals=(), graves=(), marks=()):
         return MARK
     if cell.key in portals:
         return PORTAL
+    if getattr(cell, "floor_links", ()):
+        return STAIRS
     if cell.link:
-        return STAIRS if len(cell.link) >= 4 and cell.link[0] == cell.loc else DOOR
+        return DOOR
     if cell.mob >= 0:
         return MOB
     if cell.npc >= 0:

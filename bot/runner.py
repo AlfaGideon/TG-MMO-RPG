@@ -6,11 +6,10 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
-from aiogram.exceptions import TelegramConflictError
+from aiogram.exceptions import TelegramConflictError, TelegramUnauthorizedError
 
 from bot.handlers import routers
 from bot.middlewares.ban import BanMiddleware
-from bot.middlewares.db import DBSessionMiddleware
 from bot.middlewares.dedup import DedupUpdateMiddleware, reset_deduper
 from bot.middlewares.offline import OfflineProtectionMiddleware
 from bot.middlewares.serialize import SerializeUserMiddleware
@@ -27,19 +26,28 @@ CONFLICT_MESSAGE = (
     "лишний процесс, затем нажми «Запустить бота»."
 )
 
+AUTH_MESSAGE = (
+    "❌ Telegram отклонил токен бота (Unauthorized). Токен неверный или "
+    "был отозван. Откройте @BotFather → /mybots → выберите бота → "
+    "API Token, скопируйте новый токен целиком, сохраните его в Настройках "
+    "и снова нажмите «Запустить бота»."
+)
+STARTUP_CHECK_TIMEOUT = 15.0
+
 
 class ConflictAwareSession(AiohttpSession):
-    """AiohttpSession, который замечает TelegramConflictError.
+    """AiohttpSession, замечающий конфликт polling и потерю авторизации.
 
-    aiogram сам ретраит конфликт getUpdates бесконечно — два экземпляра
-    бота с одним токеном вечно «дерутся», заваливая лог и не получая
-    апдейты. Этот класс передаёт конфликт в BotRunner, чтобы тот показал
-    понятное сообщение и остановил polling.
+    aiogram сам ретраит ошибки getUpdates бесконечно: два экземпляра бота
+    могут вечно «драться», а неверный токен — печатать Unauthorized каждые
+    несколько секунд. Сессия передаёт фатальные события в BotRunner, чтобы
+    тот остановил polling и показал понятное сообщение.
     """
 
-    def __init__(self, on_conflict, *args, **kwargs):
+    def __init__(self, on_conflict, on_unauthorized=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._on_conflict = on_conflict
+        self._on_unauthorized = on_unauthorized
 
     async def __call__(self, bot, method, timeout=None):
         try:
@@ -47,6 +55,13 @@ class ConflictAwareSession(AiohttpSession):
         except TelegramConflictError as e:
             if self._on_conflict:
                 self._on_conflict(e)
+            raise
+        except TelegramUnauthorizedError as e:
+            # Без этого aiogram бесконечно повторяет getUpdates и каждые
+            # несколько секунд печатает «Failed to fetch updates ...
+            # Unauthorized». Runner остановит polling после первой ошибки.
+            if self._on_unauthorized:
+                self._on_unauthorized(e)
             raise
 
 
@@ -67,6 +82,7 @@ class BotRunner:
         self._start_lock = asyncio.Lock()
         self._conflicts = 0              # счётчик TelegramConflictError подряд
         self._conflict_worker: Optional[asyncio.Task] = None
+        self._auth_worker: Optional[asyncio.Task] = None
 
     def is_running(self) -> bool:
         return self._running and self._task is not None and not self._task.done()
@@ -82,11 +98,13 @@ class BotRunner:
         reset_deduper()
         # aiogram 3: wrap_middlewares делает reversed() — первый
         # зарегистрированный middleware = самый внешний (идёт первым).
-        # Снаружи внутрь: дедуп → сериализация → БД → офлайн → бан → handler.
+        # Снаружи внутрь: дедуп → сериализация → единая короткая проверка
+        # игрока/offline → бан → handler. Отдельного DBSessionMiddleware здесь
+        # быть не должно: хендлеры открывают собственные сессии, а внешняя
+        # read-транзакция удерживала SQLite lock примерно на 5 секунд.
         for event_type in (self.dp.message, self.dp.callback_query):
             event_type.middleware(DedupUpdateMiddleware())
             event_type.middleware(SerializeUserMiddleware())
-            event_type.middleware(DBSessionMiddleware())
             event_type.middleware(OfflineProtectionMiddleware())
             event_type.middleware(BanMiddleware())
         for router in routers:
@@ -100,10 +118,24 @@ class BotRunner:
                 pass
             self.bot = None
 
+    async def _validate_bot(self):
+        """Проверить токен до запуска polling, а не после ложного «успеха»."""
+        return await asyncio.wait_for(
+            self.bot.get_me(), timeout=STARTUP_CHECK_TIMEOUT
+        )
+
     async def start(self, token: str, proxy_url: str = "") -> bool:
         async with self._start_lock:
             if self.is_running():
                 logger.info("Bot already running")
+                return False
+
+            token = (token or "").strip()
+            if not token:
+                self.last_error = (
+                    "Токен бота не задан. Скопируйте его у @BotFather, "
+                    "сохраните в Настройках и повторите запуск."
+                )
                 return False
 
             # После сетевой ошибки polling мог остановиться сам, не проходя через
@@ -134,8 +166,10 @@ class BotRunner:
                 # Свежий счётчик конфликтов на каждый старт.
                 self._conflicts = 0
                 self._conflict_worker = None
+                self._auth_worker = None
                 session = ConflictAwareSession(
                     on_conflict=self._note_conflict,
+                    on_unauthorized=self._note_unauthorized,
                     proxy=proxy_url or None,
                 )
                 bot_kwargs = {
@@ -147,6 +181,12 @@ class BotRunner:
                 self.bot = Bot(**bot_kwargs)
                 self.proxy_url = proxy_url
                 self.last_error = None
+
+                # Ключевой preflight: getMe возвращает Unauthorized для
+                # неверного/отозванного токена. До успешного ответа НЕ ставим
+                # running=True и НЕ запускаем start_polling, поэтому панель не
+                # показывает ложный зелёный статус, а aiogram не ретраит ошибку.
+                me = await self._validate_bot()
                 reset_deduper()
                 self._ensure_dispatcher()
 
@@ -163,21 +203,64 @@ class BotRunner:
                 cleanup.add_done_callback(self._bg_tasks.discard)
                 self._portal_sweep_task = asyncio.create_task(self._portal_sweep_loop())
                 self._spawn_tick_task = asyncio.create_task(self._spawn_tick_loop())
+                username = getattr(me, "username", None)
+                who = f" @{username}" if username else ""
                 if proxy_url:
-                    logger.info("Bot started via Telegram proxy")
+                    logger.info("Bot%s started via Telegram proxy", who)
                 else:
-                    logger.info("Bot started")
+                    logger.info("Bot%s started", who)
                 return True
+            except TelegramUnauthorizedError:
+                self.last_error = AUTH_MESSAGE
+                logger.error(AUTH_MESSAGE)
+                self._running = False
+                await self._close_current_bot()
+                return False
+            except asyncio.TimeoutError:
+                raw = (
+                    f"Telegram не ответил на проверку токена за "
+                    f"{int(STARTUP_CHECK_TIMEOUT)} секунд."
+                )
+                self.last_error = friendly_error(raw, proxy_url) if proxy_url else (
+                    raw + " Проверьте интернет/доступ к api.telegram.org и повторите запуск."
+                )
+                logger.error(self.last_error)
+                self._running = False
+                await self._close_current_bot()
+                return False
             except Exception as e:
-                if proxy_url:
-                    self.last_error = friendly_error(str(e), proxy_url)
+                raw = str(e)
+                low = raw.lower()
+                if "unauthorized" in low or "token is invalid" in low:
+                    self.last_error = AUTH_MESSAGE
+                elif proxy_url:
+                    self.last_error = friendly_error(raw, proxy_url)
                 else:
-                    self.last_error = str(e)
-                logger.error(f"Failed to start bot: {e}")
+                    self.last_error = raw
+                logger.error("Failed to start bot: %s", self.last_error)
                 self._running = False
                 await self._close_current_bot()
                 return False
 
+
+    def _note_unauthorized(self, exc: TelegramUnauthorizedError):
+        """Остановить бесконечные ретраи, если токен отозвали во время работы."""
+        self.last_error = AUTH_MESSAGE
+        # Во время стартового getMe running ещё False: исключение обработает
+        # start() синхронно. Worker нужен только действующему polling.
+        if not self._running:
+            return
+        logger.error("Telegram authorization lost; stopping bot: %s", exc)
+        if self._auth_worker is None or self._auth_worker.done():
+            self._auth_worker = asyncio.create_task(self._handle_unauthorized())
+            self._bg_tasks.add(self._auth_worker)
+            self._auth_worker.add_done_callback(self._bg_tasks.discard)
+
+    async def _handle_unauthorized(self):
+        """Stop polling immediately; preserve the actionable Russian error."""
+        if self.is_running():
+            await self.stop()
+        self.last_error = AUTH_MESSAGE
 
     def _note_conflict(self, exc: TelegramConflictError):
         """TelegramConflictError из любого запроса (обычно getUpdates)."""

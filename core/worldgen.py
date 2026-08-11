@@ -101,16 +101,12 @@ async def build_cells(session, loc, stories, rng=None, wall_density=0.15):
 
 
 async def ensure_stairs(session, loc):
-    """Лестницы между обычными (неотрицательными) этажами.
+    """Одна общая лестничная клетка на каждом обычном этаже.
 
-    Одна клетка не может целиться на два этажа сразу, поэтому лестница —
-    это пара соседних клеток: узел UP (в центре) ведёт на этаж выше, узел
-    DOWN (соседняя) — на этаж ниже. С любого этажа можно и подняться, и
-    спуститься: раньше ссылка была односторонней, и игрок застревал наверху.
-
-    Возвращает ``True``, если что-то действительно было исправлено. Это
-    нужно ленивому ремонту в боте: старые базы получают лестницы при первом
-    открытии клетки, но мы не коммитим пустые изменения на каждый экран.
+    Площадки в центре всех неотрицательных этажей получают один
+    ``stairs_key='ordinary'``. На промежуточном этаже игрок, встав на эту
+    клетку, видит сразу две кнопки — вверх и вниз. Старые раздельные узлы
+    UP/DOWN очищаются лениво без пересоздания мира.
     """
     floors = max(1, loc.floors_count or 1)
     if floors < 2:
@@ -120,19 +116,22 @@ async def ensure_stairs(session, loc):
     grid_size = loc.grid_size or 10
     cx, cy = center_of(grid_size)
     dx, dy = (1, 0) if cx + 1 < grid_size - 1 else (-1, 0)
-    ux, uy, ddx, ddy = cx, cy, cx + dx, cy + dy
+    old_down_pos = (cx + dx, cy + dy)
 
-    def apply(cell, tx, ty, tf):
+    def apply(cell):
         nonlocal changed
         if not cell:
             return
         desired = {
             "is_passable": True,
             "tile_type": "road",
-            "target_location_id": loc.id,
-            "target_x": tx,
-            "target_y": ty,
-            "target_floor": tf,
+            "stairs_key": "ordinary",
+            "target_location_id": None,
+            "target_x": None,
+            "target_y": None,
+            "target_floor": None,
+            "name": "Лестничная площадка",
+            "description": "Отсюда можно перейти на соседний этаж.",
         }
         for attr, value in desired.items():
             if getattr(cell, attr) != value:
@@ -140,12 +139,20 @@ async def ensure_stairs(session, loc):
                 changed = True
 
     for floor in range(floors):
-        if floor < floors - 1:  # узел UP: наверх
-            up = await cell_at(session, loc.id, ux, uy, floor)
-            apply(up, ux, uy, floor + 1)
-        if floor > 0:         # узел DOWN: вниз
-            down = await cell_at(session, loc.id, ddx, ddy, floor)
-            apply(down, ddx, ddy, floor - 1)
+        apply(await cell_at(session, loc.id, cx, cy, floor))
+
+        # В старой схеме спуск стоял на соседней клетке. Снимаем только
+        # внутреннюю лестничную ссылку; двери в другие локации не трогаем.
+        old_down = await cell_at(session, loc.id, *old_down_pos, floor)
+        if old_down and old_down.target_location_id == loc.id:
+            for attr in ("target_location_id", "target_x", "target_y", "target_floor"):
+                if getattr(old_down, attr) is not None:
+                    setattr(old_down, attr, None)
+                    changed = True
+        if old_down and old_down.stairs_key == "ordinary":
+            old_down.stairs_key = None
+            changed = True
+
     if changed:
         await session.flush()
     return changed
@@ -160,16 +167,15 @@ def _inner_coord(value: int, grid_size: int) -> int:
 def underground_stair_positions(grid_size: int) -> tuple[tuple[int, int], tuple[int, int], tuple[int, int]]:
     """Стандартные клетки подземных лестниц.
 
-    Возвращает ``(entry_pos, down_pos, up_pos)``:
+    Возвращает ``(entry_pos, old_down_pos, stair_pos)``:
 
     * ``entry_pos`` — вход на поверхности (этаж 0), рядом с центром;
-    * ``down_pos`` — узел спуска на подземных этажах;
-    * ``up_pos`` — соседний узел подъёма на подземных этажах.
+    * ``old_down_pos`` — позиция старого отдельного спуска (для очистки);
+    * ``stair_pos`` — единая площадка вверх/вниз на подземных этажах.
 
-    Важно: поверхность не использует центральную клетку ``down_pos``. Она
-    зарезервирована обычными этажами ``floors_count`` (замковый подвал/башни).
-    Старый сид перетирал этой клеткой лестницу 0↔1, из-за чего игроки
-    «падали» в отрицательные этажи и не могли вернуться.
+    Важно: поверхность не использует центральную клетку ``old_down_pos``.
+    Она зарезервирована обычными этажами ``floors_count`` (замковый
+    подвал/башни). Старый сид перетирал этой клеткой лестницу 0↔1.
     """
     g = max(3, int(grid_size or 10))
     cx, cy = center_of(g)
@@ -204,36 +210,32 @@ async def underground_floors(session, loc) -> list[int]:
 
 
 async def ensure_underground_stairs(session, loc):
-    """Двусторонние лестницы для отрицательных этажей (-1, -2, ...).
+    """Одна лестничная клетка для всех отрицательных этажей.
 
-    Отрицательные этажи — это именно подземелье под локацией, не часть
-    ``floors_count``. Поэтому они чинятся отдельной схемой и не конфликтуют
-    с обычной лестницей 0↔1.
-
-    На каждом подземном уровне есть два соседних узла: один ведёт вниз,
-    второй — вверх. На самом глубоком уровне центральный узел тоже ведёт
-    вверх, чтобы вытащить персонажей, которые уже застряли на старой
-    односторонней лестнице в центре.
+    Поверхностный вход остаётся рядом с центром, чтобы не конфликтовать с
+    обычной лестницей 0↔1. На этажах -1, -2, ... используется одна и та же
+    площадка ``up_pos`` с ключом ``underground``; на промежуточном уровне
+    она показывает обе кнопки — вверх и вниз.
     """
     floors = await underground_floors(session, loc)
     if not floors:
         return False
 
-    floor_set = set(floors)
-    entry_pos, down_pos, up_pos = underground_stair_positions(loc.grid_size)
+    entry_pos, old_down_pos, stair_pos = underground_stair_positions(loc.grid_size)
     changed = False
 
-    def apply(cell, target_pos, target_floor, name, desc):
+    def apply(cell, name, desc):
         nonlocal changed
         if not cell:
             return
         desired = {
             "is_passable": True,
             "tile_type": "road",
-            "target_location_id": loc.id,
-            "target_x": target_pos[0],
-            "target_y": target_pos[1],
-            "target_floor": target_floor,
+            "stairs_key": "underground",
+            "target_location_id": None,
+            "target_x": None,
+            "target_y": None,
+            "target_floor": None,
             "name": name,
             "description": desc,
         }
@@ -242,45 +244,31 @@ async def ensure_underground_stairs(session, loc):
                 setattr(cell, attr, value)
                 changed = True
 
-    # Поверхностный вход в подземелье: отдельная клетка рядом с центром,
-    # чтобы не перетирать обычную лестницу floor 0 -> floor 1.
-    entry = await cell_at(session, loc.id, *entry_pos, 0)
     apply(
-        entry, up_pos, -1,
+        await cell_at(session, loc.id, *entry_pos, 0),
         "Спуск в подземелье",
-        "Старая лестница уходит под замок. Отсюда можно спуститься ниже.",
+        "Старая лестница уходит под замок.",
     )
+    for floor in floors:
+        stair_cell = await cell_at(session, loc.id, *stair_pos, floor)
+        apply(
+            stair_cell,
+            "Лестничная площадка в глубинах",
+            "Отсюда можно перейти на соседний уровень подземелья.",
+        )
 
-    for floor in floors:  # -1, -2, ...
-        upper_floor = floor + 1
-        upper_pos = entry_pos if upper_floor == 0 else up_pos
-
-        up_cell = await cell_at(session, loc.id, *up_pos, floor)
-        if upper_floor == 0 or upper_floor in floor_set:
-            apply(
-                up_cell, upper_pos, upper_floor,
-                "Подъём из глубин",
-                "Лестница ведёт на уровень выше.",
-            )
-
-        down_cell = await cell_at(session, loc.id, *down_pos, floor)
-        deeper_floor = floor - 1
-        if deeper_floor in floor_set:
-            apply(
-                down_cell, up_pos, deeper_floor,
-                "Спуск глубже",
-                "Ступени уходят ещё ниже во тьму.",
-            )
-        else:
-            # Самое дно: раньше здесь оставалась ссылка в несуществующий
-            # этаж (например, -2 -> -3), из-за чего кнопка была ловушкой.
-            # Делаем центр запасным подъёмом для уже застрявших игроков.
-            if upper_floor == 0 or upper_floor in floor_set:
-                apply(
-                    down_cell, upper_pos, upper_floor,
-                    "Подъём из глубин",
-                    "Дальше вниз проход завален; лестница ведёт обратно наверх.",
-                )
+        # Очистка второго узла старой схемы. На сетке 3×3 позиции всё равно
+        # различаются, но проверка защищает нестандартные старые карты.
+        old_down = await cell_at(session, loc.id, *old_down_pos, floor)
+        if old_down and (stair_cell is None or old_down.id != stair_cell.id):
+            if old_down.target_location_id == loc.id:
+                for attr in ("target_location_id", "target_x", "target_y", "target_floor"):
+                    if getattr(old_down, attr) is not None:
+                        setattr(old_down, attr, None)
+                        changed = True
+            if old_down.stairs_key == "underground":
+                old_down.stairs_key = None
+                changed = True
 
     if changed:
         await session.flush()

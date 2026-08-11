@@ -29,7 +29,7 @@ from core.models import (
     CharacterClassDef, ItemInstance, DropEntry, CraftRecipe, CraftIngredient,
     UpgradeRule, MobSpawn, ItemHistory, AuctionLot, CharacterAffinity,
     WorldEvent, WorldEventDamage, Grave, GameUpdate, PlayerSuggestion,
-    AIGeneration, ImageAsset, UILayout,
+    AIGeneration, ImageAsset, UILayout, PetTemplate,
 )
 from core.enums import (
     LocationType, ItemType, ItemRarity, QuestStatus, ItemSource, CraftStation,
@@ -43,7 +43,7 @@ from bot.runner import bot_runner
 
 
 class _QuietAccessFilter(logging.Filter):
-    """Не засоряем консоль опросами панели (GET /api/bot/status каждые 5с)."""
+    """Не засоряем консоль частыми опросами GET /api/bot/status."""
 
     _quiet = ("/api/bot/status",)
 
@@ -102,12 +102,9 @@ async def lifespan(app: FastAPI):
     await tunnel_mod.clear_stale_quick_tunnel_url()
 
     async with async_session() as session:
-        result = await session.execute(
-            select(AppSetting).where(AppSetting.key == "bot_token")
-        )
-        setting = result.scalar_one_or_none()
-        if setting and setting.value and setting.value.strip():
-            await bot_runner.start(setting.value.strip(), await get_bot_proxy_url(session))
+        token = await get_bot_token(session)
+        if token:
+            await bot_runner.start(token, await get_bot_proxy_url(session))
 
     # SSH-туннель поднимается асинхронно в фоне, чтобы не блокировать старт.
     # Если PUBLIC_URL задан вручную — туннель не нужен.
@@ -132,6 +129,9 @@ templates = Jinja2Templates(directory="admin/templates")
 
 import json
 templates.env.filters["from_json"] = json.loads
+# Навигация должна учитывать точечные права, а не только название роли:
+# гейм-мастер с manage_content/dungeons снова видит раздел подземелий.
+templates.env.globals["has_capability"] = webauth.has_capability
 
 # Mini App-вход в панель из Telegram (без пароля, по подписи initData).
 from admin.tgapp import router as tgapp_router  # noqa: E402
@@ -290,6 +290,17 @@ async def health_check():
     from core.settings_store import INSTANCE_ID
     return {"status": "ok", "bot": bot_runner.is_running(),
             "instance": INSTANCE_ID}
+
+
+async def get_bot_token(session=None) -> str:
+    """Токен из панели; BOT_TOKEN остаётся fallback для Docker/Render."""
+    if session is not None:
+        value = await session.scalar(
+            select(AppSetting.value).where(AppSetting.key == "bot_token")
+        )
+        if value and value.strip():
+            return value.strip()
+    return os.getenv("BOT_TOKEN", "").strip()
 
 
 async def get_bot_proxy_url(session=None) -> str:
@@ -1832,8 +1843,8 @@ async def settings_page(request: Request):
         )
         setting = result.scalar_one_or_none()
         token_masked = ""
-        if setting and setting.value:
-            t = setting.value
+        t = (setting.value if setting and setting.value else os.getenv("BOT_TOKEN", ""))
+        if t:
             token_masked = t[:10] + "..." + t[-6:] if len(t) > 20 else "***"
         proxy_url = await get_bot_proxy_url(session)
 
@@ -1952,14 +1963,11 @@ async def save_telegram_proxy(request: Request, telegram_proxy_url: str = Form("
 async def api_bot_start(request: Request):
     guard(request, "manage_settings")
     async with async_session() as session:
-        result = await session.execute(
-            select(AppSetting).where(AppSetting.key == "bot_token")
-        )
-        setting = result.scalar_one_or_none()
-        if not setting or not setting.value.strip():
+        token = await get_bot_token(session)
+        if not token:
             return {"success": False, "error": "Токен не задан. Перейдите в Настройки."}
 
-        ok = await bot_runner.start(setting.value.strip(), await get_bot_proxy_url(session))
+        ok = await bot_runner.start(token, await get_bot_proxy_url(session))
         return {
             "success": ok,
             "running": bot_runner.is_running(),
@@ -2134,6 +2142,7 @@ async def content_hub(request: Request):
         total_quests = await session.scalar(select(func.count(Quest.id))) or 0
         total_items = await session.scalar(select(func.count(Item.id))) or 0
         total_dungeons = await session.scalar(select(func.count(DungeonTemplate.id))) or 0
+        total_pets = await session.scalar(select(func.count(PetTemplate.id))) or 0
         total_classes = await session.scalar(select(func.count(CharacterClassDef.id))) or 0
         total_drops = await session.scalar(select(func.count(DropEntry.id))) or 0
         total_recipes = await session.scalar(select(func.count(CraftRecipe.id))) or 0
@@ -2154,6 +2163,7 @@ async def content_hub(request: Request):
             "total_quests": total_quests,
             "total_items": total_items,
             "total_dungeons": total_dungeons,
+            "total_pets": total_pets,
             "total_classes": total_classes,
             "total_drops": total_drops,
             "total_recipes": total_recipes,
@@ -2341,6 +2351,14 @@ async def editor_location(request: Request, location_id: int, floor: int = 0,
         location = await session.get(Location, location_id)
         if not location:
             return RedirectResponse(url="/editor/locations")
+
+        # Старые карты переводим на единую лестничную площадку и при входе
+        # через админку, а не только когда к клетке подошёл игрок.
+        stairs_changed = await W.ensure_stairs(session, location)
+        if await W.underground_floors(session, location):
+            stairs_changed = await W.ensure_underground_stairs(session, location) or stairs_changed
+        if stairs_changed:
+            await session.commit()
 
         result = await session.execute(
             select(Cell).where(Cell.location_id == location_id).where(Cell.floor == floor)
@@ -2545,6 +2563,7 @@ async def editor_cell_save(
 
         cell.dungeon_template_id = dungeon_id
         if loc_id is not None:
+            cell.stairs_key = None
             cell.target_location_id = loc_id
             cell.target_x = tgt_x
             cell.target_y = tgt_y
@@ -2990,8 +3009,9 @@ async def api_cell_paint(
             cell.npc_name = None
             cell.npc_type = None
         elif brush == "door":
-            # Создание/редактирование двери: переход в соседнюю локацию или на этаж
+            # Создание/редактирование обычной двери (не общей лестницы).
             cell.is_passable = True
+            cell.stairs_key = None
             if cell.tile_type == "wall":
                 cell.tile_type = "road"
             if target_location_id.strip():
@@ -3028,56 +3048,33 @@ async def api_cell_paint(
             cell.target_x = None
             cell.target_y = None
             cell.target_floor = None
-        elif brush == "stairs_up":
-            cell.is_passable = True
-            cell.tile_type = "road"
-            cell.target_location_id = cell.location_id
-            cell.target_floor = (cell.floor or 0) + 1
-            # target_x/y = собственная позиция (лестница на том же месте этажом выше)
-            cell.target_x = cell.x
-            cell.target_y = cell.y
-            # Обратная ступень на этаже выше: иначе игрок, поднявшийся
-            # по админской лестнице, застревает наверху (та же односторонняя
-            # ловушка, которую чинит ensure_stairs для стандартных узлов).
-            up_cell = await session.scalar(
+            cell.stairs_key = None
+        elif brush in {"stairs_up", "stairs_down"}:
+            # Обе стороны одной лестницы получают общий ключ. target_* не
+            # используется: на среднем этаже одна клетка показывает сразу
+            # две кнопки, а одиночная ссылка физически хранит только одну цель.
+            delta = 1 if brush == "stairs_up" else -1
+            target_floor_num = (cell.floor or 0) + delta
+            other = await session.scalar(
                 select(Cell)
                 .where(Cell.location_id == cell.location_id)
-                .where(Cell.floor == cell.target_floor)
+                .where(Cell.floor == target_floor_num)
                 .where(Cell.x == cell.x).where(Cell.y == cell.y)
             )
-            if up_cell is not None and (up_cell.target_location_id is None
-                                        or up_cell.target_floor == cell.floor):
-                up_cell.is_passable = True
-                up_cell.tile_type = "road"
-                up_cell.target_location_id = cell.location_id
-                up_cell.target_floor = cell.floor
-                up_cell.target_x = cell.x
-                up_cell.target_y = cell.y
-        elif brush == "stairs_down":
-            cell.is_passable = True
-            cell.tile_type = "road"
-            cell.target_location_id = cell.location_id
-            # Без max(0, ...): на подземных этажах (−1, −2, …) «вниз» должен
-            # вести на следующий подземный уровень, а не телепортировать
-            # на поверхность. Раньше с −1 кисть вела прямо на этаж 0.
-            cell.target_floor = (cell.floor or 0) - 1
-            cell.target_x = cell.x
-            cell.target_y = cell.y
-            # Обратная ступень на этаже ниже (см. stairs_up).
-            down_cell = await session.scalar(
-                select(Cell)
-                .where(Cell.location_id == cell.location_id)
-                .where(Cell.floor == cell.target_floor)
-                .where(Cell.x == cell.x).where(Cell.y == cell.y)
-            )
-            if down_cell is not None and (down_cell.target_location_id is None
-                                          or down_cell.target_floor == cell.floor):
-                down_cell.is_passable = True
-                down_cell.tile_type = "road"
-                down_cell.target_location_id = cell.location_id
-                down_cell.target_floor = cell.floor
-                down_cell.target_x = cell.x
-                down_cell.target_y = cell.y
+            if other is None:
+                return JSONResponse({
+                    "success": False,
+                    "error": f"Этаж {target_floor_num} или клетка [{cell.x},{cell.y}] не существует",
+                })
+            stairs_key = cell.stairs_key or other.stairs_key or f"manual:{cell.x}:{cell.y}"
+            for platform in (cell, other):
+                platform.is_passable = True
+                platform.tile_type = "road"
+                platform.stairs_key = stairs_key
+                platform.target_location_id = None
+                platform.target_x = None
+                platform.target_y = None
+                platform.target_floor = None
         elif brush == "erase":
             # Полная очистка клетки до травы без объектов и переходов
             cell.tile_type = "grass"
@@ -3088,6 +3085,7 @@ async def api_cell_paint(
             cell.target_x = None
             cell.target_y = None
             cell.target_floor = None
+            cell.stairs_key = None
         else:
             return JSONResponse({"success": False, "error": "Неизвестная кисть"})
         await session.commit()
@@ -3103,6 +3101,7 @@ async def api_cell_paint(
                 "target_x": cell.target_x,
                 "target_y": cell.target_y,
                 "target_floor": cell.target_floor,
+                "stairs_key": cell.stairs_key,
             }
         })
 
@@ -3285,6 +3284,121 @@ async def mob_delete(request: Request, mob_id: int):
         await session.execute(delete(Mob).where(Mob.id == mob_id))
         await session.commit()
     return RedirectResponse(url="/editor/mobs", status_code=303)
+
+
+# ── Pets Editor (future familiars) ─────────────────────────
+
+@app.get("/editor/pets")
+async def editor_pets(request: Request):
+    guard(request, "manage_content")
+    from core import pets as pet_core
+    async with async_session() as session:
+        pets = (await session.execute(
+            select(PetTemplate).order_by(PetTemplate.sort_order, PetTemplate.id)
+        )).scalars().all()
+    return templates.TemplateResponse(
+        request, "editor_pets.html",
+        {
+            "pets": pets,
+            "concept_sheets": pet_core.available_concept_sheets(),
+            "rarities": pet_core.RARITIES,
+            "rarity_labels": pet_core.RARITY_LABELS,
+            "error": request.query_params.get("error", ""),
+        },
+    )
+
+
+@app.post("/editor/pets/new")
+async def pet_new(
+    request: Request,
+    key: str = Form(""), name: str = Form(...),
+    description: str = Form(""), family: str = Form("slime"),
+    rarity: str = Form("common"), slime_trait: str = Form(""),
+    bonuses_json: str = Form("{}"), image_url: str = Form(""),
+    sort_order: int = Form(100), is_active: bool = Form(False),
+    image: UploadFile = File(None),
+):
+    guard(request, "manage_content")
+    from core import pets as pet_core
+    try:
+        bonuses = pet_core.normalize_bonuses(bonuses_json)
+    except (ValueError, TypeError, json.JSONDecodeError):
+        return RedirectResponse(url="/editor/pets?error=Некорректный+JSON+бонусов", status_code=303)
+    pet_key = pet_core.normalize_key(key or name)
+    async with async_session() as session:
+        exists = await session.scalar(select(PetTemplate.id).where(PetTemplate.key == pet_key))
+        if exists:
+            return RedirectResponse(url="/editor/pets?error=Такой+ключ+уже+существует", status_code=303)
+        pet = PetTemplate(
+            key=pet_key, name=name.strip(), description=description.strip(),
+            family=family.strip() or "slime",
+            rarity=rarity if rarity in pet_core.RARITIES else "common",
+            slime_trait=slime_trait.strip(), bonuses_json=bonuses,
+            image_url=image_url.strip() or None,
+            sort_order=sort_order, is_active=is_active,
+        )
+        session.add(pet)
+        await session.flush()
+        if image and image.filename:
+            pet.image_url = save_uploaded_image(image, "pet", pet.id)
+        await session.commit()
+    return RedirectResponse(url="/editor/pets", status_code=303)
+
+
+@app.post("/editor/pets/{pet_id}/edit")
+async def pet_edit(
+    request: Request, pet_id: int,
+    key: str = Form(""), name: str = Form(...),
+    description: str = Form(""), family: str = Form("slime"),
+    rarity: str = Form("common"), slime_trait: str = Form(""),
+    bonuses_json: str = Form("{}"), image_url: str = Form(""),
+    sort_order: int = Form(100), is_active: bool = Form(False),
+    image: UploadFile = File(None),
+):
+    guard(request, "manage_content")
+    from core import pets as pet_core
+    try:
+        bonuses = pet_core.normalize_bonuses(bonuses_json)
+    except (ValueError, TypeError, json.JSONDecodeError):
+        return RedirectResponse(url="/editor/pets?error=Некорректный+JSON+бонусов", status_code=303)
+    async with async_session() as session:
+        pet = await session.get(PetTemplate, pet_id)
+        if pet is None:
+            return RedirectResponse(url="/editor/pets", status_code=303)
+        new_key = pet_core.normalize_key(key or name)
+        duplicate = await session.scalar(
+            select(PetTemplate.id)
+            .where(PetTemplate.key == new_key)
+            .where(PetTemplate.id != pet_id)
+        )
+        if duplicate:
+            return RedirectResponse(url="/editor/pets?error=Такой+ключ+уже+существует", status_code=303)
+        pet.key = new_key
+        pet.name = name.strip()
+        pet.description = description.strip()
+        pet.family = family.strip() or "slime"
+        pet.rarity = rarity if rarity in pet_core.RARITIES else "common"
+        pet.slime_trait = slime_trait.strip()
+        pet.bonuses_json = bonuses
+        pet.sort_order = sort_order
+        pet.is_active = is_active
+        if image and image.filename:
+            pet.image_url = save_uploaded_image(image, "pet", pet.id)
+        elif image_url.strip():
+            pet.image_url = image_url.strip()
+        await session.commit()
+    return RedirectResponse(url="/editor/pets", status_code=303)
+
+
+@app.post("/editor/pets/{pet_id}/delete")
+async def pet_delete(request: Request, pet_id: int):
+    guard(request, "manage_content")
+    async with async_session() as session:
+        pet = await session.get(PetTemplate, pet_id)
+        if pet is not None:
+            await session.delete(pet)
+            await session.commit()
+    return RedirectResponse(url="/editor/pets", status_code=303)
 
 
 # ── Quests Editor ──────────────────────────────────────────
@@ -4110,19 +4224,20 @@ async def class_delete(request: Request, class_id: int):
 # Любая картинка из любого сообщения бота меняется здесь: экраны бота
 # (заставка, аукцион, рейтинг — сюда же ложатся праздничные темы на
 # Новый год и Хеллоуин), гербы фракций, портреты классов по сторонам,
-# локации, мобы, жители (NPC), предметы, квесты, подземелья, клетки с
-# особыми фонами и аватары игроков.
+# локации, мобы, питомцы, жители (NPC), предметы, квесты, подземелья,
+# клетки с особыми фонами и аватары игроков.
 
 FACTION_CREST_DIR = "admin/static/factions"
 
 _MODEL_IMAGE_KINDS = {
     "location": Location, "mob": Mob, "item": Item, "quest": Quest,
-    "dungeon": DungeonTemplate, "cell": Cell, "character": Character,
+    "dungeon": DungeonTemplate, "pet": PetTemplate,
+    "cell": Cell, "character": Character,
 }
 _MODEL_IMAGE_ANCHORS = {
     "location": "locations", "mob": "mobs", "item": "items",
-    "quest": "quests", "dungeon": "dungeons", "cell": "cells",
-    "character": "players",
+    "quest": "quests", "dungeon": "dungeons", "pet": "pets",
+    "cell": "cells", "character": "players",
 }
 
 
@@ -4264,6 +4379,7 @@ async def editor_images(request: Request):
         items = (await session.execute(select(Item).order_by(Item.id))).scalars().all()
         quests = (await session.execute(select(Quest).order_by(Quest.id))).scalars().all()
         dungeons = (await session.execute(select(DungeonTemplate).order_by(DungeonTemplate.id))).scalars().all()
+        pets = (await session.execute(select(PetTemplate).order_by(PetTemplate.sort_order, PetTemplate.id))).scalars().all()
         npc_cells = (await session.execute(
             select(Cell).where(Cell.has_npc == True).options(selectinload(Cell.location))  # noqa: E712
         )).scalars().all()
@@ -4339,6 +4455,8 @@ async def editor_images(request: Request):
                    [entity("quest", quest, f"{quest.id}. {quest.name}", "квест") for quest in quests]),
         _img_group("dungeons", "🕳 Подземелья", "Афиша подземелья.",
                    [entity("dungeon", dungeon, f"{dungeon.id}. {dungeon.name}", "подземелье") for dungeon in dungeons]),
+        _img_group("pets", "🐾 Питомцы", "Будущие фамильяры и их активные изображения.",
+                   [entity("pet", pet, f"{pet.id}. {pet.name}", pet.family or "питомец") for pet in pets]),
         _img_group("cells", "🧱 Клетки с особыми фонами", "Клетки с ручной картинкой.",
                    [_slot("cell", cell.id, cell.name or f"Клетка {cell.id}",
                           (cell.image_url or "").strip(),

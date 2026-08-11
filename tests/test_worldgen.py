@@ -133,15 +133,13 @@ async def main():
         t = await make_loc(s, "Шахта", 2, 0, floors=3)
         await s.commit()
         cx, cy = W.center_of(10)
-        up0 = await W.cell_at(s, t.id, cx, cy, 0)        # узел UP на этаже 0
-        up1 = await W.cell_at(s, t.id, cx, cy, 1)        # узел UP на этаже 1
-        down1 = await W.cell_at(s, t.id, cx + 1, cy, 1)  # узел DOWN на этаже 1
-        down2 = await W.cell_at(s, t.id, cx + 1, cy, 2)  # узел DOWN на этаже 2
-        check(up0.target_floor == 1 and up0.target_location_id == t.id, "лестница 0→1")
-        check(up1.target_floor == 2, "лестница 1→2")
-        check(down1.target_floor == 0 and down1.target_location_id == t.id,
-              "лестница 1→0 (обратная!)")
-        check(down2.target_floor == 1, "лестница 2→1 (с верхнего этажа есть спуск)")
+        stairs = [await W.cell_at(s, t.id, cx, cy, floor) for floor in range(3)]
+        check(all(c and c.stairs_key == "ordinary" for c in stairs),
+              "на всех этажах одна лестница с общим ключом")
+        check(all((c.x, c.y) == (cx, cy) for c in stairs),
+              "переходы вверх/вниз находятся в одной клетке")
+        check(all(c.target_location_id is None and c.target_floor is None for c in stairs),
+              "лестница не ограничена одной target-ссылкой")
 
     print("\n— Подземные этажи замка: вниз и обратно —")
     async with Session() as s:
@@ -157,36 +155,35 @@ async def main():
         down1 = await W.cell_at(s, u.id, *down_pos, -1)
         up2 = await W.cell_at(s, u.id, *up_pos, -2)
         deep_center = await W.cell_at(s, u.id, *down_pos, -2)
-        check(surface_center.target_floor == 1,
-              "подземный вход не перетёр обычную лестницу 0→1")
-        check(entry.target_floor == -1 and (entry.target_x, entry.target_y) == up_pos,
-              "поверхность → первый подземный уровень")
-        check(up1.target_floor == 0 and (up1.target_x, up1.target_y) == entry_pos,
-              "-1 → поверхность (обратная лестница)")
-        check(down1.target_floor == -2 and (down1.target_x, down1.target_y) == up_pos,
-              "-1 → -2 (спуск глубже)")
-        check(up2.target_floor == -1, "-2 → -1 через узел подъёма")
-        check(deep_center.target_floor == -1,
-              "самое дно не ведёт в несуществующий -3, а поднимает наверх")
+        check(surface_center.stairs_key == "ordinary",
+              "подземный вход не перетёр обычную лестницу 0↔1")
+        check(entry.stairs_key == "underground",
+              "поверхностный вход входит в подземную лестницу")
+        check(up1.stairs_key == up2.stairs_key == "underground",
+              "-1 и -2 используют одну клетку общей лестницы")
+        check((up1.x, up1.y) == (up2.x, up2.y) == up_pos,
+              "подъём и спуск совмещены по координатам")
+        check(down1.target_location_id is None and deep_center.target_location_id is None,
+              "старые отдельные узлы спуска очищены")
 
-    print("\n— Позиции подземных лестниц: узлы не коллапсируют —")
+    print("\n— Позиции подземных лестниц: вход, площадка и старый узел различимы —")
     for g in (3, 4, 5, 10, 25):
         ep, dp, up_ = W.underground_stair_positions(g)
         check(len({ep, dp, up_}) == 3,
               f"сетка {g}×{g}: entry={ep} down={dp} up={up_} — три разные клетки")
-    # На -1 должен существовать и узел спуска, и узел подъёма (не одна клетка).
+    # На -1 остаётся ровно одна активная лестничная площадка.
     async with Session() as s:
         u = await make_loc(s, "Замок Малый", 7, 4, grid_size=4, floors=1,
                            ltype=LocationType.SAFE)
         await build_underground(s, u, 1, random.Random(321))
         await s.commit()
         ep, dp, up_ = W.underground_stair_positions(4)
-        up1 = await W.cell_at(s, u.id, *up_, -1)
-        down1 = await W.cell_at(s, u.id, *dp, -1)
-        check(up1 is not None and down1 is not None and up1.id != down1.id,
-              "на -1 узел подъёма и узел спуска — разные клетки")
-        check(up1.target_floor == 0, "малая сетка: -1 → поверхность")
-        check(down1.target_floor == 0, "малая сетка: дно -1 → поверхность (нет битого -2)")
+        stair = await W.cell_at(s, u.id, *up_, -1)
+        old_down = await W.cell_at(s, u.id, *dp, -1)
+        check(stair is not None and stair.stairs_key == "underground",
+              "на -1 есть единая лестничная площадка")
+        check(old_down.stairs_key is None and old_down.target_location_id is None,
+              "отдельный узел спуска удалён")
 
     print("\n— Ремонт идемпотентен: повторный прогон ничего не меняет —")
     async with Session() as s:
@@ -217,10 +214,17 @@ async def main():
         check(ok and "обмен" in msg.lower(), f"обмен при коллизии: {msg}")
         check((a.world_x, a.world_y) == (1, 0) and (b.world_x, b.world_y) == (0, 0),
               "локации поменялись местами")
+        # В общей тестовой БД к этому моменту уже есть и другие сценарные
+        # локации. Считаем реальное число соседних пар, а не хрупкую константу 2.
+        all_locs = (await s.execute(select(Location))).scalars().all()
+        expected_pairs = sum(
+            1 for i, left in enumerate(all_locs) for right in all_locs[i + 1:]
+            if abs(left.world_x - right.world_x) + abs(left.world_y - right.world_y) == 1
+        )
         pairs = await W.relink_all(s)
         await s.commit()
-        # после обмена: Лес(0,0)↔Деревня(1,0) и Деревня(1,0)↔Шахта(2,0)
-        check(pairs == 2, f"после обмена пересобрано 2 шва ({pairs})")
+        check(pairs == expected_pairs,
+              f"после обмена пересобраны все {expected_pairs} шва ({pairs})")
         seam = await W.cell_at(s, b.id, 10 // 2, 9)
         check(seam.target_location_id == a.id, "шов теперь от B (запад) к A (восток)")
 
@@ -344,7 +348,10 @@ async def main():
               "от центра замка прорублена дорога до ворот")
 
     print("\n— Центральная цитадель: четыре воротных портала переживают relink —")
-    async with Session() as s:
+    # Отдельная БД: предыдущие независимые сценарии намеренно переиспользуют
+    # мировые координаты и не должны создавать ложные коллизии здесь.
+    FortressSession = await make_session()
+    async with FortressSession() as s:
         gates, forts = {}, {}
         pairs = [
             ("Северо-западные врата", (3, 3), "Цитадель Погибели: Северо-запад", (4, 4), (9, 9), (0, 0)),

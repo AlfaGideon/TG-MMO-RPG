@@ -82,6 +82,70 @@ def test_npc_defaults():
           "авторский NPC получает фракционный запасной портрет")
 
 
+async def test_file_id_cache(tmp_path: Path):
+    """Большой локальный PNG загружается один раз, затем идёт только file_id."""
+    from types import SimpleNamespace
+    from bot.utils import photos as P
+
+    P._reset_photo_caches_for_tests(
+        tmp_path / "telegram_file_ids.json", tmp_path / "media"
+    )
+    image = "/static/branding/help.png"
+    uploaded_inputs = []
+
+    class FakeMessage:
+        def __init__(self, message_id, photo=None):
+            self.message_id = message_id
+            self.chat = SimpleNamespace(id=77)
+            self.bot = SimpleNamespace(id=123456789)
+            self.photo = photo or []
+            self.text = "command" if not self.photo else None
+            self.deleted = False
+            self.caption_edits = 0
+
+        async def answer_photo(self, photo, **kwargs):
+            uploaded_inputs.append(photo)
+            return FakeMessage(500, [SimpleNamespace(file_id="cached-file-id")])
+
+        async def delete(self):
+            self.deleted = True
+
+        async def edit_caption(self, **kwargs):
+            self.caption_edits += 1
+            return self
+
+        async def edit_media(self, **kwargs):
+            raise AssertionError("то же фото должно менять только caption")
+
+        async def edit_text(self, **kwargs):
+            return self
+
+        async def answer(self, **kwargs):
+            return self
+
+    first = FakeMessage(1)
+    await P.send_or_edit_photo(first, "one", image_url=image)
+    check(len(uploaded_inputs) == 1 and hasattr(uploaded_inputs[0], "path"),
+          "первая отправка загружает локальный файл")
+    uploaded_path = Path(str(uploaded_inputs[0].path))
+    source_path = ROOT / "admin/static/branding/help.png"
+    check(uploaded_path.suffix == ".jpg" and uploaded_path.stat().st_size < source_path.stat().st_size,
+          "многомегабайтный PNG пережат перед первой отправкой")
+    check(first.deleted, "старое сообщение удалено только после успешной отправки")
+
+    shown = FakeMessage(500, [SimpleNamespace(file_id="cached-file-id")])
+    await P.send_or_edit_photo(shown, "two", image_url=image)
+    check(shown.caption_edits == 1,
+          "то же фото отвечает через быстрый edit_caption без upload")
+
+    another_command = FakeMessage(2)
+    await P.send_or_edit_photo(another_command, "three", image_url=image)
+    check(uploaded_inputs[-1] == "cached-file-id",
+          "следующее сообщение использует Telegram file_id")
+    check((tmp_path / "telegram_file_ids.json").is_file(),
+          "file_id сохранён между перезапусками")
+
+
 async def test_npc_backfill():
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
     from core.database import Base
@@ -120,6 +184,9 @@ def main():
     test_static_resolver()
     test_photo_input_independent_of_cwd()
     test_npc_defaults()
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        asyncio.run(test_file_id_cache(Path(tmp)))
     asyncio.run(test_npc_backfill())
 
     print()

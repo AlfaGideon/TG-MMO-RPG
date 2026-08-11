@@ -282,6 +282,32 @@ async def test_single_poll_loop_on_double_start():
     check(bot.running is False, "финальный halt")
 
 
+async def test_loop_stops_on_unauthorized():
+    print("\n— poll-loop: Unauthorized не ретраится бесконечно —")
+
+    class AuthTransport:
+        def __init__(self):
+            self.calls = 0
+
+        async def call(self, token, method, params):
+            self.calls += 1
+            return {"ok": False, "error_code": 401,
+                    "description": "Unauthorized"}
+
+    transport = AuthTransport()
+    bot, store, logs = _make_bot(transport)
+    bot.token = "revoked"
+    bot.running = True
+    bot._loop_gen = 3
+    await bot._loop(3)
+
+    check(transport.calls == 1,
+          f"после 401 выполнен ровно один запрос, не tight-loop ({transport.calls})")
+    check(bot.running is False, "401 останавливает браузерный polling")
+    check(any("@BotFather" in text for _, text in logs),
+          "лог объясняет, где получить новый токен")
+
+
 async def test_loop_dedupes_proxy_replay():
     print("\n— poll-loop: прокси отдал один апдейт в двух getUpdates —")
     transport = _FakeTransport()
@@ -343,6 +369,7 @@ def main():
     asyncio.run(test_callback_dedupes())
     asyncio.run(test_concurrent_ingest_same_id())
     asyncio.run(test_single_poll_loop_on_double_start())
+    asyncio.run(test_loop_stops_on_unauthorized())
     asyncio.run(test_loop_dedupes_proxy_replay())
     asyncio.run(test_aiogram_middleware_dedup())
 

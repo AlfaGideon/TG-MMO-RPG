@@ -36,6 +36,10 @@ async def _stub_loops(r):
     async def fake_noop():
         pass
 
+    async def fake_validate():
+        return type("Me", (), {"username": "test_bot"})()
+
+    r._validate_bot = fake_validate
     r._poll = fake_poll
     r._notify_resume_on_start = fake_noop
     r._cleanup_after_restart = fake_noop
@@ -107,6 +111,62 @@ def test_single_conflict_recovered():
     asyncio.run(run())
 
 
+def test_unauthorized_never_starts_polling():
+    """Неверный токен отсекается getMe до зелёного статуса/polling."""
+
+    async def run():
+        from aiogram.exceptions import TelegramUnauthorizedError
+        from bot.runner import BotRunner, AUTH_MESSAGE
+
+        r = BotRunner()
+        await _stub_loops(r)
+
+        async def reject():
+            raise TelegramUnauthorizedError(method=None, message="Unauthorized")
+
+        r._validate_bot = reject
+        ok = await r.start("123456789:ABCdefGHIjklMNOpqrsTUVwxyz", "")
+        check(ok is False, "Unauthorized → start() вернул False")
+        check(not r.is_running(), "Unauthorized → polling не запущен")
+        check(r._task is None, "не создана ложная polling-задача")
+        check(r.last_error == AUTH_MESSAGE,
+              "панель получает понятную инструкцию про @BotFather")
+
+    asyncio.run(run())
+
+
+def test_runtime_unauthorized_stops_retries():
+    """Отзыв токена во время работы останавливает бесконечные getUpdates."""
+
+    async def run():
+        from aiogram.exceptions import TelegramUnauthorizedError
+        from bot.runner import BotRunner, AUTH_MESSAGE
+
+        r = BotRunner()
+        r._running = True
+        r._task = asyncio.create_task(asyncio.sleep(30))
+        exc = TelegramUnauthorizedError(method=None, message="Unauthorized")
+        r._note_unauthorized(exc)
+        await asyncio.sleep(0.15)
+        check(not r.is_running(), "runtime Unauthorized остановил polling")
+        check(r.last_error == AUTH_MESSAGE,
+              "после остановки сохранена причина, а не сырой traceback")
+
+    asyncio.run(run())
+
+
+def test_no_long_lived_db_middleware():
+    """Внешняя DB-сессия не должна оборачивать внутренние handler commits."""
+    import inspect
+    from bot.runner import BotRunner
+
+    source = inspect.getsource(BotRunner._ensure_dispatcher)
+    check("middleware(DBSessionMiddleware())" not in source,
+          "Dispatcher не держит внешнюю read-транзакцию вокруг handler")
+    check("OfflineProtectionMiddleware" in source and "BanMiddleware" in source,
+          "проверки offline/бан сохранены")
+
+
 def main():
     if not _have("aiogram", "sqlalchemy"):
         print("⚠️  ПРОПУСК: нет aiogram/sqlalchemy (серверные зависимости)")
@@ -115,6 +175,9 @@ def main():
     test_double_start_locked()
     test_conflict_stops_bot_with_message()
     test_single_conflict_recovered()
+    test_unauthorized_never_starts_polling()
+    test_runtime_unauthorized_stops_retries()
+    test_no_long_lived_db_middleware()
 
     print()
     if FAILED:
