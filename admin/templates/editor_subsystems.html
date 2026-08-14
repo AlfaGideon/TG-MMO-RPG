@@ -37,6 +37,15 @@
             <span class="stat-label">всего записей</span></div>
     </div>
 
+    {% if overdue_loans %}
+    <form action="/editor/subsystems/sweep-loans" method="post" style="margin-bottom:1rem;">
+        <button class="btn btn-danger"
+                onclick="return confirm('Изъять все просроченные залоги? Вещи уйдут на чёрный рынок.')">
+            🔒 Изъять всю просрочку ({{ overdue_loans }})
+        </button>
+    </form>
+    {% endif %}
+
     {% if loan_rows %}
     <table class="data-table">
         <thead>
@@ -168,6 +177,33 @@
     <p style="font-size:1.1rem;"><b>Сейчас: {{ phase.name }}</b><br>
        <span class="hint">{{ phase.desc }}</span></p>
 
+    {% if lunar_override %}
+    <p><span class="badge badge-danger">заморожено вручную</span>
+       Естественный цикл сейчас показал бы: <b>{{ natural_phase.name }}</b>.</p>
+    {% endif %}
+
+    <form action="/editor/subsystems/lunar" method="post"
+          style="display:flex; gap:.5rem; align-items:flex-end; flex-wrap:wrap; margin:1rem 0;">
+        <div>
+            <label class="form-label">Заморозить фазу</label>
+            <select name="phase_key" class="search-box" style="min-width:260px;">
+                <option value="">— естественный цикл по времени —</option>
+                {% for p in phases %}
+                <option value="{{ p.key }}" {% if p.key == lunar_override %}selected{% endif %}>
+                    {{ p.name }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+        <button class="btn btn-primary">🌙 Применить</button>
+    </form>
+    <p class="hint">
+        Фаза вычисляется от серверного времени, поэтому «поставить полнолуние»
+        можно только заморозкой: выбранная фаза держится, пока не вернёшь
+        естественный цикл. Множители применяются к спавну мобов, шансу дропа
+        и урону магии Тьмы.
+    </p>
+
     <table class="data-table">
         <thead><tr><th>Фаза</th><th>Мобы</th><th>Материалы</th><th>Магия тьмы</th></tr></thead>
         <tbody>
@@ -188,7 +224,7 @@
     <h2>🏛 Гильдии</h2>
     {% if guild_rows %}
     <table class="data-table">
-        <thead><tr><th>Название</th><th>Уровень</th><th>Казна</th><th>Участников</th></tr></thead>
+        <thead><tr><th>Название</th><th>Уровень</th><th>Казна</th><th>Участников</th><th></th></tr></thead>
         <tbody>
         {% for g in guild_rows %}
             <tr>
@@ -196,6 +232,15 @@
                 <td data-label="Уровень">{{ g.level }}</td>
                 <td data-label="Казна">{{ g.treasury }}🟤</td>
                 <td data-label="Участников">{{ g.members }}</td>
+                <td data-label="">
+                    <form action="/editor/subsystems/guild/{{ g.id }}/disband"
+                          method="post" style="display:inline;">
+                        <button class="btn btn-small btn-danger"
+                                onclick="return confirm('Распустить гильдию? Участники освободятся, хранилище пропадёт.')">
+                            Распустить
+                        </button>
+                    </form>
+                </td>
             </tr>
         {% endfor %}
         </tbody>
@@ -224,10 +269,28 @@
         {% endfor %}
         </tbody>
     </table>
-    <p class="hint">
-        Ассортимент задан в <code>core/blackmarket.py</code>. Автоматическое
-        перетекание просроченных залогов на витрину ещё не сделано (№ 48).
+    <p class="hint">Постоянный ассортимент задан в <code>core/blackmarket.py</code>.</p>
+
+    <h3 style="margin-top:1rem;">🔒 Изъято за долги</h3>
+    <p class="section-sub">
+        Вещи, которые ростовщик забрал за просрочку залога. Они не исчезают
+        из мира, а перепродаются здесь с наценкой.
     </p>
+    {% if seized_rows %}
+    <table class="data-table">
+        <thead><tr><th>Вещь</th><th>Цена на витрине</th></tr></thead>
+        <tbody>
+        {% for w in seized_rows %}
+            <tr>
+                <td data-label="Вещь">{{ w.name }}</td>
+                <td data-label="Цена">{{ w.cost }}🟤</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="hint">Изъятых вещей нет: либо просрочки не было, либо всё уже раскупили.</p>
+    {% endif %}
 </div>
 
 {% endblock %}

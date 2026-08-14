@@ -11,6 +11,7 @@
     "engine/data.py",
     "engine/models.py",
     "engine/karma.py",
+    "engine/dialogue.py",
     "engine/omens.py",
     "engine/world.py",
     "engine/cataclysm_kinds.py",

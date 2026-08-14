@@ -2095,6 +2095,18 @@ async def blackmarket_menu(callback: CallbackQuery):
             if purse >= w["cost"]:
                 builder.button(text=f"Купить: {w['name']} ({w['cost']}🟤)",
                                callback_data=f"bm_buy:{w['key']}")
+
+        # Изъятые залоги: вещь не исчезает из мира, а всплывает здесь.
+        seized = await core_bm.list_liquidated_wares(session)
+        if seized:
+            lines += ["", "🔒 <b>Изъято за долги</b>",
+                      "<i>Хозяин не вернул заём в срок — теперь это ничьё.</i>", ""]
+            for w in seized:
+                lines.append(f"⚔️ {w['name']} — <b>{w['cost']}</b>🟤")
+                if purse >= w["cost"]:
+                    builder.button(text=f"Выкупить: {w['name']} ({w['cost']}🟤)",
+                                   callback_data=f"bm_seized:{w['loan_id']}")
+
         builder.button(text="◀️ Назад", callback_data="inspect")
         builder.adjust(1)
 
@@ -2116,6 +2128,33 @@ async def blackmarket_buy(callback: CallbackQuery):
 
         from core import blackmarket as core_bm
         res = await core_bm.buy_black_market_item(session, char, key)
+        if not res["ok"]:
+            await callback.answer(res["reason"], show_alert=True)
+            return
+        await session.commit()
+
+    await safe_edit_text(
+        callback,
+        f"<b>{res['title']}</b>\n\n{res['desc']}",
+        reply_markup=continue_keyboard(),
+        parse_mode="HTML",
+    )
+
+
+@router.callback_query(F.data.startswith("bm_seized:"))
+async def blackmarket_buy_seized(callback: CallbackQuery):
+    """Выкупить с рынка вещь, изъятую ростовщиком за просрочку залога."""
+    loan_id = int(callback.data.split(":")[1])
+    async with async_session() as session:
+        char = (await session.execute(
+            select(Character).join(User).where(User.telegram_id == callback.from_user.id)
+        )).scalar_one_or_none()
+        if not char:
+            await callback.answer("Ошибка.", show_alert=True)
+            return
+
+        from core import blackmarket as core_bm
+        res = await core_bm.buy_liquidated_item(session, char, loan_id)
         if not res["ok"]:
             await callback.answer(res["reason"], show_alert=True)
             return

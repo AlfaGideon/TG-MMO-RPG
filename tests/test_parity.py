@@ -131,6 +131,9 @@ REGISTRY = [
     Feature("Знамения",
             browser=["engine/omens.py"],
             server=["core/omens.py"]),
+    Feature("Реактивные реплики жителей",
+            browser=["engine/dialogue.py"],
+            server=["core/dialogue.py"]),
 
     # ── ниже: механики без паритета, причина обязательна ──
     Feature("Трёхвалютная экономика",

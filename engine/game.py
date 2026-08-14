@@ -363,7 +363,7 @@ class Game:
         return combat.action(p, what, self.world, self.store)
 
     def do_talk(self, p, arg):
-        return explore.talk(arg, p)
+        return explore.talk(arg, p, self.store)
 
     def do_heal(self, p, arg=""):
         return explore.heal(p)

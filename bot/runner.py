@@ -349,6 +349,19 @@ class BotRunner:
                         logger.debug(f"portal auto-close notice failed: {e}")
             except Exception as e:
                 logger.debug(f"portal sweep failed: {e}")
+
+            # Просроченные залоги: ростовщик забирает вещь, и она уходит
+            # на витрину чёрного рынка. Раньше просрочка висела вечно.
+            try:
+                async with async_session() as session:
+                    from core.pawnshop import sweep_expired_loans
+                    seized = await sweep_expired_loans(session)
+                    await session.commit()
+                if seized:
+                    logger.debug(f"pawnshop: {len(seized)} loans liquidated")
+            except Exception as e:
+                logger.debug(f"pawnshop sweep failed: {e}")
+
             await asyncio.sleep(300)  # check every 5 minutes
 
     async def _dividend_loop(self):

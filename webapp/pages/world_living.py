@@ -1,8 +1,8 @@
 """Вкладка «Жизнь мира»: респавн, характеры тварей, могилы, отряды, задания."""
 import time
 
-from engine import (behavior, data, death, factions, party, quests,
-                    respawn, stash)
+from engine import (behavior, data, death, factions, karma, omens, party,
+                    quests, respawn, stash)
 from webapp.html import esc
 from webapp.pages import world_factions as page_factions
 
@@ -12,6 +12,7 @@ LOC_TYPES = [("safe", "🛡 Безопасные"), ("dangerous", "⚠️ Опа
 
 def render(ctx):
     return f"""
+{_omens(ctx)}
 {_respawn_settings(ctx)}
 {_stash_settings(ctx)}
 {page_factions.render(ctx)}
@@ -20,6 +21,45 @@ def render(ctx):
 {_graves(ctx)}
 {_parties(ctx)}
 {_quests(ctx)}
+"""
+
+
+def _omens(ctx):
+    """Знамения и моральный расклад мира: что видят игроки прямо сейчас."""
+    cards = ""
+    for o in omens.get_current_omens():
+        cards += (f"<div class='cata-card'><div class='ct'>{o['icon']} "
+                  f"{esc(o['title'])}</div>"
+                  f"<div class='cd'>{esc(o['desc'])}</div></div>")
+
+    # Раскладка по карме: сколько героев ушло в святые, сколько в осквернители.
+    pious = defiled = neutral = 0
+    for p in ctx.store.players.values():
+        score = getattr(p, "karma_score", 0) or 0
+        if score >= karma.PIOUS_KARMA:
+            pious += 1
+        elif score <= karma.DEFILED_KARMA:
+            defiled += 1
+        else:
+            neutral += 1
+
+    return f"""
+<div class="card">
+  <h2>🔮 Знамения и карма</h2>
+  <div class="hint">Каталог знамений один на оба стека
+     (<code>engine/omens.py</code>, серверный <code>core/omens.py</code> его
+     реэкспортирует), поэтому игроки в браузере и в боте читают одни и те же
+     приметы. Карма растёт за упокоение нежити и боссов, падает за
+     разграбление чужих могил.</div>
+  <div class="cata-grid">{cards}</div>
+  <div class="row" style="margin-top:.8rem">
+    <div><label>✨ Благочестивых (от {karma.PIOUS_KARMA})</label>
+      <div class="big">{pious}</div></div>
+    <div><label>⚖️ Нейтральных</label><div class="big">{neutral}</div></div>
+    <div><label>💀 Осквернителей (до {karma.DEFILED_KARMA})</label>
+      <div class="big">{defiled}</div></div>
+  </div>
+</div>
 """
 
 

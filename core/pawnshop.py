@@ -92,3 +92,33 @@ async def list_active_loans(session, character_id: int) -> list[PawnLoan]:
         .where(PawnLoan.is_liquidated == False)
     )
     return result.scalars().all()
+
+
+async def sweep_expired_loans(session) -> list[PawnLoan]:
+    """Изъять залоги, у которых вышел срок. Возвращает изъятые займы.
+
+    Раньше просроченный залог висел «активным» вечно: игрок не мог его
+    выкупить по смыслу, но и ростовщик вещь не забирал. Теперь просрочка
+    помечается `is_liquidated`, и вещь попадает на витрину чёрного рынка
+    (`core/blackmarket.list_liquidated_wares`).
+
+    Вызывается фоновым циклом бота (`bot/runner.py:_pawnshop_sweep_loop`)
+    и кнопкой в админке.
+    """
+    from core.dates import aware, utcnow
+
+    result = await session.execute(
+        select(PawnLoan)
+        .where(PawnLoan.is_redeemed == False)      # noqa: E712
+        .where(PawnLoan.is_liquidated == False)    # noqa: E712
+    )
+    now = utcnow()
+    liquidated = []
+    for loan in result.scalars().all():
+        expires = aware(loan.expires_at)
+        if expires is not None and now > expires:
+            loan.is_liquidated = True
+            liquidated.append(loan)
+    if liquidated:
+        await session.flush()
+    return liquidated

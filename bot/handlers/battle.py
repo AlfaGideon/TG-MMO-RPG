@@ -594,6 +594,16 @@ async def combat_skill(callback: CallbackQuery):
                 and best.school == core_karma.DARK_SCHOOL):
             char_dmg = int(char_dmg * (1 + core_karma.DARK_DAMAGE_BONUS))
 
+        # Фаза луны: в новолуние магия Тьмы сильнее (magic_dark_mult).
+        # Множитель существовал в core/lunar.py, но нигде не применялся.
+        from core import lunar as core_lunar
+        phase = await core_lunar.get_phase(session)
+        lunar_dark = phase["magic_dark_mult"]
+        lunar_note = ""
+        if lunar_dark != 1.0 and best is not None and best.school == core_karma.DARK_SCHOOL:
+            char_dmg = int(char_dmg * lunar_dark)
+            lunar_note = f"\n{phase['name']}: Тьма усилена ×{lunar_dark}"
+
         # Проверка элементарной реакции (комбо со стихией предыдущего каста)
         reaction_note = ""
         if best is not None:
@@ -638,7 +648,7 @@ async def combat_skill(callback: CallbackQuery):
     await send_or_edit_photo(
         callback,
         f"{head}\n\n"
-        f"Ты вкладываешься полностью: {char_dmg} урона!{reaction_note}\n"
+        f"Ты вкладываешься полностью: {char_dmg} урона!{reaction_note}{lunar_note}\n"
         f"{mob.name} отвечает {mob_dmg} урона.\n\n"
         f"❤️ Ты: {state['character_hp']}/{character.max_hp}\n"
         f"💙 MP: {character.current_mp}/{character.max_mp}\n"

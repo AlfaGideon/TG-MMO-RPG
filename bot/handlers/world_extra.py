@@ -602,9 +602,16 @@ async def pvp_select(callback: CallbackQuery):
                          reply_markup=builder.as_markup(), parse_mode="HTML")
 
 
+# Вызовы на дуэль: {id вызванного: (id вызвавшего, ставка)}. Состояние
+# живёт в памяти процесса, как и боевое (combat_state в battle.py):
+# незакрытый вызов теряется при рестарте — это лучше, чем таблица ради
+# записи, живущей минуту.
+duel_invites: dict[int, tuple[int, int]] = {}
+
+
 @router.callback_query(F.data.startswith("duel_go:"))
-async def duel_go(callback: CallbackQuery):
-    """Провести дуэль со ставкой (core/duels.resolve_wager_duel)."""
+async def duel_invite(callback: CallbackQuery):
+    """Отправить вызов на дуэль. Бой начнётся только после согласия."""
     _, raw_id, raw_wager = callback.data.split(":")
     target_id, wager = int(raw_id), int(raw_wager)
     if wager not in DUEL_WAGERS:          # защита от подделанного колбэка
@@ -620,18 +627,97 @@ async def duel_go(callback: CallbackQuery):
         if target.id == character.id:
             await callback.answer("Нельзя драться с самим собой.", show_alert=True)
             return
-        # Соперник мог уйти, пока экран висел открытым.
         if (target.cell_id != character.cell_id
                 or (target.floor or 0) != (character.floor or 0)):
             await callback.answer("Соперник ушёл с этой клетки.", show_alert=True)
             return
 
+        from engine.currency import total_in_bronze
+        if total_in_bronze(character) < wager:
+            await callback.answer(f"У тебя не хватает {wager}🟤 на ставку.",
+                                  show_alert=True)
+            return
+
+        target_user = await session.get(User, target.user_id)
+        target_tg = target_user.telegram_id if target_user else None
+        challenger_name, target_name = character.name, target.name
+
+    if not target_tg:
+        await callback.answer("Соперник недоступен.", show_alert=True)
+        return
+
+    duel_invites[target_id] = (int(callback.from_user.id), wager)
+
+    stake = "без ставки" if wager == 0 else f"ставка {wager}🟤"
+    builder = InlineKeyboardBuilder()
+    builder.button(text=f"⚔️ Принять вызов ({stake})",
+                   callback_data=f"duel_accept:{target_id}")
+    builder.button(text="🚫 Отказаться", callback_data=f"duel_decline:{target_id}")
+    builder.adjust(1)
+    try:
+        await callback.bot.send_message(
+            target_tg,
+            f"⚔️ <b>Тебя вызвали на дуэль!</b>\n\n"
+            f"<b>{challenger_name}</b> обнажил клинок против тебя — {stake}.\n\n"
+            f"<i>Победитель забирает банк, 5 % идёт арене.</i>",
+            reply_markup=builder.as_markup(), parse_mode="HTML")
+    except Exception:
+        duel_invites.pop(target_id, None)
+        await callback.answer("Соперник недоступен для вызова.", show_alert=True)
+        return
+
+    await safe_edit_text(
+        callback,
+        f"⚔️ <b>Вызов брошен</b>\n\n"
+        f"Ты вызвал <b>{target_name}</b> на дуэль ({stake}).\n\n"
+        f"<i>Ждём ответа. Бой начнётся, только если соперник согласится.</i>",
+        reply_markup=continue_keyboard(), parse_mode="HTML")
+
+
+@router.callback_query(F.data.startswith("duel_decline:"))
+async def duel_decline(callback: CallbackQuery):
+    """Отклонить вызов."""
+    target_id = int(callback.data.split(":")[1])
+    duel_invites.pop(target_id, None)
+    await safe_edit_text(
+        callback,
+        "🚫 <b>Ты отказался от дуэли.</b>\n\n<i>Иногда это мудрее.</i>",
+        reply_markup=continue_keyboard(), parse_mode="HTML")
+
+
+@router.callback_query(F.data.startswith("duel_accept:"))
+async def duel_accept(callback: CallbackQuery):
+    """Принять вызов и провести дуэль (core/duels.resolve_wager_duel)."""
+    target_id = int(callback.data.split(":")[1])
+    invite = duel_invites.pop(target_id, None)
+    if invite is None:
+        await callback.answer("Вызов истёк или уже разрешён.", show_alert=True)
+        return
+    challenger_tg, wager = invite
+
+    async with async_session() as session:
+        defender = await _character(session, callback.from_user.id)
+        challenger = await _character(session, challenger_tg)
+        if defender is None or challenger is None:
+            await callback.answer("Соперник не найден.", show_alert=True)
+            return
+        if defender.id != target_id:      # вызов адресован не этому герою
+            await callback.answer("Этот вызов не тебе.", show_alert=True)
+            return
+        if (defender.cell_id != challenger.cell_id
+                or (defender.floor or 0) != (challenger.floor or 0)):
+            await callback.answer("Соперник ушёл с клетки — дуэль отменена.",
+                                  show_alert=True)
+            return
+
         from core import duels as core_duels
-        res = await core_duels.resolve_wager_duel(session, character, target, wager)
+        res = await core_duels.resolve_wager_duel(session, challenger, defender, wager)
         if not res["ok"]:
             await callback.answer(res["reason"], show_alert=True)
             return
         await session.commit()
+        challenger_user = await session.get(User, challenger.user_id)
+        challenger_tg_id = challenger_user.telegram_id if challenger_user else None
 
     tail = "\n".join(res["log"][-4:])
     text = (
@@ -642,3 +728,9 @@ async def duel_go(callback: CallbackQuery):
     )
     await safe_edit_text(callback, text, reply_markup=continue_keyboard(),
                          parse_mode="HTML")
+    # Вызвавший тоже должен узнать исход, а не гадать.
+    if challenger_tg_id:
+        try:
+            await callback.bot.send_message(challenger_tg_id, text, parse_mode="HTML")
+        except Exception:
+            pass

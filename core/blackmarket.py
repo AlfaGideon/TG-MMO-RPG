@@ -1,5 +1,15 @@
-"""Тайный ночной чёрный рынок: редкие контрабандные товары на ротации."""
-from core.models import Character, Item, InventoryItem
+"""Тайный ночной чёрный рынок: редкие контрабандные товары на ротации.
+
+Кроме постоянного ассортимента (`BLACK_MARKET_WARES`) здесь оседают
+вещи, изъятые ростовщиком за просрочку залога: «предмет не исчезает из
+мира», а меняет владельца. Связка: `core/pawnshop.sweep_expired_loans`
+помечает заём `is_liquidated`, а `list_liquidated_wares` показывает эти
+вещи на витрине.
+"""
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
+
+from core.models import Character, Item, InventoryItem, ItemInstance, PawnLoan
 
 
 BLACK_MARKET_WARES = [
@@ -54,3 +64,73 @@ async def buy_black_market_item(session, character: Character, item_key: str) ->
 
     await session.flush()
     return {"ok": True, "title": "Тайная сделка", "desc": msg}
+
+
+# Наценка перекупщика на изъятый залог: он выкупил вещь за долг и
+# перепродаёт дороже — иначе выгоднее было бы не выкупать свой залог,
+# а ждать конфискации и покупать его же дешевле.
+LIQUIDATED_MARKUP = 1.35
+
+
+def liquidated_price(loan: PawnLoan) -> int:
+    """Цена изъятого залога на витрине."""
+    base = loan.buyback_price or loan.loan_bronze or 1
+    return max(1, int(base * LIQUIDATED_MARKUP))
+
+
+async def list_liquidated_wares(session, limit: int = 10) -> list[dict]:
+    """Изъятые за просрочку вещи, выставленные на чёрном рынке."""
+    result = await session.execute(
+        select(PawnLoan)
+        .where(PawnLoan.is_liquidated == True)     # noqa: E712
+        .where(PawnLoan.is_redeemed == False)      # noqa: E712
+        .options(selectinload(PawnLoan.instance))
+        .order_by(PawnLoan.id.desc())
+        .limit(limit)
+    )
+    wares = []
+    for loan in result.scalars().all():
+        item = await session.get(Item, loan.item_id)
+        if item is None:
+            continue
+        wares.append({
+            "loan_id": loan.id,
+            "name": item.name,
+            "instance": loan.instance,
+            "cost": liquidated_price(loan),
+        })
+    return wares
+
+
+async def buy_liquidated_item(session, character: Character, loan_id: int) -> dict:
+    """Выкупить изъятый залог с витрины: вещь переходит покупателю."""
+    from engine.currency import total_in_bronze, deduct_currency
+
+    loan = await session.get(PawnLoan, loan_id)
+    if loan is None or not loan.is_liquidated or loan.is_redeemed:
+        return {"ok": False, "reason": "Этот товар уже продан."}
+
+    cost = liquidated_price(loan)
+    if total_in_bronze(character) < cost:
+        return {"ok": False, "reason": f"Не хватает средств! Нужно {cost}🟤."}
+
+    item = await session.get(Item, loan.item_id)
+    deduct_currency(character, cost)
+    session.add(InventoryItem(
+        character_id=character.id,
+        item_id=loan.item_id,
+        instance_id=loan.instance_id,
+        quantity=1,
+    ))
+    # Заём закрыт окончательно: вещь ушла в чужие руки и больше не висит
+    # на витрине (иначе её купили бы дважды).
+    loan.is_redeemed = True
+    await session.flush()
+
+    return {
+        "ok": True,
+        "title": "Тайная сделка",
+        "desc": (f"Ты выкупил <b>{item.name if item else 'вещь'}</b> "
+                 f"с чёрного рынка за {cost}🟤.\n\n"
+                 f"<i>Прежний владелец не сумел вернуть долг вовремя.</i>"),
+    }

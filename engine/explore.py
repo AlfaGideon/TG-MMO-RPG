@@ -54,8 +54,13 @@ def look(p, cell, store=None):
                       f"{cell.desc}\n\n{body}", keyboard=rows)
 
 
-def talk(npc_index, p=None):
-    """Диалог с жителем: торговля, лечение и его задания."""
+def talk(npc_index, p=None, store=None):
+    """Диалог с жителем: торговля, лечение и его задания.
+
+    Если в мире что-то происходит (катаклизм, караван) или у героя крайняя
+    карма, житель отвечает по-своему — `engine/dialogue.py`, паритет с
+    серверным `core/dialogue.py`.
+    """
     from engine import quests
 
     n = data.NPCS[int(npc_index)]
@@ -75,6 +80,15 @@ def talk(npc_index, p=None):
         rows.extend(quests.offer_rows(p, npc_index))
     rows.append([("◀️ Назад", "world")])
     mood = factions.greeting(p, npc_index) if p is not None else ""
+
+    from engine import dialogue
+    reactive = dialogue.line_for(store, p, n[0], n[2])
+    if reactive:
+        # Реакция на мир важнее дежурного описания: житель говорит о том,
+        # что происходит прямо сейчас.
+        body = reactive.split(":\n", 1)[-1]
+        return Reply(text=f"💬 <b>{n[0]}</b>\n\n<i>{body}</i>{mood}",
+                     keyboard=rows)
     return Reply(text=f"💬 <b>{n[0]}</b>\n\n<i>{n[1]}</i>{mood}", keyboard=rows)
 
 

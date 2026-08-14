@@ -6364,7 +6364,15 @@ async def editor_subsystems(request: Request):
             "title": core_karma.karma_status(c)[1],
         } for c in karma_chars]
 
-    phase = core_lunar.get_current_lunar_phase()
+        # Изъятые за просрочку вещи, осевшие на витрине рынка.
+        seized_rows = await core_bm.list_liquidated_wares(session, limit=30)
+        # Текущая фаза с учётом ручной заморозки.
+        phase = await core_lunar.get_phase(session)
+        override_row = (await session.execute(
+            select(AppSetting).where(AppSetting.key == core_lunar.LUNAR_OVERRIDE_KEY)
+        )).scalar_one_or_none()
+        lunar_override = (override_row.value or "").strip() if override_row else ""
+
     return templates.TemplateResponse(
         request, "editor_subsystems.html",
         {
@@ -6376,7 +6384,10 @@ async def editor_subsystems(request: Request):
             "guild_rows": guild_rows,
             "karma_rows": karma_rows,
             "phase": phase, "phases": core_lunar.PHASES,
+            "lunar_override": lunar_override,
+            "natural_phase": core_lunar.get_current_lunar_phase(),
             "wares": core_bm.get_black_market_wares(),
+            "seized_rows": seized_rows,
         },
     )
 
@@ -6408,6 +6419,55 @@ async def subsystems_liquidate_loan(request: Request, loan_id: int):
             await session.commit()
             logging.getLogger(__name__).info(
                 "admin: pawn loan %s liquidated", loan_id)
+    return RedirectResponse("/editor/subsystems", status_code=303)
+
+
+@app.post("/editor/subsystems/sweep-loans")
+async def subsystems_sweep_loans(request: Request):
+    """Изъять все просроченные залоги разом (обычно это делает бот)."""
+    guard(request, "manage_content")
+    from core.pawnshop import sweep_expired_loans
+
+    async with async_session() as session:
+        seized = await sweep_expired_loans(session)
+        await session.commit()
+    logging.getLogger(__name__).info(
+        "admin: %d overdue loans liquidated", len(seized))
+    return RedirectResponse("/editor/subsystems", status_code=303)
+
+
+@app.post("/editor/subsystems/lunar")
+async def subsystems_set_lunar(request: Request, phase_key: str = Form("")):
+    """Заморозить фазу луны или вернуть естественный цикл (пустое значение)."""
+    guard(request, "manage_content")
+    from core import lunar as core_lunar
+
+    async with async_session() as session:
+        try:
+            await core_lunar.set_override(session, phase_key)
+        except ValueError:
+            # Неизвестный ключ из подделанной формы: молча ничего не меняем,
+            # как это делает editor_cell_save с мусором в числовых полях.
+            return RedirectResponse("/editor/subsystems", status_code=303)
+        await session.commit()
+    logging.getLogger(__name__).info("admin: lunar override = %r", phase_key)
+    return RedirectResponse("/editor/subsystems", status_code=303)
+
+
+@app.post("/editor/subsystems/guild/{guild_id}/disband")
+async def subsystems_disband_guild(request: Request, guild_id: int):
+    """Распустить гильдию: участники освобождаются, хранилище удаляется."""
+    guard(request, "manage_content")
+    from core.guilds import Guild, guild_members
+
+    async with async_session() as session:
+        guild = await session.get(Guild, guild_id)
+        if guild is not None:
+            await session.execute(
+                delete(guild_members).where(guild_members.c.guild_id == guild_id))
+            await session.delete(guild)          # vault удалится каскадом
+            await session.commit()
+            logging.getLogger(__name__).info("admin: guild %s disbanded", guild_id)
     return RedirectResponse("/editor/subsystems", status_code=303)
 
 
