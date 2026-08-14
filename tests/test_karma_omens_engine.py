@@ -144,6 +144,37 @@ def main():
     check(currency_str(Player(tg_id=9)) == "0🟤 0⚪ 50🟡",
           "профиль показывает три валюты")
 
+    print("\n— Благословение света: защита от фатального удара —")
+    store3 = Store(MemoryStorage())
+    p6 = Player(tg_id=6, cls="berserker")
+    p6.karma_score = karma.PIOUS_KARMA        # Благочестивый
+    p6.hp = 1
+    p6.loc, p6.x, p6.y = 1, 4, 4
+    store3.save_player(p6)
+    combat.start(p6, 1, store=store3)
+    st = p6.combat
+    saved = combat._blessing_saves(p6, st)
+    check(saved and p6.hp == 1, "Благочестивого спасает благословение (HP=1)")
+    check(st.get("blessing_used") is True, "флаг траты благословения выставлен")
+    check(combat._blessing_saves(p6, st) is False,
+          "второй раз за бой благословение не срабатывает")
+    p7 = Player(tg_id=7, cls="berserker")     # нейтральная карма
+    check(combat._blessing_saves(p7, {}) is False,
+          "нейтрального героя благословение не спасает")
+
+    print("\n— Старые сохранения открываются под новые поля —")
+    old_save = {"tg_id": 42, "name": "Ветеран", "cls": "berserker",
+                "level": 7, "gold": 300, "hp": 50}
+    restored = Player.from_dict(old_save)
+    check(restored.bronze == 0 and restored.silver == 0,
+          "старый сейв без валют: bronze/silver = 0")
+    check(restored.karma_score == 0, "старый сейв без кармы: karma_score = 0")
+    check(restored.name == "Ветеран" and restored.gold == 300,
+          "старые поля сохранились")
+    round_trip = Player.from_dict(restored.to_dict())
+    check(round_trip.to_dict() == restored.to_dict(),
+          "to_dict/from_dict без потерь")
+
     print("\n" + "=" * 46)
     if FAILED:
         print(f"❌ ПРОВАЛЕНО {len(FAILED)}:")

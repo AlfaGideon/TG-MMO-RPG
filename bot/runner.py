@@ -72,6 +72,7 @@ class BotRunner:
         self._task: Optional[asyncio.Task] = None
         self._portal_sweep_task: Optional[asyncio.Task] = None
         self._spawn_tick_task: Optional[asyncio.Task] = None
+        self._dividend_task: Optional[asyncio.Task] = None
         self._bg_tasks: set = set()      # ссылки на fire-and-forget задачи
         self._running = False
         self.last_error: Optional[str] = None
@@ -203,6 +204,7 @@ class BotRunner:
                 cleanup.add_done_callback(self._bg_tasks.discard)
                 self._portal_sweep_task = asyncio.create_task(self._portal_sweep_loop())
                 self._spawn_tick_task = asyncio.create_task(self._spawn_tick_loop())
+                self._dividend_task = asyncio.create_task(self._dividend_loop())
                 username = getattr(me, "username", None)
                 who = f" @{username}" if username else ""
                 if proxy_url:
@@ -349,6 +351,37 @@ class BotRunner:
                 logger.debug(f"portal sweep failed: {e}")
             await asyncio.sleep(300)  # check every 5 minutes
 
+    async def _dividend_loop(self):
+        """Дивиденды вкладчикам городских лавок раз в сутки.
+
+        Вклады принимались и раньше (`core/investments.invest_in_town`),
+        но выплат не было вовсе: колонка `earned_dividends` не росла.
+        Цикл начисляет долю и сообщает вкладчику в личку.
+        """
+        from core.database import async_session
+        from core.investments import pay_dividends, DIVIDEND_PERIOD_HOURS
+
+        while self.is_running():
+            await asyncio.sleep(DIVIDEND_PERIOD_HOURS * 3600)
+            try:
+                async with async_session() as session:
+                    payouts = await pay_dividends(session)
+                    await session.commit()
+                for pay in payouts:
+                    if not pay.get("telegram_id"):
+                        continue
+                    try:
+                        await self.bot.send_message(
+                            pay["telegram_id"],
+                            f"🏦 <b>Дивиденды с лавки</b>\n\n"
+                            f"«{pay['location_name']}» принесла тебе "
+                            f"<b>+{pay['amount']}</b>🟤.",
+                            parse_mode="HTML")
+                    except Exception as e:
+                        logger.debug(f"dividend notice failed: {e}")
+            except Exception as e:
+                logger.debug(f"dividend payout failed: {e}")
+
     async def _spawn_tick_loop(self):
         """Живой мир: держит популяцию мобов на лимите и двигает их по карте.
 
@@ -393,11 +426,13 @@ class BotRunner:
             self._running = False
             # Если polling упал сам (например, сеть/Telegram недоступны),
             # фоновые циклы не должны ожить повторно при следующем старте.
-            for task in (self._portal_sweep_task, self._spawn_tick_task):
+            for task in (self._portal_sweep_task, self._spawn_tick_task,
+                         self._dividend_task):
                 if task and not task.done():
                     task.cancel()
             self._portal_sweep_task = None
             self._spawn_tick_task = None
+            self._dividend_task = None
             await self._close_current_bot()
 
     async def stop(self) -> bool:
@@ -437,6 +472,14 @@ class BotRunner:
                 except asyncio.CancelledError:
                     pass
                 self._spawn_tick_task = None
+
+            if self._dividend_task:
+                self._dividend_task.cancel()
+                try:
+                    await self._dividend_task
+                except asyncio.CancelledError:
+                    pass
+                self._dividend_task = None
 
             if self.dp:
                 await self.dp.emit_shutdown()

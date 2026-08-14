@@ -276,6 +276,22 @@ async def _finish_victory(callback, session, character, mob, spawn, state):
     )
 
 
+def _blessing_saves(character, state) -> bool:
+    """Карма: Благочестивого один раз за бой спасает от фатального удара.
+
+    Эффект обещан текстом `core/karma.karma_status` («защита от фатального
+    удара»), но раньше нигде не применялся. Флаг траты живёт в состоянии
+    боя, поэтому благословение срабатывает не чаще одного раза за бой.
+    Паритет: `engine/combat.py` делает то же самое через `p.combat`.
+    """
+    from core import karma as core_karma
+    if state.get("blessing_used") or not core_karma.pious(character):
+        return False
+    state["blessing_used"] = True
+    state["character_hp"] = 1
+    return True
+
+
 async def _finish_defeat(callback, session, character, mob, spawn, state):
     """Поражение в бою: надгробие с частью добра, ранение и сброс моба."""
     character.current_hp = 1
@@ -393,7 +409,7 @@ async def combat_attack(callback: CallbackQuery):
             await _finish_victory(callback, session, character, mob, spawn, state)
             return
 
-        if state["character_hp"] <= 0:
+        if state["character_hp"] <= 0 and not _blessing_saves(character, state):
             await _finish_defeat(callback, session, character, mob, spawn, state)
             return
 
@@ -455,7 +471,7 @@ async def combat_defend(callback: CallbackQuery):
         heal = max(1, max_hp_val // 40)
         state["character_hp"] = min(max_hp_val, state["character_hp"] + heal)
 
-        if state["character_hp"] <= 0:
+        if state["character_hp"] <= 0 and not _blessing_saves(character, state):
             await _finish_defeat(callback, session, character, mob, spawn, state)
             return
 
@@ -549,7 +565,7 @@ async def combat_skill(callback: CallbackQuery):
             await _finish_victory(callback, session, character, mob, spawn, state)
             return
 
-        if state["character_hp"] <= 0:
+        if state["character_hp"] <= 0 and not _blessing_saves(character, state):
             await _finish_defeat(callback, session, character, mob, spawn, state)
             return
 

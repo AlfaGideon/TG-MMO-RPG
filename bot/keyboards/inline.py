@@ -431,7 +431,9 @@ def inspect_keyboard(has_mob: bool, has_npc: bool, has_chest: bool,
                      has_landmark: bool = False, has_grave: bool = False,
                      has_players: bool = False, has_outpost: bool = False,
                      has_caravan: bool = False, has_siege: bool = False,
-                     has_water: bool = False, has_forest: bool = False):
+                     has_water: bool = False, has_forest: bool = False,
+                     can_dig: bool = False, has_treasure: bool = False,
+                     is_town: bool = False):
     builder = InlineKeyboardBuilder()
     if has_outpost:
         builder.button(text="🏰 Аванпост фракций", callback_data="outpost_menu")
@@ -453,6 +455,16 @@ def inspect_keyboard(has_mob: bool, has_npc: bool, has_chest: bool,
         builder.button(text="🎣 Закинуть удочку (Рыбалка)", callback_data="gather_fish")
     if has_forest:
         builder.button(text="🌿 Сбор трав (Травничество)", callback_data="gather_herbs")
+    # Археология (core/archaeology.py): копать можно везде за городом,
+    # а «выкопать клад» появляется только на клетке из карты сокровищ.
+    if has_treasure:
+        builder.button(text="🏆 Выкопать клад по карте!", callback_data="dig_treasure")
+    if can_dig:
+        builder.button(text="⛏ Копать землю (Археология)", callback_data="dig_relic")
+    if is_town:
+        builder.button(text="🏦 Вклад в лавку", callback_data="invest_menu")
+        builder.button(text="💍 Ломбард", callback_data="pawnshop_menu")
+        builder.button(text="🕯 Чёрный рынок", callback_data="blackmarket_menu")
     if has_npc:
         builder.button(text="💬 Поговорить", callback_data="talk_npc")
     if is_crafter:
@@ -617,7 +629,8 @@ def inventory_section_keyboard(items: list, section: str, page: int = 0,
 def item_book_keyboard(inv_item_id: int, section: str, index: int, total: int,
                        is_equipped: bool = False, can_equip: bool = False,
                        can_use: bool = False, can_sell: bool = False,
-                       in_stash: bool = False, can_stash: bool = False):
+                       in_stash: bool = False, can_stash: bool = False,
+                       can_salvage: bool = False, can_pawn: bool = False):
     """Книга предметов: карточка вещи + листание соседних страниц."""
     builder = InlineKeyboardBuilder()
     rows = []
@@ -634,6 +647,14 @@ def item_book_keyboard(inv_item_id: int, section: str, index: int, total: int,
         actions += 1
     if can_sell and not is_equipped and not in_stash:
         builder.button(text="🟣 ⚖️ На аукцион", callback_data=f"auction_sell:{inv_item_id}")
+        actions += 1
+    # Разбор на материалы (core/salvage.py) и залог у ростовщика
+    # (core/pawnshop.py) — только для своей, не надетой и не спрятанной вещи.
+    if can_salvage and not is_equipped and not in_stash:
+        builder.button(text="🟠 🔧 Разобрать", callback_data=f"salvage:{inv_item_id}")
+        actions += 1
+    if can_pawn and not is_equipped and not in_stash:
+        builder.button(text="⚫️ 💍 Заложить", callback_data=f"pawn:{inv_item_id}")
         actions += 1
     if in_stash:
         builder.button(text="🟢 🎒 Достать из кармана",

@@ -817,6 +817,28 @@ async def inspect_cell(callback: CallbackQuery):
         has_water = (cell.tile_type == "water")
         has_forest = (cell.tile_type in ("forest", "swamp"))
 
+        # Археология (core/archaeology.py): копают в диких землях, в городе
+        # нечего искать; клад доступен ровно на клетке из карты сокровищ.
+        from core.enums import LocationType as _LocType
+        location = await session.get(Location, cell.location_id)
+        is_town = bool(location and location.location_type == _LocType.SAFE)
+        can_dig = not is_town and cell.tile_type not in ("water",)
+        treasure_target = getattr(character, "treasure_map_coord", None)
+        has_treasure = bool(
+            treasure_target
+            and treasure_target == f"loc:{cell.location_id}:x:{cell.x}:y:{cell.y}"
+        )
+        if has_treasure:
+            found.append("🗺 <b>Карта указывает точно сюда — копай!</b>")
+        frags = character.relic_fragments or 0
+        if frags and can_dig:
+            found.append(f"🔍 Фрагментов скрижали: <b>{frags}/5</b>")
+
+        # Фаза луны (core/lunar.py): влияет на спавн, дроп и магию тьмы.
+        from core import lunar as core_lunar
+        lunar_phase = core_lunar.get_current_lunar_phase()
+        found.append(f"{lunar_phase['name']} — <i>{lunar_phase['desc']}</i>")
+
         if found:
             lines.append("\n" + "\n".join(found))
         else:
@@ -837,6 +859,9 @@ async def inspect_cell(callback: CallbackQuery):
                 has_siege=has_siege,
                 has_water=has_water,
                 has_forest=has_forest,
+                can_dig=can_dig,
+                has_treasure=has_treasure,
+                is_town=is_town,
             ),
             parse_mode="HTML",
         )
@@ -1969,3 +1994,195 @@ async def spec_buy_callback(callback: CallbackQuery):
     )
 
 
+
+
+# ── археология, чёрный рынок и вклады ───────────────────────
+# Модули core/archaeology.py, core/blackmarket.py и core/investments.py
+# были написаны и покрыты тестами, но ни один роутер их не вызывал —
+# игрок физически не мог до них добраться. Здесь их точки входа.
+
+@router.callback_query(F.data == "dig_relic")
+async def dig_relic(callback: CallbackQuery):
+    """⛏ Копать землю: шанс найти фрагмент древней скрижали."""
+    async with async_session() as session:
+        char = (await session.execute(
+            select(Character).join(User).where(User.telegram_id == callback.from_user.id)
+            .options(selectinload(Character.cell))
+        )).scalar_one_or_none()
+        if not char or not char.cell:
+            await callback.answer("Ошибка.", show_alert=True)
+            return
+
+        from core import archaeology as core_arch
+        res = await core_arch.find_relic_fragment(session, char)
+        await session.commit()
+
+    await safe_edit_text(
+        callback,
+        f"⛏ <b>Раскопки</b>\n\n{res['desc']}",
+        reply_markup=continue_keyboard(),
+        parse_mode="HTML",
+    )
+
+
+@router.callback_query(F.data == "dig_treasure")
+async def dig_treasure(callback: CallbackQuery):
+    """🏆 Выкопать клад на клетке из собранной карты сокровищ."""
+    async with async_session() as session:
+        char = (await session.execute(
+            select(Character).join(User).where(User.telegram_id == callback.from_user.id)
+            .options(selectinload(Character.cell))
+        )).scalar_one_or_none()
+        if not char or not char.cell:
+            await callback.answer("Ошибка.", show_alert=True)
+            return
+
+        from core import archaeology as core_arch
+        res = await core_arch.dig_treasure_at_cell(session, char, char.cell)
+        if not res["ok"]:
+            await callback.answer(res["reason"], show_alert=True)
+            return
+        await session.commit()
+
+    await safe_edit_text(
+        callback,
+        f"<b>{res['title']}</b>\n\n{res['desc']}",
+        reply_markup=continue_keyboard(),
+        parse_mode="HTML",
+    )
+
+
+@router.callback_query(F.data == "blackmarket_menu")
+async def blackmarket_menu(callback: CallbackQuery):
+    """🕯 Чёрный рынок: контрабандная витрина (core/blackmarket.py)."""
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    from core import blackmarket as core_bm
+    from engine.currency import currency_str, total_in_bronze
+
+    async with async_session() as session:
+        char = (await session.execute(
+            select(Character).join(User).where(User.telegram_id == callback.from_user.id)
+        )).scalar_one_or_none()
+        if not char:
+            await callback.answer("Ошибка.", show_alert=True)
+            return
+
+        wares = core_bm.get_black_market_wares()
+        purse = total_in_bronze(char)
+        lines = ["🕯 <b>Чёрный рынок</b>", "",
+                 "<i>— Тише. Товар без имени, продавца ты не видел.</i>", "",
+                 f"💰 Кошелёк: <b>{currency_str(char)}</b>", ""]
+        builder = InlineKeyboardBuilder()
+        for w in wares:
+            lines.append(f"{w['name']} — <b>{w['cost']}</b>🟤")
+            lines.append(f"<i>{w['desc']}</i>")
+            if purse >= w["cost"]:
+                builder.button(text=f"Купить: {w['name']} ({w['cost']}🟤)",
+                               callback_data=f"bm_buy:{w['key']}")
+        builder.button(text="◀️ Назад", callback_data="inspect")
+        builder.adjust(1)
+
+    await safe_edit_text(callback, "\n".join(lines),
+                         reply_markup=builder.as_markup(), parse_mode="HTML")
+
+
+@router.callback_query(F.data.startswith("bm_buy:"))
+async def blackmarket_buy(callback: CallbackQuery):
+    """Покупка на чёрном рынке."""
+    key = callback.data.split(":")[1]
+    async with async_session() as session:
+        char = (await session.execute(
+            select(Character).join(User).where(User.telegram_id == callback.from_user.id)
+        )).scalar_one_or_none()
+        if not char:
+            await callback.answer("Ошибка.", show_alert=True)
+            return
+
+        from core import blackmarket as core_bm
+        res = await core_bm.buy_black_market_item(session, char, key)
+        if not res["ok"]:
+            await callback.answer(res["reason"], show_alert=True)
+            return
+        await session.commit()
+
+    await safe_edit_text(
+        callback,
+        f"<b>{res['title']}</b>\n\n{res['desc']}",
+        reply_markup=continue_keyboard(),
+        parse_mode="HTML",
+    )
+
+
+# Фиксированные суммы вклада: свободный ввод чисел в боте требует FSM,
+# а кнопки дают тот же результат без состояния и без парсинга мусора.
+INVEST_STEPS = (100, 500, 2000)
+
+
+@router.callback_query(F.data == "invest_menu")
+async def invest_menu(callback: CallbackQuery):
+    """🏦 Вклад в лавку поселения (core/investments.py)."""
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    from core import investments as core_inv
+    from engine.currency import currency_str, total_in_bronze
+
+    async with async_session() as session:
+        char = (await session.execute(
+            select(Character).join(User).where(User.telegram_id == callback.from_user.id)
+        )).scalar_one_or_none()
+        if not char:
+            await callback.answer("Ошибка.", show_alert=True)
+            return
+
+        summary = await core_inv.get_town_investment_summary(
+            session, char.location_id, char.id)
+        location = await session.get(Location, char.location_id)
+        purse = total_in_bronze(char)
+
+        lines = [
+            f"🏦 <b>Вклад в лавку: {location.name if location else 'поселение'}</b>", "",
+            "<i>— Вложись в дело, и лавка отблагодарит долей с оборота.</i>", "",
+            f"💰 Кошелёк: <b>{currency_str(char)}</b>",
+            f"📦 Общий капитал лавки: <b>{summary['total_pool']}</b>🟤",
+            f"🪙 Твой вклад: <b>{summary['my_invested']}</b>🟤 "
+            f"(доля {summary['share_pct']}%)",
+            f"💎 Получено дивидендов: <b>{summary['my_dividends']}</b>🟤",
+        ]
+        builder = InlineKeyboardBuilder()
+        for step in INVEST_STEPS:
+            if purse >= step:
+                builder.button(text=f"🏦 Вложить {step}🟤",
+                               callback_data=f"invest_do:{step}")
+        builder.button(text="◀️ Назад", callback_data="inspect")
+        builder.adjust(1)
+
+    await safe_edit_text(callback, "\n".join(lines),
+                         reply_markup=builder.as_markup(), parse_mode="HTML")
+
+
+@router.callback_query(F.data.startswith("invest_do:"))
+async def invest_do(callback: CallbackQuery):
+    """Внести вклад фиксированной суммой."""
+    amount = int(callback.data.split(":")[1])
+    if amount not in INVEST_STEPS:            # защита от подделанного колбэка
+        await callback.answer("Недопустимая сумма.", show_alert=True)
+        return
+    async with async_session() as session:
+        char = (await session.execute(
+            select(Character).join(User).where(User.telegram_id == callback.from_user.id)
+        )).scalar_one_or_none()
+        if not char:
+            await callback.answer("Ошибка.", show_alert=True)
+            return
+
+        from core import investments as core_inv
+        res = await core_inv.invest_in_town(session, char, char.location_id, amount)
+        if not res["ok"]:
+            await callback.answer(res["reason"], show_alert=True)
+            return
+        await session.commit()
+
+    await callback.answer(
+        f"🏦 Вложено {res['invested']}🟤 в «{res['location_name']}».\n"
+        f"Всего твоих вложений: {res['total_invested']}🟤.",
+        show_alert=True)
+    await invest_menu(callback)

@@ -32,7 +32,7 @@ def start(p, mob_index, ambush=False, store=None, origin=None):
         else:
             p.hp -= dmg
             p.combat["log"].append(f"👾 Внезапный удар на {dmg}.")
-        if p.hp <= 0:
+        if p.hp <= 0 and not _blessing_saves(p, p.combat):
             return _finish_lose(p, store)
     return view(p)
 
@@ -307,6 +307,24 @@ def action(p, what, world, store=None):
     p.hp -= mdmg
     st["log"].append("💨 Ты уклонился!" if dodged else f"👾 {m[0]} бьёт на {mdmg}.")
 
+    if p.hp <= 0 and _blessing_saves(p, st):
+        return view(p)
     if p.hp <= 0:
         return _finish_lose(p, store)
     return view(p)
+
+
+def _blessing_saves(p, st):
+    """Карма: Благочестивого один раз за бой спасает от фатального удара.
+
+    Эффект обещан текстом `karma.karma_status` («защита от фатального
+    удара»). Флаг траты живёт в состоянии боя `p.combat`, поэтому за один
+    бой благословение срабатывает не больше раза. Паритет с серверным
+    стеком: `bot/handlers/battle.py:_blessing_saves`.
+    """
+    if st.get("blessing_used") or not karma.pious(p):
+        return False
+    st["blessing_used"] = True
+    p.hp = 1
+    st["log"].append("✨ <b>Благословение света спасло тебя!</b> Остался 1 HP.")
+    return True

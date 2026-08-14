@@ -67,3 +67,48 @@ async def get_town_investment_summary(session, location_id: int, character_id: i
         "my_dividends": my_divs,
         "share_pct": share_pct,
     }
+
+
+# Дивиденды: доля от вклада за один расчётный период. 2 % в сутки —
+# вклад окупается примерно за 50 дней, поэтому инвестиции остаются
+# долгой целью, а не заменой добыче.
+DIVIDEND_RATE = 0.02
+DIVIDEND_PERIOD_HOURS = 24
+
+
+async def pay_dividends(session) -> list[dict]:
+    """Начислить дивиденды всем вкладчикам. Возвращает список выплат.
+
+    Вызывается фоновым циклом бота (`bot/runner.py:_dividend_loop`) раз в
+    DIVIDEND_PERIOD_HOURS. Раньше вклады только принимались: колонка
+    `earned_dividends` существовала, но никто её не увеличивал, и вкладчик
+    не получал ничего.
+    """
+    from sqlalchemy.orm import selectinload
+    from engine.currency import add_currency
+
+    result = await session.execute(
+        select(TownInvestment)
+        .where(TownInvestment.invested_bronze > 0)
+        # user грузим сразу: в async ленивая связь бросает MissingGreenlet
+        .options(selectinload(TownInvestment.character).selectinload(Character.user),
+                 selectinload(TownInvestment.location))
+    )
+    payouts = []
+    for inv in result.scalars().all():
+        amount = int((inv.invested_bronze or 0) * DIVIDEND_RATE)
+        if amount <= 0:
+            continue
+        character = inv.character
+        if character is None:                 # вкладчик удалён — пропускаем
+            continue
+        add_currency(character, bronze=amount)
+        inv.earned_dividends = (inv.earned_dividends or 0) + amount
+        payouts.append({
+            "character_id": character.id,
+            "telegram_id": getattr(character.user, "telegram_id", None),
+            "amount": amount,
+            "location_name": inv.location.name if inv.location else "поселение",
+        })
+    await session.flush()
+    return payouts
