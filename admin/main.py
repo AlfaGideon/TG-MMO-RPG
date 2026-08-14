@@ -681,6 +681,17 @@ async def player_detail(request: Request, char_id: int):
                 "value": pts, "rank_icon": r_icon, "rank_title": r_title,
             })
         allegiance = core_factions.allegiance(char)
+        # Карма: значок, титул и описание эффекта — те же, что видит игрок
+        # в профиле бота (единственный источник — core/karma.py).
+        from core import karma as core_karma
+        karma_icon, karma_title, karma_effect = core_karma.karma_status(char)
+        karma_info = {
+            "value": getattr(char, "karma_score", 0) or 0,
+            "icon": karma_icon, "title": karma_title, "effect": karma_effect,
+            "min": core_karma.MIN_KARMA, "max": core_karma.MAX_KARMA,
+            "pious_at": core_karma.PIOUS_KARMA,
+            "defiled_at": core_karma.DEFILED_KARMA,
+        }
         from core import stash as stash_core
         vip_days_val = await stash_core.tune(session, "vip_days")
 
@@ -711,6 +722,7 @@ async def player_detail(request: Request, char_id: int):
             "schools": [(k, v[0], v[1]) for k, v in MAGIC_SCHOOLS.items()],
             "grades": [(k, v[0]) for k, v in AFFINITY_GRADES.items()],
             "rep_rows": rep_rows,
+            "karma": karma_info,
             "rep_allegiance": allegiance,
             "rep_min": core_factions.MIN_REP,
             "rep_max": core_factions.MAX_REP,
@@ -760,6 +772,7 @@ async def player_edit(
     cell_y: int = Form(None),
     is_vip: bool = Form(False),
     vip_days: int = Form(0),
+    karma_score: int = Form(None),
     image_url: str = Form(""),
     image: UploadFile = File(None),
 ):
@@ -806,6 +819,12 @@ async def player_edit(
             char.current_hp = min(max(0, current_hp), char.max_hp)
             char.current_mp = min(max(0, current_mp), char.max_mp)
             char.is_vip = is_vip
+            # Карма: кламп по границам core/karma.py, чтобы правка из
+            # админки не могла выйти за пределы, которые считает игра.
+            if karma_score is not None:
+                from core import karma as core_karma
+                char.karma_score = max(core_karma.MIN_KARMA,
+                                       min(core_karma.MAX_KARMA, int(karma_score)))
 
             # Перенос по миру: ищем указанную клетку, иначе любую проходимую
             if location_id:
@@ -6251,6 +6270,145 @@ async def api_location_players(location_id: int):
                 "is_vip": VIP.is_vip_active(char),
             })
         return {"players": players, "count": len(players)}
+
+
+# ── Подсистемы: ломбард, вклады, рынок, луна, гильдии, дуэли ──
+# Эти механики жили в core/ без единого упоминания в админке: владелец не
+# видел ни займов, ни вкладов, ни витрины чёрного рынка, хотя игроки уже
+# ими пользуются. Одна страница вместо шести — данных немного, а разносить
+# их по разделам значило бы плодить полупустые экраны.
+
+@app.get("/editor/subsystems")
+async def editor_subsystems(request: Request):
+    guard(request, "manage_content")
+    from core import blackmarket as core_bm
+    from core import investments as core_inv
+    from core import lunar as core_lunar
+    from core.models import PawnLoan, TownInvestment
+
+    async with async_session() as session:
+        # Ломбард: активные и закрытые займы с именем владельца и вещи.
+        loans = (await session.execute(
+            select(PawnLoan)
+            .options(selectinload(PawnLoan.character))
+            .order_by(PawnLoan.id.desc())
+            .limit(200)
+        )).scalars().all()
+        loan_rows = []
+        now = dates.utcnow()
+        for loan in loans:
+            item = await session.get(Item, loan.item_id)
+            expires = dates.aware(loan.expires_at)
+            overdue = bool(expires and now > expires and not loan.is_redeemed
+                           and not loan.is_liquidated)
+            loan_rows.append({
+                "id": loan.id,
+                "character": loan.character.name if loan.character else "—",
+                "character_id": loan.character_id,
+                "item": item.name if item else "—",
+                "loan_bronze": loan.loan_bronze,
+                "buyback_price": loan.buyback_price,
+                "expires_at": expires,
+                "overdue": overdue,
+                "state": ("выкуплен" if loan.is_redeemed else
+                          "изъят" if loan.is_liquidated else
+                          "просрочен" if overdue else "активен"),
+            })
+        active_loans = sum(1 for r in loan_rows if r["state"] == "активен")
+        overdue_loans = sum(1 for r in loan_rows if r["state"] == "просрочен")
+
+        # Вклады в лавки: по локациям и по вкладчикам.
+        invs = (await session.execute(
+            select(TownInvestment)
+            .options(selectinload(TownInvestment.character),
+                     selectinload(TownInvestment.location))
+            .order_by(TownInvestment.invested_bronze.desc())
+            .limit(200)
+        )).scalars().all()
+        inv_rows = [{
+            "id": inv.id,
+            "location": inv.location.name if inv.location else "—",
+            "character": inv.character.name if inv.character else "—",
+            "invested": inv.invested_bronze or 0,
+            "dividends": inv.earned_dividends or 0,
+        } for inv in invs]
+        inv_total = sum(r["invested"] for r in inv_rows)
+        div_total = sum(r["dividends"] for r in inv_rows)
+
+        # Гильдии: модели объявлены в core/guilds.py, а не в core/models.py.
+        try:
+            from core.guilds import Guild
+            guilds = (await session.execute(
+                select(Guild).options(selectinload(Guild.members))
+                .order_by(Guild.treasury_bronze.desc()).limit(100)
+            )).scalars().all()
+            guild_rows = [{
+                "id": g.id, "name": g.name, "level": g.level or 1,
+                "treasury": g.treasury_bronze or 0,
+                "members": len(g.members or []),
+            } for g in guilds]
+        except Exception:            # таблицы ещё не созданы миграцией
+            guild_rows = []
+
+        # Карма игроков: крайние точки шкалы — кто святой, кто осквернитель.
+        from core import karma as core_karma
+        karma_chars = (await session.execute(
+            select(Character)
+            .where(Character.karma_score != 0)
+            .order_by(Character.karma_score.desc())
+            .limit(20)
+        )).scalars().all()
+        karma_rows = [{
+            "id": c.id, "name": c.name, "value": c.karma_score or 0,
+            "icon": core_karma.karma_status(c)[0],
+            "title": core_karma.karma_status(c)[1],
+        } for c in karma_chars]
+
+    phase = core_lunar.get_current_lunar_phase()
+    return templates.TemplateResponse(
+        request, "editor_subsystems.html",
+        {
+            "loan_rows": loan_rows, "active_loans": active_loans,
+            "overdue_loans": overdue_loans,
+            "inv_rows": inv_rows, "inv_total": inv_total,
+            "div_total": div_total,
+            "dividend_rate": core_inv.DIVIDEND_RATE,
+            "guild_rows": guild_rows,
+            "karma_rows": karma_rows,
+            "phase": phase, "phases": core_lunar.PHASES,
+            "wares": core_bm.get_black_market_wares(),
+        },
+    )
+
+
+@app.post("/editor/subsystems/pay-dividends")
+async def subsystems_pay_dividends(request: Request):
+    """Ручная выплата дивидендов (обычно её делает цикл в bot/runner.py)."""
+    guard(request, "manage_content")
+    from core.investments import pay_dividends
+
+    async with async_session() as session:
+        payouts = await pay_dividends(session)
+        await session.commit()
+    logging.getLogger(__name__).info(
+        "admin: dividends paid manually, %d payouts", len(payouts))
+    return RedirectResponse("/editor/subsystems", status_code=303)
+
+
+@app.post("/editor/subsystems/loan/{loan_id}/liquidate")
+async def subsystems_liquidate_loan(request: Request, loan_id: int):
+    """Изъять просроченный залог: вещь уходит ростовщику окончательно."""
+    guard(request, "manage_content")
+    from core.models import PawnLoan
+
+    async with async_session() as session:
+        loan = await session.get(PawnLoan, loan_id)
+        if loan and not loan.is_redeemed and not loan.is_liquidated:
+            loan.is_liquidated = True
+            await session.commit()
+            logging.getLogger(__name__).info(
+                "admin: pawn loan %s liquidated", loan_id)
+    return RedirectResponse("/editor/subsystems", status_code=303)
 
 
 def main():

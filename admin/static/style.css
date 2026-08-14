@@ -531,7 +531,11 @@ body.no-scroll { overflow: hidden; }
 /* Длинная группа «Контент мира» растёт вместе с новыми редакторами:
    27 строк вместе с отступами занимают примерно 1 000px. */
 .nav-group.open .nav-subitems {
-    max-height: 64rem;
+    /* Запас на рост меню: max-height только «отпускает» анимацию раскрытия,
+       реальная высота задаётся содержимым. При 64rem новый пункт
+       («🧿 Подсистемы», 29-й) уже не помещался — это ловит
+       tests/test_admin_layout.py::test_nav_fits. */
+    max-height: 96rem;
     opacity: 1;
     margin-top: 0.15rem;
     margin-bottom: 0.3rem;

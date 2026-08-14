@@ -1,0 +1,233 @@
+{% extends "base.html" %}
+{% import "macros.html" as macros %}
+
+{% block title %}Подсистемы — Shadow Lands{% endblock %}
+{% block page_title %}🧿 Подсистемы{% endblock %}
+
+{% block breadcrumbs %}
+{{ macros.crumbs([('Dashboard','/'), ('Подсистемы', none)]) }}
+{% endblock %}
+
+{% block content %}
+
+<div class="card">
+    <h2>🧿 Механики, которых не было видно в панели</h2>
+    <p class="section-sub">
+        Ломбард, вклады в лавки, чёрный рынок, фазы луны, гильдии и карма
+        работают в боте, но раньше не показывались владельцу вообще.
+        Здесь — их текущее состояние и ручные действия.
+    </p>
+</div>
+
+{# ── Ломбард ─────────────────────────────────────────────── #}
+<div class="card">
+    <h2>💍 Ломбард</h2>
+    <p class="section-sub">
+        Игрок закладывает именную вещь и получает 70 % оценки наличными;
+        выкуп стоит на 15 % дороже займа. Просроченный залог можно изъять —
+        вещь остаётся у ростовщика.
+    </p>
+
+    <div class="stat-grid" style="margin-bottom:1rem;">
+        <div class="stat-card"><span class="stat-value">{{ active_loans }}</span>
+            <span class="stat-label">активных займов</span></div>
+        <div class="stat-card"><span class="stat-value">{{ overdue_loans }}</span>
+            <span class="stat-label">просрочено</span></div>
+        <div class="stat-card"><span class="stat-value">{{ loan_rows|length }}</span>
+            <span class="stat-label">всего записей</span></div>
+    </div>
+
+    {% if loan_rows %}
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>#</th><th>Герой</th><th>Вещь</th>
+                <th>Выдано</th><th>Выкуп</th><th>Срок</th><th>Статус</th><th></th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for loan in loan_rows %}
+            <tr>
+                <td data-label="#">{{ loan.id }}</td>
+                <td data-label="Герой">
+                    {% if loan.character_id %}
+                    <a href="/player/{{ loan.character_id }}">{{ loan.character }}</a>
+                    {% else %}{{ loan.character }}{% endif %}
+                </td>
+                <td data-label="Вещь">{{ loan.item }}</td>
+                <td data-label="Выдано">{{ loan.loan_bronze }}🟤</td>
+                <td data-label="Выкуп">{{ loan.buyback_price }}🟤</td>
+                <td data-label="Срок">
+                    {{ loan.expires_at.strftime('%d.%m %H:%M') if loan.expires_at else '—' }}
+                </td>
+                <td data-label="Статус">
+                    {% if loan.state == 'просрочен' %}
+                        <span class="badge badge-danger">просрочен</span>
+                    {% elif loan.state == 'активен' %}
+                        <span class="badge badge-success">активен</span>
+                    {% else %}
+                        <span class="badge">{{ loan.state }}</span>
+                    {% endif %}
+                </td>
+                <td data-label="">
+                    {% if loan.state == 'просрочен' %}
+                    <form action="/editor/subsystems/loan/{{ loan.id }}/liquidate"
+                          method="post" style="display:inline;">
+                        <button class="btn btn-small btn-danger"
+                                onclick="return confirm('Изъять залог окончательно?')">
+                            Изъять
+                        </button>
+                    </form>
+                    {% endif %}
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="hint">Займов пока нет: игроки закладывают вещи из карточки предмета в инвентаре.</p>
+    {% endif %}
+</div>
+
+{# ── Вклады в лавки ──────────────────────────────────────── #}
+<div class="card">
+    <h2>🏦 Вклады в городские лавки</h2>
+    <p class="section-sub">
+        Игрок вкладывает бронзу в лавку поселения и получает
+        <b>{{ (dividend_rate * 100)|round(1) }} %</b> в сутки. Выплату делает
+        фоновый цикл бота; кнопка ниже запускает её вручную.
+    </p>
+
+    <div class="stat-grid" style="margin-bottom:1rem;">
+        <div class="stat-card"><span class="stat-value">{{ inv_total }}🟤</span>
+            <span class="stat-label">вложено всего</span></div>
+        <div class="stat-card"><span class="stat-value">{{ div_total }}🟤</span>
+            <span class="stat-label">выплачено дивидендов</span></div>
+        <div class="stat-card"><span class="stat-value">{{ inv_rows|length }}</span>
+            <span class="stat-label">вкладчиков</span></div>
+    </div>
+
+    <form action="/editor/subsystems/pay-dividends" method="post" style="margin-bottom:1rem;">
+        <button class="btn btn-primary"
+                onclick="return confirm('Начислить дивиденды всем вкладчикам сейчас?')">
+            💎 Выплатить дивиденды сейчас
+        </button>
+    </form>
+
+    {% if inv_rows %}
+    <table class="data-table">
+        <thead><tr><th>Локация</th><th>Вкладчик</th><th>Вложено</th><th>Получено</th></tr></thead>
+        <tbody>
+        {% for inv in inv_rows %}
+            <tr>
+                <td data-label="Локация">{{ inv.location }}</td>
+                <td data-label="Вкладчик">{{ inv.character }}</td>
+                <td data-label="Вложено">{{ inv.invested }}🟤</td>
+                <td data-label="Получено">{{ inv.dividends }}🟤</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="hint">Вкладов ещё нет: игрок вкладывается в безопасной локации.</p>
+    {% endif %}
+</div>
+
+{# ── Карма ───────────────────────────────────────────────── #}
+<div class="card">
+    <h2>⚖️ Карма героев</h2>
+    <p class="section-sub">
+        Растёт за упокоение нежити и мировых боссов, падает за разграбление
+        чужих могил. Правится в карточке игрока.
+    </p>
+    {% if karma_rows %}
+    <table class="data-table">
+        <thead><tr><th>Герой</th><th>Карма</th><th>Путь</th></tr></thead>
+        <tbody>
+        {% for row in karma_rows %}
+            <tr>
+                <td data-label="Герой"><a href="/player/{{ row.id }}">{{ row.name }}</a></td>
+                <td data-label="Карма">{{ row.value }}</td>
+                <td data-label="Путь">{{ row.icon }} {{ row.title }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="hint">Пока ни у кого нет отклонения от нейтральной кармы.</p>
+    {% endif %}
+</div>
+
+{# ── Луна ────────────────────────────────────────────────── #}
+<div class="card">
+    <h2>🌙 Фаза луны</h2>
+    <p class="section-sub">
+        Цикл рассчитывается от серверного времени, четыре фазы по шесть часов.
+        Игроки видят текущую фазу при осмотре клетки.
+    </p>
+    <p style="font-size:1.1rem;"><b>Сейчас: {{ phase.name }}</b><br>
+       <span class="hint">{{ phase.desc }}</span></p>
+
+    <table class="data-table">
+        <thead><tr><th>Фаза</th><th>Мобы</th><th>Материалы</th><th>Магия тьмы</th></tr></thead>
+        <tbody>
+        {% for p in phases %}
+            <tr {% if p.key == phase.key %}style="font-weight:600;"{% endif %}>
+                <td data-label="Фаза">{{ p.name }}</td>
+                <td data-label="Мобы">×{{ p.mob_mult }}</td>
+                <td data-label="Материалы">×{{ p.material_mult }}</td>
+                <td data-label="Магия тьмы">×{{ p.magic_dark_mult }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{# ── Гильдии ─────────────────────────────────────────────── #}
+<div class="card">
+    <h2>🏛 Гильдии</h2>
+    {% if guild_rows %}
+    <table class="data-table">
+        <thead><tr><th>Название</th><th>Уровень</th><th>Казна</th><th>Участников</th></tr></thead>
+        <tbody>
+        {% for g in guild_rows %}
+            <tr>
+                <td data-label="Название">{{ g.name }}</td>
+                <td data-label="Уровень">{{ g.level }}</td>
+                <td data-label="Казна">{{ g.treasury }}🟤</td>
+                <td data-label="Участников">{{ g.members }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="hint">
+        Гильдий нет. Механика написана (<code>core/guilds.py</code>), но входа
+        для игроков в боте пока нет — см. пункт № 51 в <code>IDEAS-100.md</code>.
+    </p>
+    {% endif %}
+</div>
+
+{# ── Чёрный рынок ────────────────────────────────────────── #}
+<div class="card">
+    <h2>🕯 Чёрный рынок</h2>
+    <p class="section-sub">Витрина контрабанды, доступная игрокам в городе.</p>
+    <table class="data-table">
+        <thead><tr><th>Товар</th><th>Цена</th><th>Что делает</th></tr></thead>
+        <tbody>
+        {% for w in wares %}
+            <tr>
+                <td data-label="Товар">{{ w.name }}</td>
+                <td data-label="Цена">{{ w.cost }}🟤</td>
+                <td data-label="Что делает">{{ w.desc }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    <p class="hint">
+        Ассортимент задан в <code>core/blackmarket.py</code>. Автоматическое
+        перетекание просроченных залогов на витрину ещё не сделано (№ 48).
+    </p>
+</div>
+
+{% endblock %}

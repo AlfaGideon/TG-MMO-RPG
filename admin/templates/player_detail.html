@@ -221,6 +221,33 @@
             </div>
         </fieldset>
 
+        {# Карма: моральный путь героя. Пороги и эффекты — core/karma.py,
+           поэтому подпись под полем всегда совпадает с тем, что в бою. #}
+        <fieldset class="field-group">
+            <span class="group-title">⚖️ Карма</span>
+            <div class="field-row cols-2">
+                <div>
+                    <label class="form-label">
+                        Карма ({{ karma.min }} … {{ karma.max }})
+                    </label>
+                    <input type="number" name="karma_score" value="{{ karma.value }}"
+                           min="{{ karma.min }}" max="{{ karma.max }}" class="search-box">
+                </div>
+                <div>
+                    <label class="form-label">Текущий путь</label>
+                    <p style="margin:.35rem 0 0;">
+                        <b>{{ karma.icon }} {{ karma.title }}</b><br>
+                        <span class="hint">{{ karma.effect }}</span>
+                    </p>
+                </div>
+            </div>
+            <p class="hint">
+                Благочестивый — от {{ karma.pious_at }}, Осквернитель — от
+                {{ karma.defiled_at }}. Растёт за упокоение нежити и мировых
+                боссов, падает за разграбление чужих могил.
+            </p>
+        </fieldset>
+
         <fieldset class="field-group">
             <span class="group-title">💪 Базовые характеристики</span>
             <div class="field-row cols-5">
