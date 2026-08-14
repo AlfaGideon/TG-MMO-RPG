@@ -217,7 +217,11 @@ async def inventory_section(callback: CallbackQuery):
 @router.callback_query(F.data.startswith("inv_book:"))
 async def inventory_book(callback: CallbackQuery):
     """Книга предметов: карточка вещи с описанием, историей и листанием."""
-    _, section, raw_index = callback.data.split(":")
+    # Формат: inv_book:<секция>:<индекс>[:<id вещи>]. Хвост с id новый —
+    # старые сообщения без него продолжают работать по индексу.
+    parts = callback.data.split(":")
+    section, raw_index = parts[1], parts[2]
+    wanted_id = int(parts[3]) if len(parts) > 3 else None
     index = int(raw_index)
     if section not in SECTIONS:
         await callback.answer("Неизвестное отделение.", show_alert=True)
@@ -234,7 +238,20 @@ async def inventory_book(callback: CallbackQuery):
         if not bucket:
             await callback.answer("Отделение пусто.", show_alert=True)
             return
-        index = max(0, min(index, len(bucket) - 1))
+        # Ищем ту самую вещь по id; если её уже нет (продали из другого
+        # сообщения) — честно говорим об этом, а не открываем соседнюю.
+        if wanted_id is not None:
+            found = next((i for i, inv in enumerate(bucket)
+                          if inv.id == wanted_id), None)
+            if found is None:
+                await callback.answer(
+                    "Этой вещи уже нет в сумке — список обновился.",
+                    show_alert=True)
+                await inventory(callback)
+                return
+            index = found
+        else:
+            index = max(0, min(index, len(bucket) - 1))
         inv_item = bucket[index]
         item = inv_item.item
 
@@ -300,7 +317,7 @@ async def item_detail(callback: CallbackQuery):
     for section, bucket in buckets.items():
         for idx, inv in enumerate(bucket):
             if inv.id == inv_id:
-                callback.data = f"inv_book:{section}:{idx}"
+                callback.data = f"inv_book:{section}:{idx}:{inv.id}"
                 await inventory_book(callback)
                 return
     await callback.answer("Предмет не найден.", show_alert=True)

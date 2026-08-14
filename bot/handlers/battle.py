@@ -209,6 +209,11 @@ async def _finish_victory(callback, session, character, mob, spawn, state):
     from core import karma as core_karma
     karma_line = core_karma.on_kill(character, mob)
 
+    # Задания: прогресс «убей N таких-то». Раньше core/quests не было
+    # вовсе — модель Quest существовала, а счётчик никто не двигал.
+    from core import quests as core_quests
+    quest_lines = await core_quests.record_kill(session, character, mob.name)
+
     # Бестиарий: запись победы. Раньше core/bestiary.record_kill не звали
     # ниоткуда, поэтому атлас монстров всегда оставался пустым.
     from core import bestiary as core_bestiary
@@ -303,6 +308,8 @@ async def _finish_victory(callback, session, character, mob, spawn, state):
         text += "\n" + mentor_line
     if bestiary_line:                  # веха в бестиарии
         text += "\n" + bestiary_line
+    for line in quest_lines:           # продвинулись задания
+        text += "\n" + line
     if bounty_line:                    # закрытый контракт на голову
         text += "\n\n" + bounty_line
     if levels_gained:

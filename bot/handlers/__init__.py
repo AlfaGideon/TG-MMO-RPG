@@ -14,6 +14,7 @@ from .merchant import router as merchant_router
 from .admin import router as admin_router
 from .world_extra import router as world_extra_router
 from .guilds import router as guilds_router
+from .quests import router as quests_router
 
 routers = [
     start_router,
@@ -32,4 +33,5 @@ routers = [
     admin_router,
     world_extra_router,
     guilds_router,
+    quests_router,
 ]

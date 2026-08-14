@@ -143,8 +143,7 @@ REGISTRY = [
 
     Feature("Задания",
             browser=["engine/quests.py"],
-            server=["core/models.py"],
-            todo="на сервере есть модель Quest, но нет выдачи и сдачи в боте"),
+            server=["core/quests.py", "bot/handlers/quests.py"]),
 ]
 
 

@@ -195,15 +195,47 @@ async def cancel_lot(session, character, lot: AuctionLot) -> dict:
 
 
 async def _return_to_owner(session, lot: AuctionLot, character, event: str):
+    """Вернуть вещь владельцу. Если владельца больше нет — отдать скупщику.
+
+    Раньше при удалённом персонаже создавалась строка `InventoryItem` на
+    несуществующего владельца (`character_id` мертвеца) — сирота, которую
+    никто не увидит и не заберёт. Теперь вещь остаётся в мире: уходит на
+    витрину скупщика, как и положено по документации.
+    """
     instance = await session.get(ItemInstance, lot.instance_id)
     if instance is None:
         return
-    instance.owner_character_id = character.id if character else lot.seller_id
+
+    owner = character
+    if owner is None and lot.seller_id:
+        owner = await session.get(Character, lot.seller_id)
+
+    if owner is None:
+        # Владельца нет: вещь не исчезает и не оседает сиротой — её
+        # подбирает скупщик и выставляет заново.
+        instance.owner_character_id = None
+        await _to_npc_shelf(session, lot, instance, reason="продавец исчез")
+        return
+
+    instance.owner_character_id = owner.id
     session.add(InventoryItem(
-        character_id=instance.owner_character_id,
+        character_id=owner.id,
         item_id=lot.item_id, instance_id=instance.id, quantity=1,
     ))
-    await history.record(session, instance, event, character, detail="вернулся к владельцу")
+    await history.record(session, instance, event, owner, detail="вернулся к владельцу")
+
+
+async def _to_npc_shelf(session, lot: AuctionLot, instance, reason: str):
+    """Положить вещь на витрину скупщика новым лотом (вещь остаётся в мире)."""
+    # Наценка скупщика та же, что и при обычной перепродаже.
+    price = max(1, int((lot.price or 1) * NPC_SELL_MARKUP))
+    session.add(AuctionLot(
+        seller_id=None, item_id=lot.item_id, instance_id=instance.id,
+        price=price, status=AuctionStatus.ACTIVE.value,
+        is_npc_lot=True, expires_at=None,      # бессрочно: вещь не пропадает
+    ))
+    await history.record(session, instance, "listed", None,
+                         detail=f"перешёл скупщику ({reason})", price=price)
 
 
 async def buy_lot(session, buyer: Character, lot: AuctionLot) -> dict:
@@ -281,7 +313,14 @@ async def sweep_expired(session) -> list[AuctionLot]:
             continue
         claimed.append(lot)
         if lot.is_npc_lot or not lot.seller_id:
-            # Лот скупщика просто снимается с витрины
+            # Лот скупщика: раньше он просто снимался с витрины, и вещь
+            # исчезала из мира навсегда — вопреки документации «предмет не
+            # исчезает». Теперь лот перевыставляется бессрочно: непроданное
+            # у NPC копиться некуда, зато именная вещь остаётся доступной.
+            instance = await session.get(ItemInstance, lot.instance_id)
+            if instance is not None:
+                await _to_npc_shelf(session, lot, instance,
+                                    reason="срок витрины вышел")
             continue
         seller = await session.get(Character, lot.seller_id)
         await _return_to_owner(session, lot, seller, event="expired")

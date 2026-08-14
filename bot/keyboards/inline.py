@@ -23,6 +23,7 @@ def main_menu_keyboard(has_character: bool = False, is_admin: bool = False,
         builder.button(text="🎓 Наставник", callback_data="mentor_menu")
         builder.button(text="💀 Награды", callback_data="bounty_menu")
         builder.button(text="📖 Бестиарий", callback_data="bestiary_menu")
+        builder.button(text="📜 Задания", callback_data="quests_menu")
         builder.button(text="🏆 Топ", callback_data="leaderboard")
         builder.button(text="⚖️ Аукцион", callback_data="auction_menu")
         # Лавка торговца — только у NPC на клетке: за товаром надо дойти.
@@ -619,9 +620,12 @@ def inventory_section_keyboard(items: list, section: str, page: int = 0,
         qty = f" ×{inv_item.quantity}" if (inv_item.quantity or 1) > 1 else ""
         inst = inv_item.instance if inv_item.instance_id else None
         badge = f"{inst.badge()} " if inst else ""
+        # В колбэке — id вещи, а не её место в списке: список мог
+        # сдвинуться (что-то продали, сломали, положили в карман), и
+        # старая кнопка открывала бы соседний предмет.
         builder.button(
             text=f"{eq}{badge}{icon} {inv_item.display_name()}{qty}",
-            callback_data=f"inv_book:{section}:{idx}",
+            callback_data=f"inv_book:{section}:{idx}:{inv_item.id}",
         )
     rows = [1] * len(chunk)
 
