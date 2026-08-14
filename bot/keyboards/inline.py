@@ -17,8 +17,11 @@ def main_menu_keyboard(has_character: bool = False, is_admin: bool = False,
         builder.button(text="🗺 Карта", callback_data="show_map")
         builder.button(text="🥾 В путь", callback_data="back_to_cell")
         builder.button(text="👥 Пати", callback_data="party_menu")
+        builder.button(text="🏛 Гильдия", callback_data="guild_menu")
         builder.button(text="🧭 Репутация", callback_data="reputation")
         builder.button(text="🔮 Знамения", callback_data="omens_menu")
+        builder.button(text="🎓 Наставник", callback_data="mentor_menu")
+        builder.button(text="💀 Награды", callback_data="bounty_menu")
         builder.button(text="🏆 Топ", callback_data="leaderboard")
         builder.button(text="⚖️ Аукцион", callback_data="auction_menu")
         # Лавка торговца — только у NPC на клетке: за товаром надо дойти.
@@ -162,7 +165,8 @@ def continue_keyboard(extra: list | None = None, with_inspect: bool = True):
 
 
 def profile_book_keyboard(page: int, total: int, titles: list,
-                          free_points: int | None = None):
+                          free_points: int | None = None,
+                          can_rebirth: bool = False):
     """Навигация «книги о герое»: только закладки-разделы и выход в меню.
 
     Раньше здесь были и стрелки «Пред./След.», и закладки всех разделов —
@@ -190,6 +194,12 @@ def profile_book_keyboard(page: int, total: int, titles: list,
             text=f"🎯 Очки характеристик ({free_points})",
             callback_data="stat_alloc",
         )
+        rows.append(1)
+
+    # Перерождение (core/prestige.py) — только когда герой дорос до порога:
+    # показывать заведомо недоступную кнопку всем значит дразнить новичков.
+    if can_rebirth:
+        builder.button(text="♻️ Перерождение", callback_data="rebirth_menu")
         rows.append(1)
 
     builder.button(text="🏠 Меню", callback_data="main_menu")

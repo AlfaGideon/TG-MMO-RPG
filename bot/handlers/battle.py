@@ -209,6 +209,20 @@ async def _finish_victory(callback, session, character, mob, spawn, state):
     from core import karma as core_karma
     karma_line = core_karma.on_kill(character, mob)
 
+    # Награда за голову: если этот моб успел кого-то убить, за него платят
+    # сверх обычной добычи, а сам он перестаёт быть целью охоты.
+    bounty_line = ""
+    if spawn is not None and (spawn.kill_count or 0) > 0:
+        from core import bounty as core_bounty
+        from engine.currency import add_currency
+        reward = core_bounty.calculate_bounty_reward(spawn)
+        add_currency(character, bronze=reward)
+        title = spawn.bounty_title or "Убийца"
+        bounty_line = (f"💀 <b>Награда за голову!</b>\n"
+                       f"«{title}» больше никого не тронет: +{reward}🟤")
+        spawn.kill_count = 0
+        spawn.bounty_title = None
+
     # Realtime: победа в бою
     try:
         await rt_publish("battle_victory", {
@@ -260,6 +274,8 @@ async def _finish_victory(callback, session, character, mob, spawn, state):
         text += "\n\n" + "\n".join(rep_lines)
     if karma_line:                     # чем поступок отозвался в карме
         text += "\n" + karma_line
+    if bounty_line:                    # закрытый контракт на голову
+        text += "\n\n" + bounty_line
     if levels_gained:
         text += (f"\n\n🎖 <b>Новый уровень: {character.level}!</b>\nЗдоровье восстановлено.\n"
                  f"🎯 Получено очков характеристик: <b>+{points_gained}</b> "
@@ -304,6 +320,11 @@ async def _finish_defeat(callback, session, character, mob, spawn, state):
         spawn.engaged_by_id = None
         # Моб зализывает раны, а не остаётся с 1 HP навсегда
         spawn.current_hp = mob.hp
+        # Убийца игрока получает имя и попадает на доску наград.
+        # core/bounty.record_mob_kill раньше не вызывался ниоткуда, поэтому
+        # список наград всегда оставался пустым.
+        from core import bounty as core_bounty
+        await core_bounty.record_mob_kill(session, spawn)
     note = await _lose_bag(session, character)
     await session.commit()
     combat_state.pop(callback.from_user.id, None)

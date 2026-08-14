@@ -13,6 +13,7 @@ from .auction import router as auction_router
 from .merchant import router as merchant_router
 from .admin import router as admin_router
 from .world_extra import router as world_extra_router
+from .guilds import router as guilds_router
 
 routers = [
     start_router,
@@ -30,4 +31,5 @@ routers = [
     merchant_router,
     admin_router,
     world_extra_router,
+    guilds_router,
 ]

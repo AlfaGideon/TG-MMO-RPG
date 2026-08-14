@@ -490,3 +490,155 @@ async def arena_duel_handler(callback: CallbackQuery):
         parse_mode="HTML"
     )
 
+
+
+# ── доска наград за головы ──────────────────────────────────
+# core/bounty.py существовал, но ни record_mob_kill, ни list_active_bounties
+# не вызывались: мобы-убийцы не получали имён, а доска была недостижима.
+# Теперь имя присваивается при гибели игрока (bot/handlers/battle.py),
+# а здесь — список целей и их местоположение.
+
+@router.callback_query(F.data == "bounty_menu")
+async def bounty_menu(callback: CallbackQuery):
+    """💀 Награды: список мобов-убийц и куш за их головы."""
+    from core import bounty as core_bounty
+    from bot.keyboards.inline import bounty_board_keyboard
+
+    async with async_session() as session:
+        character = await _character(session, callback.from_user.id)
+        if character is None:
+            await callback.answer("Сначала создай персонажа!", show_alert=True)
+            return
+
+        bounties = await core_bounty.list_active_bounties(session)
+        lines = ["💀 <b>Доска наград</b>", "",
+                 "<i>— Эти твари уже пролили кровь героев. За их головы платят.</i>", ""]
+        if not bounties:
+            lines.append("<i>Пока никто не отличился. Доска пуста — и это хорошо.</i>")
+        else:
+            for b in bounties[:10]:
+                mob_name = b.mob.name if b.mob else "Неизвестная тварь"
+                loc_name = b.location.name if b.location else "неизвестно где"
+                reward = core_bounty.calculate_bounty_reward(b)
+                lines.append(
+                    f"{b.bounty_title or 'Убийца'} — <b>{mob_name}</b>\n"
+                    f"   📍 {loc_name} · жертв: {b.kill_count} · "
+                    f"награда: <b>{reward}</b>🟤")
+        lines += ["", "<i>Найди цель в мире и убей — награда придёт сама.</i>"]
+
+    await safe_edit_text(
+        callback, "\n".join(lines),
+        reply_markup=bounty_board_keyboard(bounties[:10]),
+        parse_mode="HTML")
+
+
+@router.callback_query(F.data.startswith("bounty_track:"))
+async def bounty_track(callback: CallbackQuery):
+    """Подсказать, где искать цель (кнопка была без обработчика)."""
+    from core.models import MobSpawn
+
+    spawn_id = int(callback.data.split(":")[1])
+    async with async_session() as session:
+        spawn = (await session.execute(
+            select(MobSpawn).where(MobSpawn.id == spawn_id)
+            .options(selectinload(MobSpawn.mob), selectinload(MobSpawn.location),
+                     selectinload(MobSpawn.cell))
+        )).scalar_one_or_none()
+        if spawn is None or not spawn.is_alive:
+            await callback.answer("Цель уже мертва или исчезла.", show_alert=True)
+            return
+        mob_name = spawn.mob.name if spawn.mob else "тварь"
+        loc_name = spawn.location.name if spawn.location else "неизвестно где"
+        cell = spawn.cell
+        where = f" [{cell.x},{cell.y}]" if cell else ""
+
+    await callback.answer(
+        f"💀 {mob_name}\nИщи здесь: {loc_name}{where}", show_alert=True)
+
+
+# ── дуэль с игроком на клетке ───────────────────────────────
+# Кнопка «⚔️ Напасть на игрока» (pvp_select) существовала в клавиатуре
+# осмотра, но обработчика у неё не было — нажатие ничего не делало.
+
+DUEL_WAGERS = (0, 100, 500)
+
+
+@router.callback_query(F.data == "pvp_select")
+async def pvp_select(callback: CallbackQuery):
+    """Выбор соперника среди героев на той же клетке."""
+    async with async_session() as session:
+        character = await _character(session, callback.from_user.id)
+        if character is None or character.cell is None:
+            await callback.answer("Ошибка.", show_alert=True)
+            return
+
+        others = (await session.execute(
+            select(Character)
+            .where(Character.cell_id == character.cell_id)
+            .where(Character.location_id == character.location_id)
+            .where(Character.floor == (character.floor or 0))
+            .where(Character.id != character.id)
+            .where(Character.stats_locked == True)  # noqa: E712
+        )).scalars().all()
+
+        builder = InlineKeyboardBuilder()
+        if not others:
+            lines = ["⚔️ <b>Дуэль</b>", "", "<i>Здесь больше никого нет.</i>"]
+        else:
+            lines = ["⚔️ <b>Дуэль чести</b>", "",
+                     "<i>— Ставка на бочку, клинки наголо. Победитель забирает банк "
+                     "(5 % идёт арене).</i>", "",
+                     "Кто на этой клетке:"]
+            for o in others[:5]:
+                lines.append(f"• <b>{o.name}</b> (ур. {o.level})")
+                for wager in DUEL_WAGERS:
+                    label = "без ставки" if wager == 0 else f"{wager}🟤"
+                    builder.button(text=f"⚔️ {o.name} — {label}",
+                                   callback_data=f"duel_go:{o.id}:{wager}")
+        builder.button(text="◀️ Назад", callback_data="inspect")
+        builder.adjust(1)
+
+    await safe_edit_text(callback, "\n".join(lines),
+                         reply_markup=builder.as_markup(), parse_mode="HTML")
+
+
+@router.callback_query(F.data.startswith("duel_go:"))
+async def duel_go(callback: CallbackQuery):
+    """Провести дуэль со ставкой (core/duels.resolve_wager_duel)."""
+    _, raw_id, raw_wager = callback.data.split(":")
+    target_id, wager = int(raw_id), int(raw_wager)
+    if wager not in DUEL_WAGERS:          # защита от подделанного колбэка
+        await callback.answer("Недопустимая ставка.", show_alert=True)
+        return
+
+    async with async_session() as session:
+        character = await _character(session, callback.from_user.id)
+        target = await session.get(Character, target_id)
+        if character is None or target is None:
+            await callback.answer("Соперник не найден.", show_alert=True)
+            return
+        if target.id == character.id:
+            await callback.answer("Нельзя драться с самим собой.", show_alert=True)
+            return
+        # Соперник мог уйти, пока экран висел открытым.
+        if (target.cell_id != character.cell_id
+                or (target.floor or 0) != (character.floor or 0)):
+            await callback.answer("Соперник ушёл с этой клетки.", show_alert=True)
+            return
+
+        from core import duels as core_duels
+        res = await core_duels.resolve_wager_duel(session, character, target, wager)
+        if not res["ok"]:
+            await callback.answer(res["reason"], show_alert=True)
+            return
+        await session.commit()
+
+    tail = "\n".join(res["log"][-4:])
+    text = (
+        f"⚔️ <b>Дуэль окончена</b>\n\n"
+        f"Раундов: {res['rounds']}\n\n{tail}\n\n"
+        f"🏆 Победил: <b>{res['winner_name']}</b>\n"
+        f"💰 Банк: <b>{res['payout']}</b>🟤 — победителю"
+    )
+    await safe_edit_text(callback, text, reply_markup=continue_keyboard(),
+                         parse_mode="HTML")

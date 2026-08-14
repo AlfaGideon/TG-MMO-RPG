@@ -117,12 +117,17 @@ async def _show_profile(callback: CallbackQuery, page: int = 0):
             (i for i, (k, _t) in enumerate(PROFILE_PAGES) if k == "stats"), None)
         free = extra["free_points"] if page == stats_page else None
 
+        # Перерождение показываем там же и только доросшим до порога.
+        from core import prestige as core_prestige
+        can_rebirth = (page == stats_page
+                       and core_prestige.can_rebirth(character)[0])
+
         await send_or_edit_photo(
             callback,
             text,
             reply_markup=profile_book_keyboard(
                 page, total, [title for _, title in PROFILE_PAGES],
-                free_points=free),
+                free_points=free, can_rebirth=can_rebirth),
             image_url=portrait,
         )
 
