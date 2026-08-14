@@ -4,7 +4,7 @@
 почём, написано в тексте; карточка с кнопкой «Купить» / «Продать»
 открывается нажатием номера.
 """
-from engine import factions, itemui, rules
+from engine import factions, itemui, rules, slots
 from engine.models import Reply
 
 TITLE = "🏪 <b>Лавка Варна</b>"
@@ -102,13 +102,13 @@ def sell_list(p, page=0):
         return Reply(text=f"{TITLE}\n\n<i>Тебе нечего продать — сумка пуста.</i>",
                      keyboard=[_tabs("sell"), [("◀️ Меню", "menu")]])
 
-    worn = set(p.equipped.values())
+    worn_at = slots.equipped_positions(p)
     entries, page = itemui.slice_page(p.inventory, page)
 
     lines = [TITLE + " · скупка", counter(p), ""]
     for num, _pos, idx in entries:
         note = f"💰 <b>{itemui.resale_of(idx)}</b>"
-        if idx in worn:
+        if _pos in worn_at:
             note += " · надето"
         lines.append(itemui.line(num, idx, note))
     lines.append("")
@@ -132,7 +132,7 @@ def sell_card(p, arg):
 
     extra = (f"💰 Варн даёт: <b>{itemui.resale_of(idx)}</b> 🪙\n"
              f"👛 Станет: <b>{p.gold + itemui.resale_of(idx)}</b> 🪙")
-    if p.equipped.get(it["type"]) == idx:
+    if slots.is_equipped_at(p, pos):
         extra = "⚠️ <i>Предмет надет — при продаже снимется.</i>\n\n" + extra
     text = f"{TITLE} · скупка\n\n" + itemui.card(idx, extra)
 
@@ -146,10 +146,8 @@ def sell_here(p, arg):
     pos = int(arg)
     if pos < 0 or pos >= len(p.inventory):
         return Reply(alert="Предмет не найден.")
-    idx = p.inventory.pop(pos)
+    idx = slots.take_at(p, pos)      # снимет экипировку, только если ушла ОНА
     it = rules.item(idx)
-    if p.equipped.get(it["type"]) == idx:
-        p.equipped.pop(it["type"])
     paid = itemui.resale_of(idx)
     p.gold += paid
     r = sell_list(p, pos // itemui.PER_PAGE)

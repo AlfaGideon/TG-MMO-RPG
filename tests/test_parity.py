@@ -194,6 +194,11 @@ def test_new_engine_modules_registered():
         "engine/audit.py", "engine/adminops.py", "engine/adminworld.py",
         "engine/adminmenu.py", "engine/adminbot.py", "engine/adminroute.py",
         "engine/trade.py",
+        # slots.py — не механика, а способ хранения экипировки внутри
+        # браузерного стека (какая именно вещь надета). На сервере тот же
+        # вопрос решён иначе: InventoryItem.is_equipped у конкретной строки,
+        # поэтому переносить модуль в core/ нечего.
+        "engine/slots.py",
     }
     listed = set()
     for f in REGISTRY:

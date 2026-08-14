@@ -88,10 +88,10 @@ def list_item(store, p, uid, price):
         "price": price, "ts": int(time.time()), "status": "active",
     }
     _lots(store).append(lot)
-    idx = int(inst.get("idx", -1))
-    if idx in p.inventory:                 # вещь уходит из сумки на витрину
-        p.inventory.remove(idx)
-        p.equipped = {s: i for s, i in p.equipped.items() if i != idx}
+    # Вещь уходит из сумки на витрину. Забираем ненадетую копию и чиним
+    # позиции слотов (raw remove ломал и то, и другое).
+    from engine import slots
+    slots.take_first_unequipped(p, int(inst.get("idx", -1)))
     inst["owner"] = 0
     items.record(store, inst, "listed", p.tg_id, price=price)
     store.save_player(p)
@@ -180,10 +180,8 @@ def sell_to_npc(store, p, uid):
         return False, "это не твоя вещь"
     paid = max(1, int(items.price(inst) * NPC_BUY))
     p.gold += paid
-    idx = int(inst.get("idx", -1))
-    if idx in p.inventory:
-        p.inventory.remove(idx)
-        p.equipped = {s: i for s, i in p.equipped.items() if i != idx}
+    from engine import slots
+    slots.take_first_unequipped(p, int(inst.get("idx", -1)))
     inst["owner"] = 0
     items.record(store, inst, "sold", p.tg_id, detail=NPC_NAME, price=paid)
     inst["trades"] = int(inst.get("trades") or 0) + 1

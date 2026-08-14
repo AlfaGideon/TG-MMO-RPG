@@ -59,6 +59,9 @@ class Player:
     equipped: dict = field(default_factory=dict)    # {slot: item_index}
     magic: list = field(default_factory=list)       # [(школа, ступень), ...]
     worn: dict = field(default_factory=dict)        # {slot: uid экземпляра}
+    # {slot: позиция надетой вещи в inventory} — чтобы отличать конкретный
+    # предмет от такого же (долг A в AUDIT-BUGS.md). Ведётся engine/slots.py.
+    equipped_pos: dict = field(default_factory=dict)
     rolls: int = 0                                  # осталось перекатов статов
     roll_state: dict = field(default_factory=dict)  # текущий бросок при создании
     kills: int = 0

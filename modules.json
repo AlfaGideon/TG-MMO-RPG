@@ -18,6 +18,7 @@
     "engine/cataclysm.py",
     "engine/horde.py",
     "engine/behavior.py",
+    "engine/slots.py",
     "engine/rules.py",
     "engine/factions.py",
     "engine/death.py",

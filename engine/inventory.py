@@ -9,7 +9,7 @@
 `worn` никто не заполнял, и в бою всегда считались статы шаблона —
 паритет с серверным стеком восстановлен (AUDIT-BUGS.md, пункт B).
 """
-from engine import combat, itemui, rules, stash
+from engine import combat, itemui, rules, slots, stash
 from engine.models import Reply
 
 
@@ -20,14 +20,15 @@ def bag(p, page=0, store=None):
                      keyboard=[[("🏪", "shop"), ("🧭", "world")],
                                [("◀️ Меню", "menu")]])
 
-    worn = set(p.equipped.values())
+    worn_at = slots.equipped_positions(p)
     entries, page = itemui.slice_page(p.inventory, page)
 
     kept = len(getattr(p, "stash", None) or [])
     lines = [f"🎒 <b>Инвентарь</b> · 🪙 {p.gold} · "
              f"🔒 карман {kept}/{stash.capacity(p, store)}", ""]
     for num, _pos, idx in entries:
-        note = "<b>надето</b>" if idx in worn else itemui.type_label(rules.item(idx))
+        note = ("<b>надето</b>" if _pos in worn_at
+                else itemui.type_label(rules.item(idx)))
         lines.append(itemui.line(num, idx, note))
     lines.append("")
     lines.append("<i>Нажми номер предмета — откроются подробности.</i>")
@@ -48,7 +49,7 @@ def card(p, arg, store=None):
         return Reply(alert="Предмет не найден.")
     idx = p.inventory[pos]
     it = rules.item(idx)
-    equipped = p.equipped.get(it["type"]) == idx
+    equipped = slots.is_equipped_at(p, pos)
     page = pos // itemui.PER_PAGE
 
     extra = f"💰 Продать за <b>{itemui.resale_of(idx)}</b> 🪙"
@@ -79,14 +80,15 @@ def equip(p, arg, store=None):
     it = rules.item(idx)
     if not itemui.wearable(it):
         return Reply(alert="Это нельзя надеть.")
-    p.equipped[it["type"]] = idx
-    # Запоминаем, какой именно экземпляр надет: статы именных вещей
-    # должны работать в бою (rules.stats с store), а не только в карточке.
+    # Запоминаем позицию и uid: слот указывает на КОНКРЕТНУЮ вещь, а статы
+    # именного экземпляра должны работать в бою (rules.stats со store).
+    uid = None
     if store is not None:
         from engine import items
         inst = items.resolve_owned(store, p, idx)
         if inst is not None:
-            p.worn[it["type"]] = inst["uid"]
+            uid = inst["uid"]
+    slots.equip_at(p, pos, it["type"], uid)
     r = card(p, pos, store)
     r.alert = f"Надето: {it['name']}"
     return r
@@ -98,10 +100,9 @@ def unequip(p, arg, store=None):
         return Reply(alert="Предмет не найден.")
     idx = p.inventory[pos]
     it = rules.item(idx)
-    if p.equipped.get(it["type"]) != idx:
+    if not slots.is_equipped_at(p, pos):
         return Reply(alert="Предмет и так не надет.")
-    p.equipped.pop(it["type"], None)
-    p.worn.pop(it["type"], None)
+    slots.unequip_slot(p, it["type"])
     r = card(p, pos, store)
     r.alert = f"Снято: {it['name']}"
     return r
@@ -130,7 +131,7 @@ def use(p, arg, store=None):
         was = p.mp
         p.mp = min(s["max_mp"], p.mp + it["bonus"]["mana"])
         got.append(f"💙 +{p.mp - was}")
-    p.inventory.pop(pos)
+    slots.take_at(p, pos)
     r = combat.view(p) if p.combat else bag(p, pos // itemui.PER_PAGE)
     r.alert = f"{it['name']}: {' · '.join(got) if got else 'использовано'}"
     return r
@@ -140,11 +141,8 @@ def sell(p, arg, store=None):
     pos = int(arg)
     if pos < 0 or pos >= len(p.inventory):
         return Reply(alert="Предмет не найден.")
-    idx = p.inventory.pop(pos)
+    idx = slots.take_at(p, pos)      # снимет экипировку, только если ушла ОНА
     it = rules.item(idx)
-    if p.equipped.get(it["type"]) == idx:
-        p.equipped.pop(it["type"])
-        p.worn.pop(it["type"], None)
     paid = itemui.resale_of(idx)
     p.gold += paid
     r = bag(p, pos // itemui.PER_PAGE, store)
@@ -156,11 +154,8 @@ def toss(p, arg, store=None):
     pos = int(arg)
     if pos < 0 or pos >= len(p.inventory):
         return Reply(alert="Предмет не найден.")
-    idx = p.inventory.pop(pos)
+    idx = slots.take_at(p, pos)      # снимет экипировку, только если ушла ОНА
     it = rules.item(idx)
-    if p.equipped.get(it["type"]) == idx:
-        p.equipped.pop(it["type"])
-        p.worn.pop(it["type"], None)
     r = bag(p, pos // itemui.PER_PAGE, store)
     r.alert = f"Выброшено: {it['name']}"
     return r
