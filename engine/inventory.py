@@ -2,6 +2,12 @@
 
 В списке кнопки без подписей — только номер и иконка. Что скрыто за
 номером, написано в тексте сообщения; подробности открываются нажатием.
+
+Экипировка поддерживает именные экземпляры: при надевании в
+`player.worn[слот]` пишется uid экземпляра (`items.resolve_owned`), и
+боевые статы берутся от него через `rules.stats(p, store)`. Раньше
+`worn` никто не заполнял, и в бою всегда считались статы шаблона —
+паритет с серверным стеком восстановлен (AUDIT-BUGS.md, пункт B).
 """
 from engine import combat, itemui, rules, stash
 from engine.models import Reply
@@ -65,7 +71,7 @@ def card(p, arg, store=None):
     return Reply(text=text, keyboard=rows)
 
 
-def equip(p, arg):
+def equip(p, arg, store=None):
     pos = int(arg)
     if pos < 0 or pos >= len(p.inventory):
         return Reply(alert="Предмет не найден.")
@@ -74,12 +80,19 @@ def equip(p, arg):
     if not itemui.wearable(it):
         return Reply(alert="Это нельзя надеть.")
     p.equipped[it["type"]] = idx
-    r = card(p, pos)
+    # Запоминаем, какой именно экземпляр надет: статы именных вещей
+    # должны работать в бою (rules.stats с store), а не только в карточке.
+    if store is not None:
+        from engine import items
+        inst = items.resolve_owned(store, p, idx)
+        if inst is not None:
+            p.worn[it["type"]] = inst["uid"]
+    r = card(p, pos, store)
     r.alert = f"Надето: {it['name']}"
     return r
 
 
-def unequip(p, arg):
+def unequip(p, arg, store=None):
     pos = int(arg)
     if pos < 0 or pos >= len(p.inventory):
         return Reply(alert="Предмет не найден.")
@@ -88,12 +101,13 @@ def unequip(p, arg):
     if p.equipped.get(it["type"]) != idx:
         return Reply(alert="Предмет и так не надет.")
     p.equipped.pop(it["type"], None)
-    r = card(p, pos)
+    p.worn.pop(it["type"], None)
+    r = card(p, pos, store)
     r.alert = f"Снято: {it['name']}"
     return r
 
 
-def use(p, arg):
+def use(p, arg, store=None):
     pos = int(arg)
     if pos < 0 or pos >= len(p.inventory):
         return Reply(alert="Предмет не найден.")
@@ -101,11 +115,16 @@ def use(p, arg):
     it = rules.item(idx)
     if it["type"] != "consumable":
         return Reply(alert="Это не расходник.")
-    s = rules.stats(p)
+    from engine import karma
+    s = rules.stats(p, store)
     got = []
     if "heal" in it["bonus"]:
         was = p.hp
-        p.hp = min(s["max_hp"], p.hp + it["bonus"]["heal"])
+        heal = it["bonus"]["heal"]
+        # Благочестивые лечатся лучше — эффект порога кармы из karma.py.
+        if karma.pious(p):
+            heal = int(heal * (1 + karma.HEAL_BONUS))
+        p.hp = min(s["max_hp"], p.hp + heal)
         got.append(f"❤️ +{p.hp - was}")
     if "mana" in it["bonus"]:
         was = p.mp
@@ -117,7 +136,7 @@ def use(p, arg):
     return r
 
 
-def sell(p, arg):
+def sell(p, arg, store=None):
     pos = int(arg)
     if pos < 0 or pos >= len(p.inventory):
         return Reply(alert="Предмет не найден.")
@@ -125,14 +144,15 @@ def sell(p, arg):
     it = rules.item(idx)
     if p.equipped.get(it["type"]) == idx:
         p.equipped.pop(it["type"])
+        p.worn.pop(it["type"], None)
     paid = itemui.resale_of(idx)
     p.gold += paid
-    r = bag(p, pos // itemui.PER_PAGE)
+    r = bag(p, pos // itemui.PER_PAGE, store)
     r.alert = f"Продано: {it['name']} за {paid} 🪙"
     return r
 
 
-def toss(p, arg):
+def toss(p, arg, store=None):
     pos = int(arg)
     if pos < 0 or pos >= len(p.inventory):
         return Reply(alert="Предмет не найден.")
@@ -140,6 +160,7 @@ def toss(p, arg):
     it = rules.item(idx)
     if p.equipped.get(it["type"]) == idx:
         p.equipped.pop(it["type"])
-    r = bag(p, pos // itemui.PER_PAGE)
+        p.worn.pop(it["type"], None)
+    r = bag(p, pos // itemui.PER_PAGE, store)
     r.alert = f"Выброшено: {it['name']}"
     return r

@@ -18,6 +18,7 @@ def main_menu_keyboard(has_character: bool = False, is_admin: bool = False,
         builder.button(text="🥾 В путь", callback_data="back_to_cell")
         builder.button(text="👥 Пати", callback_data="party_menu")
         builder.button(text="🧭 Репутация", callback_data="reputation")
+        builder.button(text="🔮 Знамения", callback_data="omens_menu")
         builder.button(text="🏆 Топ", callback_data="leaderboard")
         builder.button(text="⚖️ Аукцион", callback_data="auction_menu")
         # Лавка торговца — только у NPC на клетке: за товаром надо дойти.

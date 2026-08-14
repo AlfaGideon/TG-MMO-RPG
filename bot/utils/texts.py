@@ -260,11 +260,13 @@ def profile_text(character, class_def=None, combat=None, affinities=None):
     )
     party_info = f"\n👥 Пати: {character.party.name}" if character.party else ""
 
+    from core import karma as core_karma
     lines = [
         f"{icon} <b>{character.name}</b> | Ур. {character.level}",
         f"Класс: <b>{class_label}</b>",
         f"⭐ Опыт: {character.experience}/{character.level * 100}",
         f"💰 Валюта: <b>{currency_str(character)}</b>{party_info}",
+        f"{core_karma.karma_line(character)}",
         "",
         f"❤️ HP: {character.current_hp}/{max_hp}",
         hp_bar,

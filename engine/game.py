@@ -41,7 +41,7 @@ class Game:
             [("🧭 В мир", "world"), ("🧙 Профиль", "profile")],
             [("🎒 Инвентарь", "bag"), ("🏪 Лавка", "shop")],
             [("📜 Задания", "quests"), ("🤝 Отряд", "party")],
-            [("🧭 Репутация", "rep")],
+            [("🧭 Репутация", "rep"), ("🔮 Знамения", "omens")],
             [("🔨 Мастерская", "craft"), ("🏛 Аукцион", "auc:0")],
             [("🏆 Топ", "top"), ("❓ Помощь", "help")],
         ]
@@ -379,11 +379,17 @@ class Game:
     do_bag = lambda self, p, arg="": inventory.bag(p, 0, self.store)
     do_bagp = lambda self, p, arg="0": inventory.bag(p, arg or 0, self.store)
     do_it = lambda self, p, arg: inventory.card(p, arg, self.store)
-    do_on = lambda self, p, arg: inventory.equip(p, arg)
-    do_off = lambda self, p, arg: inventory.unequip(p, arg)
-    do_use = lambda self, p, arg: inventory.use(p, arg)
-    do_sell = lambda self, p, arg: inventory.sell(p, arg)
-    do_toss = lambda self, p, arg: inventory.toss(p, arg)
+    do_on = lambda self, p, arg: inventory.equip(p, arg, self.store)
+    do_off = lambda self, p, arg: inventory.unequip(p, arg, self.store)
+    do_use = lambda self, p, arg: inventory.use(p, arg, self.store)
+    do_sell = lambda self, p, arg: inventory.sell(p, arg, self.store)
+    do_toss = lambda self, p, arg: inventory.toss(p, arg, self.store)
+
+    def do_omens(self, p, arg=""):
+        """🔮 Знамения: предвестия бед, общие для всех героев."""
+        from engine import omens
+        return Reply(text=omens.omens_text(),
+                     keyboard=[[("◀️ Меню", "menu")]])
 
     # ── подземелья ──────────────────────────────────────────
     do_denter = lambda self, p, arg="": social.dungeon_enter(self.store, p)

@@ -205,6 +205,10 @@ async def _finish_victory(callback, session, character, mob, spawn, state):
     # Фракции: за нежить хвалит стража, за зверьё — тоже, но меньше.
     rep_lines = core_factions.award_for_mob(character, mob)
 
+    # Карма: упокоение нежити очищает героя (пороги и дельты — core/karma.py).
+    from core import karma as core_karma
+    karma_line = core_karma.on_kill(character, mob)
+
     # Realtime: победа в бою
     try:
         await rt_publish("battle_victory", {
@@ -254,6 +258,8 @@ async def _finish_victory(callback, session, character, mob, spawn, state):
     text = victory_text(mob, gold, exp)
     if rep_lines:                      # чем поступок отозвался у фракций
         text += "\n\n" + "\n".join(rep_lines)
+    if karma_line:                     # чем поступок отозвался в карме
+        text += "\n" + karma_line
     if levels_gained:
         text += (f"\n\n🎖 <b>Новый уровень: {character.level}!</b>\nЗдоровье восстановлено.\n"
                  f"🎯 Получено очков характеристик: <b>+{points_gained}</b> "
@@ -509,6 +515,12 @@ async def combat_skill(callback: CallbackQuery):
         stance_spell_mult = 1.25 if stance == "focus" else (1.30 if stance == "berserk" else 1.0)
         base_char_dmg = int(attack_power(stats, character) * 1.8) + stats["intelligence"] // 2 + school_bonus + focus_bonus
         char_dmg = max(2, int(base_char_dmg * stance_spell_mult))
+
+        # Карма: Осквернители извлекают из Тьмы больше (+20 % к школе shadow).
+        from core import karma as core_karma
+        if (core_karma.defiled(character) and best is not None
+                and best.school == core_karma.DARK_SCHOOL):
+            char_dmg = int(char_dmg * (1 + core_karma.DARK_DAMAGE_BONUS))
 
         # Проверка элементарной реакции (комбо со стихией предыдущего каста)
         reaction_note = ""

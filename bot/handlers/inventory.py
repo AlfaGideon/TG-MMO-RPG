@@ -437,6 +437,11 @@ async def use_item(callback: CallbackQuery):
             else:
                 heal = base
 
+        # Карма: Благочестивые лечатся лучше (+15 %, порог из core/karma.py).
+        from core import karma as core_karma
+        if heal and core_karma.pious(character):
+            heal = int(heal * (1 + core_karma.HEAL_BONUS))
+
         before_hp, before_mp = character.current_hp, character.current_mp
         character.current_hp = min(character.max_hp, character.current_hp + heal)
         character.current_mp = min(character.max_mp, character.current_mp + mana)

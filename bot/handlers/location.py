@@ -1180,9 +1180,25 @@ async def talk_npc(callback: CallbackQuery):
                 character.location.name if character.location else None,
             )
 
+        # Реактивные диалоги (core/dialogue.py): при живых мировых событиях
+        # или тёмной/светлой карме житель отвечает по-своему. В спокойном
+        # мире остаётся статичная реплика из БД.
+        from core import dialogue as core_dialogue
+        from core import worldevents as core_events
+        has_cat = bool(await core_events.active_cataclysms(session, character.location_id))
+        has_siege = bool(await core_events.active_sieges(session, character.location_id))
+        has_caravan = bool(await core_events.active_caravans(session, character.location_id))
+        if has_cat or has_siege or has_caravan:
+            npc_text = core_dialogue.generate_reactive_dialogue(
+                character, cell.npc_name, cell.npc_type or "",
+                {"has_siege": has_siege, "has_cataclysm": has_cat,
+                 "has_caravan": has_caravan})
+        else:
+            npc_text = f"💬 <b>{cell.npc_name}</b>\n\n<i>{cell.npc_dialogue}</i>"
+
         await send_or_edit_photo(
             callback,
-            f"💬 <b>{cell.npc_name}</b>\n\n<i>{cell.npc_dialogue}</i>",
+            npc_text,
             reply_markup=builder.as_markup(),
             image_url=image_url,
         )
@@ -1885,9 +1901,14 @@ async def harvest_ash_callback(callback: CallbackQuery):
             return
 
         res = await core_spectral.harvest_soul_ash(session, char, grave)
+        from core import karma as core_karma
+        karma_text = core_karma.on_grave_loot(char)   # прах чужой могилы — грех
         await session.commit()
 
-    await callback.answer(f"🕯 Ты собрал +{res['gained']} Праха предков! (Всего: {res['total_ash']} 🕯)", show_alert=True)
+    note = f"🕯 Ты собрал +{res['gained']} Праха предков! (Всего: {res['total_ash']} 🕯)"
+    if karma_text:
+        note += f"\n{karma_text}"
+    await callback.answer(note, show_alert=True)
     await inspect_cell(callback)
 
 

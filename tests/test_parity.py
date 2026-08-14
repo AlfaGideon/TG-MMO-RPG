@@ -125,13 +125,19 @@ REGISTRY = [
     Feature("Полноразмерные слизевые монстры",
             browser=["engine/content.py", "engine/combat.py"],
             server=["core/mob_images.py", "bot/handlers/battle.py"]),
+    Feature("Карма",
+            browser=["engine/karma.py"],
+            server=["core/karma.py"]),
+    Feature("Знамения",
+            browser=["engine/omens.py"],
+            server=["core/omens.py"]),
 
     # ── ниже: механики без паритета, причина обязательна ──
     Feature("Трёхвалютная экономика",
             browser=["engine/currency.py"],
             server=[],
-            todo="у Character уже есть колонки bronze/silver/gold, но "
-                 "движок пока начисляет и тратит единый gold — перенос "
+            todo="у Character и у Player уже есть колонки bronze/silver/gold, "
+                 "но движок пока начисляет и тратит единый gold — перенос "
                  "экономики на конвертацию 1:100 запланирован"),
 
     Feature("Задания",
@@ -234,6 +240,30 @@ def test_shared_numbers_match():
     check(set(engine_stash.TUNABLES) == set(core_stash.TUNABLES),
           "набор настраиваемых параметров одинаков")
 
+    # Карма: пороги, дельты поступков и эффекты обязаны совпадать в обоих
+    # стеках, иначе один и тот же поступок даёт разный моральный путь.
+    try:
+        from engine import karma as e_karma
+        from core import karma as c_karma
+    except ImportError as e:
+        check(True, f"карма недоступна, пропуск ({e})")
+        return
+    karma_pairs = [
+        ("максимум кармы", e_karma.MAX_KARMA, c_karma.MAX_KARMA),
+        ("минимум кармы", e_karma.MIN_KARMA, c_karma.MIN_KARMA),
+        ("порог Благочестивого", e_karma.PIOUS_KARMA, c_karma.PIOUS_KARMA),
+        ("порог Осквернителя", e_karma.DEFILED_KARMA, c_karma.DEFILED_KARMA),
+        ("карма за нежить", e_karma.KILL_UNDEAD, c_karma.KILL_UNDEAD),
+        ("карма за босса", e_karma.KILL_BOSS, c_karma.KILL_BOSS),
+        ("карма за могилу", e_karma.GRAVE_LOOT, c_karma.GRAVE_LOOT),
+        ("бонус лечения", e_karma.HEAL_BONUS, c_karma.HEAL_BONUS),
+        ("бонус Тьмы", e_karma.DARK_DAMAGE_BONUS, c_karma.DARK_DAMAGE_BONUS),
+    ]
+    for label, a, b in karma_pairs:
+        check(a == b, f"карма: {label}: {a} = {b}")
+    check(e_karma.UNDEAD == c_karma.UNDEAD, "карма: список нежити совпадает")
+    check(e_karma.DARK_SCHOOL == c_karma.DARK_SCHOOL, "карма: школа Тьмы одна")
+
     # Каталоги контента: серверные модули берут их из engine/, поэтому
     # расхождение означало бы, что кто-то завёл вторую копию.
     try:
@@ -255,6 +285,12 @@ def test_shared_numbers_match():
     check(core_landmarks.LANDMARKS == e_landmarks.LANDMARKS,
           "каталог диковин общий")
     check(core_death.GRAVE_HOURS == e_death.GRAVE_HOURS, "срок могилы тот же")
+    try:
+        from core import omens as core_omens
+        from engine import omens as e_omens
+        check(core_omens.OMENS == e_omens.OMENS, "каталог знамений общий")
+    except ImportError as e:
+        check(True, f"знамения недоступны, пропуск ({e})")
 
 
 def report():

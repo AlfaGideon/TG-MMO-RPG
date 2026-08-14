@@ -98,8 +98,8 @@ def add_exp(player, amount):
     return gained
 
 
-def attack_roll(player, mob_defense):
-    s = stats(player)
+def attack_roll(player, mob_defense, store=None):
+    s = stats(player, store)
     base = s["strength"] + s["damage"]
     crit = random.random() < min(0.35, s["luck"] / 100)
     dmg = max(1, base + random.randint(-2, 4) - mob_defense // 2)
@@ -108,8 +108,8 @@ def attack_roll(player, mob_defense):
     return dmg, crit
 
 
-def mob_roll(player, mob_damage):
-    s = stats(player)
+def mob_roll(player, mob_damage, store=None):
+    s = stats(player, store)
     dodge = random.random() < min(0.25, s["agility"] / 120)
     if dodge:
         return 0, True

@@ -1,62 +1,89 @@
-"""Запуск всех проверок: python3 tests/run_all.py"""
+"""Запуск всех проверок: python3 tests/run_all.py
+
+Раньше список наборов был зашит вручную (SUITES = [...]), и новые наборы,
+написанные в `tests/`, в прогон не попадали — так оказались забытыми 12
+pytest-наборов (`test_karma_and_omens.py`, `test_lore_and_legends.py`,
+`test_economy_and_lunar.py` и другие). Теперь наборы обнаруживаются сами:
+берутся все `tests/test_*.py`, файлы с `import pytest` запускаются через
+`python3 -m pytest -q`, остальные — как обычные скрипты. Забыть новый
+набор больше нельзя.
+
+Также расширена проверка зависимостей: раньше проверялись только
+`sqlalchemy`/`aiosqlite`, а отсутствие `aiogram`/`fastapi`/`Pillow`
+проявлялось как ImportError уже внутри наборов (и выглядело как честный
+провал вместо «зависимости не установлены»).
+"""
 import os
+import re
 import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SUITES = ["test_engine.py", "test_pages.py", "test_transport.py", "test_access.py",
-          "test_admin_sync.py", "test_shop_bag.py", "test_wiring.py",
-          "test_economy.py", "test_gameplay.py", "test_items_magic.py",
-          "test_worldgen.py", "test_cataclysm.py",
-          "test_living_world.py", "test_social_world.py",
-          "test_stash.py", "test_world_endgame.py",
-          "test_factions.py", "test_dungeon.py",
-          "test_party.py",
-          "test_miniapp.py",
-          "test_server_stash.py",
-          "test_parity.py",
-          "test_merchant.py",
-          "test_server_world.py",
-          "test_bugfixes.py",
-          "test_ai_lore.py",
-          "test_telegram_dedup.py",
-          "test_admin_layout.py", "test_admin_realtime.py",
-          "test_proxy.py",
-          "test_bot_edit.py",
-          "test_bot_photos.py", "test_monster_images.py", "test_pets_admin.py",
-          "test_neutral_tiles.py",
-          "test_bot_runner.py",
-          "test_admin_logs.py",
-          "test_bot_ui.py",
-          "test_progression.py", "test_ui_images.py", "test_start_flow.py"]
 
-# Без этих пакетов серверные сценарии не падают, а ТИХО ПРОПУСКАЮТСЯ —
-# зелёный прогон тогда ничего не доказывает про серверный стек.
-SERVER_DEPS = ("sqlalchemy", "aiosqlite")
+# Без этих пакетов соответствующие сценарии не падают, а ТИХО ПРОПУСКАЮТСЯ
+# (или падают ModuleNotFoundError уже внутри набора) — зелёный прогон тогда
+# ничего не доказывает. Список покрывает оба стека и все виды наборов.
+DEPS = {
+    "sqlalchemy": "серверные БД-сценарии (core/)",
+    "aiosqlite": "серверные БД-сценарии (core/)",
+    "aiogram": "сценарии бота (bot/)",
+    "fastapi": "сценарии админ-панели (admin/)",
+    "PIL": "генерация и проверка изображений (пакет Pillow)",
+    "jinja2": "шаблоны админ-панели",
+    "httpx2": "HTTP-транспорт (TestClient)",
+    "aiohttp": "прокси-транспорт бота",
+    "pytest": "pytest-наборы в tests/",
+}
+
+# Наборы в стиле pytest отличаем по импорту pytest в начале файла.
+PYTEST_MARKER = re.compile(r"^\s*(?:import pytest|from pytest)", re.M)
 
 
-def check_server_deps():
+def discover():
+    """Все tests/test_*.py, отсортированные по имени (детерминизм)."""
+    suites = []
+    for name in sorted(os.listdir(HERE)):
+        if name.startswith("test_") and name.endswith(".py"):
+            suites.append(os.path.join(HERE, name))
+    return suites
+
+
+def check_deps():
     missing = []
-    for pkg in SERVER_DEPS:
+    for pkg, why in DEPS.items():
         try:
             __import__(pkg)
         except ImportError:
-            missing.append(pkg)
+            missing.append(f"{pkg} ({why})")
     if missing:
         print("!" * 46)
-        print("⚠️  ВНИМАНИЕ: не установлены " + ", ".join(missing) + ".")
-        print("⚠️  Серверные тесты будут ПРОПУЩЕНЫ (это НЕ успех).")
-        print("⚠️  Установи: pip install -r requirements.txt")
+        print("⚠️  ВНИМАНИЕ: не установлены зависимости:")
+        for m in missing:
+            print(f"    - {m}")
+        print("⚠️  Часть наборов будет ПРОПУЩЕНА или упадёт с ImportError")
+        print("⚠️  (это НЕ успех).")
+        print("⚠️  Установи: pip install -r requirements.txt pytest pytest-asyncio")
         print("!" * 46)
     return missing
 
 
+def run_one(path):
+    """Запускает один набор подходящим раннером. Возвращает exit-код."""
+    with open(path, encoding="utf-8") as fh:
+        src = fh.read()
+    if PYTEST_MARKER.search(src):
+        return subprocess.call([sys.executable, "-m", "pytest", "-q", path])
+    return subprocess.call([sys.executable, path])
+
+
 def main():
-    missing = check_server_deps()
+    missing = check_deps()
+    suites = discover()
     failed = []
-    for name in SUITES:
+    for path in suites:
+        name = os.path.basename(path)
         print(f"\n{'=' * 46}\n▶ {name}\n{'=' * 46}")
-        code = subprocess.call([sys.executable, os.path.join(HERE, name)])
+        code = run_one(path)
         if code:
             failed.append(name)
     print(f"\n{'=' * 46}")
@@ -64,9 +91,9 @@ def main():
         print("❌ Провалены наборы: " + ", ".join(failed))
         return 1
     if missing:
-        print("⚠️  Все доступные наборы зелёные, но серверные "
-              "пропущены из-за отсутствия зависимостей!")
-    print(f"✅ Все наборы пройдены ({len(SUITES)})")
+        print("⚠️  Все доступные наборы зелёные, но часть сценариев "
+              "пропущена из-за отсутствующих зависимостей!")
+    print(f"✅ Все наборы пройдены ({len(suites)})")
     return 0
 
 

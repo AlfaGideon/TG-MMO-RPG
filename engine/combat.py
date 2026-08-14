@@ -2,8 +2,8 @@
 могут подтянуться другие твари — они ждут очереди в `queue`."""
 import random
 
-from engine import (cataclysm, craft, data, death, factions, items, party,
-                    quests, respawn, rules, texts)
+from engine import (cataclysm, craft, data, death, factions, items, karma,
+                    party, quests, respawn, rules, texts)
 from engine.models import Reply
 
 
@@ -23,7 +23,7 @@ def start(p, mob_index, ambush=False, store=None, origin=None):
                 "from": origin}
     if ambush:
         # Внезапный удар: за неожиданность игрок платит одним пропущенным.
-        dmg, dodged = rules.mob_roll(p, m[4])
+        dmg, dodged = rules.mob_roll(p, m[4], store)
         if store is not None:
             dmg = int(dmg * cataclysm.effects(store, p.loc).get("damage", 1.0))
         p.combat["log"].append(f"⚡ <b>{m[0]} нападает из засады!</b>")
@@ -234,6 +234,9 @@ def _reward(p, m, world, store=None):
     if store is not None:                      # соратникам рядом — их доля
         lines.extend(party.share(store, p, m[6], m[7]))
         lines.extend(factions.on_kill(store, p, st["mob"]))
+        karma_line = karma.on_kill(p, m[0])
+        if karma_line:
+            lines.append(karma_line)
     for q in quests.on_kill(p, st["mob"]):     # охотничьи задания
         lines.append(f"📜 Задание «{quests.fields(q)['name']}» — можно сдавать!")
     if levels:
@@ -274,6 +277,10 @@ def action(p, what, world, store=None):
         from engine import hero
         power = hero.magic_power(p)          # дар к магии усиливает умение
         dmg = int((s["intelligence"] + s["damage"]) * 1.6 * power)
+        # Осквернители извлекают из Тьмы больше: +20 % к урону школы shadow.
+        if karma.defiled(p) and any(sc == karma.DARK_SCHOOL
+                                    for sc, _g in (getattr(p, "magic", []) or [])):
+            dmg = int(dmg * (1 + karma.DARK_DAMAGE_BONUS))
         st["mob_hp"] -= dmg
         mark = f" {hero.magic_short(getattr(p, 'magic', []))}" if power > 1 else ""
         st["log"].append(f"✨ Умение наносит {dmg} урона!{mark}")
@@ -281,7 +288,7 @@ def action(p, what, world, store=None):
         st["defend"] = True
         st["log"].append("🛡 Ты уходишь в глухую оборону.")
     else:
-        dmg, crit = rules.attack_roll(p, m[5])
+        dmg, crit = rules.attack_roll(p, m[5], store)
         st["mob_hp"] -= dmg
         st["log"].append(f"⚔️ {'КРИТ! ' if crit else ''}Ты наносишь {dmg} урона.")
 
@@ -291,7 +298,7 @@ def action(p, what, world, store=None):
     if store is not None:
         reinforce(p, store)              # в катаклизм на шум сбегаются другие
 
-    mdmg, dodged = rules.mob_roll(p, m[4])
+    mdmg, dodged = rules.mob_roll(p, m[4], store)
     if store is not None:
         mdmg = int(mdmg * cataclysm.effects(store, p.loc).get("damage", 1.0))
     if st.get("defend"):

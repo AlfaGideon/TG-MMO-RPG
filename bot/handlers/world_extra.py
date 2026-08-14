@@ -56,6 +56,27 @@ def _menu_keyboard():
     return builder.as_markup()
 
 
+@router.callback_query(F.data == "omens_menu")
+async def omens_menu(callback: CallbackQuery):
+    """🔮 Знамения: предвестия бед (каталог — engine/omens.py, общий для стеков)."""
+    from core import omens as core_omens
+
+    lines = [core_omens.omen_banner(), "",
+             "🔮 <b>Знамения</b>", "",
+             "<i>Старики в Погосте шепчутся о дурных приметах:</i>", ""]
+    for o in core_omens.get_current_omens():
+        lines.append(f"{o['icon']} <b>{o['title']}</b>")
+        lines.append(f"<i>{o['desc']}</i>")
+    lines += ["", "<i>Говорят, за знамением всегда приходит беда…</i>"]
+
+    await safe_edit_text(
+        callback,
+        "\n".join(lines),
+        reply_markup=_menu_keyboard(),
+        parse_mode="HTML",
+    )
+
+
 # ── репутация ───────────────────────────────────────────────
 
 @router.callback_query(F.data == "reputation")
@@ -263,6 +284,10 @@ async def claim_grave(callback: CallbackQuery):
         gold, items, own = await core_death.claim(session, character, grave)
         if not own:
             core_factions.award(character, "grave_looted")
+            from core import karma as core_karma
+            karma_text = core_karma.on_grave_loot(character)
+        else:
+            karma_text = ""
         await session.commit()
 
     got = [f"+{gold} 🟤"] if gold else []
@@ -273,8 +298,9 @@ async def claim_grave(callback: CallbackQuery):
         text = (f"🪦 <b>Ты вернулся за своим.</b>\n\n{body}\n\n"
                 f"<i>Земля отпускает то, что взяла.</i>")
     else:
+        kar = f"\n{karma_text}" if karma_text else ""
         text = (f"🪦 <b>Чужая могила</b>\n\nТы забрал: {body}\n\n"
-                f"<i>Половина рассыпалась прахом — мародёрство не в чести.</i>")
+                f"<i>Половина рассыпалась прахом — мародёрство не в чести.</i>{kar}")
     await safe_edit_text(
         callback,
         text,

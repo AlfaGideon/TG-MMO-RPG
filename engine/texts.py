@@ -103,6 +103,8 @@ def hero_created(p, cls):
 
 def profile(p, store=None):
     from engine import death, stash
+    from engine import karma as karma_mod
+    from engine import currency
 
     s = rules.stats(p, store)
     icon = data.CLASSES[p.cls][0].split()[0] if p.cls in data.CLASSES else "👤"
@@ -115,9 +117,11 @@ def profile(p, store=None):
     crown = " 👑" if stash.is_vip(p) else ""
     kept = len(getattr(p, "stash", None) or [])
     hurt = f"\n{death.note(p)}" if death.wounded(p) else ""
+    karma_body = f"\n{karma_mod.karma_line(p)}"
     return (
         f"{icon} <b>{p.name}</b>{crown} · ур. {p.level}\n"
-        f"Класс: <code>{p.cls}</code> · Золото: <code>{p.gold}</code> 🪙\n"
+        f"Класс: <code>{p.cls}</code> · Кошелёк: <code>{currency.currency_str(p)}</code>\n"
+        f"{karma_body}\n"
         f"🎒 Сумка: {len(p.inventory)} · 🔒 Карман: {kept}/{stash.capacity(p, store)}"
         f"{hurt}\n\n"
         f"❤️ HP {p.hp}/{s['max_hp']}\n{rules.bar(p.hp, s['max_hp'])}\n"

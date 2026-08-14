@@ -14,7 +14,7 @@
 import random
 import time
 
-from engine import audit, data, factions, items, rules
+from engine import audit, data, factions, items, karma, rules
 from engine.models import Reply
 
 BOSS = "worldboss"          # активный босс в settings
@@ -202,6 +202,9 @@ def _reward_all(store, ev, b):
             name = items.title(inst) if inst else it["name"]
             lines.append(f"🎁 Трофей: {it['icon']} <b>{name}</b>")
         lines.extend(factions.award(store, p, "boss_slain"))
+        karma_line = karma.on_boss(p)
+        if karma_line:
+            lines.append(karma_line)
         if levels:
             lines.append(f"🎖 Новый уровень: {p.level}!")
         store.save_player(p)
@@ -256,7 +259,7 @@ def strike(store, p):
     if p.hp <= 1:
         return Reply(alert="Ты слишком слаб. Отдохни или найди лекаря.")
 
-    dealt, crit = rules.attack_roll(p, b["defense"])
+    dealt, crit = rules.attack_roll(p, b["defense"], store)
     left, phased = hit(store, p, dealt)
 
     back = max(0, int(b["damage"] * random.uniform(0.5, 1.0))

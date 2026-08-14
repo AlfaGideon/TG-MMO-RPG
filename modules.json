@@ -10,6 +10,8 @@
     "engine/content.py",
     "engine/data.py",
     "engine/models.py",
+    "engine/karma.py",
+    "engine/omens.py",
     "engine/world.py",
     "engine/cataclysm_kinds.py",
     "engine/cataclysm.py",

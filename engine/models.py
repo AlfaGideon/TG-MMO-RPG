@@ -38,6 +38,9 @@ class Player:
     level: int = 1
     exp: int = 0
     gold: int = 50
+    bronze: int = 0          # трёхвалютная экономика (1⚪ = 100🟤, 1🟡 = 100⚪)
+    silver: int = 0
+    karma_score: int = 0     # −500 (Осквернитель) .. +500 (Благочестивый)
     strength: int = 10
     agility: int = 10
     intelligence: int = 10
