@@ -9,7 +9,7 @@
 """
 import random
 
-from engine import data, items
+from engine import currency, data, items
 from engine.models import Reply
 
 KEY = "materials"           # {tg_id: {material_idx: count}}
@@ -95,7 +95,7 @@ def can_craft(store, p, i):
     name, _icon, _st, _idx, need, price, lvl = recipe(i)
     if p.level < lvl:
         return False, f"нужен уровень {lvl}"
-    if p.gold < price:
+    if not currency.can_afford(p, price):
         return False, f"не хватает {price - p.gold} 🪙"
     have = pouch(store, p.tg_id)
     for m, count in need.items():
@@ -113,7 +113,7 @@ def craft(store, p, i):
     name, _icon, _st, idx, need, price, _lvl = recipe(i)
     if not take_materials(store, p.tg_id, need):
         return None, "материалы кончились"
-    p.gold -= price
+    currency.spend(p, price)
     inst = items.create(store, idx, source="craft", owner=p.tg_id,
                         luck=p.luck, detail=name)
     if inst is None:                       # стопка — кладём в сумку как обычно
@@ -156,9 +156,9 @@ def upgrade(store, p, uid):
         return False, f"максимум +{data.MAX_UPGRADE}"
     chance, _mult = upgrade_odds(level)
     cost = upgrade_price(inst)
-    if p.gold < cost:
+    if not currency.can_afford(p, cost):
         return False, f"не хватает {cost - p.gold} 🪙"
-    p.gold -= cost
+    currency.spend(p, cost)
     store.save_player(p)
     if random.random() > chance:
         items.record(store, inst, "upgraded", p.tg_id,

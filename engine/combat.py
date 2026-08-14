@@ -2,8 +2,8 @@
 могут подтянуться другие твари — они ждут очереди в `queue`."""
 import random
 
-from engine import (cataclysm, craft, data, death, factions, items, karma,
-                    party, quests, respawn, rules, texts)
+from engine import (cataclysm, craft, currency, data, death, factions, items,
+                    karma, party, quests, respawn, rules, texts)
 from engine.models import Reply
 
 
@@ -195,7 +195,7 @@ def _reward(p, m, world, store=None):
     if store is not None:
         k = party.bonus(store, p)
         gold, exp = max(1, int(gold * k)), max(1, int(exp * k))
-    p.gold += gold
+    currency.earn(p, gold)
     p.kills += 1
     levels = rules.add_exp(p, exp)
 

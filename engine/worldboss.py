@@ -14,7 +14,7 @@
 import random
 import time
 
-from engine import audit, data, factions, items, karma, rules
+from engine import audit, currency, data, factions, items, karma, rules
 from engine.models import Reply
 
 BOSS = "worldboss"          # активный босс в settings
@@ -187,7 +187,7 @@ def _reward_all(store, ev, b):
             continue
         gold = max(10, int(b.get("hp", 1000) * share * 0.5))
         exp = max(10, int(b.get("hp", 1000) * share * 0.8))
-        p.gold += gold
+        currency.earn(p, gold)
         levels = rules.add_exp(p, exp)
         lines = [f"🏆 <b>{title(ev['key'])} повержен!</b>",
                  f"Твой вклад: <b>{int(share * 100)}%</b>",

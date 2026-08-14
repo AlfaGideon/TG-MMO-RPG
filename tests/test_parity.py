@@ -135,13 +135,11 @@ REGISTRY = [
             browser=["engine/dialogue.py"],
             server=["core/dialogue.py"]),
 
-    # ── ниже: механики без паритета, причина обязательна ──
     Feature("Трёхвалютная экономика",
             browser=["engine/currency.py"],
-            server=[],
-            todo="у Character и у Player уже есть колонки bronze/silver/gold, "
-                 "но движок пока начисляет и тратит единый gold — перенос "
-                 "экономики на конвертацию 1:100 запланирован"),
+            server=["core/models.py", "bot/utils/texts.py"]),
+
+    # ── ниже: механики без паритета, причина обязательна ──
 
     Feature("Задания",
             browser=["engine/quests.py"],
@@ -270,6 +268,15 @@ def test_shared_numbers_match():
     for label, a, b in karma_pairs:
         check(a == b, f"карма: {label}: {a} = {b}")
     check(e_karma.UNDEAD == c_karma.UNDEAD, "карма: список нежити совпадает")
+
+    # Деньги: серверный стек считает тем же модулем, что и движок, — если
+    # кто-то заведёт вторую копию с другим курсом, это всплывёт здесь.
+    from engine import currency as e_currency
+    check(e_currency.CONVERSION == 100, f"курс 1:100 ({e_currency.CONVERSION})")
+    probe_engine = type("P", (), {"bronze": 99, "silver": 0, "gold": 0})()
+    e_currency.add_currency(probe_engine, bronze=1)
+    check((probe_engine.bronze, probe_engine.silver) == (0, 1),
+          "99🟤 + 1🟤 сворачивается в 1⚪")
     check(e_karma.DARK_SCHOOL == c_karma.DARK_SCHOOL, "карма: школа Тьмы одна")
 
     # Каталоги контента: серверные модули берут их из engine/, поэтому

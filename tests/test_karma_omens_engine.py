@@ -141,8 +141,8 @@ def main():
     check("Карма" in texts.profile(p3, store), "профиль показывает карму")
     check(hasattr(Player(tg_id=9), "bronze"), "у Player есть поле bronze")
     from engine.currency import currency_str
-    check(currency_str(Player(tg_id=9)) == "0🟤 0⚪ 50🟡",
-          "профиль показывает три валюты")
+    check(currency_str(Player(tg_id=9)) == "50🟤 0⚪ 0🟡",
+          "стартовый капитал лежит в бронзе, а не в золоте")
 
     print("\n— Благословение света: защита от фатального удара —")
     store3 = Store(MemoryStorage())
@@ -163,13 +163,17 @@ def main():
           "нейтрального героя благословение не спасает")
 
     print("\n— Старые сохранения открываются под новые поля —")
+    from engine import currency as _cur
     old_save = {"tg_id": 42, "name": "Ветеран", "cls": "berserker",
                 "level": 7, "gold": 300, "hp": 50}
-    restored = Player.from_dict(old_save)
-    check(restored.bronze == 0 and restored.silver == 0,
-          "старый сейв без валют: bronze/silver = 0")
+    # Кошелёк старого сейва переносится в бронзу без потери покупательной
+    # способности (engine/currency.migrate_raw, зовётся из storage.load).
+    restored = Player.from_dict(_cur.migrate_raw(dict(old_save)))
+    check(_cur.total(restored) == 300, "сумма старого сейва не изменилась")
+    check((restored.bronze, restored.gold) == (300, 0),
+          "деньги переехали в бронзу")
     check(restored.karma_score == 0, "старый сейв без кармы: karma_score = 0")
-    check(restored.name == "Ветеран" and restored.gold == 300,
+    check(restored.name == "Ветеран" and restored.level == 7,
           "старые поля сохранились")
     round_trip = Player.from_dict(restored.to_dict())
     check(round_trip.to_dict() == restored.to_dict(),

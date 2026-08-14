@@ -9,7 +9,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from engine import behavior, combat, data, death, party, rules
+from engine import currency, behavior, combat, data, death, party, rules
 from engine import world as W
 from engine.game import Game
 from engine.storage import Store
@@ -147,7 +147,8 @@ def test_death_grave():
     game = Game(store)
     p = hero(store, game)
     # Слабый герой против Пожирателя: гибель гарантирована.
-    p.gold, p.hp, p.max_hp, p.strength = 500, 1, 100, 1
+    p.bronze, p.silver, p.gold = 500, 0, 0
+    p.hp, p.max_hp, p.strength = 1, 100, 1
     p.loc, p.x, p.y = 1, 3, 3
 
     r = combat.start(p, _boss_mob(), store=store)    # сильнейший добьёт
@@ -156,7 +157,8 @@ def test_death_grave():
             break
         r = combat.action(p, "hit", store.world, store)
     check("Поражение" in r.text, "экран поражения показан")
-    check(p.gold == 400, f"потеряно 20%: осталось {p.gold}")
+    check(currency.total(p) == 400,
+          f"потеряно 20%: осталось {currency.fmt(p)}")
     check((p.loc, p.x, p.y) == (0, W.SPAWN[0], W.SPAWN[1]), "возврат на спавн")
 
     g = death.mine(store, p)
@@ -166,9 +168,9 @@ def test_death_grave():
 
     check(bool(game.handle(p, "claim").alert), "издалека не забрать")
     p.loc, p.x, p.y = g["loc"], g["x"], g["y"]
-    before = p.gold
+    before = currency.total(p)
     r = game.handle(p, "claim")
-    check(p.gold - before == 100, "на месте вернул всё до монеты")
+    check(currency.total(p) - before == 100, "на месте вернул всё до монеты")
     check(death.mine(store, p) is None, "могила исчезла после возврата")
 
 
@@ -203,9 +205,9 @@ def test_grave_looting_and_decay():
     b.loc, b.x, b.y = 1, 7, 7
     death.bury(store, b, 100)
     a.loc, a.x, a.y = 1, 7, 7
-    before = a.gold
+    before = currency.total(a)
     r = game.handle(a, "claim")
-    check(a.gold - before == 50, "с чужой могилы берётся половина")
+    check(currency.total(a) - before == 50, "с чужой могилы берётся половина")
     check("прах" in r.text, "объяснено, почему половина")
 
     death.bury(store, a, 80)
@@ -267,15 +269,17 @@ def test_party_share():
     a.loc, a.x, a.y = 1, cell.x, cell.y
     b.loc, b.x, b.y = 1, cell.x, cell.y
     c.loc = 2                                        # третий далеко
-    gold_b, gold_c = b.gold, c.gold
+    gold_b, gold_c = currency.total(b), currency.total(c)
 
     combat.start(a, cell.mob, store=store)
     for _ in range(30):
         if not a.combat:
             break
         r = combat.action(a, "hit", store.world, store)
-    check(b.gold > gold_b, f"соратник рядом получил долю: +{b.gold - gold_b}")
-    check(c.gold == gold_c, "тот, кто в другой локации, не получил ничего")
+    check(currency.total(b) > gold_b,
+          f"соратник рядом получил долю: +{currency.total(b) - gold_b}")
+    check(currency.total(c) == gold_c,
+          "тот, кто в другой локации, не получил ничего")
     check("Мара" in r.text, "делёж виден в отчёте боя")
 
 

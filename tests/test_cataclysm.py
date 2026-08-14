@@ -6,7 +6,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from engine import cataclysm as C
+from engine import currency, cataclysm as C
 from engine import adminops, combat, data, world
 from engine.game import Game
 from engine.storage import Store
@@ -284,10 +284,11 @@ def test_queue_combat():
     combat.join(p, 0)
     check(len(p.combat["queue"]) == 2, "двое ждут очереди")
 
-    gold_before = p.gold
+    gold_before = currency.total(p)
     r = combat.action(p, "hit", store.world, store)
     check(bool(p.combat), "после первого убитого бой продолжается")
-    check(p.gold > gold_before, "награда за поверженного начислена сразу")
+    check(currency.total(p) > gold_before,
+          "награда за поверженного начислена сразу")
     check(len(p.combat["queue"]) == 1, "очередь укоротилась")
     check(cell.mob >= 0, "клетка ещё занята: свора не добита")
 

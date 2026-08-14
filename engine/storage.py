@@ -6,6 +6,11 @@ from engine import data, world
 from engine.models import Cell, Player
 
 
+def _wallet_total(p):
+    from engine import currency
+    return currency.total(p)
+
+
 def _unify_floor_stairs(cells, floors=None, sizes=None):
     """Миграция старого мира: две лестничные клетки → одна площадка."""
     floors, sizes = floors or {}, sizes or {}
@@ -122,7 +127,10 @@ class Store:
             try:
                 blob = json.loads(raw)
                 self.settings.update(blob.get("settings", {}))
-                self.players = {int(k): Player.from_dict(v)
+                # Кошелёк старых сейвов переносится в бронзу до создания
+                # Player: см. engine/currency.migrate_raw (идемпотентно).
+                from engine import currency as _currency
+                self.players = {int(k): Player.from_dict(_currency.migrate_raw(v))
                                 for k, v in blob.get("players", {}).items()}
                 self.world = {k: Cell(**v) for k, v in blob.get("world", {}).items()}
                 for c in self.world.values():
@@ -405,7 +413,9 @@ class Store:
         return {
             "players": len(ps),
             "heroes": len(made),
-            "gold": sum(p.gold for p in made),
+            # Богатство сервера — в бронзе: поле gold теперь лишь старший
+            # разряд кошелька, суммировать только его было бы неверно.
+            "gold": sum(_wallet_total(p) for p in made),
             "kills": sum(p.kills for p in made),
             "avg_level": round(sum(p.level for p in made) / len(made), 1) if made else 0,
             "cells": len(self.world),

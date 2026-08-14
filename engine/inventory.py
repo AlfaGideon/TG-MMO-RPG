@@ -9,7 +9,7 @@
 `worn` никто не заполнял, и в бою всегда считались статы шаблона —
 паритет с серверным стеком восстановлен (AUDIT-BUGS.md, пункт B).
 """
-from engine import combat, itemui, rules, slots, stash
+from engine import combat, currency, itemui, rules, slots, stash
 from engine.models import Reply
 
 
@@ -24,7 +24,7 @@ def bag(p, page=0, store=None):
     entries, page = itemui.slice_page(p.inventory, page)
 
     kept = len(getattr(p, "stash", None) or [])
-    lines = [f"🎒 <b>Инвентарь</b> · 🪙 {p.gold} · "
+    lines = [f"🎒 <b>Инвентарь</b> · 👛 {currency.fmt(p)} · "
              f"🔒 карман {kept}/{stash.capacity(p, store)}", ""]
     for num, _pos, idx in entries:
         note = ("<b>надето</b>" if _pos in worn_at
@@ -52,7 +52,7 @@ def card(p, arg, store=None):
     equipped = slots.is_equipped_at(p, pos)
     page = pos // itemui.PER_PAGE
 
-    extra = f"💰 Продать за <b>{itemui.resale_of(idx)}</b> 🪙"
+    extra = f"💰 Продать за <b>{currency.short(itemui.resale_of(idx))}</b>"
     if equipped:
         extra = "✅ <b>Надето на герое</b>\n\n" + extra
     text = "🎒 <b>Инвентарь</b>\n\n" + itemui.card(idx, extra)
@@ -144,9 +144,9 @@ def sell(p, arg, store=None):
     idx = slots.take_at(p, pos)      # снимет экипировку, только если ушла ОНА
     it = rules.item(idx)
     paid = itemui.resale_of(idx)
-    p.gold += paid
+    currency.earn(p, paid)
     r = bag(p, pos // itemui.PER_PAGE, store)
-    r.alert = f"Продано: {it['name']} за {paid} 🪙"
+    r.alert = f"Продано: {it['name']} за {currency.short(paid)}"
     return r
 
 

@@ -5,7 +5,7 @@
 """
 import random
 
-from engine import (cataclysm, data, death, factions, items, landmarks,
+from engine import (cataclysm, currency, data, death, factions, items, landmarks,
                     respawn, rules)
 from engine.models import Reply
 
@@ -114,7 +114,7 @@ def chest(p, cell, store):
     respawn.schedule_chest(store, cell)     # новый появится в этой локации
     eff = cataclysm.effects(store, p.loc)
     gold = max(1, int(random.randint(10, 45) * eff["gold"]))
-    p.gold += gold
+    currency.earn(p, gold)
     lines = [f"📦 <b>Сундук открыт!</b>\n\nВнутри: {gold} 🪙"]
     if random.random() < min(0.95, 0.5 * eff["loot"]):
         idx = random.randrange(len(data.ITEMS))

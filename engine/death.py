@@ -17,7 +17,7 @@
 """
 import time
 
-from engine import data, rules
+from engine import currency, data, rules
 from engine.models import Reply
 
 GRAVES = "graves"           # список надгробий в settings
@@ -106,7 +106,7 @@ def claim(store, p):
     taken = gold if own else gold // 2
     if not own and goods:
         goods = goods[:max(0, len(goods) // 2)]
-    p.gold += taken
+    currency.earn(p, taken)
     p.inventory.extend(goods)
     _graves(store)[:] = [x for x in _graves(store) if x is not g]
     store.save_player(p)
@@ -186,8 +186,10 @@ def defeat(store, p, mob_name):
 
     from engine import stash
 
-    lost = p.gold // 5
-    p.gold -= lost
+    # Теряется пятая часть кошелька целиком (бронза+серебро+золото),
+    # иначе герой с 3🟡 и 0🟤 не терял бы ничего.
+    lost = currency.total(p) // 5
+    currency.spend(p, lost)
     dropped = stash.drop_on_death(p, store=store)   # часть сумки выпадает
     kept = len(getattr(p, "stash", None) or [])
     grave = bury(store, p, lost, dropped) if store is not None else None

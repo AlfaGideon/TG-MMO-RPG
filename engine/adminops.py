@@ -109,12 +109,17 @@ def add_gold(store, actor, tg_id, amount, source="panel"):
     require(actor, "edit_players")
     p = _target(store, tg_id)
     amount = int(amount)
-    p.gold = max(0, p.gold + amount)
+    # Админ оперирует бронзой — той же единицей, что и весь движок.
+    from engine import currency
+    if amount >= 0:
+        currency.earn(p, amount)
+    else:
+        currency.spend(p, min(-amount, currency.total(p)))
     store.save_player(p)
     sign = "+" if amount >= 0 else ""
     queue(store, p.tg_id, f"🪙 Администратор изменил твоё золото: {sign}{amount}")
     return _done(store, actor, source, "Изменил золото", _who(p),
-                 f"{sign}{amount} → {p.gold} 🪙")
+                 f"{sign}{amount} → {currency.fmt(p)}")
 
 
 def add_level(store, actor, tg_id, delta, source="panel"):

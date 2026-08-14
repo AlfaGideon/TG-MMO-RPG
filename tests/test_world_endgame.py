@@ -10,7 +10,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from engine import adminops, data, landmarks, stash
+from engine import currency, adminops, data, landmarks, stash
 from engine import worldboss as WB
 from engine.game import Game
 from engine.storage import Store
@@ -139,9 +139,9 @@ def test_landmark_reward():
     check(any("study" in b[1] for row in look.keyboard for b in row),
           "есть кнопка «Изучить»")
 
-    before = (p.gold, p.exp, p.strength, len(p.inventory), p.hp)
+    before = (currency.total(p), p.exp, p.strength, len(p.inventory), p.hp)
     r = game.handle(p, "study")
-    after = (p.gold, p.exp, p.strength, len(p.inventory), p.hp)
+    after = (currency.total(p), p.exp, p.strength, len(p.inventory), p.hp)
     check(before != after, f"награда получена: {before} → {after}")
     check("Достопримечательностей" in r.text, "показан счётчик находок")
     check(bool(game.handle(p, "study").alert), "второй раз награду не дают")
@@ -246,13 +246,15 @@ def test_boss_shared_fight():
     check(WB.active(store) and WB.active(store)["phase"] == 1,
           "на половине HP включилась вторая фаза")
 
-    gold_a, gold_b = a.gold, b.gold
+    gold_a, gold_b = currency.total(a), currency.total(b)
     WB.active(store)["hp"] = 1
     r = game.handle(a, "bosshit")
     check("последний удар" in r.text, "добивание объявлено")
     check(WB.active(store) is None, "босс ушёл из мира")
-    check(a.gold > gold_a and b.gold > gold_b, "награду получили оба")
-    check(a.gold - gold_a > b.gold - gold_b, "лидер получил больше")
+    check(currency.total(a) > gold_a and currency.total(b) > gold_b,
+          "награду получили оба")
+    check(currency.total(a) - gold_a > currency.total(b) - gold_b,
+          "лидер получил больше")
     check(len(WB.history(store)) == 1, "бой попал в летопись")
 
 

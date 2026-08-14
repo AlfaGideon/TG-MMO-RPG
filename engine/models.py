@@ -37,9 +37,12 @@ class Player:
     cls: str = ""
     level: int = 1
     exp: int = 0
-    gold: int = 50
-    bronze: int = 0          # трёхвалютная экономика (1⚪ = 100🟤, 1🟡 = 100⚪)
+    gold: int = 0
+    # Стартовый капитал держим в бронзе: любые суммы движка считаются
+    # в ней (см. engine/currency), а 50 монет старого баланса — это 50🟤.
+    bronze: int = 50         # трёхвалютная экономика (1⚪ = 100🟤, 1🟡 = 100⚪)
     silver: int = 0
+    wallet_v: int = 2        # версия формата кошелька (см. engine/currency)
     karma_score: int = 0     # −500 (Осквернитель) .. +500 (Благочестивый)
     strength: int = 10
     agility: int = 10

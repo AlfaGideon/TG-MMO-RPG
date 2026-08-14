@@ -1,5 +1,5 @@
 """Тексты интерфейса бота."""
-from engine import data, hero, permissions, rules
+from engine import currency, data, hero, permissions, rules
 
 WELCOME = (
     "🌑 <b>Теневые Земли</b>\n\n"
@@ -104,7 +104,6 @@ def hero_created(p, cls):
 def profile(p, store=None):
     from engine import death, stash
     from engine import karma as karma_mod
-    from engine import currency
 
     s = rules.stats(p, store)
     icon = data.CLASSES[p.cls][0].split()[0] if p.cls in data.CLASSES else "👤"
@@ -153,7 +152,7 @@ def cell_view(p, cell, alarm="", others=()):
         f"{floor_line}"
         f"📍 [{cell.x},{cell.y}] · <i>{cell.name}</i>\n\n"
         f"{cell.desc}{company}\n\n"
-        f"❤️ {p.hp}/{rules.stats(p)['max_hp']}  💙 {p.mp}  🪙 {p.gold}"
+        f"❤️ {p.hp}/{rules.stats(p)['max_hp']}  💙 {p.mp}  {currency.fmt(p)}"
     )
 
 
