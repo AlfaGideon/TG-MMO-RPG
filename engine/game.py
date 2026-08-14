@@ -2,6 +2,7 @@
 import random
 
 from engine import (adminbot, adminroute, behavior, cataclysm, combat, data,
+                    progress,
                     explore, hero, inventory, items, mapview, merchant,
                     respawn, rules, shop, social, stash, texts, trade, world)
 from engine.models import Reply
@@ -42,6 +43,7 @@ class Game:
             [("🎒 Инвентарь", "bag"), ("🏪 Лавка", "shop")],
             [("📜 Задания", "quests"), ("🤝 Отряд", "party")],
             [("🧭 Репутация", "rep"), ("🔮 Знамения", "omens")],
+            [("📖 Бестиарий", "bestiary"), ("🎖 Титулы", "titles")],
             [("🔨 Мастерская", "craft"), ("🏛 Аукцион", "auc:0")],
             [("🏆 Топ", "top"), ("❓ Помощь", "help")],
         ]
@@ -390,6 +392,16 @@ class Game:
         from engine import omens
         return Reply(text=omens.omens_text(),
                      keyboard=[[("◀️ Меню", "menu")]])
+
+    # Экраны прогресса (бестиарий, титулы, перерождение) вынесены в
+    # engine/progress.py: game.py держится в пределах 500 строк, это
+    # правило стережёт tests/test_wiring.py.
+    do_bestiary = lambda self, p, arg="": progress.bestiary_screen(p)
+    do_titles = lambda self, p, arg="": progress.titles_screen(p)
+    do_title = lambda self, p, arg="": progress.set_title(self.store, p, arg)
+    do_rebirth = lambda self, p, arg="": progress.rebirth_screen(p)
+    do_rebirthgo = lambda self, p, arg="": progress.rebirth_do(self.store, p)
+
 
     # ── подземелья ──────────────────────────────────────────
     do_denter = lambda self, p, arg="": social.dungeon_enter(self.store, p)

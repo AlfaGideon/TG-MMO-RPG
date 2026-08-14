@@ -39,9 +39,14 @@ def bonuses(player, store=None):
 
 def stats(player, store=None):
     """Итоговые статы. Раненый герой слабее — штраф из engine.death."""
-    from engine import death
+    from engine import death, titles
 
     b = bonuses(player, store)
+    # Титул носится поверх экипировки — прибавки те же, что на сервере
+    # (core/stats.py тоже складывает title_bonus).
+    for key, add in titles.title_bonus(player).items():
+        if add:
+            b[key] = b.get(key, 0) + add
     k = death.penalty(player)
     if k < 1.0:
         return _wounded_stats(player, b, k)

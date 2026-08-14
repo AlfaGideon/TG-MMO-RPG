@@ -44,6 +44,10 @@ class Player:
     silver: int = 0
     wallet_v: int = 2        # версия формата кошелька (см. engine/currency)
     karma_score: int = 0     # −500 (Осквернитель) .. +500 (Благочестивый)
+    rebirth_count: int = 0                          # кругов перерождения
+    active_title: str = ""                          # надетый титул
+    unlocked_titles_json: str = "[]"                # открытые титулы (JSON)
+    bestiary_kills_json: str = "{}"                 # атлас: {вид: побед}
     strength: int = 10
     agility: int = 10
     intelligence: int = 10

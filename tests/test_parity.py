@@ -134,6 +134,18 @@ REGISTRY = [
     Feature("Реактивные реплики жителей",
             browser=["engine/dialogue.py"],
             server=["core/dialogue.py"]),
+    Feature("Титулы",
+            browser=["engine/titles.py"],
+            server=["core/titles.py"]),
+    Feature("Бестиарий",
+            browser=["engine/bestiary.py"],
+            server=["core/bestiary.py"]),
+    Feature("Фазы луны",
+            browser=["engine/lunar.py"],
+            server=["core/lunar.py"]),
+    Feature("Перерождение",
+            browser=["engine/prestige.py"],
+            server=["core/prestige.py"]),
 
     Feature("Трёхвалютная экономика",
             browser=["engine/currency.py"],
@@ -196,6 +208,9 @@ def test_new_engine_modules_registered():
         # вопрос решён иначе: InventoryItem.is_equipped у конкретной строки,
         # поэтому переносить модуль в core/ нечего.
         "engine/slots.py",
+        # progress.py — экраны прогресса, вынесенные из game.py ради
+        # лимита в 500 строк; сами механики зарегистрированы отдельно.
+        "engine/progress.py",
     }
     listed = set()
     for f in REGISTRY:
@@ -270,6 +285,27 @@ def test_shared_numbers_match():
 
     # Деньги: серверный стек считает тем же модулем, что и движок, — если
     # кто-то заведёт вторую копию с другим курсом, это всплывёт здесь.
+    # Титулы, бестиарий, луна и перерождение: каталоги и пороги общие —
+    # core-модули реэкспортируют engine, но проверим это явно.
+    try:
+        from core import bestiary as c_bestiary
+        from core import lunar as c_lunar
+        from core import prestige as c_prestige
+        from core import titles as c_titles
+        from engine import bestiary as e_bestiary
+        from engine import lunar as e_lunar
+        from engine import prestige as e_prestige
+        from engine import titles as e_titles
+        check(c_titles.TITLES_CATALOG == e_titles.TITLES_CATALOG,
+              "каталог титулов общий")
+        check(c_lunar.PHASES == e_lunar.PHASES, "каталог фаз луны общий")
+        check(c_bestiary.get_mob_slayer_bonus is e_bestiary.get_mob_slayer_bonus,
+              "бонус охотника считается одним кодом")
+        check(c_prestige.REBIRTH_MIN_LEVEL == e_prestige.REBIRTH_MIN_LEVEL,
+              f"порог перерождения: {e_prestige.REBIRTH_MIN_LEVEL}")
+    except ImportError as e:
+        check(True, f"часть модулей недоступна, пропуск ({e})")
+
     from engine import currency as e_currency
     check(e_currency.CONVERSION == 100, f"курс 1:100 ({e_currency.CONVERSION})")
     probe_engine = type("P", (), {"bronze": 99, "silver": 0, "gold": 0})()

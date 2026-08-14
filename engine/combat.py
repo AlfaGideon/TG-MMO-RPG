@@ -2,8 +2,9 @@
 могут подтянуться другие твари — они ждут очереди в `queue`."""
 import random
 
-from engine import (cataclysm, craft, currency, data, death, factions, items,
-                    karma, party, quests, respawn, rules, texts)
+from engine import (bestiary, cataclysm, craft, currency, data, death,
+                    factions, items, karma, party, quests, respawn, rules,
+                    texts)
 from engine.models import Reply
 
 
@@ -237,6 +238,11 @@ def _reward(p, m, world, store=None):
         karma_line = karma.on_kill(p, m[0])
         if karma_line:
             lines.append(karma_line)
+        slain = bestiary.record_kill(p, m[0])
+        if slain and slain % bestiary.KILLS_PER_STEP == 0:
+            lines.append(f"📖 Бестиарий: {m[0]} — побед {slain}. "
+                         f"Урон по этому виду: "
+                         f"<b>+{bestiary.slayer_pct(p, m[0])}%</b>")
     for q in quests.on_kill(p, st["mob"]):     # охотничьи задания
         lines.append(f"📜 Задание «{quests.fields(q)['name']}» — можно сдавать!")
     if levels:
@@ -289,6 +295,9 @@ def action(p, what, world, store=None):
         st["log"].append("🛡 Ты уходишь в глухую оборону.")
     else:
         dmg, crit = rules.attack_roll(p, m[5], store)
+        # Знание слабостей: +1 % за каждые 10 побед над видом (потолок 15 %),
+        # как и на сервере (bot/handlers/battle.py).
+        dmg = max(1, int(dmg * bestiary.get_mob_slayer_bonus(p, m[0])))
         st["mob_hp"] -= dmg
         st["log"].append(f"⚔️ {'КРИТ! ' if crit else ''}Ты наносишь {dmg} урона.")
 

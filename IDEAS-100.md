@@ -87,6 +87,10 @@
 | `ADMIN_SECRET_KEY`: публичный дефолт убран, ключ генерируется в `data/` вне git | `admin/auth.py`, `admin/config.py` | `tests/test_audit_fixes.py` |
 | Колбэк инвентаря несёт id вещи — старая кнопка не открывает соседний предмет | `bot/keyboards/inline.py`, `bot/handlers/inventory.py` | `tests/test_audit_fixes.py` |
 | Задания в боте: доска, приём, прогресс в бою, сдача с наградой | `core/quests.py` (новый), `bot/handlers/quests.py` (новый), `bot/handlers/battle.py` | `tests/test_audit_fixes.py` |
+| **Партия 10 — перенос в браузерный стек:** титулы, бестиарий, фазы луны, перерождение | `engine/titles.py`, `engine/bestiary.py`, `engine/lunar.py`, `engine/prestige.py` (новые) + `core/*` стали реэкспортом | `tests/test_engine_progress.py` (33 проверки) |
+| Экраны прогресса вынесены из `game.py` — роутер держится в лимите 500 строк | `engine/progress.py` (новый), `engine/game.py` | `tests/test_wiring.py` |
+| FALLBACK в `index.html` пересобран под 92 модуля | `index.html`, `modules.json` | `tests/test_wiring.py` |
+| **Паритет вырос до 32 из 32 механик** | `tests/test_parity.py` | `python3 tests/test_parity.py` |
 
 ---
 
@@ -184,7 +188,8 @@
 **Файлы:** `engine/blackmarket.py` (новый), `engine/game.py`, `modules.json`, `index.html`, `tests/test_parity.py`.
 
 ### № 16. `engine/lunar.py` — фазы луны
-**Статус:** ⬜ не сделано. **Доказательство:** `core/lunar.py` — фазы и эффекты, импорт только из `tests/test_economy_and_lunar.py`.
+**Статус:** ✅ сделано. **Сделано:** каталог фаз и расчёт от времени перенесены в `engine/lunar.py` — теперь это **единственный источник правды**, `core/lunar.py` их реэкспортирует (в нём остался только серверный оверрайд через `AppSetting`). В движке добавлены `phase_of(store)` и `set_override(store, key)`: заморозка фазы хранится в `store.settings`, потому что таблиц у браузерного стека нет. Расчёт общий, поэтому фаза совпадает в обоих стеках без всякой синхронизации.
+**Было:** **Доказательство:** `core/lunar.py` — фазы и эффекты, импорт только из `tests/test_economy_and_lunar.py`.
 **ТЗ:** перенести расчёт фазы по дате в `engine/lunar.py` (без БД — чистая функция от `time.time()`); показывать фазу в `engine/texts.cell_view` и в бою применять её модификаторы там, где это делает сервер (`core/lunar.py` читать как эталон).
 **Файлы:** `engine/lunar.py` (новый), `engine/texts.py`, `engine/combat.py`, `modules.json`, `index.html`, `tests/test_parity.py`.
 
@@ -209,7 +214,8 @@
 **Файлы:** `engine/pets.py` (новый), `engine/models.py`, `engine/texts.py`, `webapp/pages/content.py`, `modules.json`, `index.html`, `tests/test_parity.py`.
 
 ### № 21. `engine/prestige.py` — престиж после капа
-**Статус:** ⬜ не сделано. **Доказательство:** `core/prestige.py`, импорт только из `tests/test_progression_and_karma.py`; пункт 5 «Прогресс после капа» из `IDEAS-next.md` не закрыт.
+**Статус:** ✅ сделано. **Сделано:** `engine/prestige.py` с тем же порогом `REBIRTH_MIN_LEVEL = 15` и «Искрой Бессмертия» (+10 % к базовым статам за круг), что на сервере; числа сверяет реестр паритета. Экран и ритуал — в меню движка (`♻️ Перерождение`), поле `Player.rebirth_count` добавлено.
+**Было:** **Доказательство:** `core/prestige.py`, импорт только из `tests/test_progression_and_karma.py`; пункт 5 «Прогресс после капа» из `IDEAS-next.md` не закрыт.
 **ТЗ:** `engine/prestige.py` (сброс уровня за постоянный бонус, те же числа); в движке — действие «♻ Престиж» в профиле при достижении капа уровня.
 **Файлы:** `engine/prestige.py` (новый), `engine/texts.py`, `engine/game.py`, `modules.json`, `index.html`, `tests/test_parity.py`.
 
@@ -224,7 +230,8 @@
 **Файлы:** `engine/talents.py` (новый), `engine/rules.py`, `engine/game.py`, `modules.json`, `index.html`, `tests/test_parity.py`.
 
 ### № 24. `engine/titles.py` — титулы
-**Статус:** ⬜ не сделано. **Доказательство:** `core/titles.py` подключён в `core/stats.py` и тестируется в `tests/test_progression_and_karma.py`; в `engine/` нет.
+**Статус:** ✅ сделано. **Сделано:** каталог титулов переехал в `engine/titles.py` (`core/titles.py` реэкспортирует его). Функции пишут в поля `unlocked_titles_json` / `active_title`, которые есть у обоих типов героя, поэтому логика одна на два стека. Бонусы титула складываются в `engine/rules.stats` рядом с экипировкой — ровно как `core/stats.py` складывает `title_bonus`. Экран выбора титула добавлен в меню движка; битый JSON в поле не роняет профиль.
+**Было:** **Доказательство:** `core/titles.py` подключён в `core/stats.py` и тестируется в `tests/test_progression_and_karma.py`; в `engine/` нет.
 **ТЗ:** `engine/titles.py` (условия получения — числа из `core/titles.py`); проверка условий там же, где растут `p.kills`/репутация (`engine/rules.py`, `engine/factions.py`); титул в `engine/texts.profile` рядом со строкой кармы.
 **Файлы:** `engine/titles.py` (новый), `engine/rules.py`, `engine/factions.py`, `engine/texts.py`, `modules.json`, `index.html`, `tests/test_parity.py`.
 
@@ -264,7 +271,8 @@
 **Файлы:** `engine/illusions.py` (новый), `engine/social.py`, `modules.json`, `index.html`, `tests/test_parity.py`.
 
 ### № 32. `engine/bestiary.py` — бестиарий
-**Статус:** ⬜ не сделано. **Доказательство:** `core/bestiary.py`, импорт только из `tests/test_lore_and_legends.py`; `Player.kills` в движке уже считается (`engine/rules.py:_reward`).
+**Статус:** ✅ сделано. **Сделано:** атлас перенесён в `engine/bestiary.py` (`core/bestiary.py` реэкспортирует). Победы записываются прямо в бою движка, бонус охотника (+1 % за 10 побед, потолок 15 %) применяется в `engine/combat.action`, экран «📖 Бестиарий» — в меню. Пороги вынесены в константы `KILLS_PER_STEP` / `MAX_BONUS_PCT`, чтобы не быть «магическими числами» в двух местах.
+**Было:** **Доказательство:** `core/bestiary.py`, импорт только из `tests/test_lore_and_legends.py`; `Player.kills` в движке уже считается (`engine/rules.py:_reward`).
 **ТЗ:** `engine/bestiary.py` (записи по убитым тварям — данные уже есть в `engine/content.py:MOBS`); экран в меню (`engine/game.menu`), счётчик по видам из `p.kills` + новой структуры учёта по индексам мобов.
 **Файлы:** `engine/bestiary.py` (новый), `engine/game.py`, `engine/models.py`, `modules.json`, `index.html`, `tests/test_parity.py`.
 
@@ -676,17 +684,18 @@
 | Раздел | Кол-во | ✅ сделано | 🟡 частично | Что это за пробелы |
 |---|---|---|---|---|
 | 1. Тесты и CI | 10 | № 1, 2, 3, 6, 7, 8, 9, 10 | — | 12 забытых наборов, ложные провалы, нет CI, рассинхрон бандла |
-| 2. Паритет `core/` → `engine/` | 25 | № 35 | — | 24 серверные подсистемы без браузерного близнеца |
+| 2. Паритет `core/` → `engine/` | 25 | № 16, 21, 24, 32, 35 | — | 20 серверных подсистем без браузерного близнеца |
 | 3. Вход игроку в боте | 25 | № 36–57 (кроме 58) | № 59 | подсистемы без единого вызова из `bot/handlers/` |
 | 4. Админка `admin/main.py` | 10 | № 61–66 | — | 13 подсистем с нулём упоминаний в админке |
 | 5. Панель `webapp/pages/` | 6 | № 72 | — | страницы Pyodide-панели после переносов Раздела 2 |
 | 6. Баги и долги из аудита | 12 | № 77–85, 87, 88 (все) | — | **все долги аудита закрыты** |
 | 7. Трёхвалютная экономика | 6 | № 89–94 (все) | — | **долг закрыт: паритет 28/28** |
 | 8. Документация | 6 | № 95, 98, 100 | — | устаревшие цифры и списки |
-| **Итого** | **100** | **60** | **1** | — |
+| **Итого** | **100** | **64** | **1** | — |
 
-**Сделано на 2026-08-14: 60 пунктов закрыто полностью, 1 частично, 1 снят как задача-фантом (№ 58).**
-Закрыты: № 1, 2, 3, 6, 7, 8, 9, 10, 35, 36–57 (кроме 58), 61–66, 72, 77–85, 87–95, 98, 100.
+**Сделано на 2026-08-14: 64 пункта закрыто полностью, 1 частично, 1 снят как задача-фантом (№ 58).**
+Закрыты: № 1, 2, 3, 6, 7, 8, 9, 10, 16, 21, 24, 32, 35, 36–57 (кроме 58), 61–66, 72, 77–85, 87–95, 98, 100.
+**Паритет: 32 из 32 механик в обоих стеках, долгов в реестре нет.**
 **Раздел 6 закрыт целиком** — в `AUDIT-BUGS.md` не осталось незакрытых находок.
 **В реестре паритета долгов больше нет: 28 из 28 механик в обоих стеках.**
 **Долг A закрыт** — самое старое известное семейство багов браузерного стека (дубликаты вещей) больше не воспроизводится.
