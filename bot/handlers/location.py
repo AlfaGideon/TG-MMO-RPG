@@ -839,6 +839,21 @@ async def inspect_cell(callback: CallbackQuery):
         lunar_phase = core_lunar.get_current_lunar_phase()
         found.append(f"{lunar_phase['name']} — <i>{lunar_phase['desc']}</i>")
 
+        # Иллюзорные стены по соседству (core/illusions.py). Сам факт
+        # иллюзии игроку не выдаём: он видит обычные стены и может их
+        # простучать. Ищем только по 4 сторонам — по диагонали не стучат.
+        illusory_dirs = []
+        for direction in ("n", "s", "w", "e"):
+            dx, dy = DIRECTIONS[direction]
+            neighbour = (await session.execute(
+                select(Cell)
+                .where(Cell.location_id == cell.location_id)
+                .where(Cell.floor == (cell.floor or 0))
+                .where(Cell.x == cell.x + dx).where(Cell.y == cell.y + dy)
+            )).scalar_one_or_none()
+            if neighbour is not None and neighbour.is_illusory_wall:
+                illusory_dirs.append((direction, DIRECTION_ARROWS.get(direction, "")))
+
         if found:
             lines.append("\n" + "\n".join(found))
         else:
@@ -862,6 +877,7 @@ async def inspect_cell(callback: CallbackQuery):
                 can_dig=can_dig,
                 has_treasure=has_treasure,
                 is_town=is_town,
+                illusory_dirs=illusory_dirs,
             ),
             parse_mode="HTML",
         )
@@ -2186,3 +2202,53 @@ async def invest_do(callback: CallbackQuery):
         f"Всего твоих вложений: {res['total_invested']}🟤.",
         show_alert=True)
     await invest_menu(callback)
+
+
+@router.callback_query(F.data.startswith("reveal_wall:"))
+async def reveal_wall(callback: CallbackQuery):
+    """🔍 Простучать соседнюю стену: иллюзия рассыпется тайным гротом.
+
+    `core/illusions.reveal_illusory_wall` существовал, но добраться до него
+    было нельзя: флаг `Cell.is_illusory_wall` никто не выставлял, а кнопки
+    не было. Разметку стен добавляет `core/worldgen.mark_illusory_walls`.
+    """
+    direction = callback.data.split(":")[1]
+    if direction not in DIRECTIONS:
+        await callback.answer("Не туда.", show_alert=True)
+        return
+
+    async with async_session() as session:
+        char = (await session.execute(
+            select(Character).join(User).where(User.telegram_id == callback.from_user.id)
+            .options(selectinload(Character.cell))
+        )).scalar_one_or_none()
+        if not char or not char.cell:
+            await callback.answer("Ошибка.", show_alert=True)
+            return
+
+        dx, dy = DIRECTIONS[direction]
+        cell = char.cell
+        target = (await session.execute(
+            select(Cell)
+            .where(Cell.location_id == cell.location_id)
+            .where(Cell.floor == (cell.floor or 0))
+            .where(Cell.x == cell.x + dx).where(Cell.y == cell.y + dy)
+        )).scalar_one_or_none()
+        if target is None:
+            await callback.answer("Там край мира — стучать не во что.",
+                                  show_alert=True)
+            return
+
+        from core import illusions as core_illusions
+        res = await core_illusions.reveal_illusory_wall(session, char, target)
+        if not res["ok"]:
+            await callback.answer(res["reason"], show_alert=True)
+            return
+        await session.commit()
+
+    await safe_edit_text(
+        callback,
+        f"<b>{res['title']}</b>\n\n{res['desc']}",
+        reply_markup=continue_keyboard(),
+        parse_mode="HTML",
+    )

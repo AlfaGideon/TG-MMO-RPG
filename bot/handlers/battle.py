@@ -209,6 +209,31 @@ async def _finish_victory(callback, session, character, mob, spawn, state):
     from core import karma as core_karma
     karma_line = core_karma.on_kill(character, mob)
 
+    # Бестиарий: запись победы. Раньше core/bestiary.record_kill не звали
+    # ниоткуда, поэтому атлас монстров всегда оставался пустым.
+    from core import bestiary as core_bestiary
+    slain_total = core_bestiary.record_kill(character, mob.name)
+    bestiary_line = ""
+    if slain_total and slain_total % 10 == 0:      # круглая веха охотника
+        bonus_pct = int(round(
+            (core_bestiary.get_mob_slayer_bonus(character, mob.name) - 1) * 100))
+        bestiary_line = (f"📖 Бестиарий: {mob.name} — побед {slain_total}. "
+                         f"Урон по этому виду: <b>+{bonus_pct}%</b>")
+
+    # Наставничество: ученик приносит наставнику Очки Чести, а сам получает
+    # прибавку к опыту. get_mentorship_bonuses существовал без применения.
+    from core import mentorship as core_mentor
+    mentor_line = ""
+    mentor_bonuses = core_mentor.get_mentorship_bonuses(character)
+    if mentor_bonuses["has_mentor"]:
+        extra_exp = int(exp * mentor_bonuses["exp_bonus_pct"] / 100)
+        if extra_exp:
+            character.experience += extra_exp
+            exp += extra_exp
+            mentor_line = (f"🎓 Наставник ведёт тебя: "
+                           f"+{extra_exp}⭐ (+{mentor_bonuses['exp_bonus_pct']}%)")
+        await core_mentor.reward_mentor_for_progress(session, character)
+
     # Награда за голову: если этот моб успел кого-то убить, за него платят
     # сверх обычной добычи, а сам он перестаёт быть целью охоты.
     bounty_line = ""
@@ -274,6 +299,10 @@ async def _finish_victory(callback, session, character, mob, spawn, state):
         text += "\n\n" + "\n".join(rep_lines)
     if karma_line:                     # чем поступок отозвался в карме
         text += "\n" + karma_line
+    if mentor_line:                    # прибавка от наставника
+        text += "\n" + mentor_line
+    if bestiary_line:                  # веха в бестиарии
+        text += "\n" + bestiary_line
     if bounty_line:                    # закрытый контракт на голову
         text += "\n\n" + bounty_line
     if levels_gained:
@@ -382,6 +411,12 @@ async def combat_attack(callback: CallbackQuery):
         # Урон игрока: статы + оружие, минус защита моба
         base_atk = attack_power(stats, character) + random.randint(-2, 4) - mob_def // 2
         char_dmg = max(1, int(base_atk * stance_dmg_mult))
+        # Знание слабостей: +1 % урона за каждые 10 побед над этим видом
+        # (потолок +15 %). core/bestiary.get_mob_slayer_bonus раньше не
+        # вызывался нигде — бестиарий копил записи впустую.
+        from core import bestiary as core_bestiary
+        char_dmg = max(1, int(char_dmg * core_bestiary.get_mob_slayer_bonus(
+            character, mob.name)))
         crit = random.random() < min(0.35, (stats.get("luck", 10)) * 0.008)
         if crit:
             char_dmg = int(char_dmg * 1.7)

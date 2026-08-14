@@ -22,6 +22,7 @@ def main_menu_keyboard(has_character: bool = False, is_admin: bool = False,
         builder.button(text="🔮 Знамения", callback_data="omens_menu")
         builder.button(text="🎓 Наставник", callback_data="mentor_menu")
         builder.button(text="💀 Награды", callback_data="bounty_menu")
+        builder.button(text="📖 Бестиарий", callback_data="bestiary_menu")
         builder.button(text="🏆 Топ", callback_data="leaderboard")
         builder.button(text="⚖️ Аукцион", callback_data="auction_menu")
         # Лавка торговца — только у NPC на клетке: за товаром надо дойти.
@@ -443,8 +444,12 @@ def inspect_keyboard(has_mob: bool, has_npc: bool, has_chest: bool,
                      has_caravan: bool = False, has_siege: bool = False,
                      has_water: bool = False, has_forest: bool = False,
                      can_dig: bool = False, has_treasure: bool = False,
-                     is_town: bool = False):
+                     is_town: bool = False, illusory_dirs: list | None = None):
     builder = InlineKeyboardBuilder()
+    # Иллюзорная стена рядом: развеять её можно только стоя вплотную.
+    for direction, label in (illusory_dirs or []):
+        builder.button(text=f"🔍 Простучать стену {label}",
+                       callback_data=f"reveal_wall:{direction}")
     if has_outpost:
         builder.button(text="🏰 Аванпост фракций", callback_data="outpost_menu")
     if has_siege:

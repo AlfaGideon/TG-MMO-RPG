@@ -67,6 +67,39 @@ def ensure_connectivity(cells, grid_size: int):
             c.tile_type = "wall"
 
 
+ILLUSORY_CHANCE = 0.02      # доля внутренних стен, оказавшихся иллюзией
+MAX_ILLUSORY_PER_FLOOR = 2  # больше двух тайников на этаж — уже не тайна
+
+
+def mark_illusory_walls(cells, grid_size, rng=None):
+    """Помечает часть внутренних стен как иллюзорные (тайные гроты).
+
+    `Cell.is_illusory_wall` и `core/illusions.reveal_illusory_wall` были
+    написаны, но **никто никогда не выставлял этот флаг** — иллюзорных
+    стен в мире не существовало, и механика была недостижима.
+
+    Разметка идёт после `ensure_connectivity`: иллюзия остаётся
+    непроходимой стеной до того, как её развеют, поэтому связность мира
+    не нарушается. Границы локации не трогаем — за ними ничего нет.
+    Возвращает список помеченных клеток.
+    """
+    rng = rng or random
+    inner_walls = [
+        c for c in cells
+        if not c.is_passable and c.tile_type == "wall"
+        and 0 < c.x < grid_size - 1 and 0 < c.y < grid_size - 1
+    ]
+    rng.shuffle(inner_walls)
+    marked = []
+    for cell in inner_walls:
+        if len(marked) >= MAX_ILLUSORY_PER_FLOOR:
+            break
+        if rng.random() < ILLUSORY_CHANCE:
+            cell.is_illusory_wall = True
+            marked.append(cell)
+    return marked
+
+
 # ── генерация клеток ──────────────────────────────────────
 
 async def build_cells(session, loc, stories, rng=None, wall_density=0.15):
@@ -95,6 +128,7 @@ async def build_cells(session, loc, stories, rng=None, wall_density=0.15):
                 session.add(cell)
                 cells.append(cell)
         ensure_connectivity(cells, loc.grid_size)
+        mark_illusory_walls(cells, loc.grid_size, rng)
     await session.flush()
     if (loc.floors_count or 1) > 1:
         await ensure_stairs(session, loc)
