@@ -57,6 +57,10 @@ class Player:
     relic_fragments: int = 0                        # осколки скрижали
     treasure_map_coord: str = ""                    # "loc:3:x:5:y:5"
     soul_ash: int = 0                               # прах предков (валюта призраков)
+    arena_rating: int = 1000                        # рейтинг Колизея Теней
+    gladiator_tokens: int = 0                       # жетоны за бои на арене
+    mentor_id: int = 0                              # tg_id наставника
+    honor_points: int = 0                           # очки чести наставника
     strength: int = 10
     agility: int = 10
     intelligence: int = 10

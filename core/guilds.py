@@ -50,7 +50,8 @@ async def create_guild(session, character: Character, name: str, description: st
     from engine.currency import total_in_bronze, deduct_currency
     from sqlalchemy import insert
 
-    cost = 2000
+    from engine import guilds as G
+    cost = G.CREATE_COST
     if total_in_bronze(character) < cost:
         return {"ok": False, "reason": f"Для основания гильдии требуется {cost}🟤."}
 
@@ -63,7 +64,7 @@ async def create_guild(session, character: Character, name: str, description: st
         name=name,
         description=description or f"Гильдия под предводительством {character.name}",
         leader_id=character.id,
-        treasury_bronze=500,
+        treasury_bronze=G.START_TREASURY,
         level=1,
     )
     session.add(guild)

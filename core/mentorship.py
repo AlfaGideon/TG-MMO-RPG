@@ -1,5 +1,11 @@
-"""Система наставничества: помощь новичкам и Очки Чести для ветеранов."""
+"""Наставничество: серверная часть.
+
+Пороги уровней, бонус ученика и цена очков чести общие для обоих стеков
+и живут в `engine/guilds.py`. Здесь остаётся работа с БД.
+"""
 from sqlalchemy import select
+
+from engine import guilds as G
 from core.models import Character
 
 
@@ -7,10 +13,14 @@ async def bind_mentor(session, apprentice: Character, mentor: Character) -> dict
     """Взять новичка в ученики."""
     if mentor.id == apprentice.id:
         return {"ok": False, "reason": "Нельзя стать наставником самому себе."}
-    if (mentor.level or 1) < 8:
-        return {"ok": False, "reason": "Стать наставником может лишь опытный воин (8+ уровень)."}
-    if (apprentice.level or 1) > 5:
-        return {"ok": False, "reason": "Учеником может стать только начинающий путник (1–5 уровень)."}
+    if (mentor.level or 1) < G.MENTOR_MIN_LEVEL:
+        return {"ok": False,
+                "reason": f"Стать наставником может лишь опытный воин "
+                          f"({G.MENTOR_MIN_LEVEL}+ уровень)."}
+    if (apprentice.level or 1) > G.APPRENTICE_MAX_LEVEL:
+        return {"ok": False,
+                "reason": f"Учеником может стать только начинающий путник "
+                          f"(1–{G.APPRENTICE_MAX_LEVEL} уровень)."}
     if apprentice.mentor_character_id:
         return {"ok": False, "reason": "У этого героя уже есть наставник."}
 
@@ -23,7 +33,8 @@ async def bind_mentor(session, apprentice: Character, mentor: Character) -> dict
     }
 
 
-async def reward_mentor_for_progress(session, apprentice: Character, points: int = 25) -> int:
+async def reward_mentor_for_progress(session, apprentice: Character,
+                                     points: int = G.HONOR_PER_PROGRESS) -> int:
     """Начисляет Очки Чести наставнику за успехи ученика."""
     if not apprentice.mentor_character_id:
         return 0
@@ -40,6 +51,6 @@ def get_mentorship_bonuses(character: Character) -> dict:
     has_mentor = bool(character.mentor_character_id)
     return {
         "has_mentor": has_mentor,
-        "exp_bonus_pct": 25 if has_mentor else 0,
+        "exp_bonus_pct": G.MENTOR_EXP_BONUS_PCT if has_mentor else 0,
         "honor_points": character.honor_points or 0,
     }

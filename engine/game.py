@@ -2,7 +2,7 @@
 import random
 
 from engine import (adminbot, adminroute, behavior, cataclysm, combat, data,
-                    progress,
+                    progress, social_ui,
                     explore, hero, inventory, items, mapview, merchant,
                     respawn, rules, shop, social, stash, texts, trade, world)
 from engine.models import Reply
@@ -48,6 +48,8 @@ class Game:
             [("🏆 Зал Славы", "legends")],
             [("💍 Ломбард", "pawn"), ("🏦 Вклад", "invest")],
             [("🕯 Чёрный рынок", "market")],
+            [("⚔️ Арена", "arena"), ("🏛 Гильдия", "guild")],
+            [("🎓 Наставник", "mentor")],
             [("🐾 Спутник", "familiar")],
             [("🔨 Мастерская", "craft"), ("🏛 Аукцион", "auc:0")],
             [("🏆 Топ", "top"), ("❓ Помощь", "help")],
@@ -426,6 +428,14 @@ class Game:
     do_investgo = lambda self, p, arg="": progress.invest_do(self.store, p, arg)
     do_market = lambda self, p, arg="": progress.market_screen(self.store, p)
     do_marketbuy = lambda self, p, arg="": progress.market_buy(self.store, p, arg)
+    do_arena = lambda self, p, arg="": social_ui.arena_screen(self.store, p)
+    do_arenago = lambda self, p, arg="": social_ui.arena_duel(self.store, p, arg)
+    do_guild = lambda self, p, arg="": social_ui.guild_screen(self.store, p)
+    do_guildnew = lambda self, p, arg="": social_ui.guild_create(self.store, p)
+    do_guildjoin = lambda self, p, arg="": social_ui.guild_join(self.store, p, arg)
+    do_guilddep = lambda self, p, arg="": social_ui.guild_deposit(self.store, p, arg)
+    do_mentor = lambda self, p, arg="": social_ui.mentor_screen(self.store, p)
+    do_mentorgo = lambda self, p, arg="": social_ui.mentor_bind(self.store, p, arg)
 
 
     # ── подземелья ──────────────────────────────────────────

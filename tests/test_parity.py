@@ -182,6 +182,21 @@ REGISTRY = [
     Feature("Чёрный рынок",
             browser=["engine/shadowecon.py"],
             server=["core/blackmarket.py"]),
+    Feature("Колизей Теней",
+            browser=["engine/arena.py"],
+            server=["core/arena.py"]),
+    Feature("Гильдии",
+            browser=["engine/guilds.py"],
+            server=["core/guilds.py"]),
+    Feature("Наставничество",
+            browser=["engine/guilds.py"],
+            server=["core/mentorship.py"]),
+    Feature("Награды за головы",
+            browser=["engine/bounty.py"],
+            server=["core/bounty.py"]),
+    Feature("Иллюзорные стены",
+            browser=["engine/illusions.py"],
+            server=["core/illusions.py"]),
 
     Feature("Трёхвалютная экономика",
             browser=["engine/currency.py"],
@@ -247,6 +262,7 @@ def test_new_engine_modules_registered():
         # progress.py — экраны прогресса, вынесенные из game.py ради
         # лимита в 500 строк; сами механики зарегистрированы отдельно.
         "engine/progress.py",
+        "engine/social_ui.py",
     }
     listed = set()
     for f in REGISTRY:
@@ -377,6 +393,18 @@ def test_shared_numbers_match():
               "выкуп всегда дороже займа")
         check(e_econ.liquidated_price_for(100) > 100,
               "изъятое перепродаётся с наценкой")
+        from core import arena as c_arena
+        from core import bounty as c_bounty
+        from core import guilds as c_guilds  # noqa: F401
+        from core import mentorship as c_ment
+        from engine import arena as e_arena
+        from engine import bounty as e_bounty
+        from engine import guilds as e_guilds
+        check(c_arena.A is e_arena, "арена берёт награды из engine/arena")
+        check(c_bounty.B is e_bounty, "награды за головы общие")
+        check(c_ment.G is e_guilds, "наставничество берёт пороги из engine/guilds")
+        check(e_arena.WIN_TOKENS > e_arena.LOSS_TOKENS,
+              "победа на арене выгоднее поражения")
         check(c_subs.SUBCLASS_MIN_LEVEL == e_subs.SUBCLASS_MIN_LEVEL,
               f"порог специализации: {e_subs.SUBCLASS_MIN_LEVEL}")
     except ImportError as e:

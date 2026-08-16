@@ -1,7 +1,14 @@
-"""Колизей Теней: асинхронные дуэли с тенями других игроков."""
+"""Колизей Теней: серверная часть.
+
+Правила наград и рейтинга общие для обоих стеков и живут в
+`engine/arena.py`. Здесь остаётся хранение теней в таблице.
+"""
 import random
 from datetime import datetime, timezone
+
 from sqlalchemy import select
+
+from engine import arena as A
 from core.models import Character, CharacterShadow
 
 
@@ -28,7 +35,7 @@ async def update_character_shadow(session, character: Character):
             damage=max(10, (character.strength or 10) * 2),
             defense=max(5, (character.endurance or 10)),
             faction=character.faction or "guard",
-            arena_rating=character.arena_rating or 1000,
+            arena_rating=character.arena_rating or A.START_RATING,
         )
         session.add(shadow)
     else:
@@ -40,7 +47,7 @@ async def update_character_shadow(session, character: Character):
         shadow.damage = max(10, (character.strength or 10) * 2)
         shadow.defense = max(5, (character.endurance or 10))
         shadow.faction = character.faction or "guard"
-        shadow.arena_rating = character.arena_rating or 1000
+        shadow.arena_rating = character.arena_rating or A.START_RATING
     await session.flush()
     return shadow
 
@@ -66,7 +73,7 @@ async def duel_shadow(session, character: Character, shadow: CharacterShadow) ->
     rounds = 0
     log = []
 
-    while char_hp > 0 and shadow_hp > 0 and rounds < 15:
+    while char_hp > 0 and shadow_hp > 0 and rounds < A.MAX_ROUNDS:
         rounds += 1
         # Ход игрока
         dmg_to_shadow = max(5, attack_power(stats, character) + random.randint(-3, 5) - shadow.defense // 2)
@@ -81,10 +88,11 @@ async def duel_shadow(session, character: Character, shadow: CharacterShadow) ->
         log.append(f"Раунд {rounds}: Тень {shadow.name} ответила ударом на {dmg_to_char} урона.")
 
     victory = shadow_hp <= 0
-    tokens_gain = 25 if victory else 5
-    rating_change = +20 if victory else -10
+    tokens_gain = A.WIN_TOKENS if victory else A.LOSS_TOKENS
+    rating_change = A.WIN_RATING if victory else A.LOSS_RATING
 
-    character.arena_rating = max(100, (character.arena_rating or 1000) + rating_change)
+    character.arena_rating = max(
+        A.MIN_RATING, (character.arena_rating or A.START_RATING) + rating_change)
     character.gladiator_tokens = (character.gladiator_tokens or 0) + tokens_gain
 
     # Обновляем тень игрока

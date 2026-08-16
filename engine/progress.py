@@ -474,3 +474,4 @@ def market_buy(store, p, arg):
              f"<b>{rules.item(loan['idx'])['name']}</b> за {price}🟤.\n\n"
              f"<i>Прежний владелец не сумел вернуть долг вовремя.</i>",
         keyboard=[[("🕯 Ещё раз", "market")], [("◀️ Меню", "menu")]])
+

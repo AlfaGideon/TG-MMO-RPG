@@ -1,14 +1,15 @@
-"""Охота за головами: элитные мобы-убийцы и награды за их ликвидацию."""
+"""Охота за головами: серверная часть.
+
+Титулы убийц и формула куша общие для обоих стеков и живут в
+`engine/bounty.py`. Здесь остаётся работа с БД.
+"""
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
+
+from engine import bounty as B
 from core.models import Character, Mob, MobSpawn
 
-BOUNTY_TITLES = [
-    "Палач Забытых",
-    "Кровавый Мясник",
-    "Бич Странников",
-    "Пожиратель Костей",
-]
+BOUNTY_TITLES = list(B.BOUNTY_TITLES)
 
 
 async def record_mob_kill(session, spawn: MobSpawn):
@@ -36,5 +37,4 @@ async def list_active_bounties(session) -> list[MobSpawn]:
 
 def calculate_bounty_reward(spawn: MobSpawn) -> int:
     """Размер куша за ликвидацию убийцы."""
-    kills = spawn.kill_count or 1
-    return 150 + kills * 100
+    return B.reward_for(spawn.kill_count or 1)
