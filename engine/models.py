@@ -54,6 +54,8 @@ class Player:
     familiar_type: str = ""                         # вид спутника
     familiar_level: int = 1
     familiar_name: str = ""
+    relic_fragments: int = 0                        # осколки скрижали
+    treasure_map_coord: str = ""                    # "loc:3:x:5:y:5"
     strength: int = 10
     agility: int = 10
     intelligence: int = 10

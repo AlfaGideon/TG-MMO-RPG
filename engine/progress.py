@@ -191,3 +191,58 @@ def familiar_adopt(store, p, key):
     r = familiar_screen(p)
     r.alert = f"🐾 Спутник приручён: {fam['name']}"
     return r
+
+
+# ── мирные занятия ──────────────────────────────────────────
+# Таблицы шансов общие с сервером (engine/gathering.py); здесь только
+# применение результата к герою браузерного стека.
+
+def fish(store, p):
+    """🎣 Рыбалка на воде."""
+    from engine import currency, gathering, rules
+
+    kind, amount, exp = gathering.roll_fish()
+    s = rules.stats(p, store)
+    if kind == "heal":
+        p.hp = min(s["max_hp"], p.hp + amount)
+    elif kind == "mana":
+        p.mp = min(s["max_mp"], p.mp + amount)
+    elif kind == "gold":
+        currency.earn(p, amount)
+    rules.add_exp(p, exp)
+    store.save_player(p)
+    return Reply(text=f"🎣 <b>Рыбалка</b>\n\n{gathering.fish_text(kind, amount)}",
+                 keyboard=[[("🎣 Ещё раз", "fish")], [("◀️ Назад", "look")]])
+
+
+def herbs(store, p):
+    """🌿 Травничество в лесу и на болоте."""
+    from engine import gathering, items, rules
+
+    name, desc = gathering.roll_herb()
+    rules.add_exp(p, gathering.HERB_EXP)
+    # В браузерном стеке сумка хранит индексы шаблонов, поэтому трава
+    # ложится в реестр именных экземпляров как добыча занятия.
+    items.create(store, 0, source="quest", owner=p.tg_id, detail=name)
+    store.save_player(p)
+    return Reply(text=f"🌿 <b>Травничество</b>\n\n{gathering.herb_text(name)}",
+                 keyboard=[[("🌿 Ещё раз", "herbs")], [("◀️ Назад", "look")]])
+
+
+def dig(store, p):
+    """⛏ Раскопки: осколки скрижали и карта сокровищ."""
+    from engine import gathering
+
+    found, formed = gathering.fragment_progress(getattr(p, "relic_fragments", 0))
+    p.relic_fragments = found
+    coords = None
+    if formed:
+        import random as _rnd
+        loc = _rnd.randint(1, max(1, len(__import__("engine.data", fromlist=["d"]).LOCATIONS) - 1))
+        coords = (_rnd.randint(2, 7), _rnd.randint(2, 7))
+        p.treasure_map_coord = f"loc:{loc}:x:{coords[0]}:y:{coords[1]}"
+    store.save_player(p)
+    return Reply(
+        text="⛏ <b>Раскопки</b>\n\n"
+             + gathering.fragment_text(found, formed, coords),
+        keyboard=[[("⛏ Копать ещё", "dig")], [("◀️ Назад", "look")]])

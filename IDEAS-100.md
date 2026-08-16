@@ -95,6 +95,9 @@
 | Множители подкласса применяются к полному урону, а не к бонусу оружия (иначе терялись при округлении) | `engine/rules.py` | `tests/test_engine_talents.py` |
 | Очки талантов считаются по разнице уровней — не теряются при скачке | `engine/rules.py` | `tests/test_engine_talents.py` |
 | **Паритет 35 из 35 механик** | `tests/test_parity.py` | `python3 tests/test_parity.py` |
+| **Партия 12 — перенос:** руны, мирные занятия, археология, эмбиент | `engine/runes.py`, `engine/gathering.py`, `engine/ambient.py` (новые); `core/gathering.py`, `core/archaeology.py` переведены на общие таблицы | `tests/test_engine_gathering.py` (30 проверок) |
+| Рыбалка, травы и раскопки в движке — по типу тайла, как в боте | `engine/explore.py`, `engine/progress.py`, `engine/game.py` | `tests/test_engine_gathering.py` |
+| **Паритет 38 из 38 механик** | `tests/test_parity.py` | `python3 tests/test_parity.py` |
 
 ---
 
@@ -166,8 +169,11 @@
 > **Общее доказательство для раздела.** AST-анализ импортов 2026-08-14: перечисленные ниже модули `core/` импортируются только из `tests/` (или админкой) — в `engine/` их близнецов нет. Правило проекта (`README.md`, «Паритет стеков обязателен») требует каждую механику в обоих стеках; страхом служит `tests/test_parity.py` (см. № 6).
 > **Общий шаблон ТЗ для № 11–35:** (1) создать `engine/<name>.py` с теми же константами и функциями, что в `core/<name>.py` (числа — идентично, единый каталог контента класть в `engine/`, а `core/` переключить на реэкспорт — паттерн `core/omens.py` и `core/worldevents.py`); (2) добавить точки входа в движке (боевые/мирные экраны, см. «Файлы» пункта); (3) зарегистрировать `Feature` в `tests/test_parity.py` и добавить сверку чисел; (4) добавить модуль в `modules.json` + `FALLBACK` в `index.html`; (5) `python3 tools/build_bundle.py`; (6) pytest-проверки. **Приёмка у всех одинаковая:** `python3 tests/test_parity.py` зелёный, `python3 tests/test_wiring.py` зелёный, новый pytest-набор зелёный, пункт № 6 выполнен.
 
-### № 11. `engine/archaeology.py` — фрагменты скрижалей и карта сокровищ
-**Статус:** ⬜ не сделано. **Доказательство:** `core/archaeology.py:find_relic_fragment` — 5 фрагментов → `treasure_map_coord = "loc:{id}:x:{x}:y:{y}"`; колонки `core/models.py:315-316` (`relic_fragments`, `treasure_map_coord`); в `engine/` модуля нет.
+### № 11. Археология в браузерном стеке
+**Статус:** ✅ сделано (иначе, чем предполагало ТЗ). **Решение:** отдельный `engine/archaeology.py` не заводился — правила археологии и сбора близки, поэтому общие числа (`FRAGMENTS_FOR_MAP = 5`, размер клада, тексты) собраны в `engine/gathering.py`, а `core/archaeology.py` берёт их оттуда. Так одно и то же число не лежит в двух файлах.
+**В движке:** действие «⛏ Копать» на клетках вне города, счётчик осколков в `Player.relic_fragments`, пятый осколок складывается в карту с координатами (`treasure_map_coord`).
+**Проверка:** `tests/test_engine_gathering.py` — накопление 1→5, обнуление счётчика, появление карты.
+**Было:** **Доказательство:** `core/archaeology.py:find_relic_fragment` — 5 фрагментов → `treasure_map_coord = "loc:{id}:x:{x}:y:{y}"`; колонки `core/models.py:315-316` (`relic_fragments`, `treasure_map_coord`); в `engine/` модуля нет.
 **ТЗ:** перенести `find_relic_fragment` и формат координат в `engine/archaeology.py` (Player-поля `relic_fragments`, `treasure_map_coord` добавить в `engine/models.py`); точка входа — действие «⛏ Копать» на клетке (роутер `engine/game.py` + кнопка в `engine/explore.py`), сбор 5-го фрагмента сообщает координаты тайника.
 **Файлы:** `engine/archaeology.py` (новый), `engine/models.py`, `engine/game.py`, `engine/explore.py`, `modules.json`, `index.html`, `tests/test_parity.py`.
 
@@ -202,8 +208,9 @@
 **ТЗ:** `engine/salvage.py` с теми же таблицами выхода материалов; кнопка «🔧 Разобрать» в карточке предмета (`engine/inventory.card`) с выдачей в материалы крафта (`engine/craft.py`).
 **Файлы:** `engine/salvage.py` (новый), `engine/inventory.py`, `engine/itemui.py`, `modules.json`, `index.html`, `tests/test_parity.py`.
 
-### № 18. `engine/gathering.py` — травничество и сбор праха
-**Статус:** ⬜ не сделано. **Доказательство:** `core/gathering.py:gather_herbs` — в боте вход есть (`bot/handlers/location.py:gather_herbs`), в `engine/` нет.
+### № 18. `engine/gathering.py` — мирные занятия
+**Статус:** ✅ сделано. **Сделано:** таблицы шансов рыбалки (`FISH_CHANCE_*`), список трав, суммы и тексты перенесены в `engine/gathering.py` — теперь это единственный источник правды, `core/gathering.py` их импортирует (проверено тождество модулей). В движке появились «🎣 Рыбачить» и «🌿 Собрать травы», привязанные к тайлам `water` / `forest`+`swamp` — ровно как в `inspect_keyboard` бота.
+**Было:** **Доказательство:** `core/gathering.py:gather_herbs` — в боте вход есть (`bot/handlers/location.py:gather_herbs`), в `engine/` нет.
 **ТЗ:** `engine/gathering.py` (травы на клетках с травой/лесом — тайлы уже размечены в `engine/world.py`); действие «🌿 Собрать травы» в `engine/explore.py`.
 **Файлы:** `engine/gathering.py` (новый), `engine/explore.py`, `engine/game.py`, `modules.json`, `index.html`, `tests/test_parity.py`.
 
@@ -244,7 +251,8 @@
 **Файлы:** `engine/titles.py` (новый), `engine/rules.py`, `engine/factions.py`, `engine/texts.py`, `modules.json`, `index.html`, `tests/test_parity.py`.
 
 ### № 25. `engine/runes.py` — руны
-**Статус:** ⬜ не сделано. **Доказательство:** `core/runes.py`, импорт только из `tests/test_craft_and_dungeon_hazards.py`; крафт/заточка в движке есть (`engine/craft.py`).
+**Статус:** ✅ сделано. **Сделано:** каталоги `RUNES` и `RUNEWORDS` перенесены в `engine/runes.py` (`core/runes.py` — реэкспорт). Логика вставки одна на два стека: серверный `ItemInstance` — объект с атрибутами, а экземпляры движка — словари, поэтому добавлена обёртка `insert_into_instance` / `_DictInstance`, которая пишет изменения обратно в dict. Второй копии правил рунических слов не появилось.
+**Было:** **Доказательство:** `core/runes.py`, импорт только из `tests/test_craft_and_dungeon_hazards.py`; крафт/заточка в движке есть (`engine/craft.py`).
 **ТЗ:** `engine/runes.py`; применение рун к именным экземплярам через реестр `engine/items.py`; экран в мастерской (`engine/trade.py`).
 **Файлы:** `engine/runes.py` (новый), `engine/items.py`, `engine/trade.py`, `modules.json`, `index.html`, `tests/test_parity.py`.
 
@@ -284,8 +292,9 @@
 **ТЗ:** `engine/bestiary.py` (записи по убитым тварям — данные уже есть в `engine/content.py:MOBS`); экран в меню (`engine/game.menu`), счётчик по видам из `p.kills` + новой структуры учёта по индексам мобов.
 **Файлы:** `engine/bestiary.py` (новый), `engine/game.py`, `engine/models.py`, `modules.json`, `index.html`, `tests/test_parity.py`.
 
-### № 33. `engine/ambient.py` — фоновые события мира
-**Статус:** ⬜ не сделано. **Доказательство:** `core/ambient.py`, импорт только из `tests/test_miniapp_and_radar.py`; фоновые циклы в боте есть (`bot/runner.py:_portal_sweep_loop`, `_spawn_tick_loop`), в движке фонового тика нет.
+### № 33. `engine/ambient.py` — звуковой эмбиент
+**Статус:** ✅ сделано. **Уточнение по факту кода:** `core/ambient.py` — не «фоновые события мира», а профили звукового окружения для Web Audio (потрескивание костра, вой ветра, эхо капель). Браузерному стеку они нужны напрямую — звук играет именно там, — поэтому каталог перенесён в `engine/ambient.py`, а `core/ambient.py` стал реэкспортом.
+**Было:** **Доказательство:** `core/ambient.py`, импорт только из `tests/test_miniapp_and_radar.py`; фоновые циклы в боте есть (`bot/runner.py:_portal_sweep_loop`, `_spawn_tick_loop`), в движке фонового тика нет.
 **ТЗ:** `engine/ambient.py` (случайные фоновые строки/события по таймеру); вызов из тика мира в `engine/game.do_world` или `engine/respawn.py`.
 **Файлы:** `engine/ambient.py` (новый), `engine/game.py`, `modules.json`, `index.html`, `tests/test_parity.py`.
 
@@ -692,18 +701,18 @@
 | Раздел | Кол-во | ✅ сделано | 🟡 частично | Что это за пробелы |
 |---|---|---|---|---|
 | 1. Тесты и CI | 10 | № 1, 2, 3, 6, 7, 8, 9, 10 | — | 12 забытых наборов, ложные провалы, нет CI, рассинхрон бандла |
-| 2. Паритет `core/` → `engine/` | 25 | № 16, 19, 21–24, 32, 35 | — | 17 серверных подсистем без браузерного близнеца |
+| 2. Паритет `core/` → `engine/` | 25 | № 11, 16, 18, 19, 21–25, 32, 33, 35 | — | 13 серверных подсистем без браузерного близнеца |
 | 3. Вход игроку в боте | 25 | № 36–57 (кроме 58) | № 59 | подсистемы без единого вызова из `bot/handlers/` |
 | 4. Админка `admin/main.py` | 10 | № 61–66 | — | 13 подсистем с нулём упоминаний в админке |
 | 5. Панель `webapp/pages/` | 6 | № 72 | — | страницы Pyodide-панели после переносов Раздела 2 |
 | 6. Баги и долги из аудита | 12 | № 77–85, 87, 88 (все) | — | **все долги аудита закрыты** |
 | 7. Трёхвалютная экономика | 6 | № 89–94 (все) | — | **долг закрыт: паритет 28/28** |
 | 8. Документация | 6 | № 95, 98, 100 | — | устаревшие цифры и списки |
-| **Итого** | **100** | **67** | **1** | — |
+| **Итого** | **100** | **71** | **1** | — |
 
-**Сделано на 2026-08-14: 67 пунктов закрыто полностью, 1 частично, 1 снят как задача-фантом (№ 58).**
-Закрыты: № 1, 2, 3, 6, 7, 8, 9, 10, 16, 19, 21–24, 32, 35, 36–57 (кроме 58), 61–66, 72, 77–85, 87–95, 98, 100.
-**Паритет: 35 из 35 механик в обоих стеках, долгов в реестре нет.**
+**Сделано на 2026-08-14: 71 пункт закрыт полностью, 1 частично, 1 снят как задача-фантом (№ 58).**
+Закрыты: № 1, 2, 3, 6, 7, 8, 9, 10, 11, 16, 18, 19, 21–25, 32, 33, 35, 36–57 (кроме 58), 61–66, 72, 77–85, 87–95, 98, 100.
+**Паритет: 38 из 38 механик в обоих стеках, долгов в реестре нет.**
 **Раздел 6 закрыт целиком** — в `AUDIT-BUGS.md` не осталось незакрытых находок.
 **В реестре паритета долгов больше нет: 28 из 28 механик в обоих стеках.**
 **Долг A закрыт** — самое старое известное семейство багов браузерного стека (дубликаты вещей) больше не воспроизводится.

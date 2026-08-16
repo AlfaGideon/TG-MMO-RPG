@@ -48,6 +48,14 @@ def look(p, cell, store=None):
     if cell.chest:
         found.append("📦 Сундук!")
         rows.append([("📦 Открыть", "chest")])
+    # Мирные занятия: привязаны к уже размеченным тайлам, как на сервере
+    # (bot/keyboards/inline.inspect_keyboard).
+    if cell.tile == "water":
+        rows.append([("🎣 Рыбачить", "fish")])
+    if cell.tile in ("forest", "swamp"):
+        rows.append([("🌿 Собрать травы", "herbs")])
+    if cell.tile not in ("water",) and cell.loc != 0:
+        rows.append([("⛏ Копать", "dig")])
     body = "\n".join(found) if found else f"<i>{random.choice(data.EMPTY_LOOK)}</i>"
     rows.append([("◀️ Назад", "world")])
     return Reply(text=f"🔍 <b>Осмотр [{cell.x},{cell.y}]</b>\n<i>{cell.name}</i>\n\n"

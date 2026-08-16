@@ -409,6 +409,9 @@ class Game:
     do_subgo = lambda self, p, arg="": progress.subclass_choose(self.store, p, arg)
     do_familiar = lambda self, p, arg="": progress.familiar_screen(p)
     do_famgo = lambda self, p, arg="": progress.familiar_adopt(self.store, p, arg)
+    do_fish = lambda self, p, arg="": progress.fish(self.store, p)
+    do_herbs = lambda self, p, arg="": progress.herbs(self.store, p)
+    do_dig = lambda self, p, arg="": progress.dig(self.store, p)
 
 
     # ── подземелья ──────────────────────────────────────────

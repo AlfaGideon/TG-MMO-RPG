@@ -155,6 +155,15 @@ REGISTRY = [
     Feature("Фамильяры",
             browser=["engine/familiars.py"],
             server=["core/familiars.py"]),
+    Feature("Руны и рунические слова",
+            browser=["engine/runes.py"],
+            server=["core/runes.py"]),
+    Feature("Мирные занятия",
+            browser=["engine/gathering.py"],
+            server=["core/gathering.py", "core/archaeology.py"]),
+    Feature("Звуковой эмбиент",
+            browser=["engine/ambient.py"],
+            server=["core/ambient.py"]),
 
     Feature("Трёхвалютная экономика",
             browser=["engine/currency.py"],
@@ -321,6 +330,17 @@ def test_shared_numbers_match():
         check(c_tal.TALENT_STARS is e_tal.TALENT_STARS, "древо талантов общее")
         check(c_subs.SUBCLASSES is e_subs.SUBCLASSES, "каталог подклассов общий")
         check(c_fam.FAMILIARS is e_fam.FAMILIARS, "каталог фамильяров общий")
+        from core import ambient as c_amb
+        from core import runes as c_runes
+        from engine import ambient as e_amb
+        from engine import gathering as e_gath
+        from engine import runes as e_runes
+        check(c_runes.RUNES is e_runes.RUNES, "каталог рун общий")
+        check(c_runes.RUNEWORDS is e_runes.RUNEWORDS, "рунические слова общие")
+        check(c_amb.AMBIENT_PROFILES is e_amb.AMBIENT_PROFILES,
+              "профили эмбиента общие")
+        check(e_gath.FRAGMENTS_FOR_MAP == 5,
+              f"осколков до карты: {e_gath.FRAGMENTS_FOR_MAP}")
         check(c_subs.SUBCLASS_MIN_LEVEL == e_subs.SUBCLASS_MIN_LEVEL,
               f"порог специализации: {e_subs.SUBCLASS_MIN_LEVEL}")
     except ImportError as e:
