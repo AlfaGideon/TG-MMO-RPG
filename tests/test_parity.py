@@ -164,6 +164,15 @@ REGISTRY = [
     Feature("Звуковой эмбиент",
             browser=["engine/ambient.py"],
             server=["core/ambient.py"]),
+    Feature("Разбор снаряжения",
+            browser=["engine/salvage.py"],
+            server=["core/salvage.py"]),
+    Feature("Призрачный торговец и прах",
+            browser=["engine/spectral.py"],
+            server=["core/spectral.py"]),
+    Feature("Зал Славы",
+            browser=["engine/legends.py"],
+            server=["core/legends.py"]),
 
     Feature("Трёхвалютная экономика",
             browser=["engine/currency.py"],
@@ -341,6 +350,14 @@ def test_shared_numbers_match():
               "профили эмбиента общие")
         check(e_gath.FRAGMENTS_FOR_MAP == 5,
               f"осколков до карты: {e_gath.FRAGMENTS_FOR_MAP}")
+        from core import salvage as c_salv
+        from core import spectral as c_spec
+        from engine import salvage as e_salv
+        from engine import spectral as e_spec
+        check(c_spec.SPECTRAL_WARES is e_spec.SPECTRAL_WARES,
+              "витрина призрака общая")
+        check(c_salv.S is e_salv,
+              "разбор считается общей таблицей")
         check(c_subs.SUBCLASS_MIN_LEVEL == e_subs.SUBCLASS_MIN_LEVEL,
               f"порог специализации: {e_subs.SUBCLASS_MIN_LEVEL}")
     except ImportError as e:

@@ -45,6 +45,7 @@ class Game:
             [("🧭 Репутация", "rep"), ("🔮 Знамения", "omens")],
             [("📖 Бестиарий", "bestiary"), ("🎖 Титулы", "titles")],
             [("⭐ Созвездия", "talents"), ("🎓 Путь", "subclass")],
+            [("🏆 Зал Славы", "legends")],
             [("🐾 Спутник", "familiar")],
             [("🔨 Мастерская", "craft"), ("🏛 Аукцион", "auc:0")],
             [("🏆 Топ", "top"), ("❓ Помощь", "help")],
@@ -412,6 +413,10 @@ class Game:
     do_fish = lambda self, p, arg="": progress.fish(self.store, p)
     do_herbs = lambda self, p, arg="": progress.herbs(self.store, p)
     do_dig = lambda self, p, arg="": progress.dig(self.store, p)
+    do_honor = lambda self, p, arg="": progress.honor_grave(self.store, p)
+    do_ghost = lambda self, p, arg="": progress.ghost_screen(p)
+    do_ghostbuy = lambda self, p, arg="": progress.ghost_buy(self.store, p, arg)
+    do_legends = lambda self, p, arg="": progress.legends_screen(self.store)
 
 
     # ── подземелья ──────────────────────────────────────────

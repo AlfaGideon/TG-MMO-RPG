@@ -246,3 +246,69 @@ def dig(store, p):
         text="⛏ <b>Раскопки</b>\n\n"
              + gathering.fragment_text(found, formed, coords),
         keyboard=[[("⛏ Копать ещё", "dig")], [("◀️ Назад", "look")]])
+
+
+# ── призрачный торговец и Зал Славы ─────────────────────────
+
+def honor_grave(store, p):
+    """🕯 Почтить память павшего: собрать прах предков."""
+    from engine import death, spectral
+
+    grave = death.at(store, p.loc, p.x, p.y, getattr(p, "floor", 0) or 0)
+    if grave is None:
+        return Reply(alert="Здесь нет могилы.")
+    res = spectral.harvest_ash(p)
+    store.save_player(p)
+    return Reply(
+        text=f"🕯 <b>Память павших</b>\n\nТы почтил память и собрал "
+             f"<b>+{res['gained']}</b> 🕯 Праха предков.\n"
+             f"Всего праха: <b>{res['total_ash']}</b> 🕯",
+        keyboard=[[("👻 Призрачный торговец", "ghost")], [("◀️ Назад", "look")]])
+
+
+def ghost_screen(p):
+    """👻 Витрина призрачного торговца: платят прахом, не золотом."""
+    from engine import spectral
+
+    ash = spectral.ash_of(p)
+    lines = ["👻 <b>Бродячий Призрак Павшего Торговца</b>", "",
+             "<i>— Я помню звон монет... но здесь ценен лишь Прах предков 🕯.</i>",
+             "", f"🕯 У тебя праха: <b>{ash}</b>", ""]
+    rows = []
+    for ware in spectral.get_spectral_wares():
+        lines.append(f"{ware['name']} — <b>{ware['cost_ash']}</b> 🕯")
+        lines.append(f"<i>{ware['desc']}</i>")
+        if ash >= ware["cost_ash"]:
+            rows.append([(f"Купить: {ware['name']}", f"ghostbuy:{ware['key']}")])
+    rows.append([("◀️ Назад", "look")])
+    return Reply(text="\n".join(lines), keyboard=rows)
+
+
+def ghost_buy(store, p, key):
+    """Покупка за прах предков."""
+    from engine import death, rules, spectral
+
+    ware = spectral.ware_by_key(key)
+    if ware is None:
+        return Reply(alert="Такого товара нет.")
+    if not spectral.can_afford(p, key):
+        need = ware["cost_ash"] - spectral.ash_of(p)
+        return Reply(alert=f"Не хватает {need} 🕯 Праха предков.")
+
+    p.soul_ash = spectral.ash_of(p) - ware["cost_ash"]
+    if key == "spec_wound_heal":
+        death.heal_wounds(p)
+    elif key == "spec_ancestor_tear":
+        p.max_mp += spectral.TEAR_MANA_BONUS
+        p.mp = rules.stats(p, store)["max_mp"]
+    store.save_player(p)
+    return Reply(text=f"👻 <b>Призрачный обмен</b>\n\n{spectral.buy_text(ware, key)}",
+                 keyboard=[[("👻 Ещё раз", "ghost")], [("◀️ Назад", "look")]])
+
+
+def legends_screen(store):
+    """🏆 Зал Славы: кто и что сделал первым на сервере."""
+    from engine import legends
+
+    return Reply(text=legends.hall_text(legends.all_records(store)),
+                 keyboard=[BACK_MENU])

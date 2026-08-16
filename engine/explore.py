@@ -34,6 +34,9 @@ def look(p, cell, store=None):
         whose = "твоя" if int(grave.get("owner", 0)) == int(p.tg_id) else f"{grave.get('name', '?')}"
         found.append(f"🪦 Надгробие ({whose}) — {grave.get('gold', 0)} 🪙")
         rows.append([("💰 Забрать", "claim")])
+        # Прах предков — отдельная «валюта» призрачного торговца.
+        rows.append([("🕯 Почтить память", "honor"),
+                     ("👻 Призрак", "ghost")])
     for q in mapview.others_here(store, p, cell.loc, cell.x, cell.y):
         found.append(f"🔵 Герой: {q.name} (ур. {q.level})")
     if cell.mob >= 0:

@@ -56,6 +56,7 @@ class Player:
     familiar_name: str = ""
     relic_fragments: int = 0                        # осколки скрижали
     treasure_map_coord: str = ""                    # "loc:3:x:5:y:5"
+    soul_ash: int = 0                               # прах предков (валюта призраков)
     strength: int = 10
     agility: int = 10
     intelligence: int = 10

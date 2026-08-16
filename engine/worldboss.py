@@ -14,7 +14,7 @@
 import random
 import time
 
-from engine import audit, currency, data, factions, items, karma, rules
+from engine import audit, currency, data, factions, items, karma, legends, rules
 from engine.models import Reply
 
 BOSS = "worldboss"          # активный босс в settings
@@ -205,6 +205,10 @@ def _reward_all(store, ev, b):
         karma_line = karma.on_boss(p)
         if karma_line:
             lines.append(karma_line)
+        # Зал Славы: первое убийство каждого босса именное и навсегда.
+        if legends.record_first(store, f"boss:{ev['key']}",
+                                f"Первый победитель: {title(ev['key'])}", p):
+            lines.append("🏆 <b>Твоё имя вошло в Зал Славы!</b>")
         if levels:
             lines.append(f"🎖 Новый уровень: {p.level}!")
         store.save_player(p)

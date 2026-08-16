@@ -1,6 +1,14 @@
-"""Глобальный Зал Славы (Hall of Legends / Server Firsts)."""
+"""Зал Славы: серверная часть.
+
+Тексты и правило «рекорд фиксируется один раз» — общие для обоих стеков
+и живут в `engine/legends.py`. Здесь остаётся хранение в таблице
+`ServerRecord`; экран собирает общая `hall_text`.
+"""
 from datetime import datetime, timezone
+
 from sqlalchemy import select
+
+from engine.legends import hall_text as _hall_text
 from core.models import Character, ServerRecord
 
 
@@ -35,14 +43,6 @@ async def get_hall_of_legends(session) -> list[ServerRecord]:
     return result.scalars().all()
 
 
-def hall_of_legends_text(records: list[ServerRecord]) -> str:
-    if not records:
-        return (
-            "🏆 <b>Глобальный Зал Славы (Server Legends)</b>\n\n"
-            "Летопись мира пока пуста. Соверши великий подвиг, чтобы твоё имя навеки вошло в историю!"
-        )
-    lines = ["🏆 <b>Глобальный Зал Славы Теневых Земель</b>\n"]
-    for r in records[:8]:
-        date_str = r.achieved_at.strftime("%d.%m.%Y") if r.achieved_at else "—"
-        lines.append(f"⭐ <b>{r.title}</b>\n   Первопроходец: <b>{r.holder_character_name}</b> ({date_str})\n")
-    return "\n".join(lines)
+def hall_of_legends_text(records: list) -> str:
+    """Экран Зала Славы — общая вёрстка для обоих стеков."""
+    return _hall_text(records)
