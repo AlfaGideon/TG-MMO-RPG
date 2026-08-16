@@ -42,6 +42,21 @@ async def invest_in_town(session, character: Character, location_id: int, bronze
         inv.invested_bronze = (inv.invested_bronze or 0) + bronze_amount
 
     await session.flush()
+
+    # Живая лента админки (№ 70).
+    try:
+        from core.realtime import publish_sync
+
+        publish_sync("town_invested", {
+            "character_id": character.id,
+            "name": character.name,
+            "location_name": loc.name,
+            "amount": bronze_amount,
+            "total_invested": inv.invested_bronze,
+        })
+    except Exception:
+        pass
+
     return {
         "ok": True,
         "invested": bronze_amount,
@@ -117,4 +132,18 @@ async def pay_dividends(session) -> list[dict]:
             "location_name": inv.location.name if inv.location else "поселение",
         })
     await session.flush()
+
+    # Одно событие на всю выплату, а не по одному на вкладчика: иначе
+    # ring-buffer ленты (200 записей) вымывался бы каждым начислением.
+    if payouts:
+        try:
+            from core.realtime import publish_sync
+
+            publish_sync("dividends_paid", {
+                "count": len(payouts),
+                "total": sum(p["amount"] for p in payouts),
+                "top": sorted(payouts, key=lambda p: -p["amount"])[0],
+            })
+        except Exception:
+            pass
     return payouts

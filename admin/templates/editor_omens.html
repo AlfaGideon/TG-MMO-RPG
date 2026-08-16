@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% import "macros.html" as macros %}
+
+{% block title %}Знамения — Shadow Lands{% endblock %}
+{% block page_title %}🔮 Знамения{% endblock %}
+
+{% block breadcrumbs %}
+{{ macros.crumbs([('Dashboard','/'), ('Контент мира','/content'), ('Знамения', none)]) }}
+{% endblock %}
+
+{% block content %}
+
+{# IDEAS-100.md № 68 и № 86.
+   Каталог знамений — engine/omens.py, один на оба стека. Добавленные здесь
+   знамения лежат в AppSetting и подмешиваются к каталогу той же функцией
+   engine.omens.catalog, которой пользуется браузерная панель. #}
+
+<div class="card">
+    <h3>👁 Что видит игрок прямо сейчас</h3>
+    <p class="section-sub">Так выглядит баннер знамения на экране бота.
+       {% if active_kinds %}
+       Сейчас в мире бушует бедствие, поэтому показывается <b>его предвестие</b>,
+       а не случайная примета.
+       {% else %}
+       Бедствий сейчас нет — берётся случайная примета из каталога.
+       {% endif %}
+    </p>
+    <div style="background:var(--bg-dark);border:1px solid var(--border);border-radius:8px;padding:0.8rem">
+        {{ preview | safe }}
+    </div>
+    {% if active_kinds %}
+    <p class="hint" style="margin-top:.5rem">
+        Активные бедствия:
+        {% for k in active_kinds %}<span class="badge badge-danger">{{ k }}</span>{% endfor %}
+    </p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <div class="toolbar">
+        <h3 style="margin-bottom:0;">📖 Каталог знамений</h3>
+        <span class="hint">{{ builtin | length }} встроенных · {{ custom | length }} своих</span>
+    </div>
+    <p class="section-sub">Встроенные знамения правятся в коде
+       (<code>engine/omens.py</code>) — они общие для бота и браузерного
+       движка. Свои можно добавлять и удалять здесь.</p>
+
+    <div class="table-wrap">
+    <table>
+        <thead><tr><th>Значок</th><th>Заголовок</th><th>Описание</th><th>Откуда</th><th></th></tr></thead>
+        <tbody>
+            {% for o in builtin %}
+            <tr>
+                <td data-label="Значок" style="font-size:1.3rem">{{ o.icon }}</td>
+                <td data-label="Заголовок"><b>{{ o.title }}</b></td>
+                <td data-label="Описание" class="muted">{{ o.desc }}</td>
+                <td data-label="Откуда"><span class="badge">в коде</span></td>
+                <td></td>
+            </tr>
+            {% endfor %}
+            {% for o in custom %}
+            <tr>
+                <td data-label="Значок" style="font-size:1.3rem">{{ o.icon }}</td>
+                <td data-label="Заголовок"><b>{{ o.title }}</b></td>
+                <td data-label="Описание" class="muted">{{ o.desc }}</td>
+                <td data-label="Откуда"><span class="badge badge-uncommon">своё</span></td>
+                <td data-label="">
+                    {# Подтверждение через data-confirm, а не inline-onsubmit:
+                       апостроф в заголовке иначе сломал бы весь скрипт страницы
+                       (это ловит tests/test_admin_layout.py). #}
+                    <form action="/editor/omens/{{ loop.index0 }}/delete" method="post" style="margin:0">
+                        <button type="submit" class="btn btn-danger"
+                                data-confirm="Удалить знамение «{{ o.title }}»?">🗑 Удалить</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</div>
+
+<div class="card">
+    <h3>➕ Добавить знамение</h3>
+    <form action="/editor/omens/add" method="post" data-validate>
+        <div class="field-row cols-3">
+            <div>
+                <label class="form-label">Значок</label>
+                <input type="text" name="icon" value="🔮" maxlength="4" class="search-box">
+            </div>
+            <div>
+                <label class="form-label">Заголовок</label>
+                <input type="text" name="title" maxlength="64" required
+                       placeholder="Например: Вой в тумане" class="search-box">
+            </div>
+            <div>
+                <label class="form-label">Описание</label>
+                <input type="text" name="desc" maxlength="300"
+                       placeholder="Что говорят старики" class="search-box">
+            </div>
+        </div>
+        <div style="margin-top:.7rem">
+            <button type="submit" class="btn btn-primary">➕ Добавить</button>
+        </div>
+    </form>
+</div>
+
+<div class="card">
+    <h3>🌪 Предвестия бедствий</h3>
+    <p class="section-sub">Эти знамения не хранятся: они берутся из описания
+       самого бедствия (<code>engine/cataclysm_kinds.py</code>, поле
+       <code>omen</code>) и показываются игроку, пока бедствие бушует.</p>
+    <div class="table-wrap">
+    <table>
+        <thead><tr><th>Бедствие</th><th>Предвестие</th><th>Сейчас</th></tr></thead>
+        <tbody>
+            {% for row in kind_omens %}
+            <tr>
+                <td data-label="Бедствие">{{ row.icon }} <b>{{ row.name }}</b></td>
+                <td data-label="Предвестие" class="muted">{{ row.omen }}</td>
+                <td data-label="Сейчас">
+                    {% if row.key in active_kinds %}
+                    <span class="badge badge-danger">бушует</span>
+                    {% else %}<span class="muted">—</span>{% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</div>
+
+{% endblock %}

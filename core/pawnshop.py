@@ -31,7 +31,9 @@ async def create_pawn_loan(session, character: Character, inv_item: InventoryIte
     loan_val = E.loan_for(base_val)
     buyback = E.buyback_for(loan_val)
 
-    # Убираем предмет из сумки
+    # Убираем предмет из сумки. Имя запоминаем ДО удаления: после
+    # session.delete обращение к inv_item.item уже небезопасно.
+    item_name = inv_item.item.name if inv_item.item else "вещь"
     inst_id = instance.id
     item_id = inv_item.item_id
     await session.delete(inv_item)
@@ -51,6 +53,22 @@ async def create_pawn_loan(session, character: Character, inv_item: InventoryIte
     # Выдаём наличные на руки
     add_currency(character, bronze=loan_val)
     await session.flush()
+
+    # Живая лента админки (№ 70): движение вещей через ломбард — такое же
+    # событие экономики, как новый лот аукциона (auction_new).
+    try:
+        from core.realtime import publish_sync
+
+        publish_sync("pawn_loan", {
+            "character_id": character.id,
+            "name": character.name,
+            "item": item_name,
+            "loan_bronze": loan_val,
+            "buyback_price": buyback,
+            "days": days,
+        })
+    except Exception:
+        pass
 
     return {
         "ok": True,

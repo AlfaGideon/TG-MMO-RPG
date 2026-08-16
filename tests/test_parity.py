@@ -155,6 +155,9 @@ REGISTRY = [
     Feature("Фамильяры",
             browser=["engine/familiars.py"],
             server=["core/familiars.py"]),
+    Feature("Шаблоны питомцев (каталог для панелей)",
+            browser=["engine/pets.py"],
+            server=["core/pets.py"]),
     Feature("Руны и рунические слова",
             browser=["engine/runes.py"],
             server=["core/runes.py"]),
@@ -364,6 +367,14 @@ def test_shared_numbers_match():
         check(c_tal.TALENT_STARS is e_tal.TALENT_STARS, "древо талантов общее")
         check(c_subs.SUBCLASSES is e_subs.SUBCLASSES, "каталог подклассов общий")
         check(c_fam.FAMILIARS is e_fam.FAMILIARS, "каталог фамильяров общий")
+        from core import pets as c_pets
+        from engine import pets as e_pets
+        check(c_pets.RARITIES is e_pets.RARITIES,
+              "шкала редкости шаблонов питомцев общая")
+        check(c_pets.normalize_key is e_pets.normalize_key,
+              "ключ шаблона питомца нормализуется одним кодом")
+        check(c_pets.normalize_bonuses is e_pets.normalize_bonuses,
+              "бонусы шаблона валидируются одним кодом")
         from core import ambient as c_amb
         from core import runes as c_runes
         from engine import ambient as e_amb

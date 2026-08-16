@@ -108,6 +108,108 @@
     </div>
 </div>
 
+{# Живая лента мира (IDEAS-100.md № 70). События приходят по /ws/live;
+   фильтр — только на клиенте, поэтому переключение не дёргает сервер. #}
+<div class="card" style="margin-top: 1.5rem;" id="live-feed-card">
+    <div class="toolbar">
+        <h2 style="margin-bottom:0;">📡 Живая лента мира</h2>
+        <span class="hint" id="feedStatus">подключение…</span>
+    </div>
+    <p class="section-sub">Что происходит прямо сейчас: движение героев, бои,
+       порталы и подсистемы — карма, ломбард, вклады, знамения.</p>
+    <div style="display:flex;gap:.4rem;flex-wrap:wrap;margin-bottom:.6rem" id="feedFilters">
+        <button type="button" class="btn btn-primary" data-feed-filter="all">Все</button>
+        <button type="button" class="btn" data-feed-filter="world">🌍 Мир</button>
+        <button type="button" class="btn" data-feed-filter="battle">⚔️ Бои</button>
+        <button type="button" class="btn" data-feed-filter="economy">💰 Экономика</button>
+        <button type="button" class="btn" data-feed-filter="karma">⚖️ Карма и знамения</button>
+    </div>
+    <div id="liveFeed" class="table-wrap"
+         style="max-height:22rem;overflow-y:auto;font-size:.85rem;line-height:1.7">
+        <div class="muted" id="feedEmpty">Событий пока нет.</div>
+    </div>
+</div>
+
+<script>
+// Категории для фильтра: имена типов совпадают с core/realtime.py.
+const FEED_GROUPS = {
+    world:   ['player_move','player_joined','player_levelup','portal_opened',
+              'portal_closed','portal_tick','mob_respawn','outpost_captured'],
+    battle:  ['battle_result','battle_victory','chest_opened'],
+    economy: ['auction_new','auction_sold','auction_expired','economy_tick',
+              'pawn_loan','town_invested','dividends_paid'],
+    karma:   ['karma_changed','omen_shown'],
+};
+let feedFilter = 'all';
+
+function feedMatches(type) {
+    if (feedFilter === 'all') return true;
+    return (FEED_GROUPS[feedFilter] || []).includes(type);
+}
+
+function applyFeedFilter() {
+    let shown = 0;
+    document.querySelectorAll('#liveFeed .feed-row').forEach(row => {
+        const ok = feedMatches(row.dataset.type);
+        row.style.display = ok ? '' : 'none';
+        if (ok) shown++;
+    });
+    const empty = document.getElementById('feedEmpty');
+    if (empty) {
+        empty.style.display = shown ? 'none' : '';
+        empty.textContent = shown ? '' : 'В этой категории событий пока нет.';
+    }
+}
+
+function addFeedEvent(ev) {
+    if (!ev || !ev.type || ev.type === 'ping') return;
+    const box = document.getElementById('liveFeed');
+    if (!box) return;
+    const row = document.createElement('div');
+    row.className = 'feed-row';
+    row.dataset.type = ev.type;
+    // Текст готовит сервер (core/realtime.format_radar_event) — разметка
+    // там доверенная, из наших же шаблонов строк.
+    row.innerHTML = ev.text || ('📡 ' + ev.type);
+    box.insertBefore(row, box.firstChild);
+    while (box.querySelectorAll('.feed-row').length > 100) {
+        box.removeChild(box.querySelector('.feed-row:last-child'));
+    }
+    applyFeedFilter();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('#feedFilters [data-feed-filter]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            feedFilter = btn.dataset.feedFilter;
+            document.querySelectorAll('#feedFilters .btn').forEach(b =>
+                b.classList.toggle('btn-primary', b === btn));
+            applyFeedFilter();
+        });
+    });
+
+    fetch('/api/live/feed?limit=60')
+        .then(r => r.json())
+        .then(d => (d.events || []).slice().reverse().forEach(addFeedEvent))
+        .catch(() => {});
+
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    try {
+        const ws = new WebSocket(proto + '//' + location.host + '/ws/live');
+        const status = document.getElementById('feedStatus');
+        ws.onopen = () => { if (status) status.textContent = 'в эфире'; };
+        ws.onclose = () => { if (status) status.textContent = 'нет связи'; };
+        ws.onmessage = e => {
+            try {
+                const ev = JSON.parse(e.data);
+                if (!ev.text) return;      // сырые события без текста пропускаем
+                addFeedEvent(ev);
+            } catch (_) {}
+        };
+    } catch (_) {}
+});
+</script>
+
 <div class="card" style="margin-top: 1.5rem;">
     <h2>⚔️ Результаты боёв</h2>
     <div class="chart-wrap" style="max-width:480px;">

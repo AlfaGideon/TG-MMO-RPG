@@ -395,9 +395,16 @@ class Game:
     do_toss = lambda self, p, arg: inventory.toss(p, arg, self.store)
 
     def do_omens(self, p, arg=""):
-        """🔮 Знамения: предвестия бед, общие для всех героев."""
-        from engine import omens
-        return Reply(text=omens.omens_text(),
+        """🔮 Знамения: предвестия бед, общие для всех героев.
+
+        Если бедствие уже бушует — первым идёт его предвестие (№ 86), а
+        к каталогу подмешиваются знамения, добавленные из панели (№ 68).
+        """
+        from engine import cataclysm, omens
+
+        kinds = [e["kind"] for e in cataclysm.active(self.store, p.loc)
+                 if e.get("kind")]
+        return Reply(text=omens.omens_text(self.store.settings, kinds),
                      keyboard=[[("◀️ Меню", "menu")]])
 
     # Экраны прогресса (бестиарий, титулы, перерождение) вынесены в

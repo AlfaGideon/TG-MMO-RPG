@@ -10,6 +10,9 @@ from webapp.pages import content as page
 
 def register(app, A):
     A("content-tab", lambda arg: _tab(app, arg))
+    A("pet-add", lambda _="": _pet_add(app))
+    A("pet-del", lambda arg: _pet_del(app, arg))
+    A("pet-toggle", lambda arg: _pet_toggle(app, arg))
 
     A("mob-edit", lambda arg: app.modal(page.mob_form(app, int(arg))))
     A("mob-new", lambda _="": app.modal(page.mob_form(app, None)))
@@ -252,3 +255,56 @@ def _class_clone(app, arg):
     data.CLASSES[new_key] = (src[0] + " (копия)", src[1], dict(src[2]))
     dom.toast(f"Класс «{data.CLASSES[new_key][0]}» склонирован")
     _persist(app)
+
+
+# ── шаблоны питомцев (пункт № 20) ───────────────────────────
+
+def _pet_add(app):
+    """Добавить шаблон питомца. Валидация — общая с сервером (engine/pets)."""
+    from engine import pets
+
+    try:
+        tpl = pets.add(
+            app.store,
+            name=dom.value("#pt_name", "").strip(),
+            key=dom.value("#pt_key", "").strip(),
+            description=dom.value("#pt_desc", "").strip(),
+            family=dom.value("#pt_family", "slime"),
+            rarity=dom.value("#pt_rarity", "common"),
+            bonuses=dom.value("#pt_bonuses", "{}"),
+            sort_order=_int("#pt_sort", 100),
+        )
+    except ValueError as e:
+        dom.toast(str(e), "err")
+        return
+    except Exception:
+        # Битый JSON в поле бонусов — самая частая ошибка руками.
+        dom.toast("Бонусы должны быть JSON-объектом, например {\"crit_bonus\": 3}",
+                  "err")
+        return
+    app.store.save()
+    dom.toast(f"Шаблон «{tpl['name']}» добавлен")
+    app.render()
+
+
+def _pet_del(app, key):
+    from engine import pets
+
+    if pets.remove(app.store, key):
+        app.store.save()
+        dom.toast("Шаблон удалён")
+        app.render()
+    else:
+        dom.toast("Шаблон не найден", "err")
+
+
+def _pet_toggle(app, key):
+    from engine import pets
+
+    state = pets.toggle(app.store, key)
+    if state is None:
+        dom.toast("Шаблон не найден", "err")
+        return
+    app.store.save()
+    dom.toast("Шаблон включён" if state else "Шаблон выключен")
+    app.render()

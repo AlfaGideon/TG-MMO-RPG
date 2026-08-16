@@ -6,6 +6,8 @@
 
 Вынесено отдельным файлом, чтобы не раздувать location.py и battle.py.
 """
+import time
+
 from aiogram import F, Router
 from aiogram.types import CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -61,10 +63,34 @@ async def omens_menu(callback: CallbackQuery):
     """🔮 Знамения: предвестия бед (каталог — engine/omens.py, общий для стеков)."""
     from core import omens as core_omens
 
-    lines = [core_omens.omen_banner(), "",
+    # Знамения читаются из БД: к каталогу подмешиваются добавленные из
+    # админки (№ 68), а при живом бедствии первым идёт его предвестие
+    # (№ 86) — раньше список был статичным и с миром не связан.
+    async with async_session() as session:
+        rows = await core_omens.current(session)
+        head = await core_omens.banner(session)
+        kinds = await core_omens.active_kinds(session)
+        character = await _character(session, callback.from_user.id)
+        who = character.name if character else "Герой"
+        char_id = character.id if character else None
+
+    # Живая лента админки (№ 70): видно, что игроки читают знамения и
+    # какое бедствие им предвещают.
+    try:
+        from core.realtime import publish_sync
+
+        publish_sync("omen_shown", {
+            "character_id": char_id, "name": who,
+            "title": rows[0]["title"] if rows else "",
+            "cataclysm": kinds[0] if kinds else None,
+        })
+    except Exception:
+        pass
+
+    lines = [head, "",
              "🔮 <b>Знамения</b>", "",
              "<i>Старики в Погосте шепчутся о дурных приметах:</i>", ""]
-    for o in core_omens.get_current_omens():
+    for o in rows:
         lines.append(f"{o['icon']} <b>{o['title']}</b>")
         lines.append(f"<i>{o['desc']}</i>")
     lines += ["", "<i>Говорят, за знамением всегда приходит беда…</i>"]
@@ -602,11 +628,44 @@ async def pvp_select(callback: CallbackQuery):
                          reply_markup=builder.as_markup(), parse_mode="HTML")
 
 
-# Вызовы на дуэль: {id вызванного: (id вызвавшего, ставка)}. Состояние
-# живёт в памяти процесса, как и боевое (combat_state в battle.py):
-# незакрытый вызов теряется при рестарте — это лучше, чем таблица ради
-# записи, живущей минуту.
-duel_invites: dict[int, tuple[int, int]] = {}
+# Вызовы на дуэль: {id вызванного: (id вызвавшего, ставка, момент вызова)}.
+# Состояние живёт в памяти процесса, как и боевое (combat_state в
+# battle.py): незакрытый вызов теряется при рестарте — это лучше, чем
+# таблица ради записи, живущей минуту.
+#
+# Третье поле (время) добавлено вместе с админской секцией «Арена»
+# (IDEAS-100.md № 67): без него вызов висел вечно — принять его можно было
+# и через сутки, когда соперник давно ушёл с клетки, а ставка уже была
+# потрачена. Теперь протухшие вызовы отсеиваются.
+DUEL_INVITE_TTL = 300          # секунд: дольше пяти минут вызов не ждёт
+
+duel_invites: dict[int, tuple[int, int, float]] = {}
+
+
+def prune_duel_invites(now=None) -> int:
+    """Убрать протухшие вызовы. Возвращает, сколько убрано."""
+    now = time.time() if now is None else now
+    stale = [tid for tid, inv in duel_invites.items()
+             if now - (inv[2] if len(inv) > 2 else 0) > DUEL_INVITE_TTL]
+    for tid in stale:
+        duel_invites.pop(tid, None)
+    return len(stale)
+
+
+def pending_duels(now=None) -> list[dict]:
+    """Живые вызовы — для секции «Арена» в админке (admin/main.py)."""
+    now = time.time() if now is None else now
+    prune_duel_invites(now)
+    return [{"target_id": tid, "challenger_tg": inv[0], "wager": inv[1],
+             "age": int(now - (inv[2] if len(inv) > 2 else now)),
+             "expires_in": max(0, int(DUEL_INVITE_TTL
+                                      - (now - (inv[2] if len(inv) > 2 else now))))}
+            for tid, inv in duel_invites.items()]
+
+
+def cancel_duel_invite(target_id: int) -> bool:
+    """Снять зависший вызов вручную (кнопка в админке)."""
+    return duel_invites.pop(int(target_id), None) is not None
 
 
 @router.callback_query(F.data.startswith("duel_go:"))
@@ -646,7 +705,8 @@ async def duel_invite(callback: CallbackQuery):
         await callback.answer("Соперник недоступен.", show_alert=True)
         return
 
-    duel_invites[target_id] = (int(callback.from_user.id), wager)
+    prune_duel_invites()
+    duel_invites[target_id] = (int(callback.from_user.id), wager, time.time())
 
     stake = "без ставки" if wager == 0 else f"ставка {wager}🟤"
     builder = InlineKeyboardBuilder()
@@ -689,11 +749,12 @@ async def duel_decline(callback: CallbackQuery):
 async def duel_accept(callback: CallbackQuery):
     """Принять вызов и провести дуэль (core/duels.resolve_wager_duel)."""
     target_id = int(callback.data.split(":")[1])
+    prune_duel_invites()
     invite = duel_invites.pop(target_id, None)
     if invite is None:
         await callback.answer("Вызов истёк или уже разрешён.", show_alert=True)
         return
-    challenger_tg, wager = invite
+    challenger_tg, wager = invite[0], invite[1]
 
     async with async_session() as session:
         defender = await _character(session, callback.from_user.id)

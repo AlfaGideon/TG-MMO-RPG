@@ -1,5 +1,5 @@
 """Страница: контент игры — мобы, предметы, NPC, классы. Всё редактируемо."""
-from engine import bestiary, data, familiars, rules
+from engine import bestiary, data, familiars, pets, rules
 from webapp.html import esc
 from webapp.pages import dungeons as page_dungeons
 
@@ -8,7 +8,8 @@ CRUMBS = [("Контент", "content")]
 
 TABS = [("mobs", "👾 Мобы"), ("items", "⚔️ Предметы"),
         ("npcs", "🎭 NPC"), ("classes", "🧙 Классы"),
-        ("pets", "🐾 Питомцы"), ("bestiary", "📖 Бестиарий"),
+        ("pets", "🐾 Питомцы"), ("pet_templates", "🥚 Шаблоны питомцев"),
+        ("bestiary", "📖 Бестиарий"),
         ("dungeons", "🕳 Подземелья")]
 
 
@@ -21,7 +22,8 @@ def render(ctx):
 
     renderers = {"mobs": _mobs, "items": _items,
                  "npcs": _npcs, "classes": _classes,
-                 "pets": _pets, "bestiary": _bestiary,
+                 "pets": _pets, "pet_templates": _pet_templates,
+                 "bestiary": _bestiary,
                  "dungeons": page_dungeons.render}
     if tab not in renderers:
         tab = "mobs"
@@ -202,6 +204,82 @@ def _pets(ctx):
 <div class="card">
   <h2>👥 Спутники героев</h2>
   {owners_body}
+</div>
+"""
+
+
+def _pet_templates(ctx):
+    """Редактор шаблонов питомцев (пункт № 20).
+
+    Паритет с серверной админкой: правила ключа, редкости и разбора
+    бонусов — общие (`engine/pets.py`), у сервера они лежат в таблице
+    `PetTemplate`, здесь — в `store.settings["pet_templates"]`.
+    """
+    rows = ""
+    for tpl in pets.templates(ctx.store):
+        rarity = tpl.get("rarity", "common")
+        state = ("<span class='tag'>вкл</span>" if tpl.get("is_active", True)
+                 else "<span class='muted'>выкл</span>")
+        rows += (
+            f"<tr><td data-label='Питомец'><b>{esc(tpl.get('name', ''))}</b>"
+            f"<br><code>{esc(tpl.get('key', ''))}</code></td>"
+            f"<td data-label='Семейство'>{esc(pets.FAMILY_LABELS.get(tpl.get('family'), '—'))}</td>"
+            f"<td data-label='Редкость'>{pets.RARITY_ICONS.get(rarity, '⚪')} "
+            f"{esc(pets.RARITY_LABELS.get(rarity, rarity))}</td>"
+            f"<td data-label='Бонусы' class='muted'>"
+            f"{esc(pets.describe_bonuses(tpl.get('bonuses_json')))}</td>"
+            f"<td data-label='Статус'>{state}</td>"
+            f"<td data-label=''>"
+            f"<button class='btn' data-act='pet-toggle' data-arg=\"{esc(tpl.get('key',''))}\">⏻</button> "
+            f"<button class='btn danger' data-act='pet-del' data-arg=\"{esc(tpl.get('key',''))}\">🗑</button>"
+            f"</td></tr>")
+    if not rows:
+        rows = ("<tr><td colspan='6'><div class='empty-state'>"
+                "<div class='empty-icon'>🥚</div>"
+                "<div>Шаблонов пока нет — заведи первого ниже.</div>"
+                "</div></td></tr>")
+
+    families = "".join(f"<option value='{k}'>{esc(v)}</option>"
+                       for k, v in pets.FAMILY_LABELS.items())
+    rarities = "".join(
+        f"<option value='{k}'>{pets.RARITY_ICONS.get(k, '')} {esc(v)}</option>"
+        for k, v in pets.RARITY_LABELS.items())
+
+    return f"""
+<div class="card">
+  <h2>🥚 Шаблоны питомцев <span class="muted">({len(pets.templates(ctx.store))})</span></h2>
+  <p class="muted">Каталог будущих видов — то же, что редактор
+     <code>/editor/pets</code> в серверной админке. Правила ключа, редкости
+     и разбора бонусов общие (<code>engine/pets.py</code>), поэтому шаблон,
+     принятый здесь, примет и сервер.</p>
+  <div class="scroll"><table>
+    <tr><th>Питомец</th><th>Семейство</th><th>Редкость</th><th>Бонусы</th>
+        <th>Статус</th><th></th></tr>
+    {rows}
+  </table></div>
+</div>
+<div class="card">
+  <h2>➕ Новый шаблон</h2>
+  <div class="row">
+    <div><label>Имя</label><input id="pt_name" placeholder="Слизень Зари"></div>
+    <div><label>Ключ (необязательно)</label><input id="pt_key" placeholder="из имени"></div>
+    <div><label>Семейство</label><select id="pt_family">{families}</select></div>
+    <div><label>Редкость</label><select id="pt_rarity">{rarities}</select></div>
+  </div>
+  <div class="row" style="margin-top:.5rem">
+    <div style="flex:2"><label>Описание</label>
+      <input id="pt_desc" placeholder="Чем он примечателен"></div>
+    <div><label>Порядок</label><input id="pt_sort" type="number" value="100"></div>
+  </div>
+  <div style="margin-top:.5rem">
+    <label>Бонусы (JSON)</label>
+    <input id="pt_bonuses" value="{{}}" placeholder='{{"crit_bonus": 3}}'>
+    <div class="hint">Механика читает: {esc(', '.join(pets.KNOWN_BONUSES))}.
+       Остальные ключи сохранятся, но пока декоративны.</div>
+  </div>
+  <div style="margin-top:.8rem">
+    <button class="btn primary" data-act="pet-add">➕ Добавить шаблон</button>
+  </div>
 </div>
 """
 

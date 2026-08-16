@@ -692,6 +692,58 @@ async def player_detail(request: Request, char_id: int):
             "pious_at": core_karma.PIOUS_KARMA,
             "defiled_at": core_karma.DEFILED_KARMA,
         }
+        # Эндгейм-прогресс: перерождение, титулы, подкласс, таланты.
+        # Раньше эти модули не упоминались в админке ни разу (пункт № 69):
+        # админ не видел, почему у героя завышенные статы.
+        from core import prestige as core_prestige
+        from core import subclasses as core_subclasses
+        from core import talents as core_talents
+        from core import titles as core_titles
+
+        rebirths = getattr(char, "rebirth_count", 0) or 0
+        can_reborn, rebirth_reason = core_prestige.can_rebirth(char)
+        unlocked_titles = core_titles.get_unlocked_titles(char)
+        title_bonuses = core_titles.title_bonus(char)
+        sub_key = getattr(char, "subclass", None)
+        sub_def = core_subclasses.SUBCLASSES.get(sub_key) if sub_key else None
+        unlocked_talents = core_talents.get_unlocked_talents(char)
+        spent_points = len(unlocked_talents)
+        earned_points = core_talents.points_for_level(char.level or 1)
+        progress_info = {
+            "rebirths": rebirths,
+            # +10 % к базовым статам за круг — core/prestige.perform_rebirth.
+            "rebirth_bonus_pct": rebirths * 10,
+            "rebirth_min_level": core_prestige.REBIRTH_MIN_LEVEL,
+            "can_rebirth": can_reborn,
+            "rebirth_reason": rebirth_reason,
+            "active_title": getattr(char, "active_title", None),
+            "title_bonuses": title_bonuses,
+            "titles": [
+                {"name": name,
+                 "active": name == getattr(char, "active_title", None),
+                 "desc": (core_titles.TITLES_CATALOG.get(name) or {}).get("desc", "")}
+                for name in unlocked_titles
+            ],
+            "titles_total": len(core_titles.TITLES_CATALOG),
+            "subclass": sub_key,
+            "subclass_name": (sub_def or {}).get("name", ""),
+            "subclass_desc": (sub_def or {}).get("desc", ""),
+            "subclass_min_level": core_subclasses.SUBCLASS_MIN_LEVEL,
+            "subclass_bonuses": core_subclasses.subclass_bonuses(char),
+            "talents": [
+                {"key": key,
+                 "name": (core_talents.TALENT_STARS.get(key) or {}).get("name", key),
+                 "desc": (core_talents.TALENT_STARS.get(key) or {}).get("desc", "")}
+                for key in unlocked_talents
+            ],
+            "talent_free": getattr(char, "talent_points", 0) or 0,
+            "talent_spent": spent_points,
+            "talent_earned": earned_points,
+            "talents_total": len(core_talents.TALENT_STARS),
+            "talent_bonuses": core_talents.talent_bonuses(char),
+            "levels_per_point": core_talents.LEVELS_PER_POINT,
+        }
+
         from core import stash as stash_core
         vip_days_val = await stash_core.tune(session, "vip_days")
 
@@ -729,6 +781,7 @@ async def player_detail(request: Request, char_id: int):
             "is_banned": bool(char.user.is_banned),
             "ban_reason": char.user.ban_reason,
             "vip_days": vip_days_val,
+            "progress": progress_info,
         },
     )
 
@@ -1006,6 +1059,29 @@ async def player_reroll_stats(request: Request, char_id: int, grant: int = Form(
                     statroll.apply_stats(char, statroll.roll_stats(cls_def.base_stats()))
             await session.commit()
     return RedirectResponse(url=f"/player/{char_id}", status_code=303)
+
+
+@app.post("/player/{char_id}/reset-talents")
+async def player_reset_talents(request: Request, char_id: int):
+    """Сброс созвездий (пункт № 69).
+
+    Очки не сгорают, а возвращаются в свободные: `talent_points` = столько,
+    сколько положено на текущем уровне (`talents.points_for_level`), минус
+    ноль потраченных. Считается именно так, а не «+1 за уровень», иначе при
+    скачке уровня очки терялись бы — та же логика, что в engine/talents.
+    """
+    guard(request, "manage_players")
+    from core import talents as core_talents
+
+    async with async_session() as session:
+        char = await session.get(Character, char_id)
+        if char is not None:
+            char.talents_json = "[]"
+            char.talent_points = core_talents.points_for_level(char.level or 1)
+            await session.commit()
+            logging.getLogger(__name__).info(
+                "admin: talents reset for character %s", char_id)
+    return RedirectResponse(url=f"/player/{char_id}#progress", status_code=303)
 
 
 @app.post("/player/{char_id}/give-item")
@@ -1842,11 +1918,96 @@ async def battles(
             base_query.offset(meta["offset"]).limit(per_page)
         )
         rows = result.scalars().all()
+
+        # ── Арена и дуэли (пункт № 67) ──────────────────────
+        # core/arena.py и core/duels.py не упоминались в админке ни разу:
+        # рейтинги были видны только самому игроку в боте.
+        from core.models import CharacterShadow
+        from engine import arena as engine_arena
+
+        shadows = (await session.execute(
+            select(CharacterShadow)
+            .options(selectinload(CharacterShadow.character))
+            .order_by(CharacterShadow.arena_rating.desc())
+            .limit(20)
+        )).scalars().all()
+        arena_rows = [{
+            "id": sh.id,
+            "character_id": sh.character_id,
+            "name": sh.name,
+            "cls": sh.character_class,
+            "level": sh.level,
+            "gear_score": sh.gear_score,
+            "rating": sh.arena_rating,
+            "hp": sh.max_hp,
+            "damage": sh.damage,
+            "defense": sh.defense,
+            "tokens": (sh.character.gladiator_tokens or 0) if sh.character else 0,
+            "updated_at": dates.aware(sh.updated_at),
+        } for sh in shadows]
+
+    # Активные вызовы живут в памяти процесса бота (world_extra.duel_invites),
+    # а не в БД: запись живёт минуты. Если бот в другом процессе — список
+    # пуст, и это честно написано в шаблоне.
+    try:
+        from bot.handlers import world_extra
+
+        pending = world_extra.pending_duels()
+        duel_ttl = world_extra.DUEL_INVITE_TTL
+        duel_wagers = list(world_extra.DUEL_WAGERS)
+    except Exception:
+        pending, duel_ttl, duel_wagers = [], 0, []
+
+    duel_rows = []
+    if pending:
+        async with async_session() as session:
+            for inv in pending:
+                target = await session.get(Character, inv["target_id"])
+                challenger = (await session.execute(
+                    select(Character).join(User)
+                    .where(User.telegram_id == inv["challenger_tg"])
+                )).scalars().first()
+                duel_rows.append({
+                    "target_id": inv["target_id"],
+                    "target": target.name if target else f"#{inv['target_id']}",
+                    "challenger": challenger.name if challenger else "—",
+                    "wager": inv["wager"],
+                    "age": inv["age"],
+                    "expires_in": inv["expires_in"],
+                })
+
     return templates.TemplateResponse(
         request,
         "battles.html",
-        {"battles": rows, "pagination": meta, "sort": sort, "order": order},
+        {"battles": rows, "pagination": meta, "sort": sort, "order": order,
+         "arena_rows": arena_rows, "duel_rows": duel_rows,
+         "duel_ttl": duel_ttl, "duel_wagers": duel_wagers,
+         "arena_start_rating": engine_arena.START_RATING,
+         "arena_win_rating": engine_arena.WIN_RATING,
+         "arena_loss_rating": engine_arena.LOSS_RATING,
+         "arena_win_tokens": engine_arena.WIN_TOKENS,
+         "arena_loss_tokens": engine_arena.LOSS_TOKENS,
+         "arena_max_rounds": engine_arena.MAX_ROUNDS},
     )
+
+
+@app.post("/battles/duel/{target_id}/cancel")
+async def battles_cancel_duel(request: Request, target_id: int):
+    """Снять зависший вызов на дуэль (пункт № 67).
+
+    Вызовы висят в памяти процесса бота; протухшие отсеиваются по TTL сами,
+    но админу нужна кнопка на случай, когда игрок жалуется прямо сейчас.
+    """
+    guard(request, "manage_players")
+    try:
+        from bot.handlers import world_extra
+
+        removed = world_extra.cancel_duel_invite(target_id)
+    except Exception:
+        removed = False
+    logging.getLogger(__name__).info(
+        "admin: duel invite for %s cancelled=%s", target_id, removed)
+    return RedirectResponse("/battles#arena", status_code=303)
 
 
 # ── Settings / Bot Control ─────────────────────────────────
@@ -4868,6 +5029,72 @@ async def upgrade_rule_delete(request: Request, rule_id: int):
 
 # ── Mob population control ──────────────────────────────────
 
+@app.get("/editor/omens")
+async def editor_omens(request: Request):
+    """Редактор знамений (пункт № 68).
+
+    Каталог общий для обоих стеков (`engine/omens.py`); добавленные здесь
+    знамения хранятся в `AppSetting` и подмешиваются к нему. Заодно видно
+    привязку знамений к бедствиям (№ 86): пока катаклизм бушует, игрок
+    видит его предвестие вместо случайной приметы.
+    """
+    guard(request, "manage_content")
+    from core import omens as core_omens
+    from engine.cataclysm_kinds import KINDS, ORDER
+
+    async with async_session() as session:
+        settings_map = await core_omens.load_settings(session)
+        kinds_now = await core_omens.active_kinds(session)
+        preview = core_omens.omen_banner(settings_map, kinds_now)
+
+    return templates.TemplateResponse(
+        request, "editor_omens.html",
+        {
+            "builtin": core_omens.OMENS,
+            "custom": core_omens.custom_omens(settings_map),
+            "active_kinds": kinds_now,
+            "preview": preview,
+            "kind_omens": [
+                {"key": k, "icon": KINDS[k].get("icon", "❓"),
+                 "name": KINDS[k].get("name", k),
+                 "omen": KINDS[k].get("omen", "")}
+                for k in ORDER if k in KINDS
+            ],
+        },
+    )
+
+
+@app.post("/editor/omens/add")
+async def editor_omens_add(
+    request: Request,
+    icon: str = Form("🔮"), title: str = Form(""), desc: str = Form(""),
+):
+    """Добавить своё знамение. Пустой заголовок отсеивает валидация ядра."""
+    guard(request, "manage_content")
+    from core import omens as core_omens
+
+    if title.strip():
+        async with async_session() as session:
+            await core_omens.add_custom(session, icon.strip(), title.strip(),
+                                        desc.strip())
+            await session.commit()
+        logging.getLogger(__name__).info("admin: omen added %r", title.strip())
+    return RedirectResponse("/editor/omens", status_code=303)
+
+
+@app.post("/editor/omens/{index}/delete")
+async def editor_omens_delete(request: Request, index: int):
+    """Удалить своё знамение по номеру. Встроенные не трогаются."""
+    guard(request, "manage_content")
+    from core import omens as core_omens
+
+    async with async_session() as session:
+        await core_omens.delete_custom(session, index)
+        await session.commit()
+    logging.getLogger(__name__).info("admin: omen #%s deleted", index)
+    return RedirectResponse("/editor/omens", status_code=303)
+
+
 @app.get("/editor/living")
 async def editor_living(request: Request):
     """Жизнь мира: катаклизмы, мировой босс, фракции, надгробия.
@@ -5903,6 +6130,22 @@ async def api_live_portals():
         return {"portals": out}
 
 
+@app.get("/api/live/feed")
+async def api_live_feed(limit: int = 60):
+    """История живой ленты с готовым текстом (пункт № 70).
+
+    Форматирование — на сервере (`core/realtime.format_radar_event`), чтобы
+    новый тип события не пришлось дублировать в JS каждой страницы.
+    """
+    limit = max(1, min(int(limit or 60), 200))
+    events = []
+    for ev in RT.get_history(limit=limit):
+        if ev.get("type") == "ping":
+            continue
+        events.append({**ev, "text": RT.format_radar_event(ev)})
+    return {"events": events}
+
+
 @app.websocket("/ws/live")
 async def ws_live(websocket: WebSocket):
     """Live-канал панели.
@@ -5914,13 +6157,14 @@ async def ws_live(websocket: WebSocket):
     await websocket.accept()
     q = await RT.subscribe()
     try:
-        # отдаём историю сразу
+        # отдаём историю сразу; text добавляем здесь, чтобы каждая
+        # страница не пересобирала формулировки события заново (№ 70)
         for ev in RT.get_history(limit=30):
-            await websocket.send_json(ev)
+            await websocket.send_json({**ev, "text": RT.format_radar_event(ev)})
         while True:
             try:
                 ev = await asyncio.wait_for(q.get(), timeout=25.0)
-                await websocket.send_json(ev)
+                await websocket.send_json({**ev, "text": RT.format_radar_event(ev)})
             except asyncio.TimeoutError:
                 # ping чтобы не отвалился
                 await websocket.send_json({"type": "ping", "ts": datetime.utcnow().isoformat()})

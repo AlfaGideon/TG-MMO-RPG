@@ -5,8 +5,8 @@
 
 > ✅ **Пункт 1 закрыт**, и следом закрыт весь долг паритета: катаклизмы,
 > орда, боссы, фракции, надгробия и диковины перенесены в серверный стек.
-> Паритет стережёт `tests/test_parity.py`: на 2026-08-14 в реестре
-> **49 из 49 механик в обоих стеках — долгов не осталось**. Последним
+> Паритет стережёт `tests/test_parity.py`: на 2026-08-16 в реестре
+> **50 из 50 механик в обоих стеках — долгов не осталось**. Последним
 > закрыт перенос трёхвалютной экономики: движок считает деньги в бронзе
 > и сворачивает их в серебро и золото тем же модулем, что и сервер.
 > Карма, знамения и реактивные реплики жителей добавлены в реестр вместе
@@ -22,7 +22,7 @@
 |---|---|---|---|---|
 | 1 | 🕳 Работающие подземелья | портал ведёт внутрь, а не украшает карту | M | ✅ **сделано в обоих стеках** — `engine/dungeon.py`, `core/dungeons.py`, вход `bot/handlers/location.py`; тесты `test_dungeon.py`, `test_dungeon_and_arena.py`, `test_craft_and_dungeon_hazards.py` |
 | 2 | 🤝 Обмен между игроками | экономика без посредника-аукциона | S | ⬜ **нет** — прямого обмена «рука в руку» не существует ни в одном стеке: `grep -rn "gift\|подарить" bot/handlers/` пусто, передача только через `core/auction.py` / `engine/auction.py`. Ближайший заменитель — гильдейское хранилище (`core/guilds.py:96 deposit_guild_vault`) |
-| 3 | ⚔️ Дуэли и арена | PvP, которого нет совсем | M | ✅ **подключено** — `core/arena.py` (слепки `CharacterShadow`) + `core/duels.py:resolve_wager_duel`, вход `bot/handlers/world_extra.py:427 arena_menu_handler` и `:690` приём вызова; браузерный паритет `engine/arena.py`; тесты `test_dungeon_and_arena.py`, `test_engine_social.py`, `test_guild_bounty_duel_entrypoints.py`. **Остаток:** админка дуэлей — № 67 в `IDEAS-100.md` |
+| 3 | ⚔️ Дуэли и арена | PvP, которого нет совсем | M | ✅ **подключено полностью** — `core/arena.py` (слепки `CharacterShadow`) + `core/duels.py:resolve_wager_duel`, вход `bot/handlers/world_extra.py:arena_menu_handler` и приём вызова; браузерный паритет `engine/arena.py`; админка — секции «Колизей Теней» и «Вызовы на дуэль» на `/battles` (закрыт № 67, вызовам добавлен TTL). Тесты `test_dungeon_and_arena.py`, `test_engine_social.py`, `test_guild_bounty_duel_entrypoints.py`, `test_admin_arena_omens.py` |
 | 4 | 🏰 Осада и общая цель фракций | фракциям нужно поле боя | L | 🟡 **ядро есть, механика частичная** — `core/worldevents.py:315 start_siege` / `:304 active_sieges`, аванпосты `core/models.py:1275 FactionOutpost` + `core/factions.py:364 faction_outpost_bonuses`, указы `FactionDecree`, вход `bot/handlers/location.py:800`; бонусы применяются в бою (`bot/handlers/battle.py:193`). Тест `test_faction_warfare.py`. **Нет:** браузерного паритета (`engine/` осады не знает) |
 | 5 | 📈 Прогресс после капа | престиж, таланты, наследие | M | ✅ **сделано** — `core/prestige.py` + вход `bot/handlers/character.py:121`, таланты `core/talents.py`, подклассы `core/subclasses.py`, титулы `core/titles.py`; браузерный паритет `engine/prestige.py`, `engine/talents.py`, `engine/subclasses.py`, `engine/titles.py`, экраны `engine/progress.py`. Тесты `test_progression_and_karma.py`, `test_engine_progress.py`, `test_engine_talents.py` |
 | 6 | 🗓 Сезоны и живые события | повод возвращаться месяцами | M | 🟡 **только косметика** — `core/ui_images.py:94 season_key` и `seasonal_splash` меняют картинку и присказку на старте (`bot/handlers/start.py:212`). Игровых сезонов (наград, сброса рейтингов, расписания событий) нет; планировщика в проекте нет вообще (`grep -rln scheduler` пусто). Живут только лунные фазы `core/lunar.py` / `engine/lunar.py` |

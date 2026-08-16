@@ -38,11 +38,42 @@ UNDEAD = ("зомби", "скелет", "призрак", "костя", "мог�
 
 
 def change_karma(character: Character, delta: int) -> int:
-    """Изменить показатель кармы с клампом в [MIN_KARMA, MAX_KARMA]."""
+    """Изменить показатель кармы с клампом в [MIN_KARMA, MAX_KARMA].
+
+    Заодно публикует событие в живую ленту админки (IDEAS-100.md № 70):
+    смена пути героя — ровно такое же событие мира, как открытие портала,
+    но раньше о нём не знал никто, кроме самого игрока.
+    """
     cur = getattr(character, "karma_score", 0) or 0
     new_val = max(MIN_KARMA, min(MAX_KARMA, cur + int(delta)))
     character.karma_score = new_val
+    if new_val != cur:
+        _publish_karma(character, cur, new_val, int(delta))
     return new_val
+
+
+def _publish_karma(character, old_val: int, new_val: int, delta: int):
+    """Событие «карма изменилась». Ошибки шины игру не роняют."""
+    try:
+        from core.realtime import publish_sync
+
+        icon, title, _ = karma_status(character)
+        was_title = None
+        # Пересечение порога — самое интересное для ленты: герой сменил путь.
+        if (old_val >= PIOUS_KARMA) != (new_val >= PIOUS_KARMA) or \
+           (old_val <= DEFILED_KARMA) != (new_val <= DEFILED_KARMA):
+            was_title = "changed"
+        publish_sync("karma_changed", {
+            "character_id": getattr(character, "id", None),
+            "name": getattr(character, "name", "Герой"),
+            "delta": delta,
+            "value": new_val,
+            "icon": icon,
+            "title": title,
+            "path_changed": was_title == "changed",
+        })
+    except Exception:
+        pass
 
 
 def karma_status(character: Character) -> tuple:

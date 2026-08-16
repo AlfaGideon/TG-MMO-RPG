@@ -26,6 +26,7 @@
     "engine/talents.py",
     "engine/subclasses.py",
     "engine/familiars.py",
+    "engine/pets.py",
     "engine/runes.py",
     "engine/ambient.py",
     "engine/gathering.py",
