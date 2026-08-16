@@ -83,3 +83,111 @@ def rebirth_do(store, p):
         return Reply(alert=res["reason"])
     return Reply(text=f"<b>{res['title']}</b>\n\n{res['desc']}",
                  keyboard=[[("🧙 Профиль", "profile")], BACK_MENU])
+
+
+def talents_screen(p):
+    """⭐ Созвездия: зажечь звезду за очко таланта."""
+    from engine import talents
+
+    unlocked = talents.get_unlocked_talents(p)
+    points = getattr(p, "talent_points", 0) or 0
+    lines = ["⭐ <b>Звёздное древо</b>", "",
+             f"Свободных очков: <b>{points}</b> "
+             f"(по одному раз в {talents.LEVELS_PER_POINT} уровня)", ""]
+    rows = []
+    for key, star in talents.TALENT_STARS.items():
+        lit = key in unlocked
+        lines.append(f"{'🔆' if lit else '☆'} <b>{star['name']}</b> — {star['desc']}")
+        if not lit and points > 0:
+            rows.append([(f"Зажечь: {star['name']}", f"talentgo:{key}")])
+    rows.append(BACK_MENU)
+    return Reply(text="\n".join(lines), keyboard=rows)
+
+
+def talent_unlock(store, p, key):
+    """Зажечь звезду созвездия."""
+    from engine import talents
+
+    res = talents.unlock_talent(p, key)
+    if not res["ok"]:
+        return Reply(alert=res["reason"])
+    store.save_player(p)
+    r = talents_screen(p)
+    r.alert = f"{res['star_name']}: {res['desc']}"
+    return r
+
+
+def subclass_screen(p):
+    """🎓 Специализация: одна на героя, выбирается с порога уровня."""
+    from engine import subclasses
+
+    current = getattr(p, "subclass", "") or ""
+    lines = ["🎓 <b>Специализация</b>", ""]
+    rows = []
+    if current and current in subclasses.SUBCLASSES:
+        sub = subclasses.SUBCLASSES[current]
+        lines += [f"Твой путь: <b>{sub['name']}</b>", f"<i>{sub['desc']}</i>", "",
+                  "<i>Специализация выбирается один раз.</i>"]
+    elif (p.level or 1) < subclasses.SUBCLASS_MIN_LEVEL:
+        lines.append(f"<i>Путь открывается с {subclasses.SUBCLASS_MIN_LEVEL} "
+                     f"уровня. Сейчас у тебя {p.level}.</i>")
+    else:
+        lines.append("Выбери путь — он останется с тобой навсегда:")
+        lines.append("")
+        for sub in subclasses.get_available_subclasses(p.cls):
+            lines.append(f"<b>{sub['name']}</b> — <i>{sub['desc']}</i>")
+            rows.append([(sub["name"], f"subgo:{sub['key']}")])
+    rows.append(BACK_MENU)
+    return Reply(text="\n".join(lines), keyboard=rows)
+
+
+def subclass_choose(store, p, key):
+    """Выбрать специализацию."""
+    from engine import subclasses
+
+    if getattr(p, "subclass", ""):
+        return Reply(alert="Путь уже выбран — его не сменить.")
+    res = subclasses.choose_subclass(p, key)
+    if not res["ok"]:
+        return Reply(alert=res["reason"])
+    store.save_player(p)
+    return Reply(text=f"🎓 <b>{res['subclass_name']}</b>\n\n{res['desc']}",
+                 keyboard=[[("🧙 Профиль", "profile")], BACK_MENU])
+
+
+def familiar_screen(p):
+    """🐾 Фамильяр: спутник с пассивным бонусом."""
+    from engine import currency, familiars
+
+    lines = [familiars.familiar_card_text(p), ""]
+    rows = []
+    if not getattr(p, "familiar_type", ""):
+        lines.append(f"👛 Кошелёк: <b>{currency.fmt(p)}</b>")
+        lines.append("")
+        for key, fam in familiars.FAMILIARS.items():
+            lines.append(f"{fam['icon']} <b>{fam['name']}</b> — "
+                         f"{currency.short(fam['cost'])}")
+            lines.append(f"<i>{fam['desc']}</i>")
+            if currency.can_afford(p, fam["cost"]):
+                rows.append([(f"{fam['icon']} Приручить", f"famgo:{key}")])
+    rows.append(BACK_MENU)
+    return Reply(text="\n".join(lines), keyboard=rows)
+
+
+def familiar_adopt(store, p, key):
+    """Приручить спутника за бронзу."""
+    from engine import currency, familiars
+
+    fam = familiars.FAMILIARS.get(key)
+    if fam is None:
+        return Reply(alert="Такого спутника нет.")
+    if getattr(p, "familiar_type", ""):
+        return Reply(alert="У тебя уже есть спутник.")
+    if not currency.spend(p, fam["cost"]):
+        need = fam["cost"] - currency.total(p)
+        return Reply(alert=f"Не хватает {currency.short(need)}.")
+    familiars.set_familiar(p, key)
+    store.save_player(p)
+    r = familiar_screen(p)
+    r.alert = f"🐾 Спутник приручён: {fam['name']}"
+    return r

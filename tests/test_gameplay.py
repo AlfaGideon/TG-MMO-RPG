@@ -52,6 +52,12 @@ async def scenario():
 
     async with async_session() as s:
         await seed_content(s)
+        # Фаза луны меняет лимит популяции (в полнолуние тварей больше),
+        # поэтому фиксируем нейтральную фазу до первого спавна — иначе
+        # проверки популяции зависели бы от времени суток.
+        from core import lunar as core_lunar
+        await core_lunar.set_override(s, "waxing_moon")   # mob_mult = 1.0
+        await s.commit()
         await ensure_all_populations(s)
         await s.commit()
 
@@ -243,8 +249,9 @@ async def scenario():
                 .where(MobSpawn.is_alive == True)  # noqa: E712
             ) or 0
 
-        check(await alive_count() == target.population,
-              f"популяция заполнена до лимита ({target.population})")
+        limit = target.population
+        check(await alive_count() == limit,
+              f"популяция заполнена до лимита ({limit})")
         check(not await ensure_population(s, target), "сверх лимита никто не спавнится")
 
         victim = (await s.execute(
@@ -254,22 +261,24 @@ async def scenario():
         )).scalars().first()
         await kill_spawn(s, victim, target)
         await s.commit()
-        check(await alive_count() == target.population - 1, "убитый уходит из популяции")
+        check(await alive_count() == limit - 1, "убитый уходит из популяции")
         check(victim.respawn_at is not None, "убитому назначен таймер респавна")
 
         await ensure_population(s, target)
         await s.commit()
-        check(await alive_count() == target.population - 1,
+        check(await alive_count() == limit - 1,
               "до истечения таймера замена не появляется")
 
         victim.respawn_at = datetime.utcnow() - timedelta(seconds=1)
         await s.commit()
         await ensure_population(s, target)
         await s.commit()
-        check(await alive_count() == target.population,
+        check(await alive_count() == limit,
               "после таймера популяция восстановилась")
         check(not await ensure_population(s, target),
               "и снова не превышает лимит")
+        await core_lunar.set_override(s, "")      # вернуть естественный цикл
+        await s.commit()
 
         # ── Правила бродяжничества ──────────────────────────
         print("\n— Передвижение по локациям —")

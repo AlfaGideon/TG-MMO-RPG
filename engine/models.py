@@ -48,6 +48,12 @@ class Player:
     active_title: str = ""                          # надетый титул
     unlocked_titles_json: str = "[]"                # открытые титулы (JSON)
     bestiary_kills_json: str = "{}"                 # атлас: {вид: побед}
+    talents_json: str = "[]"                        # зажжённые звёзды (JSON)
+    talent_points: int = 0                          # свободные очки талантов
+    subclass: str = ""                              # выбранная специализация
+    familiar_type: str = ""                         # вид спутника
+    familiar_level: int = 1
+    familiar_name: str = ""
     strength: int = 10
     agility: int = 10
     intelligence: int = 10

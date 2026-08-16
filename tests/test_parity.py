@@ -146,6 +146,15 @@ REGISTRY = [
     Feature("Перерождение",
             browser=["engine/prestige.py"],
             server=["core/prestige.py"]),
+    Feature("Таланты",
+            browser=["engine/talents.py"],
+            server=["core/talents.py"]),
+    Feature("Подклассы",
+            browser=["engine/subclasses.py"],
+            server=["core/subclasses.py"]),
+    Feature("Фамильяры",
+            browser=["engine/familiars.py"],
+            server=["core/familiars.py"]),
 
     Feature("Трёхвалютная экономика",
             browser=["engine/currency.py"],
@@ -303,6 +312,17 @@ def test_shared_numbers_match():
               "бонус охотника считается одним кодом")
         check(c_prestige.REBIRTH_MIN_LEVEL == e_prestige.REBIRTH_MIN_LEVEL,
               f"порог перерождения: {e_prestige.REBIRTH_MIN_LEVEL}")
+        from core import familiars as c_fam
+        from core import subclasses as c_subs
+        from core import talents as c_tal
+        from engine import familiars as e_fam
+        from engine import subclasses as e_subs
+        from engine import talents as e_tal
+        check(c_tal.TALENT_STARS is e_tal.TALENT_STARS, "древо талантов общее")
+        check(c_subs.SUBCLASSES is e_subs.SUBCLASSES, "каталог подклассов общий")
+        check(c_fam.FAMILIARS is e_fam.FAMILIARS, "каталог фамильяров общий")
+        check(c_subs.SUBCLASS_MIN_LEVEL == e_subs.SUBCLASS_MIN_LEVEL,
+              f"порог специализации: {e_subs.SUBCLASS_MIN_LEVEL}")
     except ImportError as e:
         check(True, f"часть модулей недоступна, пропуск ({e})")
 

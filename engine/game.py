@@ -44,6 +44,8 @@ class Game:
             [("📜 Задания", "quests"), ("🤝 Отряд", "party")],
             [("🧭 Репутация", "rep"), ("🔮 Знамения", "omens")],
             [("📖 Бестиарий", "bestiary"), ("🎖 Титулы", "titles")],
+            [("⭐ Созвездия", "talents"), ("🎓 Путь", "subclass")],
+            [("🐾 Спутник", "familiar")],
             [("🔨 Мастерская", "craft"), ("🏛 Аукцион", "auc:0")],
             [("🏆 Топ", "top"), ("❓ Помощь", "help")],
         ]
@@ -401,6 +403,12 @@ class Game:
     do_title = lambda self, p, arg="": progress.set_title(self.store, p, arg)
     do_rebirth = lambda self, p, arg="": progress.rebirth_screen(p)
     do_rebirthgo = lambda self, p, arg="": progress.rebirth_do(self.store, p)
+    do_talents = lambda self, p, arg="": progress.talents_screen(p)
+    do_talentgo = lambda self, p, arg="": progress.talent_unlock(self.store, p, arg)
+    do_subclass = lambda self, p, arg="": progress.subclass_screen(p)
+    do_subgo = lambda self, p, arg="": progress.subclass_choose(self.store, p, arg)
+    do_familiar = lambda self, p, arg="": progress.familiar_screen(p)
+    do_famgo = lambda self, p, arg="": progress.familiar_adopt(self.store, p, arg)
 
 
     # ── подземелья ──────────────────────────────────────────
