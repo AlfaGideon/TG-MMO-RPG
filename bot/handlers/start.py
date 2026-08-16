@@ -1,6 +1,6 @@
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
-from aiogram.filters import CommandStart
+from aiogram.filters import CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -178,7 +178,7 @@ def start_continue_keyboard(has_character: bool):
     return builder.as_markup()
 
 
-@router.message(CommandStart())
+@router.message(CommandStart(), F.chat.type == "private")
 async def cmd_start(message: Message):
     """Первый экран — ВСЕГДА заставка с названием и кнопкой «Продолжить».
 
@@ -273,9 +273,17 @@ async def start_continue(callback: CallbackQuery):
         )
 
 
-@router.message(F.text)
+# ВАЖНО: фильтр по типу чата обязателен. Этот обработчик ловит ЛЮБОЙ
+# текст, а start_router подключён первым — без `F.chat.type == "private"`
+# он перехватывал бы и реплики игроков в супергруппе сообщества, складывая
+# их в AdminMessage как личные письма администратору.
+# StateFilter обязателен: без него этот обработчик (роутер подключён
+# первым) съедал бы ввод любого другого FSM — например текст, который
+# игрок пишет в канал сообщества (bot/handlers/community.py:ChatForm).
+@router.message(F.text, F.chat.type == "private",
+                StateFilter(None, IdeaForm.waiting_for_text))
 async def handle_text(message: Message, state: FSMContext):
-    """Обрабатывает ответы игрока, включая идею из раздела помощи.
+    """Обрабатывает ответы игрока в ЛИЧКЕ, включая идею из раздела помощи.
 
     Раньше кнопка «Предложить идею» только показывала инструкцию, поэтому
     игроку нужно было самому угадать, что сообщение надо начинать со слова

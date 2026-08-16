@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% import "macros.html" as macros %}
+
+{% block title %}Сообщество — Shadow Lands{% endblock %}
+{% block page_title %}💬 Сообщество{% endblock %}
+
+{% block breadcrumbs %}
+{{ macros.crumbs([('Dashboard','/'), ('Сообщество', none)]) }}
+{% endblock %}
+
+{% block content %}
+
+<div class="card">
+    <div class="toolbar">
+        <h3 style="margin-bottom:0;">🔗 Мост в Telegram</h3>
+        <span class="hint">
+            {% if bridge_enabled %}
+            <span class="badge badge-uncommon">включён</span>
+            {% else %}
+            <span class="badge">выключен</span>
+            {% endif %}
+        </span>
+    </div>
+    <p class="section-sub">
+        Чат живёт в супергруппе с форум-темами: каждый канал — своя тема.
+        Источник правды при этом игра: права считаются по членству в гильдии
+        и присяге фракции, а не по составу темы.
+    </p>
+
+    <div class="hint" style="margin-bottom:.8rem">
+        <b>Как подключить:</b> создайте супергруппу, включите в ней
+        «Темы» (Topics), добавьте бота администратором с правом
+        «Управление темами», затем впишите ID группы ниже (вида
+        <code>-100…</code>) и нажмите «Создать темы».
+    </div>
+
+    <form action="/community/bridge" method="post" class="inline-form"
+          style="flex-wrap:wrap;gap:.6rem">
+        <div>
+            <label class="form-label">ID супергруппы</label>
+            <input type="text" name="chat_id" value="{{ chat_id }}"
+                   placeholder="-1001234567890" class="search-box">
+        </div>
+        <div>
+            <label class="form-label">Мост</label>
+            <select name="enabled" class="search-box">
+                <option value="1" {% if bridge_enabled %}selected{% endif %}>включён</option>
+                <option value="0" {% if not bridge_enabled %}selected{% endif %}>выключен</option>
+            </select>
+        </div>
+        <div style="align-self:flex-end">
+            <button type="submit" class="btn btn-primary">💾 Сохранить</button>
+        </div>
+    </form>
+
+    <div style="margin-top:.8rem;display:flex;gap:.5rem;flex-wrap:wrap">
+        <form action="/community/setup-topics" method="post" style="margin:0">
+            <button type="submit" class="btn">🧵 Создать темы для каналов</button>
+        </form>
+        <span class="hint">
+            Привязано тем: <b>{{ stats.linked }}</b> из {{ stats.channels }} ·
+            сообщений в журнале: <b>{{ stats.messages }}</b>
+        </span>
+    </div>
+
+    {% if not bot_running %}
+    <div class="hint warn" style="margin-top:.7rem">
+        Бот сейчас остановлен — темы создать не получится. Запустите его на
+        странице «Настройки», затем вернитесь сюда.
+    </div>
+    {% endif %}
+</div>
+
+<div class="card">
+    <div class="toolbar">
+        <h3 style="margin-bottom:0;">🗂 Каналы</h3>
+        <span class="hint">{{ channels | length }} шт.</span>
+    </div>
+    <p class="section-sub">
+        Фиксированные каналы заводятся сами. Каналы гильдий и фракций
+        появляются, когда их участник впервые заходит в чат — пустых веток
+        в группе не будет.
+    </p>
+    <div class="table-wrap">
+    <table>
+        <thead>
+            <tr><th>Канал</th><th>Вид</th><th>Доступ</th><th>Тема</th>
+                <th>Сообщений</th><th></th></tr>
+        </thead>
+        <tbody>
+            {% for c in channels %}
+            <tr>
+                <td data-label="Канал">
+                    <b>{{ c.label }}</b><br><code>{{ c.key }}</code>
+                    {% if c.topic_text %}
+                    <br><span class="muted">{{ c.topic_text }}</span>
+                    {% endif %}
+                </td>
+                <td data-label="Вид">{{ kind_labels.get(c.kind, c.kind) }}</td>
+                <td data-label="Доступ">{{ access_labels.get(c.access, c.access) }}</td>
+                <td data-label="Тема">
+                    {% if c.thread_id %}
+                    <span class="badge badge-uncommon">#{{ c.thread_id }}</span>
+                    {% else %}
+                    <span class="muted">не привязана</span>
+                    {% endif %}
+                </td>
+                <td data-label="Сообщений">{{ c.count }}</td>
+                <td data-label="">
+                    <a href="/community/{{ c.key }}" class="btn">👁 Открыть</a>
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6">
+                <div class="empty-state">
+                    <div class="empty-icon">💬</div>
+                    <div>Каналов пока нет — они создадутся при первом заходе игрока.</div>
+                </div>
+            </td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</div>
+
+<div class="card">
+    <h3>📣 Объявление от имени мира</h3>
+    <p class="section-sub">Сообщение уйдёт и в журнал канала, и в тему группы.</p>
+    <form action="/community/announce" method="post" data-validate>
+        <div class="field-row cols-2">
+            <div>
+                <label class="form-label">Канал</label>
+                <select name="channel_key" class="search-box">
+                    {% for c in channels %}
+                    <option value="{{ c.key }}">{{ c.label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="form-label">Текст</label>
+                <input type="text" name="text" maxlength="2000" required
+                       placeholder="Например: в субботу — вылазка на босса"
+                       class="search-box">
+            </div>
+        </div>
+        <div style="margin-top:.7rem">
+            <button type="submit" class="btn btn-primary">📣 Объявить</button>
+        </div>
+    </form>
+</div>
+
+{% endblock %}

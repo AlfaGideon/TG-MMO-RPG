@@ -5029,6 +5029,140 @@ async def upgrade_rule_delete(request: Request, rule_id: int):
 
 # ── Mob population control ──────────────────────────────────
 
+# ── Сообщество: каналы, мост в Telegram, модерация ─────────
+
+COMMUNITY_KIND_LABELS = {"fixed": "постоянный", "guild": "гильдия",
+                         "faction": "фракция"}
+COMMUNITY_ACCESS_LABELS = {"public": "открытый", "members": "по членству",
+                           "readonly": "только игра пишет"}
+COMMUNITY_SOURCE_LABELS = {"bot": "из бота", "telegram": "из группы",
+                           "game": "событие мира", "admin": "из панели"}
+
+
+@app.get("/community")
+async def community_page(request: Request):
+    """Каналы сообщества, состояние моста и объявления."""
+    guard(request, "manage_content")
+    from sqlalchemy import func as sa_func
+
+    from bot import community_bridge as bridge
+    from core import community as C
+
+    async with async_session() as session:
+        await C.ensure_default_channels(session)
+        await session.commit()
+        channels = await C.list_channels(session, active_only=False)
+        counts = dict((await session.execute(
+            select(C.CommunityMessage.channel_id,
+                   sa_func.count(C.CommunityMessage.id))
+            .where(C.CommunityMessage.is_deleted == False)  # noqa: E712
+            .group_by(C.CommunityMessage.channel_id)
+        )).all())
+        info = await C.stats(session)
+        rows = [{
+            "key": ch.key, "label": ch.label(), "kind": ch.kind,
+            "access": ch.access, "thread_id": ch.thread_id,
+            "topic_text": ch.topic, "count": counts.get(ch.id, 0),
+        } for ch in channels]
+
+    return templates.TemplateResponse(
+        request, "community.html",
+        {
+            "channels": rows, "stats": info,
+            "chat_id": await bridge.get_chat_id(),
+            "bridge_enabled": await bridge.is_enabled(),
+            "bot_running": bot_runner.is_running(),
+            "kind_labels": COMMUNITY_KIND_LABELS,
+            "access_labels": COMMUNITY_ACCESS_LABELS,
+        },
+    )
+
+
+@app.get("/community/{key}")
+async def community_channel(request: Request, key: str):
+    """Журнал одного канала с модерацией."""
+    guard(request, "manage_content")
+    from core import community as C
+
+    async with async_session() as session:
+        channel = await C.get_channel(session, key)
+        if channel is None:
+            return RedirectResponse("/community", status_code=303)
+        messages = await C.recent(session, channel, limit=200)
+
+    return templates.TemplateResponse(
+        request, "community_channel.html",
+        {
+            "channel": channel, "messages": messages,
+            "kind_label": COMMUNITY_KIND_LABELS.get(channel.kind, channel.kind),
+            "access_label": COMMUNITY_ACCESS_LABELS.get(channel.access,
+                                                        channel.access),
+            "source_labels": COMMUNITY_SOURCE_LABELS,
+        },
+    )
+
+
+@app.post("/community/bridge")
+async def community_set_bridge(request: Request, chat_id: str = Form(""),
+                               enabled: str = Form("1")):
+    """Сохранить ID супергруппы и состояние моста."""
+    guard(request, "manage_content")
+    from bot import community_bridge as bridge
+
+    await bridge.set_chat_id(chat_id)
+    await bridge.set_enabled(enabled == "1")
+    logging.getLogger(__name__).info(
+        "community: мост chat_id=%r enabled=%s", chat_id.strip(), enabled == "1")
+    return RedirectResponse("/community", status_code=303)
+
+
+@app.post("/community/setup-topics")
+async def community_setup_topics(request: Request):
+    """Создать форум-темы под все каналы разом."""
+    guard(request, "manage_content")
+    from bot import community_bridge as bridge
+
+    try:
+        result = await bridge.setup_all_topics(bot_runner.bot)
+        logging.getLogger(__name__).info(
+            "community: тем создано %d, пропущено %d",
+            len(result["created"]), len(result["skipped"]))
+    except Exception as exc:
+        logging.getLogger(__name__).warning(
+            "community: создание тем не удалось: %s", exc)
+    return RedirectResponse("/community", status_code=303)
+
+
+@app.post("/community/announce")
+async def community_announce(request: Request, channel_key: str = Form(""),
+                             text: str = Form("")):
+    """Объявление от имени мира в выбранный канал."""
+    guard(request, "manage_content")
+    from bot import community_bridge as bridge
+
+    if text.strip():
+        await bridge.announce(channel_key, text.strip(), bot_runner.bot)
+    return RedirectResponse(f"/community/{channel_key}", status_code=303)
+
+
+@app.post("/community/message/{message_id}/delete")
+async def community_delete_message(request: Request, message_id: int):
+    """Мягкое удаление сообщения: строка остаётся для истории модерации."""
+    guard(request, "manage_content")
+    from core import community as C
+
+    async with async_session() as session:
+        msg = await session.get(C.CommunityMessage, message_id)
+        key = ""
+        if msg is not None:
+            channel = await session.get(C.Channel, msg.channel_id)
+            key = channel.key if channel else ""
+            await C.delete_message(session, message_id)
+            await session.commit()
+    return RedirectResponse(f"/community/{key}" if key else "/community",
+                            status_code=303)
+
+
 @app.get("/editor/omens")
 async def editor_omens(request: Request):
     """Редактор знамений (пункт № 68).

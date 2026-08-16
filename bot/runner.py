@@ -205,6 +205,16 @@ class BotRunner:
                 self._portal_sweep_task = asyncio.create_task(self._portal_sweep_loop())
                 self._spawn_tick_task = asyncio.create_task(self._spawn_tick_loop())
                 self._dividend_task = asyncio.create_task(self._dividend_loop())
+                # Лента мира: подписка на шину событий и пересылка избранного
+                # в канал сообщества (bot/community_feed.py). Ошибка подписки
+                # не должна мешать запуску бота — чат вторичен по отношению
+                # к игре.
+                try:
+                    from bot.community_feed import world_feed
+
+                    await world_feed.start()
+                except Exception as exc:
+                    logger.warning("community: лента мира не запущена: %s", exc)
                 username = getattr(me, "username", None)
                 who = f" @{username}" if username else ""
                 if proxy_url:
@@ -448,6 +458,15 @@ class BotRunner:
             self._dividend_task = None
             await self._close_current_bot()
 
+    async def _stop_world_feed(self):
+        """Отписать ленту мира от шины при остановке бота."""
+        try:
+            from bot.community_feed import world_feed
+
+            await world_feed.stop()
+        except Exception:
+            pass
+
     async def stop(self) -> bool:
         async with self._start_lock:
             current = asyncio.current_task()
@@ -493,6 +512,8 @@ class BotRunner:
                 except asyncio.CancelledError:
                     pass
                 self._dividend_task = None
+
+            await self._stop_world_feed()
 
             if self.dp:
                 await self.dp.emit_shutdown()

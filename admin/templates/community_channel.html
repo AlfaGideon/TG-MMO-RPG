@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% import "macros.html" as macros %}
+
+{% block title %}{{ channel.title }} — Сообщество{% endblock %}
+{% block page_title %}{{ channel.icon }} {{ channel.title }}{% endblock %}
+
+{% block breadcrumbs %}
+{{ macros.crumbs([('Dashboard','/'), ('Сообщество','/community'), (channel.title, none)]) }}
+{% endblock %}
+
+{% block content %}
+
+<div class="card">
+    <div class="toolbar">
+        <h3 style="margin-bottom:0;">{{ channel.icon }} {{ channel.title }}</h3>
+        <span class="hint">
+            {{ kind_label }} · {{ access_label }} ·
+            {% if channel.thread_id %}
+            тема <code>#{{ channel.thread_id }}</code>
+            {% else %}
+            <span class="muted">тема не привязана</span>
+            {% endif %}
+        </span>
+    </div>
+    {% if channel.topic %}
+    <p class="section-sub">{{ channel.topic }}</p>
+    {% endif %}
+
+    <div class="table-wrap">
+    <table>
+        <thead>
+            <tr><th>Когда</th><th>Автор</th><th>Сообщение</th>
+                <th>Откуда</th><th></th></tr>
+        </thead>
+        <tbody>
+            {% for m in messages %}
+            <tr>
+                <td data-label="Когда" class="muted">
+                    {{ m.created_at.strftime('%d.%m %H:%M') if m.created_at else '—' }}
+                </td>
+                <td data-label="Автор">
+                    {% if m.is_system %}
+                    <span class="badge">📜 мир</span>
+                    {% elif m.author_character_id %}
+                    <a href="/player/{{ m.author_character_id }}">{{ m.author_name }}</a>
+                    {% else %}
+                    {{ m.author_name or '—' }}
+                    {% endif %}
+                </td>
+                <td data-label="Сообщение">{{ m.text }}</td>
+                <td data-label="Откуда" class="muted">{{ source_labels.get(m.source, m.source) }}</td>
+                <td data-label="">
+                    <form action="/community/message/{{ m.id }}/delete" method="post"
+                          style="margin:0">
+                        <button type="submit" class="btn btn-danger"
+                                data-confirm="Скрыть это сообщение?">🗑</button>
+                    </form>
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5">
+                <div class="empty-state">
+                    <div class="empty-icon">🕯</div>
+                    <div>В канале пока тихо.</div>
+                </div>
+            </td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    <p class="hint" style="margin-top:.6rem">
+        Удаление мягкое: строка остаётся в базе с пометкой, чтобы история
+        модерации не терялась. Из самой темы Telegram сообщение при этом не
+        исчезает — его удаляют штатными средствами группы.
+    </p>
+</div>
+
+{% endblock %}

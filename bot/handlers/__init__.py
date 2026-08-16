@@ -15,6 +15,8 @@ from .admin import router as admin_router
 from .world_extra import router as world_extra_router
 from .guilds import router as guilds_router
 from .quests import router as quests_router
+from .community import router as community_router
+from .community_group import router as community_group_router
 
 routers = [
     start_router,
@@ -34,4 +36,8 @@ routers = [
     world_extra_router,
     guilds_router,
     quests_router,
+    community_router,
+    # Роутер группы идёт последним: он ловит сообщения из супергруппы,
+    # которые не относятся ни к одному игровому сценарию.
+    community_group_router,
 ]
