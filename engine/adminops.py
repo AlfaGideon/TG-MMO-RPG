@@ -170,6 +170,16 @@ def set_fields(store, actor, tg_id, fields, source="panel"):
         except (ValueError, TypeError):
             pass
 
+    # Карма — не свободное число: у неё жёсткий диапазон, за которым
+    # ломаются пороги Благочестивого/Осквернителя (engine/karma.py).
+    if "karma_score" in fields:
+        try:
+            from engine import karma
+            fields["karma_score"] = max(
+                karma.MIN_KARMA, min(karma.MAX_KARMA, int(fields["karma_score"])))
+        except (ValueError, TypeError):
+            fields.pop("karma_score")
+
     changed = []
     for k, v in fields.items():
         if not hasattr(p, k):

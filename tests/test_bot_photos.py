@@ -14,6 +14,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+# Грейсфул-скип: без этих пакетов набор не падает ImportError, а
+# честно печатает «⚠ Пропуск» и выходит с кодом 0 (см. tests/_deps.py).
+from _deps import require  # noqa: E402
+
+require("aiogram", "sqlalchemy", "aiosqlite")
+
 FAILED = []
 
 

@@ -13,6 +13,12 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Грейсфул-скип: без этих пакетов набор не падает ImportError, а
+# честно печатает «⚠ Пропуск» и выходит с кодом 0 (см. tests/_deps.py).
+from _deps import require  # noqa: E402
+
+require("fastapi", "httpx|httpx2", "jinja2", "sqlalchemy", "aiosqlite", "aiohttp")
+
 # Тестовая БД — ДО импорта admin.main (тот читает DATABASE_URL на старте).
 _TMP_DB = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
 _TMP_DB.close()

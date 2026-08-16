@@ -6,7 +6,9 @@ from webapp import dom
 from webapp.pages import players as page
 
 INT_FIELDS = ["level", "gold", "hp", "max_hp", "mp", "max_mp", "strength",
-              "agility", "intelligence", "endurance", "luck", "x", "y"]
+              "agility", "intelligence", "endurance", "luck", "x", "y",
+              # карма правится из карточки; диапазон клампит adminops.set_fields
+              "karma_score"]
 
 
 def register(app, A):

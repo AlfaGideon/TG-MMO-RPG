@@ -1,5 +1,5 @@
 """Страница: контент игры — мобы, предметы, NPC, классы. Всё редактируемо."""
-from engine import data, rules
+from engine import bestiary, data, familiars, rules
 from webapp.html import esc
 from webapp.pages import dungeons as page_dungeons
 
@@ -8,6 +8,7 @@ CRUMBS = [("Контент", "content")]
 
 TABS = [("mobs", "👾 Мобы"), ("items", "⚔️ Предметы"),
         ("npcs", "🎭 NPC"), ("classes", "🧙 Классы"),
+        ("pets", "🐾 Питомцы"), ("bestiary", "📖 Бестиарий"),
         ("dungeons", "🕳 Подземелья")]
 
 
@@ -20,6 +21,7 @@ def render(ctx):
 
     renderers = {"mobs": _mobs, "items": _items,
                  "npcs": _npcs, "classes": _classes,
+                 "pets": _pets, "bestiary": _bestiary,
                  "dungeons": page_dungeons.render}
     if tab not in renderers:
         tab = "mobs"
@@ -129,6 +131,120 @@ def _classes(ctx):
   <h2>🧙 Классы <span class="muted">({len(data.CLASSES)})</span></h2>
   <div class="scroll"><table>
     <tr><th>Класс</th><th>Описание</th><th>Стартовые статы</th><th></th></tr>{rows}
+  </table></div>
+</div>
+"""
+
+
+def _pets(ctx):
+    """Каталог фамильяров и то, кого герои себе завели (пункт № 74).
+
+    Каталог — `engine/familiars.FAMILIARS`, тот же, что видит бот и
+    серверная админка (`core/familiars.py` его реэкспортирует), поэтому
+    цены и бонусы здесь не переписаны руками, а взяты из кода.
+    """
+    taken = {}
+    for p in ctx.store.players.values():
+        ftype = getattr(p, "familiar_type", None)
+        if ftype:
+            taken.setdefault(ftype, []).append(p)
+
+    rows = ""
+    for key, f in familiars.FAMILIARS.items():
+        owners = taken.get(key, [])
+        bonus_bits = []
+        if f.get("crit_bonus"):
+            bonus_bits.append(f"крит +{f['crit_bonus']}%")
+        if f.get("magic_bonus"):
+            bonus_bits.append(f"магия +{f['magic_bonus']}%")
+        if f.get("gold_to_stash_pct"):
+            bonus_bits.append(f"{f['gold_to_stash_pct']}% золота в карман")
+        if f.get("vision_bonus"):
+            bonus_bits.append(f"обзор +{f['vision_bonus']}")
+        if f.get("berserk_bonus"):
+            bonus_bits.append(f"берсерк +{f['berserk_bonus']}%")
+        if f.get("ambush_shield"):
+            bonus_bits.append("предупреждает о засадах")
+        rows += (f"<tr><td><b>{f['icon']} {esc(f['name'])}</b></td>"
+                 f"<td class='muted'>{esc(f['desc'])}</td>"
+                 f"<td>{esc(' · '.join(bonus_bits))}</td>"
+                 f"<td>{f['cost']}🟤</td>"
+                 f"<td>{len(owners)}</td></tr>")
+
+    owners_rows = ""
+    for p in sorted(ctx.store.players.values(), key=lambda pl: pl.name or ""):
+        fam = familiars.get_familiar(p)
+        if not fam:
+            continue
+        b = familiars.familiar_bonuses(p)
+        owners_rows += (
+            f"<tr><td>{esc(p.name)} <span class='muted'>ур. {p.level}</span></td>"
+            f"<td>{fam['icon']} {esc(fam['custom_name'])}</td>"
+            f"<td>ур. {fam['level']}</td>"
+            f"<td class='muted'>крит +{b['crit_bonus']}% · магия +{b['magic_bonus']}%"
+            f" · берсерк +{b['berserk_bonus']}%</td></tr>")
+    owners_body = (f"<div class='scroll'><table><tr><th>Герой</th><th>Спутник</th>"
+                   f"<th>Уровень</th><th>Текущие бонусы</th></tr>{owners_rows}"
+                   f"</table></div>") if owners_rows else (
+        "<p class='muted'>Пока никто не завёл спутника. "
+        "Кнопка приручения — экран «🐾 Фамильяры» в боте.</p>")
+
+    return f"""
+<div class="card">
+  <h2>🐾 Каталог фамильяров <span class="muted">({len(familiars.FAMILIARS)})</span></h2>
+  <p class="muted">Каталог общий для браузера и бота — правится в
+     <code>engine/familiars.py</code>, цены в бронзе.</p>
+  <div class="scroll"><table>
+    <tr><th>Спутник</th><th>Описание</th><th>Бонусы</th><th>Цена</th><th>Хозяев</th></tr>
+    {rows}
+  </table></div>
+</div>
+<div class="card">
+  <h2>👥 Спутники героев</h2>
+  {owners_body}
+</div>
+"""
+
+
+def _bestiary(ctx):
+    """Бестиарий: справочник тварей + счётчики убийств по серверу (№ 76)."""
+    kills = {}
+    hunters = {}
+    for p in ctx.store.players.values():
+        for mob, cnt in bestiary.get_bestiary(p).items():
+            kills[mob] = kills.get(mob, 0) + cnt
+            if cnt > hunters.get(mob, (0, ""))[0]:
+                hunters[mob] = (cnt, p.name)
+
+    rows = ""
+    for i, m in enumerate(data.MOBS):
+        name = m[0]
+        total = kills.get(name, 0)
+        best_cnt, best_name = hunters.get(name, (0, ""))
+        top = (f"{esc(best_name)} <span class='muted'>× {best_cnt} "
+               f"(+{min(bestiary.MAX_BONUS_PCT, best_cnt // bestiary.KILLS_PER_STEP)}%)"
+               f"</span>") if best_cnt else "<span class='muted'>—</span>"
+        rows += (f"<tr class='clickable' data-act='mob-edit' data-arg='{i}'>"
+                 f"<td><b>{esc(name)}</b></td>"
+                 f"<td>ур. {m[2]} · ❤️ {m[3]} · ⚔️ {m[4]}</td>"
+                 f"<td>{total}</td><td>{top}</td></tr>")
+
+    unknown = sorted(set(kills) - {m[0] for m in data.MOBS})
+    extra = ("<div class='hint warn'>Убийства тварей, которых нет в каталоге "
+             "(переименованы или удалены): " + esc(", ".join(unknown)) + "</div>") if unknown else ""
+
+    return f"""
+<div class="card">
+  <h2>📖 Бестиарий <span class="muted">({len(data.MOBS)} видов ·
+      {sum(kills.values())} побед всего)</span></h2>
+  <p class="muted">Каждые {bestiary.KILLS_PER_STEP} побед над видом дают герою
+     +1 % урона по нему, потолок +{bestiary.MAX_BONUS_PCT} % —
+     числа из <code>engine/bestiary.py</code>, те же, что в бою.
+     Клик по строке открывает карточку твари.</p>
+  {extra}
+  <div class="scroll"><table>
+    <tr><th>Тварь</th><th>Параметры</th><th>Убито на сервере</th><th>Лучший охотник</th></tr>
+    {rows}
   </table></div>
 </div>
 """

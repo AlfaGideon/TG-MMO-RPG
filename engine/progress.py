@@ -395,6 +395,9 @@ def invest_screen(store, p):
     """🏦 Вклад в лавку поселения."""
     from engine import currency, data, shadowecon as E
 
+    # Ленивое начисление: фонового планировщика в браузере нет, поэтому
+    # накопившиеся суточные выплаты начисляются при заходе на экран.
+    E.accrue_dividends(store)
     summary = E.investment_summary(store, p.loc, p.tg_id)
     where = data.LOCATIONS[p.loc][0] if p.loc < len(data.LOCATIONS) else "поселение"
     lines = [f"🏦 <b>Вклад в лавку: {where}</b>", "",

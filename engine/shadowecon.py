@@ -32,6 +32,7 @@ LIQUIDATED_MARKUP = 1.35
 
 LOANS_KEY = "pawn_loans"        # ключи в store.settings браузерного стека
 INVESTMENTS_KEY = "town_investments"
+DIVIDEND_TS_KEY = "town_dividends_ts"   # когда дивиденды платили в последний раз
 
 
 # ── формулы (общие для обоих стеков) ────────────────────────
@@ -173,6 +174,45 @@ def investment_summary(store, loc: int, tg_id: int) -> dict:
         "my_dividends": int(mine["earned"]),
         "share_pct": share_pct(mine["invested"], pool),
     }
+
+
+def due_periods(store, now=None) -> int:
+    """Сколько суточных выплат накопилось с прошлого начисления.
+
+    Серверному стеку периодичность обеспечивает планировщик бота
+    (`bot/runner.py:375`). В браузере фонового процесса нет: панель и игрок
+    открывают страницу когда захотят. Поэтому здесь считается «сколько
+    периодов прошло», а начисление делается ленивo — при заходе на экран
+    вклада (`engine/progress.invest_screen`) и из панели.
+    """
+    now = time.time() if now is None else now
+    last = store.settings.get(DIVIDEND_TS_KEY)
+    if not last:
+        # Первый заход: точку отсчёта ставим сейчас, задним числом не платим.
+        store.settings[DIVIDEND_TS_KEY] = now
+        return 0
+    return int((now - float(last)) // (DIVIDEND_PERIOD_HOURS * 3600))
+
+
+def accrue_dividends(store, now=None) -> list:
+    """Выплатить всё, что накопилось по времени. Идемпотентно.
+
+    Была мёртвая механика: `pay_dividends` в браузерном стеке не вызывался
+    ниоткуда (`grep -rn pay_dividends engine/ webapp/` находил только
+    определение и тест), поэтому вклад никогда не приносил дохода — экран
+    вклада честно показывал «Получено дивидендов: 0» вечно.
+    """
+    now = time.time() if now is None else now
+    periods = due_periods(store, now)
+    if periods <= 0:
+        return []
+    all_payouts = []
+    for _ in range(periods):
+        all_payouts.extend(pay_dividends(store))
+    last = float(store.settings.get(DIVIDEND_TS_KEY) or now)
+    store.settings[DIVIDEND_TS_KEY] = last + periods * DIVIDEND_PERIOD_HOURS * 3600
+    store.save()
+    return all_payouts
 
 
 def pay_dividends(store) -> list:

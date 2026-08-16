@@ -30,7 +30,9 @@ DEPS = {
     "fastapi": "сценарии админ-панели (admin/)",
     "PIL": "генерация и проверка изображений (пакет Pillow)",
     "jinja2": "шаблоны админ-панели",
-    "httpx2": "HTTP-транспорт (TestClient)",
+    # Новые starlette тянут TestClient через httpx2, старые — через httpx:
+    # достаточно любого из двух (разбор альтернатив — в tests/_deps.missing).
+    "httpx|httpx2": "HTTP-транспорт (TestClient)",
     "aiohttp": "прокси-транспорт бота",
     "pytest": "pytest-наборы в tests/",
 }
@@ -49,12 +51,12 @@ def discover():
 
 
 def check_deps():
-    missing = []
-    for pkg, why in DEPS.items():
-        try:
-            __import__(pkg)
-        except ImportError:
-            missing.append(f"{pkg} ({why})")
+    # Разбор альтернатив ("httpx|httpx2" — годится любой) вынесен в _deps,
+    # чтобы у наборов и у раннера была одна и та же логика.
+    sys.path.insert(0, HERE)
+    from _deps import missing as absent
+
+    missing = [f"{pkg} ({DEPS[pkg]})" for pkg in absent(*DEPS)]
     if missing:
         print("!" * 46)
         print("⚠️  ВНИМАНИЕ: не установлены зависимости:")

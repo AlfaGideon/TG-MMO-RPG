@@ -14,6 +14,12 @@ import tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
+# Грейсфул-скип: без этих пакетов набор не падает ImportError, а
+# честно печатает «⚠ Пропуск» и выходит с кодом 0 (см. tests/_deps.py).
+from _deps import require  # noqa: E402
+
+require("sqlalchemy", "aiosqlite")
+
 FAILED = []
 
 

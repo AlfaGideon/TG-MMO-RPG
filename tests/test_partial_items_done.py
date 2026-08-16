@@ -14,12 +14,17 @@
   • № 72 — знамения и расклад кармы видны в панели Pyodide.
 """
 import os
-import random
 import sys
 
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Детерминизм (пункт № 5): игровой random спинован своей константой,
+# а уникальные telegram_id берутся вне seed — см. tests/_seed.py.
+from _seed import pin, unique_id  # noqa: E402
+
+pin(114)
 
 from core.database import async_session
 from core.models import (AppSetting, Character, Item, ItemInstance, Location,
@@ -27,7 +32,7 @@ from core.models import (AppSetting, Character, Item, ItemInstance, Location,
 
 
 def _rand_tg():
-    return random.randint(100_000_000, 999_999_999)
+    return unique_id()
 
 
 class _FakeCallback:

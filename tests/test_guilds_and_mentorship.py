@@ -1,9 +1,14 @@
 import os
-import random
 import sys
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Детерминизм (пункт № 5): игровой random спинован своей константой,
+# а уникальные telegram_id берутся вне seed — см. tests/_seed.py.
+from _seed import pin, unique_id  # noqa: E402
+
+pin(111)
 
 from core.database import async_session
 from core.models import User, Character, Location, Item, ItemInstance, InventoryItem, Party
@@ -13,7 +18,7 @@ from core import duels as core_duels
 
 
 def _rand_tg():
-    return random.randint(100_000_000, 999_999_999)
+    return unique_id()
 
 
 @pytest.mark.asyncio

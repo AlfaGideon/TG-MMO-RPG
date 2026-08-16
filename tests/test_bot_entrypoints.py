@@ -10,12 +10,17 @@
 доменная функция меняет БД», а не сама доменная логика.
 """
 import os
-import random
 import sys
 
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Детерминизм (пункт № 5): игровой random спинован своей константой,
+# а уникальные telegram_id берутся вне seed — см. tests/_seed.py.
+from _seed import pin, unique_id  # noqa: E402
+
+pin(104)
 
 from core.database import async_session
 from core.models import (Character, InventoryItem, Item, ItemInstance,
@@ -23,7 +28,7 @@ from core.models import (Character, InventoryItem, Item, ItemInstance,
 
 
 def _rand_tg():
-    return random.randint(100_000_000, 999_999_999)
+    return unique_id()
 
 
 class _FakeCallback:

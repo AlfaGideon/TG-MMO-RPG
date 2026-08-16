@@ -2,7 +2,7 @@
 
 Отдельный модуль, чтобы страница мира оставалась компактной.
 """
-from engine import data, dungeon as D, storage, world as W
+from engine import data, dungeon as D, gathering, storage, world as W
 from webapp.html import esc
 
 
@@ -57,6 +57,8 @@ def render(ctx):
 
 {_runs(ctx, dungeons)}
 
+{_archaeology(ctx)}
+
 {_portal_map(ctx, dungeons)}
 
 <div class="card">
@@ -105,6 +107,59 @@ def _runs(ctx, dungeons):
      с клетки, бродит по этажам, дерётся и вскрывает сундуки. Сетка не
      хранится, а восстанавливается из сида забега — сохранение не пухнет.
      Гибель внутри выбрасывает наружу.</div>
+  {body}
+</div>
+"""
+
+
+def _archaeology(ctx):
+    """Археология: осколки скрижалей и карты сокровищ героев.
+
+    Раньше поля `Player.relic_fragments` и `Player.treasure_map_coord`
+    (engine/models.py:57-58) не показывались нигде, кроме экрана раскопок
+    в боте — админ не видел, у кого сложилась карта и куда она ведёт.
+    """
+    rows = ""
+    diggers = 0
+    with_map = 0
+    for p in sorted(ctx.store.players.values(),
+                    key=lambda pl: -(getattr(pl, "relic_fragments", 0) or 0)):
+        found = getattr(p, "relic_fragments", 0) or 0
+        coord = getattr(p, "treasure_map_coord", "") or ""
+        if not found and not coord:
+            continue
+        diggers += 1
+        shards = ("🧩" * min(found, gathering.FRAGMENTS_FOR_MAP)
+                  + "▫️" * max(0, gathering.FRAGMENTS_FOR_MAP - found))
+        if coord:
+            with_map += 1
+            try:
+                _, li, _, x, _, y = coord.split(":")
+                li, x, y = int(li), int(x), int(y)
+                loc_name = (data.LOCATIONS[li][0]
+                            if li < len(data.LOCATIONS) else f"локация {li}")
+                place = (f"<b style='color:var(--accent)'>🗺 {esc(loc_name)} "
+                         f"[{x},{y}]</b>")
+            except (ValueError, IndexError):
+                place = f"<span class='muted'>битая карта: {esc(coord)}</span>"
+        else:
+            place = "<span class='muted'>карта не сложилась</span>"
+        rows += (f"<tr><td>{esc(p.name)} <span class='muted'>ур. {p.level}</span></td>"
+                 f"<td>{found} / {gathering.FRAGMENTS_FOR_MAP} {shards}</td>"
+                 f"<td>{place}</td></tr>")
+    body = (f"<div class='scroll'><table><thead><tr><th>Герой</th>"
+            f"<th>Осколки скрижали</th><th>Тайник</th></tr></thead>"
+            f"<tbody>{rows}</tbody></table></div>") if rows else (
+        "<p class='muted'>Никто ещё не копал. Раскопки — кнопка «⛏ Копать» "
+        "на клетке (engine/progress.py:dig).</p>")
+    lo, hi = gathering.TREASURE_GOLD
+    return f"""
+<div class="card">
+  <h2>🏺 Археология ({diggers} копают · {with_map} с картой)</h2>
+  <div class="hint">{gathering.FRAGMENTS_FOR_MAP} осколков складываются в карту
+     сокровищ: она указывает локацию и клетку. Клад даёт {lo}–{hi}🟤,
+     {gathering.TREASURE_ASH} праха и {gathering.TREASURE_EXP} опыта —
+     числа общие с ботом (engine/gathering.py).</div>
   {body}
 </div>
 """

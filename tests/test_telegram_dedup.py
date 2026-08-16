@@ -20,6 +20,12 @@ import types
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Грейсфул-скип: без этих пакетов набор не падает ImportError, а
+# честно печатает «⚠ Пропуск» и выходит с кодом 0 (см. tests/_deps.py).
+from _deps import require  # noqa: E402
+
+require("aiogram")
+
 # Заглушки браузерных модулей (как в test_transport / test_pages).
 fake_js = types.ModuleType("js")
 fake_js.encodeURIComponent = lambda s: str(s)

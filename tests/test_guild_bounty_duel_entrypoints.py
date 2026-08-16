@@ -15,19 +15,24 @@
 функция меняет БД», а не сама доменная логика.
 """
 import os
-import random
 import sys
 
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Детерминизм (пункт № 5): игровой random спинован своей константой,
+# а уникальные telegram_id берутся вне seed — см. tests/_seed.py.
+from _seed import pin, unique_id, unique_name  # noqa: E402
+
+pin(110)
+
 from core.database import async_session
 from core.models import Character, Location, Mob, MobSpawn, User
 
 
 def _rand_tg():
-    return random.randint(100_000_000, 999_999_999)
+    return unique_id()
 
 
 class _FakeCallback:
@@ -141,7 +146,7 @@ async def test_guild_create_join_and_deposit():
         add_currency(leader, bronze=5000)
         # Имя уникально в пределах общей тестовой БД, поэтому случайный суффикс:
         # соседние наборы тоже создают гильдии и заняли бы фиксированное имя.
-        guild_name = f"Дом Испытаний {random.randint(1000, 9999)}"
+        guild_name = unique_name("Дом Испытаний")
         res = await core_guilds.create_guild(session, leader, guild_name)
         assert res["ok"] is True
         guild = res["guild"]

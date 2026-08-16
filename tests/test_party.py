@@ -12,6 +12,12 @@ from types import SimpleNamespace
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Грейсфул-скип: без этих пакетов набор не падает ImportError, а
+# честно печатает «⚠ Пропуск» и выходит с кодом 0 (см. tests/_deps.py).
+from _deps import require  # noqa: E402
+
+require("aiogram", "sqlalchemy", "aiosqlite")
+
 # Временная БД ДО импорта core.* — модуль читает DATABASE_URL при загрузке.
 _TMP = tempfile.mkdtemp(prefix="tgmmorpg_party_")
 os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{os.path.join(_TMP, 'party.db')}"

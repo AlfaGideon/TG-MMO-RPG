@@ -13,12 +13,17 @@
   * 87 — модель `Quest` и задания в сиде были, а выдачи и сдачи в боте нет.
 """
 import os
-import random
 import sys
 
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Детерминизм (пункт № 5): игровой random спинован своей константой,
+# а уникальные telegram_id берутся вне seed — см. tests/_seed.py.
+from _seed import pin, unique_id  # noqa: E402
+
+pin(102)
 
 from core.database import async_session
 from core.enums import AuctionStatus, QuestStatus
@@ -27,7 +32,7 @@ from core.models import (AuctionLot, Character, CharacterQuest, InventoryItem,
 
 
 def _rand_tg():
-    return random.randint(100_000_000, 999_999_999)
+    return unique_id()
 
 
 async def _make_hero(session, name="Hero", level=5):
