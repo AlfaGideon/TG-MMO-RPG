@@ -46,6 +46,8 @@ class Game:
             [("📖 Бестиарий", "bestiary"), ("🎖 Титулы", "titles")],
             [("⭐ Созвездия", "talents"), ("🎓 Путь", "subclass")],
             [("🏆 Зал Славы", "legends")],
+            [("💍 Ломбард", "pawn"), ("🏦 Вклад", "invest")],
+            [("🕯 Чёрный рынок", "market")],
             [("🐾 Спутник", "familiar")],
             [("🔨 Мастерская", "craft"), ("🏛 Аукцион", "auc:0")],
             [("🏆 Топ", "top"), ("❓ Помощь", "help")],
@@ -417,6 +419,13 @@ class Game:
     do_ghost = lambda self, p, arg="": progress.ghost_screen(p)
     do_ghostbuy = lambda self, p, arg="": progress.ghost_buy(self.store, p, arg)
     do_legends = lambda self, p, arg="": progress.legends_screen(self.store)
+    do_pawn = lambda self, p, arg="": progress.pawn_screen(self.store, p)
+    do_pawnput = lambda self, p, arg="": progress.pawn_item(self.store, p, arg)
+    do_pawnback = lambda self, p, arg="": progress.pawn_redeem(self.store, p, arg)
+    do_invest = lambda self, p, arg="": progress.invest_screen(self.store, p)
+    do_investgo = lambda self, p, arg="": progress.invest_do(self.store, p, arg)
+    do_market = lambda self, p, arg="": progress.market_screen(self.store, p)
+    do_marketbuy = lambda self, p, arg="": progress.market_buy(self.store, p, arg)
 
 
     # ── подземелья ──────────────────────────────────────────

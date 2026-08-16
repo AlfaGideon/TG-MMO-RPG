@@ -1,5 +1,11 @@
-"""Инвестиции в городские лавки и выплата дивидендов."""
+"""Вклады в городские лавки: серверная часть.
+
+Ставка дивидендов и расчёт доли — общие для обоих стеков и живут в
+`engine/shadowecon.py`. Здесь остаётся работа с БД.
+"""
 from sqlalchemy import select, func
+
+from engine import shadowecon as E
 from core.models import Character, TownInvestment, Location
 
 
@@ -59,7 +65,7 @@ async def get_town_investment_summary(session, location_id: int, character_id: i
 
     my_bronze = my_inv.invested_bronze if my_inv else 0
     my_divs = my_inv.earned_dividends if my_inv else 0
-    share_pct = int((my_bronze / total_pool) * 100) if total_pool > 0 else 0
+    share_pct = E.share_pct(my_bronze, total_pool)
 
     return {
         "total_pool": total_pool,
@@ -72,8 +78,8 @@ async def get_town_investment_summary(session, location_id: int, character_id: i
 # Дивиденды: доля от вклада за один расчётный период. 2 % в сутки —
 # вклад окупается примерно за 50 дней, поэтому инвестиции остаются
 # долгой целью, а не заменой добыче.
-DIVIDEND_RATE = 0.02
-DIVIDEND_PERIOD_HOURS = 24
+DIVIDEND_RATE = E.DIVIDEND_RATE
+DIVIDEND_PERIOD_HOURS = E.DIVIDEND_PERIOD_HOURS
 
 
 async def pay_dividends(session) -> list[dict]:
@@ -96,7 +102,7 @@ async def pay_dividends(session) -> list[dict]:
     )
     payouts = []
     for inv in result.scalars().all():
-        amount = int((inv.invested_bronze or 0) * DIVIDEND_RATE)
+        amount = E.dividend_for(inv.invested_bronze)
         if amount <= 0:
             continue
         character = inv.character

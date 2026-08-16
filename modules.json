@@ -32,6 +32,7 @@
     "engine/salvage.py",
     "engine/spectral.py",
     "engine/legends.py",
+    "engine/shadowecon.py",
     "engine/rules.py",
     "engine/factions.py",
     "engine/death.py",

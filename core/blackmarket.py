@@ -66,16 +66,14 @@ async def buy_black_market_item(session, character: Character, item_key: str) ->
     return {"ok": True, "title": "Тайная сделка", "desc": msg}
 
 
-# Наценка перекупщика на изъятый залог: он выкупил вещь за долг и
-# перепродаёт дороже — иначе выгоднее было бы не выкупать свой залог,
-# а ждать конфискации и покупать его же дешевле.
-LIQUIDATED_MARKUP = 1.35
+# Наценка перекупщика — общая с браузерным стеком (engine/shadowecon).
+from engine.shadowecon import LIQUIDATED_MARKUP  # noqa: E402,F401
 
 
 def liquidated_price(loan: PawnLoan) -> int:
     """Цена изъятого залога на витрине."""
-    base = loan.buyback_price or loan.loan_bronze or 1
-    return max(1, int(base * LIQUIDATED_MARKUP))
+    from engine import shadowecon as E
+    return E.liquidated_price_for(loan.buyback_price or loan.loan_bronze or 1)
 
 
 async def list_liquidated_wares(session, limit: int = 10) -> list[dict]:

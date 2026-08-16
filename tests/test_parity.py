@@ -173,6 +173,15 @@ REGISTRY = [
     Feature("Зал Славы",
             browser=["engine/legends.py"],
             server=["core/legends.py"]),
+    Feature("Ломбард",
+            browser=["engine/shadowecon.py"],
+            server=["core/pawnshop.py"]),
+    Feature("Вклады в лавки",
+            browser=["engine/shadowecon.py"],
+            server=["core/investments.py"]),
+    Feature("Чёрный рынок",
+            browser=["engine/shadowecon.py"],
+            server=["core/blackmarket.py"]),
 
     Feature("Трёхвалютная экономика",
             browser=["engine/currency.py"],
@@ -358,6 +367,16 @@ def test_shared_numbers_match():
               "витрина призрака общая")
         check(c_salv.S is e_salv,
               "разбор считается общей таблицей")
+        from core import investments as c_inv
+        from core import pawnshop as c_pawn
+        from engine import shadowecon as e_econ
+        check(c_pawn.E is e_econ, "ломбард берёт ставки из engine/shadowecon")
+        check(c_inv.DIVIDEND_RATE == e_econ.DIVIDEND_RATE,
+              f"ставка дивидендов: {e_econ.DIVIDEND_RATE}")
+        check(e_econ.buyback_for(e_econ.loan_for(100)) > e_econ.loan_for(100),
+              "выкуп всегда дороже займа")
+        check(e_econ.liquidated_price_for(100) > 100,
+              "изъятое перепродаётся с наценкой")
         check(c_subs.SUBCLASS_MIN_LEVEL == e_subs.SUBCLASS_MIN_LEVEL,
               f"порог специализации: {e_subs.SUBCLASS_MIN_LEVEL}")
     except ImportError as e:

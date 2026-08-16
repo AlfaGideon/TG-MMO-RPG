@@ -312,3 +312,165 @@ def legends_screen(store):
 
     return Reply(text=legends.hall_text(legends.all_records(store)),
                  keyboard=[BACK_MENU])
+
+
+# ── теневая экономика: ломбард, вклады, чёрный рынок ────────
+# Ставки общие с сервером (engine/shadowecon), хранилище своё:
+# записи лежат в store.settings, а не в таблицах.
+
+INVEST_STEPS = (100, 500, 2000)
+
+
+def pawn_screen(store, p):
+    """💍 Ломбард: свои займы и выкуп."""
+    from engine import currency, itemui, rules, shadowecon as E
+
+    E.sweep_loans(store)
+    mine = E.active_loans(store, p.tg_id)
+    lines = ["💍 <b>Ломбард Падальщиков</b>", "",
+             "<i>— Вещь оставь, деньги забирай. Не выкупишь в срок — она моя.</i>",
+             "", f"💰 Кошелёк: <b>{currency.fmt(p)}</b>", ""]
+    rows = []
+    if not mine:
+        lines.append("<i>Твоих залогов здесь нет.</i>")
+        lines.append("")
+        lines.append("Заложить вещь можно из карточки предмета в сумке.")
+    else:
+        for loan in mine:
+            name = rules.item(loan["idx"])["name"]
+            lines.append(f"• <b>{name}</b> — выкуп {loan['buyback']}🟤")
+            rows.append([(f"💰 Выкупить: {name} ({loan['buyback']}🟤)",
+                          f"pawnback:{loan['id']}")])
+    rows.append(BACK_MENU)
+    return Reply(text="\n".join(lines), keyboard=rows)
+
+
+def pawn_item(store, p, arg):
+    """Заложить вещь из сумки: деньги сразу, вещь — ростовщику."""
+    from engine import currency, itemui, rules, shadowecon as E, slots
+
+    pos = int(arg)
+    if pos < 0 or pos >= len(p.inventory):
+        return Reply(alert="Предмет не найден.")
+    if slots.is_equipped_at(p, pos):
+        return Reply(alert="Сначала сними предмет.")
+
+    idx = p.inventory[pos]
+    loan = E.add_loan(store, p, idx, itemui.resale_of(idx))
+    slots.take_at(p, pos)
+    currency.earn(p, loan["loan"])
+    store.save_player(p)
+    store.save()
+    return Reply(
+        text=f"💍 <b>Заклад</b>\n\n{rules.item(idx)['name']} у ростовщика.\n\n"
+             f"{E.loan_text(loan['loan'], loan['buyback'])}",
+        keyboard=[[("💍 Мои займы", "pawn")], [("◀️ В сумку", "bag")]])
+
+
+def pawn_redeem(store, p, arg):
+    """Выкупить залог обратно."""
+    from engine import currency, rules, shadowecon as E, slots
+
+    loan = E.find_loan(store, arg)
+    if loan is None or loan.get("redeemed"):
+        return Reply(alert="Этот заём уже закрыт.")
+    if int(loan.get("owner", 0)) != int(p.tg_id):
+        return Reply(alert="Это чужой заём.")
+    if loan.get("liquidated"):
+        return Reply(alert="Срок вышел — вещь ушла на чёрный рынок.")
+    if not currency.spend(p, loan["buyback"]):
+        need = loan["buyback"] - currency.total(p)
+        return Reply(alert=f"Не хватает {currency.short(need)}.")
+
+    loan["redeemed"] = True
+    slots.append_item(p, loan["idx"])
+    store.save_player(p)
+    store.save()
+    r = pawn_screen(store, p)
+    r.alert = f"Вещь выкуплена: {rules.item(loan['idx'])['name']}"
+    return r
+
+
+def invest_screen(store, p):
+    """🏦 Вклад в лавку поселения."""
+    from engine import currency, data, shadowecon as E
+
+    summary = E.investment_summary(store, p.loc, p.tg_id)
+    where = data.LOCATIONS[p.loc][0] if p.loc < len(data.LOCATIONS) else "поселение"
+    lines = [f"🏦 <b>Вклад в лавку: {where}</b>", "",
+             "<i>— Вложись в дело, и лавка отблагодарит долей с оборота.</i>", "",
+             f"💰 Кошелёк: <b>{currency.fmt(p)}</b>",
+             f"📦 Капитал лавки: <b>{summary['total_pool']}</b>🟤",
+             f"🪙 Твой вклад: <b>{summary['my_invested']}</b>🟤 "
+             f"(доля {summary['share_pct']}%)",
+             f"💎 Получено дивидендов: <b>{summary['my_dividends']}</b>🟤", "",
+             f"<i>Выплата — {int(E.DIVIDEND_RATE * 100)} % в сутки.</i>"]
+    rows = [[(f"🏦 Вложить {step}🟤", f"investgo:{step}")]
+            for step in INVEST_STEPS if currency.can_afford(p, step)]
+    rows.append(BACK_MENU)
+    return Reply(text="\n".join(lines), keyboard=rows)
+
+
+def invest_do(store, p, arg):
+    """Внести вклад фиксированной суммой."""
+    from engine import currency, shadowecon as E
+
+    amount = int(arg)
+    if amount not in INVEST_STEPS:          # защита от подделанной кнопки
+        return Reply(alert="Недопустимая сумма.")
+    if not currency.spend(p, amount):
+        return Reply(alert=f"Не хватает {currency.short(amount - currency.total(p))}.")
+    row = E.invest(store, p, p.loc, amount)
+    store.save_player(p)
+    store.save()
+    r = invest_screen(store, p)
+    r.alert = f"Вложено {amount}🟤. Всего: {row['invested']}🟤."
+    return r
+
+
+def market_screen(store, p):
+    """🕯 Чёрный рынок: изъятые за долги вещи."""
+    from engine import currency, rules, shadowecon as E
+
+    E.sweep_loans(store)
+    wares = E.seized_wares(store)
+    lines = ["🕯 <b>Чёрный рынок</b>", "",
+             "<i>— Тише. Товар без имени, продавца ты не видел.</i>", "",
+             f"💰 Кошелёк: <b>{currency.fmt(p)}</b>", ""]
+    rows = []
+    if not wares:
+        lines.append("<i>Сегодня пусто. Загляни, когда чей-то срок выйдет.</i>")
+    else:
+        lines.append("🔒 <b>Изъято за долги</b>")
+        for loan in wares:
+            price = E.liquidated_price_for(loan["buyback"])
+            name = rules.item(loan["idx"])["name"]
+            lines.append(f"⚔️ {name} — <b>{price}</b>🟤")
+            if currency.can_afford(p, price):
+                rows.append([(f"Выкупить: {name} ({price}🟤)",
+                              f"marketbuy:{loan['id']}")])
+    rows.append(BACK_MENU)
+    return Reply(text="\n".join(lines), keyboard=rows)
+
+
+def market_buy(store, p, arg):
+    """Выкупить изъятую вещь с рынка."""
+    from engine import currency, rules, shadowecon as E, slots
+
+    loan = E.find_loan(store, arg)
+    if loan is None or loan.get("redeemed") or not loan.get("liquidated"):
+        return Reply(alert="Этот товар уже продан.")
+    price = E.liquidated_price_for(loan["buyback"])
+    if not currency.spend(p, price):
+        return Reply(alert=f"Не хватает {currency.short(price - currency.total(p))}.")
+
+    # Вещь уходит покупателю и пропадает с витрины — дважды не продать.
+    loan["redeemed"] = True
+    slots.append_item(p, loan["idx"])
+    store.save_player(p)
+    store.save()
+    return Reply(
+        text=f"🕯 <b>Тайная сделка</b>\n\nТы выкупил "
+             f"<b>{rules.item(loan['idx'])['name']}</b> за {price}🟤.\n\n"
+             f"<i>Прежний владелец не сумел вернуть долг вовремя.</i>",
+        keyboard=[[("🕯 Ещё раз", "market")], [("◀️ Меню", "menu")]])

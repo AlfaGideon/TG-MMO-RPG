@@ -1,6 +1,13 @@
-"""Ростовщичество и залоговый ломбард у Падальщиков."""
+"""Ломбард: серверная часть.
+
+Ставки (доля выдачи, комиссия выкупа, срок) — общие для обоих стеков и
+живут в `engine/shadowecon.py`. Здесь остаётся работа с БД.
+"""
 from datetime import datetime, timedelta, timezone
+
 from sqlalchemy import select
+
+from engine import shadowecon as E
 from core.models import Character, InventoryItem, ItemInstance, PawnLoan
 
 
@@ -8,7 +15,8 @@ def _now():
     return datetime.now(timezone.utc)
 
 
-async def create_pawn_loan(session, character: Character, inv_item: InventoryItem, days: int = 3) -> dict:
+async def create_pawn_loan(session, character: Character, inv_item: InventoryItem,
+                           days: int = E.LOAN_DAYS) -> dict:
     """Заложить предмет ростовщику под процент."""
     from engine.currency import add_currency
     from core.loot import instance_price
@@ -20,8 +28,8 @@ async def create_pawn_loan(session, character: Character, inv_item: InventoryIte
 
     instance = inv_item.instance
     base_val = instance_price(instance, inv_item.item.price if inv_item.item else 10)
-    loan_val = max(20, int(base_val * 0.70))
-    buyback = int(loan_val * 1.15)  # 15% комиссия за выкуп
+    loan_val = E.loan_for(base_val)
+    buyback = E.buyback_for(loan_val)
 
     # Убираем предмет из сумки
     inst_id = instance.id

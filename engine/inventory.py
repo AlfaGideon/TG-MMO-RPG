@@ -66,6 +66,9 @@ def card(p, arg, store=None):
         act.append(("✅ Надеть", f"on:{pos}"))
     rows = [act] if act else []
     rows.append([("💰 Продать", f"sell:{pos}"), ("🗑 Выбросить", f"toss:{pos}")])
+    if not equipped:
+        # Ломбард даёт меньше продажи, зато вещь можно выкупить обратно.
+        rows.append([("💍 Заложить", f"pawnput:{pos}")])
     if stash.safe_here(p) and stash.free_slots(p, store) > 0:
         rows.append([("🔒 Убрать в карман", f"stput:{pos}")])
     rows.append([("◀️ В сумку", f"bagp:{page}")])
