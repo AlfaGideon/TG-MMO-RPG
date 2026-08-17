@@ -34,6 +34,27 @@ FEED_EVENTS = {
     "dividends_paid",
 }
 
+# Часть событий уместнее в профильном канале, а не в общей ленте: торги —
+# на «Торговой площади», дуэли — в «Вызовах». Ключ не в FEED_EVENTS, а
+# здесь: так событие уходит ровно в один канал и не дублируется.
+EVENT_ROUTES = {
+    "auction_new_lot": "trade",
+    "auction_sold": "trade",
+    "duel_declared": "duels",
+    "duel_finished": "duels",
+    "guild_created": "recruit",
+    "guild_recruiting": "recruit",
+}
+
+
+def channel_for(event_type: str) -> str | None:
+    """В какой канал отправить событие. None — событие не для чата."""
+    if event_type in EVENT_ROUTES:
+        return EVENT_ROUTES[event_type]
+    if event_type in FEED_EVENTS:
+        return FEED_CHANNEL
+    return None
+
 # Пауза между отправками: Telegram не любит очередь сообщений в одну тему.
 MIN_INTERVAL = 2.0
 
@@ -79,7 +100,8 @@ class WorldFeed:
                 continue
 
             etype = (event or {}).get("type", "")
-            if etype not in FEED_EVENTS:
+            target = channel_for(etype)
+            if target is None:
                 continue
             try:
                 if not await bridge.is_enabled():
@@ -87,7 +109,7 @@ class WorldFeed:
                     # лента мира внутри игры не должна пустовать.
                     pass
                 text = RT.format_radar_event(event)
-                await bridge.announce(FEED_CHANNEL, text)
+                await bridge.announce(target, text)
                 # Разрежаем поток, чтобы не упереться в лимиты Telegram.
                 await asyncio.sleep(MIN_INTERVAL)
             except asyncio.CancelledError:

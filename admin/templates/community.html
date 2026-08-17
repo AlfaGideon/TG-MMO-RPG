@@ -107,7 +107,16 @@
                 </td>
                 <td data-label="Сообщений">{{ c.count }}</td>
                 <td data-label="">
-                    <a href="/community/{{ c.key }}" class="btn">👁 Открыть</a>
+                    <div style="display:flex;gap:.3rem;flex-wrap:wrap">
+                        <a href="/community/{{ c.key }}" class="btn">👁 Открыть</a>
+                        <form action="/community/{{ c.key }}/toggle" method="post"
+                              style="margin:0">
+                            <button type="submit" class="btn"
+                                    title="{% if c.is_active %}Скрыть канал у игроков{% else %}Вернуть канал игрокам{% endif %}">
+                                {% if c.is_active %}🙈{% else %}👀{% endif %}
+                            </button>
+                        </form>
+                    </div>
                 </td>
             </tr>
             {% else %}
@@ -120,6 +129,90 @@
             {% endfor %}
         </tbody>
     </table>
+    </div>
+</div>
+
+<div class="card">
+    <h3>➕ Свой канал</h3>
+    <p class="section-sub">
+        Сверх стартового набора. Ключ можно не заполнять — он соберётся из
+        названия (кириллица транслитерируется: «События» → <code>sobytiya</code>).
+        Скрытый канал (🙈) остаётся в базе вместе с журналом, но исчезает из
+        меню игроков.
+    </p>
+    <form action="/community/channel/create" method="post" data-validate>
+        <div class="field-row cols-2">
+            <div>
+                <label class="form-label">Ключ <span class="muted">(необязательно)</span></label>
+                <input type="text" name="key" maxlength="64"
+                       placeholder="соберётся из названия" class="search-box">
+            </div>
+            <div>
+                <label class="form-label">Название</label>
+                <input type="text" name="title" required maxlength="96"
+                       placeholder="События" class="search-box">
+            </div>
+        </div>
+        <div class="field-row cols-2" style="margin-top:.6rem">
+            <div>
+                <label class="form-label">Значок</label>
+                <input type="text" name="icon" maxlength="8" value="💬"
+                       class="search-box">
+            </div>
+            <div>
+                <label class="form-label">Доступ</label>
+                <select name="access" class="search-box">
+                    <option value="public">все игроки</option>
+                    <option value="readonly">только чтение (пишет игра)</option>
+                    <option value="members">закрытый</option>
+                </select>
+            </div>
+        </div>
+        <div style="margin-top:.6rem">
+            <label class="form-label">Описание</label>
+            <input type="text" name="topic" maxlength="300"
+                   placeholder="О чём этот канал" class="search-box">
+        </div>
+        <div style="margin-top:.7rem">
+            <button type="submit" class="btn btn-primary">➕ Создать канал</button>
+        </div>
+    </form>
+</div>
+
+<div class="card">
+    <div class="toolbar">
+        <h3 style="margin-bottom:0;">📊 Пульс сообщества</h3>
+        <span class="hint">
+            реакций: <b>{{ stats.reactions }}</b> ·
+            подписок: <b>{{ stats.subscriptions }}</b> ·
+            закреплено: <b>{{ stats.pinned }}</b>
+        </span>
+    </div>
+    <div class="field-row cols-2">
+        <div>
+            <h4>🗣 Самые говорливые</h4>
+            {% if top_posters %}
+            <ol style="margin:.3rem 0 0 1.1rem">
+                {% for name, count in top_posters %}
+                <li>{{ name }} — <b>{{ count }}</b></li>
+                {% endfor %}
+            </ol>
+            {% else %}
+            <p class="muted">Пока тихо.</p>
+            {% endif %}
+        </div>
+        <div>
+            <h4>🔥 Живые каналы</h4>
+            {% if activity %}
+            <ol style="margin:.3rem 0 0 1.1rem">
+                {% for label, count in activity %}
+                <li>{{ label }} — <b>{{ count }}</b></li>
+                {% endfor %}
+            </ol>
+            {% else %}
+            <p class="muted">Пока тихо.</p>
+            {% endif %}
+        </div>
     </div>
 </div>
 

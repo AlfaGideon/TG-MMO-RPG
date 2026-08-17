@@ -172,36 +172,115 @@ async def announce(channel_key: str, text: str, bot=None) -> bool:
 
 
 async def relay_from_game(character, channel_key: str, text: str,
-                          bot=None) -> dict:
+                          bot=None, reply_to_id: int | None = None) -> dict:
     """Игрок написал из бота → журнал + тема группы.
 
     Права проверяются здесь, а не в хендлере: точка входа может быть
-    любой (личка бота, команда, панель), а правило одно.
+    любой (личка бота, команда, панель), а правило одно. Здесь же
+    антифлуд — по той же причине: лимит должен действовать независимо от
+    того, откуда пришёл текст.
     """
-    from core.community import can_write, clean_text, get_channel
+    from core.community import (can_write, check_rate_limit, clean_text,
+                                get_channel, is_repeat)
 
     body = clean_text(text)
     if not body:
-        return {"ok": False, "reason": "Пустое сообщение."}
+        return {"ok": False, "delivered": False,
+                "reason": "Пустое сообщение."}
 
     async with async_session() as session:
         channel = await get_channel(session, channel_key)
         if channel is None:
-            return {"ok": False, "reason": "Канал не найден."}
+            return {"ok": False, "delivered": False,
+                    "reason": "Канал не найден."}
         if not await can_write(session, channel, character):
             if channel.access == ChannelAccess.READONLY.value:
-                return {"ok": False,
+                return {"ok": False, "delivered": False,
                         "reason": "В этот канал пишет только игра."}
-            return {"ok": False, "reason": "Нет доступа к этому каналу."}
+            return {"ok": False, "delivered": False,
+                    "reason": "Нет доступа к этому каналу."}
+
+        limit = await check_rate_limit(session, channel, character)
+        if not limit.get("ok"):
+            return {"ok": False, "delivered": False,
+                    "reason": limit.get("reason", "Слишком часто.")}
+        if await is_repeat(session, channel, character, body):
+            return {"ok": False, "delivered": False,
+                    "reason": "Ты только что писал то же самое. "
+                              "Придумай что-нибудь новое."}
 
         line = f"<b>{character.name}</b>: {body}"
         msg = await post_message(session, channel, body, character=character,
-                                 source="bot")
+                                 source="bot", reply_to_id=reply_to_id)
         tg_id = await send_to_channel(session, channel, line, bot)
         await attach_tg_id(session, msg, tg_id)
         await session.commit()
         delivered = tg_id is not None
-    return {"ok": True, "delivered": delivered, "channel": channel_key}
+        message_id = msg.id if msg is not None else None
+
+    await notify_subscribers(channel_key, character, body, bot)
+    return {"ok": True, "delivered": delivered, "channel": channel_key,
+            "message_id": message_id}
+
+
+async def notify_subscribers(channel_key: str, author, body: str,
+                             bot=None) -> int:
+    """Личка тем, кто подписан на канал и не заглушил его.
+
+    Зачем: игрок не сидит в чате постоянно, а разговор в канале без
+    уведомлений умирает — реплику просто никто не увидит вовремя.
+
+    Осторожность здесь важнее полноты: автору себе не пишем, заглушённые
+    каналы пропускаем, права перепроверяем на каждого получателя (состав
+    гильдии мог измениться после подписки), а любая ошибка отправки
+    (бот заблокирован) не должна ронять саму отправку сообщения.
+    """
+    from sqlalchemy import select
+
+    from core.community import can_read, get_channel, subscribers
+    from core.models import Character, User
+
+    bot = bot or _bot()
+    if bot is None:
+        return 0
+
+    sent = 0
+    async with async_session() as session:
+        channel = await get_channel(session, channel_key)
+        if channel is None:
+            return 0
+        author_id = getattr(author, "id", None)
+        targets = [cid for cid in await subscribers(session, channel)
+                   if cid != author_id]
+        if not targets:
+            return 0
+
+        label = channel.label()
+        who = getattr(author, "name", "") or "Кто-то"
+        snippet = body if len(body) <= 120 else body[:119] + "…"
+
+        for character_id in targets:
+            character = await session.get(Character, character_id)
+            if character is None:
+                continue
+            if not await can_read(session, channel, character):
+                continue
+            telegram_id = (await session.execute(
+                select(User.telegram_id).where(User.id == character.user_id)
+            )).scalars().first()
+            if not telegram_id:
+                continue
+            try:
+                await bot.send_message(
+                    chat_id=telegram_id,
+                    text=(f"💬 <b>{label}</b>\n\n<b>{who}</b>: {snippet}"),
+                    parse_mode="HTML",
+                )
+                sent += 1
+            except Exception as exc:
+                logger.debug("community: уведомление %s не ушло: %s",
+                             telegram_id, exc)
+    return sent
 
 
 async def relay_from_telegram(message) -> dict | None:

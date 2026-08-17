@@ -310,6 +310,275 @@ async def scenario():
         check(info["linked"] >= 1, "привязанные темы посчитаны")
 
 
+async def scenario_extras():
+    """Расширения: ветки, реакции, закреп, непрочитанное, поиск, антифлуд."""
+    from core import community as C
+    from core.database import async_session
+    from core.models import Character, User
+
+    print("\n— Новые топики —")
+    async with async_session() as s:
+        await C.ensure_default_channels(s)
+        await s.commit()
+        for key in ("tavern", "lore", "recruit", "duels"):
+            check(await C.get_channel(s, key) is not None,
+                  f"канал {key} заведён")
+
+    async with async_session() as s:
+        u1 = User(telegram_id=unique_id(), username="x1")
+        u2 = User(telegram_id=unique_id(), username="x2")
+        s.add_all([u1, u2])
+        await s.flush()
+        a = Character(user_id=u1.id, name="Аста", character_class="mage",
+                      level=3)
+        b = Character(user_id=u2.id, name="Борн", character_class="warrior",
+                      level=3)
+        s.add_all([a, b])
+        await s.commit()
+        a_id, b_id = a.id, b.id
+
+    print("\n— Ветки обсуждения —")
+    async with async_session() as s:
+        tavern = await C.get_channel(s, "tavern")
+        lore = await C.get_channel(s, "lore")
+        a = await s.get(Character, a_id)
+        b = await s.get(Character, b_id)
+
+        root = await C.post(s, tavern, "кто идёт в подземелье?", character=a,
+                            source="bot")
+        answer = await C.post(s, tavern, "я готов", character=b, source="bot",
+                              reply_to_id=root.id)
+        await s.commit()
+        check(answer.reply_to_id == root.id, "ответ помнит родителя")
+
+        # Ответ на сообщение ЧУЖОГО канала не должен пролезать.
+        alien = await C.post(s, lore, "чужая ветка", character=a, source="bot")
+        await s.commit()
+        cross = await C.post(s, tavern, "ответ в чужой канал", character=b,
+                             source="bot", reply_to_id=alien.id)
+        await s.commit()
+        check(cross.reply_to_id is None,
+              "ответ на сообщение другого канала не привязывается")
+
+    print("\n— Реакции —")
+    async with async_session() as s:
+        a = await s.get(Character, a_id)
+        b = await s.get(Character, b_id)
+        tavern = await C.get_channel(s, "tavern")
+        msg = (await C.recent(s, tavern))[0]
+
+        r1 = await C.toggle_reaction(s, msg.id, b, "🔥")
+        await s.commit()
+        check(r1["ok"] and r1["added"] and r1["counts"].get("🔥") == 1,
+              "реакция поставлена")
+
+        r2 = await C.toggle_reaction(s, msg.id, b, "🔥")
+        await s.commit()
+        check(not r2["added"] and not r2["counts"],
+              "повторный тап снимает реакцию")
+
+        await C.toggle_reaction(s, msg.id, a, "👍")
+        await C.toggle_reaction(s, msg.id, b, "👍")
+        await s.commit()
+        counts = await C.reaction_counts(s, msg.id)
+        check(counts.get("👍") == 2, "две реакции разных героев считаются")
+
+        bad = await C.toggle_reaction(s, msg.id, a, "💀")
+        check(not bad["ok"], "эмодзи вне набора отвергается")
+
+        batch = await C.reactions_for(s, [msg.id])
+        check(batch.get(msg.id, {}).get("👍") == 2,
+              "пакетная выборка счётчиков совпадает")
+
+    print("\n— Закреп —")
+    async with async_session() as s:
+        tavern = await C.get_channel(s, "tavern")
+        rows = await C.recent(s, tavern)
+        first, second = rows[0], rows[1]
+
+        await C.pin_message(s, first.id)
+        await s.commit()
+        check((await C.pinned(s, tavern)).id == first.id, "сообщение закреплено")
+
+        await C.pin_message(s, second.id)
+        await s.commit()
+        pin = await C.pinned(s, tavern)
+        check(pin.id == second.id, "новый закреп заменяет старый")
+        check(sum(1 for m in await C.recent(s, tavern) if m.is_pinned) == 1,
+              "закреп в канале ровно один")
+
+        await C.unpin_channel(s, tavern)
+        await s.commit()
+        check(await C.pinned(s, tavern) is None, "закреп снимается")
+
+    print("\n— Непрочитанное и тишина —")
+    async with async_session() as s:
+        a = await s.get(Character, a_id)
+        tavern = await C.get_channel(s, "tavern")
+        channels = await C.visible_channels(s, a)
+
+        unread = await C.unread_counts(s, a, channels)
+        check(unread.get(tavern.id, 0) >= 1, "чужие сообщения считаются новыми")
+
+        await C.mark_read(s, tavern, a)
+        await s.commit()
+        unread = await C.unread_counts(s, a, channels)
+        check(tavern.id not in unread, "после прочтения счётчик гаснет")
+
+        b = await s.get(Character, b_id)
+        await C.post(s, tavern, "свежая реплика", character=b, source="bot")
+        await s.commit()
+        unread = await C.unread_counts(s, a, channels)
+        check(unread.get(tavern.id) == 1, "новое сообщение снова считается")
+
+        own = await C.post(s, tavern, "моя реплика", character=a, source="bot")
+        await s.commit()
+        unread = await C.unread_counts(s, a, channels)
+        check(unread.get(tavern.id) == 1,
+              "собственное сообщение не считается непрочитанным")
+        check(own is not None, "своё сообщение записано")
+
+        check(await C.toggle_mute(s, tavern, a) is True, "канал заглушён")
+        check(await C.is_muted(s, tavern, a) is True, "тишина запомнилась")
+        check(await C.toggle_mute(s, tavern, a) is False, "тишина снимается")
+        await s.commit()
+
+        subs = await C.subscribers(s, tavern)
+        check(a_id in subs, "незаглушённый герой попадает в рассылку")
+        await C.toggle_mute(s, tavern, a)
+        await s.commit()
+        check(a_id not in await C.subscribers(s, tavern),
+              "заглушённый герой из рассылки исключён")
+
+    print("\n— Поиск —")
+    async with async_session() as s:
+        a = await s.get(Character, a_id)
+        stranger_user = User(telegram_id=unique_id(), username="x3")
+        s.add(stranger_user)
+        await s.flush()
+        outsider = Character(user_id=stranger_user.id, name="Прохожий",
+                             character_class="rogue", level=2)
+        s.add(outsider)
+        await s.commit()
+
+        res = await C.search(s, "подземелье", character=a)
+        check(len(res) >= 1, "поиск находит сообщение")
+        check(res[0][1].key == "tavern", "канал результата возвращается")
+        check(await C.search(s, "я", character=a) == [],
+              "слишком короткий запрос игнорируется")
+        check(await C.search(s, "такого-точно-нет", character=a) == [],
+              "несуществующее слово ничего не находит")
+
+        scoped = await C.search(s, "подземелье", character=a,
+                                channel_key="lore")
+        check(scoped == [], "поиск по конкретному каналу не берёт чужие")
+
+        # Закрытый канал не должен светиться в поиске у постороннего.
+        # Членство — это строка в guild_members, а не leader_id: доступ
+        # считается по составу, поэтому вписываем героя явно.
+        from core.guilds import Guild, guild_members
+
+        guild = Guild(name="Тайный круг", leader_id=a.id)
+        s.add(guild)
+        await s.flush()
+        await s.execute(guild_members.insert().values(
+            guild_id=guild.id, character_id=a.id, role="leader"))
+        gch = await C.ensure_guild_channel(s, guild)
+        await C.post(s, gch, "секретное слово гильдии", character=a,
+                     source="bot")
+        await s.commit()
+
+        outsider = (await s.execute(
+            __import__("sqlalchemy").select(Character)
+            .where(Character.name == "Прохожий"))).scalar_one()
+        check(await C.search(s, "секретное", character=outsider) == [],
+              "закрытый канал не виден в поиске постороннему")
+        check(len(await C.search(s, "секретное", character=a)) >= 1,
+              "участнику гильдии поиск канал показывает")
+
+    print("\n— Антифлуд —")
+    async with async_session() as s:
+        b = await s.get(Character, b_id)
+        lore = await C.get_channel(s, "lore")
+
+        await C.post(s, lore, "дословный повтор", character=b, source="bot")
+        await s.commit()
+        check(await C.is_repeat(s, lore, b, "дословный повтор"),
+              "дословный повтор ловится")
+        check(not await C.is_repeat(s, lore, b, "другой текст"),
+              "непохожий текст повтором не считается")
+        tavern = await C.get_channel(s, "tavern")
+        check(not await C.is_repeat(s, tavern, b, "дословный повтор"),
+              "повтор считается в пределах одного канала")
+
+        ok = await C.check_rate_limit(s, lore, b)
+        check(ok["ok"], "обычный темп разговора не блокируется")
+
+        for i in range(C.RATE_MAX_IN_WINDOW + 1):
+            await C.post(s, lore, f"очередь {i}", character=b, source="bot")
+        await s.commit()
+        blocked = await C.check_rate_limit(s, lore, b)
+        check(not blocked["ok"], "пулемётная очередь останавливается")
+        check("минуту" in blocked.get("reason", ""),
+              "в отказе объяснена причина")
+
+    print("\n— Страницы истории —")
+    async with async_session() as s:
+        lore = await C.get_channel(s, "lore")
+        page0 = await C.history_page(s, lore, page=0, per_page=3)
+        check(len(page0["messages"]) == 3, "страница ограничена размером")
+        check(page0["pages"] >= 2, "страниц больше одной")
+        check(page0["has_older"] and not page0["has_newer"],
+              "с нулевой страницы можно уйти только вглубь")
+
+        page1 = await C.history_page(s, lore, page=1, per_page=3)
+        check(page1["has_newer"], "со второй страницы есть путь назад")
+        ids0 = {m.id for m in page0["messages"]}
+        ids1 = {m.id for m in page1["messages"]}
+        check(not (ids0 & ids1), "страницы не пересекаются")
+        check(min(ids0) > max(ids1),
+              "нулевая страница свежее: листаем вглубь истории")
+
+        far = await C.history_page(s, lore, page=999, per_page=3)
+        check(far["page"] == far["pages"] - 1,
+              "запрос за пределы упирается в последнюю страницу")
+
+    print("\n— Сводка —")
+    async with async_session() as s:
+        top = await C.top_posters(s, 5)
+        check(top and top[0][1] >= top[-1][1], "топ отсортирован по убыванию")
+        names = [n for n, _ in top]
+        check("Мир" not in names, "системные записи в топ авторов не идут")
+
+        activity = await C.channel_activity(s, 5)
+        check(activity and activity[0][1] >= activity[-1][1],
+              "каналы отсортированы по живости")
+
+        info = await C.stats(s)
+        for field in ("reactions", "subscriptions", "pinned"):
+            check(field in info, f"в статистике есть поле {field}")
+
+
+def test_feed_routes():
+    """События расходятся по профильным каналам."""
+    print("\n— Маршрутизация событий —")
+    from bot.community_feed import EVENT_ROUTES, FEED_CHANNEL, channel_for
+
+    check(channel_for("boss_defeated") == FEED_CHANNEL,
+          "событие мира идёт в ленту мира")
+    check(channel_for("auction_new_lot") == "trade",
+          "лот аукциона идёт на торговую площадь")
+    check(channel_for("duel_declared") == "duels",
+          "вызов на дуэль идёт в свой канал")
+    check(channel_for("player_move") is None,
+          "рутина никуда не отправляется")
+    check(set(EVENT_ROUTES.values()) <= {c["key"] for c in
+                                         __import__("core.community",
+                                                    fromlist=["x"])
+                                         .DEFAULT_CHANNELS},
+          "все маршруты ведут в существующие каналы")
+
+
 def test_handlers_are_scoped():
     """Коллизия роутеров: обработчики личики не должны ловить группу."""
     print("\n— Роутеры разведены по типу чата —")
@@ -366,14 +635,32 @@ def test_bot_menu_has_chat():
         return False
 
     for cb in ("chat_menu", "chat_open:general", "chat_write:general",
-               "chat_cancel:general"):
+               "chat_cancel:general",
+               # расширения
+               "chat_page:general:1", "chat_reply:general:5",
+               "chat_react:general:5:0", "chat_react_do:general:5:🔥:0",
+               "chat_mute:general:0", "chat_search", "chat_digest"):
         check(has_handler(cb), f"обработчик {cb} зарегистрирован")
     check(not has_handler("chat_nonexistent_action"),
           "негативная проверка: несуществующий колбэк никем не ловится")
 
+    # Команды чата должны быть зарегистрированы в групповом роутере.
+    from bot.handlers.community_group import router as group_router
+
+    src_commands = set()
+    for handler in group_router.message.handlers:
+        for flt in handler.filters or []:
+            cb = getattr(flt, "callback", None)
+            for name in getattr(cb, "commands", ()) or ():
+                src_commands.add(str(name))
+    for cmd in ("топ", "сводка", "закреп", "поиск", "каналы", "профиль"):
+        check(cmd in src_commands, f"команда /{cmd} зарегистрирована")
+
 
 def main():
     asyncio.run(scenario())
+    asyncio.run(scenario_extras())
+    test_feed_routes()
     test_handlers_are_scoped()
     test_bot_menu_has_chat()
 
