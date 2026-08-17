@@ -117,13 +117,30 @@ async def _show_profile(callback: CallbackQuery, page: int = 0):
             (i for i, (k, _t) in enumerate(PROFILE_PAGES) if k == "stats"), None)
         free = extra["free_points"] if page == stats_page else None
 
+        # Перерождение показываем там же и только доросшим до порога.
+        from core import prestige as core_prestige
+        can_rebirth = (page == stats_page
+                       and core_prestige.can_rebirth(character)[0])
+
+        # На развороте «🛡 Снаряжение» показываем отрисованную экипировку
+        # по разметке из панели (bot/utils/gearview). Раньше рендер
+        # существовал, но его никто не вызывал — разметка ни на что не
+        # влияла. Если разметки нет или ничего не надето, остаётся портрет.
+        screen_image = portrait
+        if PROFILE_PAGES[page][0] == "gear":
+            from bot.utils.gearview import render_equipment
+
+            gear_image = await render_equipment(session, character)
+            if gear_image:
+                screen_image = gear_image
+
         await send_or_edit_photo(
             callback,
             text,
             reply_markup=profile_book_keyboard(
                 page, total, [title for _, title in PROFILE_PAGES],
-                free_points=free),
-            image_url=portrait,
+                free_points=free, can_rebirth=can_rebirth),
+            image_url=screen_image,
         )
 
 
@@ -459,3 +476,36 @@ async def familiar_feed_handler(callback: CallbackQuery):
     await callback.answer(f"🍖 Фамильяр полакомился и стал сильнее! (Уровень: {character.familiar_level})", show_alert=True)
     await familiar_menu_handler(callback)
 
+
+
+# ── бестиарий ───────────────────────────────────────────────
+# core/bestiary.py существовал, но ни record_kill, ни bestiary_card_text
+# не вызывались: атлас копился бы впустую, а игрок его не видел.
+# Запись побед добавлена в bot/handlers/battle.py:_finish_victory.
+
+@router.callback_query(F.data == "bestiary_menu")
+async def bestiary_menu(callback: CallbackQuery):
+    """📖 Атлас монстров: побеждённые виды и бонус охотника."""
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    from core import bestiary as core_bestiary
+
+    async with async_session() as session:
+        result = await session.execute(
+            select(Character).join(User).where(User.telegram_id == callback.from_user.id)
+        )
+        character = result.scalar_one_or_none()
+        if not character:
+            await callback.answer("Сначала создай персонажа!", show_alert=True)
+            return
+
+        text = core_bestiary.bestiary_card_text(character)
+        total = sum(core_bestiary.get_bestiary(character).values())
+        if total:
+            text += (f"\n\n<i>Всего побед занесено в атлас: {total}. "
+                     f"Каждые 10 побед над видом дают +1 % урона по нему "
+                     f"(потолок +15 %).</i>")
+
+    builder = InlineKeyboardBuilder()
+    builder.button(text="◀️ Меню", callback_data="main_menu")
+    await safe_edit_text(callback, text, reply_markup=builder.as_markup(),
+                         parse_mode="HTML")

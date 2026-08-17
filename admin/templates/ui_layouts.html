@@ -1,83 +1,171 @@
 {% extends "base.html" %}
 {% import "macros.html" as macros %}
+
 {% block title %}Разметка интерфейсов{% endblock %}
 {% block page_title %}🎨 Разметка интерфейсов{% endblock %}
+
 {% block breadcrumbs %}
-{{ macros.crumbs([('Контент','/content'), ('Разметка UI', none)]) }}
+{{ macros.crumbs([('Dashboard','/'), ('Контент','/content'), ('Разметка UI', none)]) }}
 {% endblock %}
+
 {% block content %}
-<div class="header-row">
-    <h1>🎨 Разметка интерфейсов (Pillow)</h1>
-    <button class="btn btn-primary" onclick="document.getElementById('newLayoutModal').classList.add('open')">➕ Создать разметку</button>
+
+{# Было: два пустых поля — «ключ» и «URL картинки», взять которые
+   неоткуда. Стало: выбор готовой сцены и картинки из галереи. #}
+
+<div class="card">
+    <h3>🎨 Что это такое</h3>
+    <p class="section-sub">
+        Бот рисует экраны экипировки и сумки, приклеивая иконки предметов
+        поверх фоновой картинки. Разметка говорит, <b>в какие места</b> их
+        приклеивать. Выберите сцену — остальное панель подставит сама.
+    </p>
+    <div class="stats-grid">
+        <div class="stat-box"><div class="stat-icon">🖼</div>
+            <div class="value">{{ layouts | length }}</div>
+            <div class="label">разметок создано</div></div>
+        <div class="stat-box"><div class="stat-icon">✅</div>
+            <div class="value">{{ ready_count }}</div>
+            <div class="label">готовы к работе</div></div>
+        <div class="stat-box"><div class="stat-icon">🎬</div>
+            <div class="value">{{ scenes | length }}</div>
+            <div class="label">сцен доступно</div></div>
+    </div>
 </div>
 
-<p class="text-muted">
-    Здесь вы можете выбрать фоновую картинку (например, инвентарь или экипировку) 
-    и визуально разметить на ней слоты. Координаты будут использоваться ботом для 
-    автоматической отрисовки предметов через Pillow.
-</p>
+<div class="card">
+    <div class="toolbar">
+        <h3 style="margin-bottom:0;">🎬 Сцены</h3>
+        <span class="hint">Клик по сцене создаёт разметку и открывает редактор</span>
+    </div>
+    <p class="section-sub">
+        Каждая сцена — конкретный экран у игрока. Имена слотов заданы
+        заранее: они должны совпадать с типами предметов, иначе бот не
+        поймёт, что куда рисовать.
+    </p>
 
-<div class="card mt-20">
-    <table class="table">
+    <div class="content-hub-grid">
+        {% for sc in scenes %}
+        <div class="hub-card">
+            <div class="hub-card-head">
+                <span class="hub-icon">{{ sc.icon }}</span>
+                <div>
+                    <b>{{ sc.title }}</b><br>
+                    <code>{{ sc.key }}</code>
+                </div>
+            </div>
+            <p class="muted" style="margin:.5rem 0">{{ sc.hint }}</p>
+            <p class="hint">
+                Слоты:
+                {% for s in sc.slots[:6] %}<span class="badge">{{ s.icon }} {{ s.label }}</span>{% endfor %}
+                {% if sc.slots | length > 6 %}<span class="muted">+{{ sc.slots | length - 6 }}</span>{% endif %}
+            </p>
+            {% if sc.existing_id %}
+            <div style="display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.6rem">
+                <a href="/editor/ui-layout/{{ sc.existing_id }}" class="btn btn-primary">🎨 Открыть редактор</a>
+                {% if sc.ready %}
+                <span class="badge badge-uncommon">готово</span>
+                {% else %}
+                <span class="badge badge-danger">нужна доработка</span>
+                {% endif %}
+            </div>
+            {% else %}
+            <form action="/editor/ui-layout/new" method="post" style="margin-top:.6rem">
+                <input type="hidden" name="key" value="{{ sc.key }}">
+                <div class="field-row cols-2">
+                    <div>
+                        <label class="form-label">Фон</label>
+                        <select name="image_url" class="search-box">
+                            {% for img in gallery %}
+                            <option value="{{ img.url }}"
+                                {% if img.name == sc.suggest %}selected{% endif %}>
+                                {{ img.name }} · {{ img.size_kb }} КБ
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div style="align-self:flex-end">
+                        <button type="submit" class="btn btn-primary">➕ Создать</button>
+                    </div>
+                </div>
+            </form>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="card">
+    <div class="toolbar">
+        <h3 style="margin-bottom:0;">🖼 Галерея фонов</h3>
+        <span class="hint">{{ gallery | length }} картинок в <code>admin/static/ui/</code></span>
+    </div>
+    <p class="section-sub">
+        Это всё, что лежит в папке фонов. Чтобы добавить свою картинку,
+        положите PNG в <code>admin/static/ui/</code> — она появится здесь
+        сама, вписывать путь руками не нужно.
+    </p>
+    <div class="gallery-grid">
+        {% for img in gallery %}
+        <figure class="gallery-item">
+            <img src="{{ img.url }}" alt="{{ img.name }}" loading="lazy">
+            <figcaption>
+                <b>{{ img.name }}</b><br>
+                <span class="muted">{{ img.size_kb }} КБ</span>
+            </figcaption>
+        </figure>
+        {% else %}
+        <p class="muted">Папка пуста.</p>
+        {% endfor %}
+    </div>
+</div>
+
+{% if layouts %}
+<div class="card">
+    <h3>📋 Созданные разметки</h3>
+    <div class="table-wrap">
+    <table>
         <thead>
-            <tr>
-                <th>Ключ (ID)</th>
-                <th>Картинка</th>
-                <th>Слотов</th>
-                <th>Последнее обновление</th>
-                <th>Действия</th>
-            </tr>
+            <tr><th>Сцена</th><th>Фон</th><th>Слотов</th><th>Состояние</th>
+                <th>Обновлена</th><th></th></tr>
         </thead>
         <tbody>
-            {% for layout in layouts %}
+            {% for row in layouts %}
             <tr>
-                <td><code>{{ layout.key }}</code></td>
-                <td><img src="{{ layout.image_url }}" style="height: 40px; border-radius: 4px;"></td>
-                <td>{{ layout.slots_json|from_json|length }}</td>
-                <td>{{ layout.updated_at.strftime('%d.%m.%Y %H:%M') }}</td>
-                <td>
+                <td data-label="Сцена">
+                    <b>{{ row.title }}</b><br><code>{{ row.key }}</code>
+                </td>
+                <td data-label="Фон">
+                    <img src="{{ row.image_url }}" style="height:40px;border-radius:4px"
+                         alt="{{ row.key }}">
+                </td>
+                <td data-label="Слотов" class="num">{{ row.slot_count }}</td>
+                <td data-label="Состояние">
+                    {% if row.ready %}
+                    <span class="badge badge-uncommon">✅ готово</span>
+                    {% else %}
+                    <span class="badge badge-danger">⚠️ {{ row.problem }}</span>
+                    {% endif %}
+                </td>
+                <td data-label="Обновлена" class="muted">
+                    {{ row.updated_at.strftime('%d.%m.%Y %H:%M') if row.updated_at else '—' }}
+                </td>
+                <td data-label="">
                     <div class="btn-group">
-                        <a href="/editor/ui-layout/{{ layout.id }}" class="btn btn-sm">🎨 Редактор</a>
-                        <form action="/editor/ui-layout/{{ layout.id }}/delete" method="post" onsubmit="return confirm('Удалить эту разметку?')" style="display:inline;">
-                            <button type="submit" class="btn btn-sm btn-danger">🗑</button>
+                        <a href="/editor/ui-layout/{{ row.id }}" class="btn">🎨 Редактор</a>
+                        <form action="/editor/ui-layout/{{ row.id }}/delete" method="post"
+                              style="display:inline">
+                            <button type="submit" class="btn btn-danger"
+                                    data-confirm="Удалить разметку «{{ row.key }}»?">🗑</button>
                         </form>
                     </div>
                 </td>
             </tr>
             {% endfor %}
-            {% if not layouts %}
-            <tr>
-                <td colspan="5" class="text-center py-20">Разметок пока нет. Создайте первую!</td>
-            </tr>
-            {% endif %}
         </tbody>
     </table>
-</div>
-
-<div id="newLayoutModal" class="modal">
-    <div class="modal-box">
-        <h3>Новая разметка</h3>
-        <form action="/editor/ui-layout/new" method="post">
-            <div class="form-group">
-                <label class="form-label">Ключ разметки (лат.)</label>
-                <input type="text" name="key" class="search-box" placeholder="Напр: inventory_order" required>
-                <span class="text-muted small">Уникальный ID для вызова из кода бота.</span>
-            </div>
-            <div class="form-group mt-10">
-                <label class="form-label">URL фоновой картинки</label>
-                <input type="text" name="image_url" class="search-box" placeholder="/static/ui/equipment_order.png" required>
-            </div>
-            <div class="modal-actions mt-20">
-                <button type="button" class="btn" onclick="this.closest('.modal').classList.remove('open')">Отмена</button>
-                <button type="submit" class="btn btn-primary">Создать и перейти к рисованию</button>
-            </div>
-        </form>
     </div>
 </div>
+{% endif %}
 
-<style>
-    .mt-20 { margin-top: 20px; }
-    .mt-10 { margin-top: 10px; }
-    .py-20 { padding-top: 20px; padding-bottom: 20px; }
-</style>
 {% endblock %}

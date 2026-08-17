@@ -217,7 +217,11 @@ async def inventory_section(callback: CallbackQuery):
 @router.callback_query(F.data.startswith("inv_book:"))
 async def inventory_book(callback: CallbackQuery):
     """Книга предметов: карточка вещи с описанием, историей и листанием."""
-    _, section, raw_index = callback.data.split(":")
+    # Формат: inv_book:<секция>:<индекс>[:<id вещи>]. Хвост с id новый —
+    # старые сообщения без него продолжают работать по индексу.
+    parts = callback.data.split(":")
+    section, raw_index = parts[1], parts[2]
+    wanted_id = int(parts[3]) if len(parts) > 3 else None
     index = int(raw_index)
     if section not in SECTIONS:
         await callback.answer("Неизвестное отделение.", show_alert=True)
@@ -234,7 +238,20 @@ async def inventory_book(callback: CallbackQuery):
         if not bucket:
             await callback.answer("Отделение пусто.", show_alert=True)
             return
-        index = max(0, min(index, len(bucket) - 1))
+        # Ищем ту самую вещь по id; если её уже нет (продали из другого
+        # сообщения) — честно говорим об этом, а не открываем соседнюю.
+        if wanted_id is not None:
+            found = next((i for i, inv in enumerate(bucket)
+                          if inv.id == wanted_id), None)
+            if found is None:
+                await callback.answer(
+                    "Этой вещи уже нет в сумке — список обновился.",
+                    show_alert=True)
+                await inventory(callback)
+                return
+            index = found
+        else:
+            index = max(0, min(index, len(bucket) - 1))
         inv_item = bucket[index]
         item = inv_item.item
 
@@ -253,6 +270,10 @@ async def inventory_book(callback: CallbackQuery):
         can_equip = item is not None and item.item_type in EQUIPPABLE
         can_use = item is not None and item.item_type == ItemType.CONSUMABLE
         can_sell = bool(inv_item.instance_id) and item is not None and item.is_sellable
+        # Разобрать можно снаряжение (материалы и расходники — нет),
+        # заложить — только именной экземпляр (правило core/pawnshop.py).
+        can_salvage = can_equip
+        can_pawn = bool(inv_item.instance_id)
 
         location = await session.get(Location, character.location_id)
         can_stash = (stash_core.safe_here(location)
@@ -275,6 +296,7 @@ async def inventory_book(callback: CallbackQuery):
             is_equipped=bool(inv_item.is_equipped),
             can_equip=can_equip, can_use=can_use, can_sell=can_sell,
             in_stash=bool(inv_item.in_stash), can_stash=can_stash,
+            can_salvage=can_salvage, can_pawn=can_pawn,
         ),
         image_url=(item.image_url or inventory_img) if item else inventory_img,
     )
@@ -295,7 +317,7 @@ async def item_detail(callback: CallbackQuery):
     for section, bucket in buckets.items():
         for idx, inv in enumerate(bucket):
             if inv.id == inv_id:
-                callback.data = f"inv_book:{section}:{idx}"
+                callback.data = f"inv_book:{section}:{idx}:{inv.id}"
                 await inventory_book(callback)
                 return
     await callback.answer("Предмет не найден.", show_alert=True)
@@ -437,6 +459,11 @@ async def use_item(callback: CallbackQuery):
             else:
                 heal = base
 
+        # Карма: Благочестивые лечатся лучше (+15 %, порог из core/karma.py).
+        from core import karma as core_karma
+        if heal and core_karma.pious(character):
+            heal = int(heal * (1 + core_karma.HEAL_BONUS))
+
         before_hp, before_mp = character.current_hp, character.current_mp
         character.current_hp = min(character.max_hp, character.current_hp + heal)
         character.current_mp = min(character.max_mp, character.current_mp + mana)
@@ -479,3 +506,140 @@ async def drop_item(callback: CallbackQuery):
             await session.commit()
     await callback.answer("Предмет выброшен.")
     await inventory(callback)
+
+
+# ── разбор на материалы и ломбард ───────────────────────────
+# Логика живёт в core/salvage.py и core/pawnshop.py — оба модуля были
+# написаны и покрыты тестами (tests/test_economy_and_lunar.py), но до
+# этих хендлеров у игрока не было ни одной кнопки, чтобы их вызвать.
+
+@router.callback_query(F.data.startswith("salvage:"))
+async def salvage_item_handler(callback: CallbackQuery):
+    """🔧 Разобрать вещь на ремесленные материалы (core/salvage.py)."""
+    inv_id = int(callback.data.split(":")[1])
+    async with async_session() as session:
+        character = await _character_of(session, callback.from_user.id)
+        if not character:
+            await callback.answer("Сначала создай персонажа!", show_alert=True)
+            return
+        result = await session.execute(
+            select(InventoryItem)
+            .where(InventoryItem.id == inv_id)
+            .options(selectinload(InventoryItem.item),
+                     selectinload(InventoryItem.instance))
+        )
+        inv_item = result.scalar_one_or_none()
+        if inv_item is None or inv_item.character_id != character.id:
+            await callback.answer("Предмет не найден.", show_alert=True)
+            return
+
+        from core import salvage as core_salvage
+        res = await core_salvage.salvage_item(session, character, inv_item)
+        if not res["ok"]:
+            await callback.answer(res["reason"], show_alert=True)
+            return
+        await session.commit()
+
+    mats = res["materials"]
+    parts = [f"🔩 Ржавый лом ×{mats['iron_scrap']}"]
+    if mats.get("steel_bars"):
+        parts.append(f"⛓ Стальные слитки ×{mats['steel_bars']}")
+    if mats.get("magic_dust"):
+        parts.append(f"✨ Магическая пыль ×{mats['magic_dust']}")
+    await callback.answer(
+        f"🔧 {res['item_name']} разобран:\n" + "\n".join(parts), show_alert=True)
+    await inventory(callback)
+
+
+@router.callback_query(F.data.startswith("pawn:"))
+async def pawn_item_handler(callback: CallbackQuery):
+    """💍 Заложить именную вещь ростовщику (core/pawnshop.py)."""
+    inv_id = int(callback.data.split(":")[1])
+    async with async_session() as session:
+        character = await _character_of(session, callback.from_user.id)
+        if not character:
+            await callback.answer("Сначала создай персонажа!", show_alert=True)
+            return
+        result = await session.execute(
+            select(InventoryItem)
+            .where(InventoryItem.id == inv_id)
+            .options(selectinload(InventoryItem.item),
+                     selectinload(InventoryItem.instance))
+        )
+        inv_item = result.scalar_one_or_none()
+        if inv_item is None or inv_item.character_id != character.id:
+            await callback.answer("Предмет не найден.", show_alert=True)
+            return
+
+        from core import pawnshop as core_pawnshop
+        res = await core_pawnshop.create_pawn_loan(session, character, inv_item)
+        if not res["ok"]:
+            await callback.answer(res["reason"], show_alert=True)
+            return
+        await session.commit()
+
+    await callback.answer(
+        f"💍 Заложено за {res['loan_bronze']}🟤.\n"
+        f"Выкуп: {res['buyback_price']}🟤, срок {res['days']} дн.\n"
+        f"Займы — в меню «💍 Ломбард».",
+        show_alert=True)
+    await inventory(callback)
+
+
+@router.callback_query(F.data == "pawnshop_menu")
+async def pawnshop_menu(callback: CallbackQuery):
+    """💍 Ломбард: список активных займов и выкуп."""
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    from bot.utils.edit import safe_edit_text
+    from core import pawnshop as core_pawnshop
+    from engine.currency import currency_str
+
+    async with async_session() as session:
+        character = await _character_of(session, callback.from_user.id)
+        if not character:
+            await callback.answer("Сначала создай персонажа!", show_alert=True)
+            return
+        loans = await core_pawnshop.list_active_loans(session, character.id)
+        purse = currency_str(character)
+
+        lines = ["💍 <b>Ломбард Падальщиков</b>", "",
+                 "<i>— Вещь оставь, деньги забирай. Не выкупишь в срок — она моя.</i>",
+                 "", f"💰 Кошелёк: <b>{purse}</b>", ""]
+        builder = InlineKeyboardBuilder()
+        if not loans:
+            lines.append("<i>Твоих залогов здесь нет.</i>")
+            lines.append("")
+            lines.append("Заложить вещь: 🎒 Инвентарь → карточка вещи → 💍 Заложить.")
+        else:
+            for loan in loans:
+                item = await session.get(Item, loan.item_id)
+                name = item.name if item else "Неизвестная вещь"
+                lines.append(f"• <b>{name}</b> — выкуп {loan.buyback_price}🟤")
+                builder.button(text=f"💰 Выкупить: {name} ({loan.buyback_price}🟤)",
+                               callback_data=f"pawn_redeem:{loan.id}")
+        builder.button(text="◀️ Меню", callback_data="main_menu")
+        builder.adjust(1)
+
+    await safe_edit_text(callback, "\n".join(lines),
+                         reply_markup=builder.as_markup(), parse_mode="HTML")
+
+
+@router.callback_query(F.data.startswith("pawn_redeem:"))
+async def pawn_redeem_handler(callback: CallbackQuery):
+    """Выкупить вещь из ломбарда (core/pawnshop.redeem_pawn_loan)."""
+    loan_id = int(callback.data.split(":")[1])
+    async with async_session() as session:
+        character = await _character_of(session, callback.from_user.id)
+        if not character:
+            await callback.answer("Сначала создай персонажа!", show_alert=True)
+            return
+        from core import pawnshop as core_pawnshop
+        res = await core_pawnshop.redeem_pawn_loan(session, character, loan_id)
+        if not res["ok"]:
+            await callback.answer(res["reason"], show_alert=True)
+            return
+        await session.commit()
+
+    await callback.answer(f"💍 Вещь выкуплена за {res['cost']}🟤 и вернулась в сумку.",
+                          show_alert=True)
+    await pawnshop_menu(callback)

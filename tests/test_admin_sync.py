@@ -21,7 +21,7 @@ _pyo.ffi = _ffi
 sys.modules.setdefault("pyodide", _pyo)
 sys.modules.setdefault("pyodide.ffi", _ffi)
 
-from engine import adminbot, adminops, audit, data, permissions  # noqa: E402
+from engine import currency, adminbot, adminops, audit, data, permissions  # noqa: E402
 from engine.game import Game  # noqa: E402
 from engine.storage import Store  # noqa: E402
 from webapp.backend import MemoryStorage  # noqa: E402
@@ -78,11 +78,12 @@ def main():
           "модератор не видит порталы")
     check(game.handle(mod, "adm:gold:200:100").alert.startswith("Нужно право"),
           "модератору отказано в правке золота")
-    check(store.players[200].gold == 50, "золото не изменилось при отказе")
+    check(currency.total(store.players[200]) == 50,
+          "деньги не изменились при отказе")
 
     print("\n— Действия работают из бота —")
     game.handle(boss, "adm:gold:200:250")
-    check(store.players[200].gold == 300, "золото начислено")
+    check(currency.total(store.players[200]) == 300, "деньги начислены")
     game.handle(boss, "adm:lvl:200:2")
     check(store.players[200].level == 3, "уровень поднят")
     before = len(store.players[200].inventory)

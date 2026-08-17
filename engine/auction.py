@@ -8,7 +8,7 @@
 import secrets
 import time
 
-from engine import items
+from engine import currency, items
 from engine.models import Reply
 
 KEY = "auction"                 # список лотов в store.settings
@@ -88,10 +88,10 @@ def list_item(store, p, uid, price):
         "price": price, "ts": int(time.time()), "status": "active",
     }
     _lots(store).append(lot)
-    idx = int(inst.get("idx", -1))
-    if idx in p.inventory:                 # вещь уходит из сумки на витрину
-        p.inventory.remove(idx)
-        p.equipped = {s: i for s, i in p.equipped.items() if i != idx}
+    # Вещь уходит из сумки на витрину. Забираем ненадетую копию и чиним
+    # позиции слотов (raw remove ломал и то, и другое).
+    from engine import slots
+    slots.take_first_unequipped(p, int(inst.get("idx", -1)))
     inst["owner"] = 0
     items.record(store, inst, "listed", p.tg_id, price=price)
     store.save_player(p)
@@ -144,7 +144,7 @@ def buy(store, p, lot_id):
     if int(lot.get("seller") or 0) == int(p.tg_id):
         return False, "это твой собственный лот"
     price = int(lot.get("price") or 0)
-    if p.gold < price:
+    if not currency.can_afford(p, price):
         return False, f"не хватает {price - p.gold} 🪙"
 
     inst = items.get(store, lot["uid"])
@@ -152,7 +152,7 @@ def buy(store, p, lot_id):
         lot["status"] = "cancelled"
         return False, "предмет исчез с витрины"
 
-    p.gold -= price
+    currency.spend(p, price)
     p.inventory.append(int(inst.get("idx", 0)))
     items.transfer(store, inst, p.tg_id, "sold", price)
     lot["status"] = "sold"
@@ -162,7 +162,7 @@ def buy(store, p, lot_id):
     seller = store.players.get(int(lot.get("seller") or 0))
     if seller is not None:
         from engine import adminops
-        seller.gold += payout
+        currency.earn(seller, payout)
         store.save_player(seller)
         adminops.queue(store, seller.tg_id,
                        f"🔁 Продано: <b>{items.title(inst)}</b> за {price} 🪙\n"
@@ -179,11 +179,9 @@ def sell_to_npc(store, p, uid):
     if int(inst.get("owner") or 0) != int(p.tg_id):
         return False, "это не твоя вещь"
     paid = max(1, int(items.price(inst) * NPC_BUY))
-    p.gold += paid
-    idx = int(inst.get("idx", -1))
-    if idx in p.inventory:
-        p.inventory.remove(idx)
-        p.equipped = {s: i for s, i in p.equipped.items() if i != idx}
+    currency.earn(p, paid)
+    from engine import slots
+    slots.take_first_unequipped(p, int(inst.get("idx", -1)))
     inst["owner"] = 0
     items.record(store, inst, "sold", p.tg_id, detail=NPC_NAME, price=paid)
     inst["trades"] = int(inst.get("trades") or 0) + 1
@@ -216,7 +214,7 @@ def board(store, p, page=0):
         inst = items.get(store, lot["uid"])
         if inst is None:
             continue
-        mark = "🪙" if p.gold >= lot["price"] else "🚫"
+        mark = "🪙" if currency.can_afford(p, lot["price"]) else "🚫"
         lines.append(f"{itemui.digit(num)} {inst['icon']} <b>{items.title(inst)}</b> "
                      f"· {mark} <b>{lot['price']}</b>")
         lines.append(f"     {items.tag(inst)} · продаёт {lot['seller_name']}")
@@ -255,7 +253,8 @@ def lot_card(store, p, lot_id):
             f"🧾 Продавец: {lot['seller_name']}\n\n"
             f"📖 <b>История вещи</b>\n{body}")
     rows = []
-    if p.gold >= lot["price"] and int(lot.get("seller") or 0) != int(p.tg_id):
+    if (currency.can_afford(p, lot["price"])
+            and int(lot.get("seller") or 0) != int(p.tg_id)):
         rows.append([("🛒 Купить", f"aucbuy:{lot['id']}")])
     rows.append([("◀️ К витрине", "auc:0")])
     return Reply(text=text, keyboard=rows)

@@ -97,6 +97,18 @@ def _map_card(ctx, li):
     grid_size = int(sizes.get(str(li), W.SIZE) or W.SIZE)
 
     cells = ""
+    # Куда ведут сложенные карты сокровищ игроков (engine/progress.dig
+    # пишет Player.treasure_map_coord). Раньше тайник существовал только
+    # в тексте у игрока и на карте панели виден не был.
+    treasures = {}
+    for pl in ctx.store.players.values():
+        coord = getattr(pl, "treasure_map_coord", "") or ""
+        try:
+            _, tli, _, tx, _, ty = coord.split(":")
+            treasures.setdefault(int(tli), set()).add((int(tx), int(ty)))
+        except ValueError:
+            continue
+
     for x in range(grid_size):
         for y in range(grid_size):
             c = W.cell_at(ctx.store.world, li, x, y, active_floor)
@@ -125,6 +137,10 @@ def _map_card(ctx, li):
                 mark = "💬"
             elif c.chest:
                 mark = "📦"
+            elif (x, y) in treasures.get(li, ()):
+                # Метка тайника: сюда ведёт сложенная карта сокровищ
+                # (engine/gathering.FRAGMENTS_FOR_MAP осколков).
+                mark = "🏺"
             elif (x, y) == W.SPAWN and li == 0:
                 mark = "⭐"
             else:

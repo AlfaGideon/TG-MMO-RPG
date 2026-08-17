@@ -83,7 +83,13 @@ def price_bounds(instance: ItemInstance, item: Item) -> tuple[int, int]:
 
 
 async def active_lots(session, exclude_seller_id: int | None = None, limit: int = 50):
-    """Лоты, доступные к покупке прямо сейчас."""
+    """Лоты с фиксированной ценой, доступные к покупке прямо сейчас.
+
+    Лоты с молотка (`start_bid > 0`, см. `core/auction_bid.py`) на эту
+    витрину не попадают: там цена растёт со ставками, и кнопка «Купить»
+    увела бы вещь мимо торгов по устаревшей цене. У них своя витрина —
+    `auction_bid.active_bid_lots`.
+    """
     query = (
         select(AuctionLot)
         .options(
@@ -91,6 +97,7 @@ async def active_lots(session, exclude_seller_id: int | None = None, limit: int 
             selectinload(AuctionLot.instance),
         )
         .where(AuctionLot.status == AuctionStatus.ACTIVE.value)
+        .where(func.coalesce(AuctionLot.start_bid, 0) == 0)
         .order_by(AuctionLot.created_at.desc())
         .limit(limit)
     )
@@ -195,21 +202,58 @@ async def cancel_lot(session, character, lot: AuctionLot) -> dict:
 
 
 async def _return_to_owner(session, lot: AuctionLot, character, event: str):
+    """Вернуть вещь владельцу. Если владельца больше нет — отдать скупщику.
+
+    Раньше при удалённом персонаже создавалась строка `InventoryItem` на
+    несуществующего владельца (`character_id` мертвеца) — сирота, которую
+    никто не увидит и не заберёт. Теперь вещь остаётся в мире: уходит на
+    витрину скупщика, как и положено по документации.
+    """
     instance = await session.get(ItemInstance, lot.instance_id)
     if instance is None:
         return
-    instance.owner_character_id = character.id if character else lot.seller_id
+
+    owner = character
+    if owner is None and lot.seller_id:
+        owner = await session.get(Character, lot.seller_id)
+
+    if owner is None:
+        # Владельца нет: вещь не исчезает и не оседает сиротой — её
+        # подбирает скупщик и выставляет заново.
+        instance.owner_character_id = None
+        await _to_npc_shelf(session, lot, instance, reason="продавец исчез")
+        return
+
+    instance.owner_character_id = owner.id
     session.add(InventoryItem(
-        character_id=instance.owner_character_id,
+        character_id=owner.id,
         item_id=lot.item_id, instance_id=instance.id, quantity=1,
     ))
-    await history.record(session, instance, event, character, detail="вернулся к владельцу")
+    await history.record(session, instance, event, owner, detail="вернулся к владельцу")
+
+
+async def _to_npc_shelf(session, lot: AuctionLot, instance, reason: str):
+    """Положить вещь на витрину скупщика новым лотом (вещь остаётся в мире)."""
+    # Наценка скупщика та же, что и при обычной перепродаже.
+    price = max(1, int((lot.price or 1) * NPC_SELL_MARKUP))
+    session.add(AuctionLot(
+        seller_id=None, item_id=lot.item_id, instance_id=instance.id,
+        price=price, status=AuctionStatus.ACTIVE.value,
+        is_npc_lot=True, expires_at=None,      # бессрочно: вещь не пропадает
+    ))
+    await history.record(session, instance, "listed", None,
+                         detail=f"перешёл скупщику ({reason})", price=price)
 
 
 async def buy_lot(session, buyer: Character, lot: AuctionLot) -> dict:
     """Покупка лота. Вещь меняет владельца и обрастает историей."""
     if lot.status != AuctionStatus.ACTIVE.value:
         return {"ok": False, "reason": "Лот уже продан или снят."}
+    if (lot.start_bid or 0) > 0:
+        # Лот с молотка покупается только через core/auction_bid.buyout:
+        # там сначала возвращается резерв текущему лидеру.
+        return {"ok": False,
+                "reason": "Этот лот уходит с молотка — делай ставку."}
     if lot.seller_id == buyer.id:
         return {"ok": False, "reason": "Нельзя купить собственный лот."}
     from engine.currency import total_in_bronze, deduct_currency, add_currency
@@ -270,6 +314,11 @@ async def sweep_expired(session) -> list[AuctionLot]:
     result = await session.execute(
         select(AuctionLot)
         .where(AuctionLot.status == AuctionStatus.ACTIVE.value)
+        # Лоты с молотка закрывает auction_bid.close_finished: там нужно
+        # отдать вещь лидеру, а не вернуть продавцу. Если бы их подбирал
+        # этот sweep, выигранный лот уезжал бы обратно к владельцу, а
+        # деньги победителя остались бы в резерве навсегда.
+        .where(func.coalesce(AuctionLot.start_bid, 0) == 0)
         .where(AuctionLot.expires_at.isnot(None))
         .where(AuctionLot.expires_at < _now())
     )
@@ -281,7 +330,14 @@ async def sweep_expired(session) -> list[AuctionLot]:
             continue
         claimed.append(lot)
         if lot.is_npc_lot or not lot.seller_id:
-            # Лот скупщика просто снимается с витрины
+            # Лот скупщика: раньше он просто снимался с витрины, и вещь
+            # исчезала из мира навсегда — вопреки документации «предмет не
+            # исчезает». Теперь лот перевыставляется бессрочно: непроданное
+            # у NPC копиться некуда, зато именная вещь остаётся доступной.
+            instance = await session.get(ItemInstance, lot.instance_id)
+            if instance is not None:
+                await _to_npc_shelf(session, lot, instance,
+                                    reason="срок витрины вышел")
             continue
         seller = await session.get(Character, lot.seller_id)
         await _return_to_owner(session, lot, seller, event="expired")

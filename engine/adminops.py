@@ -109,12 +109,17 @@ def add_gold(store, actor, tg_id, amount, source="panel"):
     require(actor, "edit_players")
     p = _target(store, tg_id)
     amount = int(amount)
-    p.gold = max(0, p.gold + amount)
+    # Админ оперирует бронзой — той же единицей, что и весь движок.
+    from engine import currency
+    if amount >= 0:
+        currency.earn(p, amount)
+    else:
+        currency.spend(p, min(-amount, currency.total(p)))
     store.save_player(p)
     sign = "+" if amount >= 0 else ""
     queue(store, p.tg_id, f"🪙 Администратор изменил твоё золото: {sign}{amount}")
     return _done(store, actor, source, "Изменил золото", _who(p),
-                 f"{sign}{amount} → {p.gold} 🪙")
+                 f"{sign}{amount} → {currency.fmt(p)}")
 
 
 def add_level(store, actor, tg_id, delta, source="panel"):
@@ -164,6 +169,16 @@ def set_fields(store, actor, tg_id, fields, source="panel"):
                         setattr(p, stat, max(0, getattr(p, stat, 0) + int(step) * delta))
         except (ValueError, TypeError):
             pass
+
+    # Карма — не свободное число: у неё жёсткий диапазон, за которым
+    # ломаются пороги Благочестивого/Осквернителя (engine/karma.py).
+    if "karma_score" in fields:
+        try:
+            from engine import karma
+            fields["karma_score"] = max(
+                karma.MIN_KARMA, min(karma.MAX_KARMA, int(fields["karma_score"])))
+        except (ValueError, TypeError):
+            fields.pop("karma_score")
 
     changed = []
     for k, v in fields.items():

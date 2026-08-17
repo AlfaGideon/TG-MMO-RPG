@@ -5,7 +5,7 @@
 """
 import random
 
-from engine import (cataclysm, data, death, factions, items, landmarks,
+from engine import (cataclysm, currency, data, death, factions, items, landmarks,
                     respawn, rules)
 from engine.models import Reply
 
@@ -34,6 +34,9 @@ def look(p, cell, store=None):
         whose = "твоя" if int(grave.get("owner", 0)) == int(p.tg_id) else f"{grave.get('name', '?')}"
         found.append(f"🪦 Надгробие ({whose}) — {grave.get('gold', 0)} 🪙")
         rows.append([("💰 Забрать", "claim")])
+        # Прах предков — отдельная «валюта» призрачного торговца.
+        rows.append([("🕯 Почтить память", "honor"),
+                     ("👻 Призрак", "ghost")])
     for q in mapview.others_here(store, p, cell.loc, cell.x, cell.y):
         found.append(f"🔵 Герой: {q.name} (ур. {q.level})")
     if cell.mob >= 0:
@@ -48,14 +51,27 @@ def look(p, cell, store=None):
     if cell.chest:
         found.append("📦 Сундук!")
         rows.append([("📦 Открыть", "chest")])
+    # Мирные занятия: привязаны к уже размеченным тайлам, как на сервере
+    # (bot/keyboards/inline.inspect_keyboard).
+    if cell.tile == "water":
+        rows.append([("🎣 Рыбачить", "fish")])
+    if cell.tile in ("forest", "swamp"):
+        rows.append([("🌿 Собрать травы", "herbs")])
+    if cell.tile not in ("water",) and cell.loc != 0:
+        rows.append([("⛏ Копать", "dig")])
     body = "\n".join(found) if found else f"<i>{random.choice(data.EMPTY_LOOK)}</i>"
     rows.append([("◀️ Назад", "world")])
     return Reply(text=f"🔍 <b>Осмотр [{cell.x},{cell.y}]</b>\n<i>{cell.name}</i>\n\n"
                       f"{cell.desc}\n\n{body}", keyboard=rows)
 
 
-def talk(npc_index, p=None):
-    """Диалог с жителем: торговля, лечение и его задания."""
+def talk(npc_index, p=None, store=None):
+    """Диалог с жителем: торговля, лечение и его задания.
+
+    Если в мире что-то происходит (катаклизм, караван) или у героя крайняя
+    карма, житель отвечает по-своему — `engine/dialogue.py`, паритет с
+    серверным `core/dialogue.py`.
+    """
     from engine import quests
 
     n = data.NPCS[int(npc_index)]
@@ -75,6 +91,15 @@ def talk(npc_index, p=None):
         rows.extend(quests.offer_rows(p, npc_index))
     rows.append([("◀️ Назад", "world")])
     mood = factions.greeting(p, npc_index) if p is not None else ""
+
+    from engine import dialogue
+    reactive = dialogue.line_for(store, p, n[0], n[2])
+    if reactive:
+        # Реакция на мир важнее дежурного описания: житель говорит о том,
+        # что происходит прямо сейчас.
+        body = reactive.split(":\n", 1)[-1]
+        return Reply(text=f"💬 <b>{n[0]}</b>\n\n<i>{body}</i>{mood}",
+                     keyboard=rows)
     return Reply(text=f"💬 <b>{n[0]}</b>\n\n<i>{n[1]}</i>{mood}", keyboard=rows)
 
 
@@ -100,7 +125,7 @@ def chest(p, cell, store):
     respawn.schedule_chest(store, cell)     # новый появится в этой локации
     eff = cataclysm.effects(store, p.loc)
     gold = max(1, int(random.randint(10, 45) * eff["gold"]))
-    p.gold += gold
+    currency.earn(p, gold)
     lines = [f"📦 <b>Сундук открыт!</b>\n\nВнутри: {gold} 🪙"]
     if random.random() < min(0.95, 0.5 * eff["loot"]):
         idx = random.randrange(len(data.ITEMS))

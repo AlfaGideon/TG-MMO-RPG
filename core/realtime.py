@@ -12,6 +12,11 @@ Realtime event bus для связки бота и админ-панели.
   player_joined: character_id, name, telegram_id, class, level
   player_levelup, battle_result, chest_opened, portal_opened, portal_closed, portal_tick
   auction_new, auction_sold, auction_expired, mob_respawn, economy_tick
+  karma_changed: character_id, name, delta, value, icon, title, path_changed
+  pawn_loan: character_id, name, item, loan_bronze, buyback_price, days
+  town_invested: character_id, name, location_name, amount, total_invested
+  dividends_paid: count, total, top
+  omen_shown: character_id, name, title, cataclysm (знамение показано игроку)
 
 Шина полностью in-memory, без Redis — достаточно для одного процесса админки.
 Если админка перезапускается — буфер сбрасывается, клиенты переподключаются.
@@ -115,6 +120,28 @@ def format_radar_event(ev: dict) -> str:
         return f"🌀 [{t_str}] <b>ВРАТА БЕЗДНЫ ОТКРЫТЫ:</b> {p.get('template_name', 'Подземелье')}!"
     elif etype == "outpost_captured":
         return f"🚩 [{t_str}] <b>Аванпост {p.get('outpost_name', '')}</b> захвачен фракцией {p.get('faction', '')}!"
+    # ── подсистемы, добавленные в IDEAS-100.md № 36–48 (пункт № 70) ──
+    elif etype == "karma_changed":
+        delta = p.get("delta", 0)
+        sign = f"+{delta}" if delta > 0 else str(delta)
+        tail = " — путь героя изменился!" if p.get("path_changed") else ""
+        return (f"{p.get('icon', '⚖️')} [{t_str}] <b>{p.get('name', 'Герой')}</b>: "
+                f"карма {sign} (итого {p.get('value', 0)}, {p.get('title', '')}){tail}")
+    elif etype == "pawn_loan":
+        return (f"💍 [{t_str}] <b>{p.get('name', 'Герой')}</b> заложил "
+                f"{p.get('item', 'вещь')} за {p.get('loan_bronze', 0)}🟤 "
+                f"(выкуп {p.get('buyback_price', 0)}🟤)")
+    elif etype == "town_invested":
+        return (f"🏦 [{t_str}] <b>{p.get('name', 'Герой')}</b> вложил "
+                f"{p.get('amount', 0)}🟤 в лавку «{p.get('location_name', '')}»")
+    elif etype == "dividends_paid":
+        return (f"💎 [{t_str}] Выплачены дивиденды: {p.get('total', 0)}🟤 "
+                f"на {p.get('count', 0)} вкладчиков")
+    elif etype == "omen_shown":
+        kind = p.get("cataclysm")
+        tail = f" — предвестие бедствия ({kind})" if kind else ""
+        return (f"🔮 [{t_str}] <b>{p.get('name', 'Герой')}</b> прочёл знамение "
+                f"«{p.get('title', '')}»{tail}")
     else:
         return f"📡 [{t_str}] Событие мира: {etype}"
 

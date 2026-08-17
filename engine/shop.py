@@ -4,7 +4,7 @@
 почём, написано в тексте; карточка с кнопкой «Купить» / «Продать»
 открывается нажатием номера.
 """
-from engine import factions, itemui, rules
+from engine import currency, factions, itemui, rules, slots
 from engine.models import Reply
 
 TITLE = "🏪 <b>Лавка Варна</b>"
@@ -27,7 +27,7 @@ def _tabs(active):
 
 
 def counter(p):
-    return f"🪙 <b>{p.gold}</b> · 🎒 {len(p.inventory)}"
+    return f"👛 <b>{currency.fmt(p)}</b> · 🎒 {len(p.inventory)}"
 
 
 # ── покупка ─────────────────────────────────────────────────
@@ -40,7 +40,7 @@ def shop(p, page=0):
     lines = [TITLE, counter(p), ""]
     for num, _pos, idx in entries:
         price = price_for(p, idx)
-        mark = "🪙" if p.gold >= price else "🚫"
+        mark = "🪙" if currency.can_afford(p, price) else "🚫"
         lines.append(itemui.line(num, idx, f"{mark} <b>{price}</b>"))
     lines.append("")
     if disc:
@@ -61,15 +61,16 @@ def buy_card(p, arg):
     if idx not in goods:
         return Reply(alert="Такого товара нет.")
     price = price_for(p, idx)
-    enough = p.gold >= price
+    enough = currency.can_afford(p, price)
     page = goods.index(idx) // itemui.PER_PAGE
 
     base = itemui.price_of(idx)
     saved = f" <s>{base}</s>" if price < base else ""
-    extra = (f"💵 Цена: <b>{price}</b> 🪙{saved}\n"
-             f"👛 У тебя: <b>{p.gold}</b> 🪙")
+    extra = (f"💵 Цена: <b>{currency.short(price)}</b>{saved}\n"
+             f"👛 У тебя: <b>{currency.fmt(p)}</b>")
     if not enough:
-        extra += f"\n\n🚫 <i>Не хватает {price - p.gold} 🪙</i>"
+        extra += (f"\n\n🚫 <i>Не хватает "
+                  f"{currency.short(price - currency.total(p))}</i>")
     text = f"{TITLE} · товар\n\n" + itemui.card(idx, extra)
 
     rows = []
@@ -85,12 +86,13 @@ def buy(p, arg):
     if idx not in goods:
         return Reply(alert="Такого товара нет.")
     price = price_for(p, idx)
-    if p.gold < price:
-        return Reply(alert=f"Не хватает {price - p.gold} 🪙!")
-    p.gold -= price
+    if not currency.can_afford(p, price):
+        return Reply(alert="Не хватает "
+                     f"{currency.short(price - currency.total(p))}!")
+    currency.spend(p, price)
     p.inventory.append(idx)
     r = buy_card(p, idx)
-    r.alert = f"Куплено: {rules.item(idx)['name']} за {price} 🪙"
+    r.alert = f"Куплено: {rules.item(idx)['name']} за {currency.short(price)}"
     return r
 
 
@@ -102,13 +104,13 @@ def sell_list(p, page=0):
         return Reply(text=f"{TITLE}\n\n<i>Тебе нечего продать — сумка пуста.</i>",
                      keyboard=[_tabs("sell"), [("◀️ Меню", "menu")]])
 
-    worn = set(p.equipped.values())
+    worn_at = slots.equipped_positions(p)
     entries, page = itemui.slice_page(p.inventory, page)
 
     lines = [TITLE + " · скупка", counter(p), ""]
     for num, _pos, idx in entries:
         note = f"💰 <b>{itemui.resale_of(idx)}</b>"
-        if idx in worn:
+        if _pos in worn_at:
             note += " · надето"
         lines.append(itemui.line(num, idx, note))
     lines.append("")
@@ -130,9 +132,10 @@ def sell_card(p, arg):
     it = rules.item(idx)
     page = pos // itemui.PER_PAGE
 
-    extra = (f"💰 Варн даёт: <b>{itemui.resale_of(idx)}</b> 🪙\n"
-             f"👛 Станет: <b>{p.gold + itemui.resale_of(idx)}</b> 🪙")
-    if p.equipped.get(it["type"]) == idx:
+    extra = (f"💰 Варн даёт: <b>{currency.short(itemui.resale_of(idx))}</b>\n"
+             f"👛 Станет: <b>"
+             f"{currency.short(currency.total(p) + itemui.resale_of(idx))}</b>")
+    if slots.is_equipped_at(p, pos):
         extra = "⚠️ <i>Предмет надет — при продаже снимется.</i>\n\n" + extra
     text = f"{TITLE} · скупка\n\n" + itemui.card(idx, extra)
 
@@ -146,12 +149,10 @@ def sell_here(p, arg):
     pos = int(arg)
     if pos < 0 or pos >= len(p.inventory):
         return Reply(alert="Предмет не найден.")
-    idx = p.inventory.pop(pos)
+    idx = slots.take_at(p, pos)      # снимет экипировку, только если ушла ОНА
     it = rules.item(idx)
-    if p.equipped.get(it["type"]) == idx:
-        p.equipped.pop(it["type"])
     paid = itemui.resale_of(idx)
-    p.gold += paid
+    currency.earn(p, paid)
     r = sell_list(p, pos // itemui.PER_PAGE)
-    r.alert = f"Продано: {it['name']} за {paid} 🪙"
+    r.alert = f"Продано: {it['name']} за {currency.short(paid)}"
     return r

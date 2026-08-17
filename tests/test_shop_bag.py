@@ -7,7 +7,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from engine import data, itemui, rules  # noqa: E402
+from engine import currency, data, itemui, rules  # noqa: E402
 from engine.game import Game  # noqa: E402
 from engine.storage import Store  # noqa: E402
 from webapp.backend import MemoryStorage  # noqa: E402
@@ -40,7 +40,7 @@ def hero(gold=5000):
     game = Game(store)
     p = store.player(1, "Гидеон")
     game.handle(p, "make:warrior")
-    p.gold = gold
+    p.bronze, p.silver, p.gold = gold, 0, 0
     return store, game, p
 
 
@@ -100,18 +100,20 @@ def main():
     check("Урон" in card.text and f"+{it['bonus']['damage']}" in card.text,
           "бонусы расписаны словами")
     check("Редкий" in card.text, "редкость показана")
-    check(str(it["price"]) in card.text, "цена показана")
+    # Цена печатается кошельком: мелочь в бронзе, крупная — «1🟡 25⚪».
+    check(currency.short(it["price"]) in card.text,
+          f"цена показана как {currency.short(it['price'])}")
     acts = [a for _, a in buttons(card)]
     check(f"buy:{rare_idx}" in acts, "кнопка «Купить» ведёт к покупке")
     check(any(a.startswith("shop") for a in acts), "есть возврат в лавку")
 
     print("\n— Покупка —")
-    before = p.gold
+    before = currency.total(p)
     r = game.handle(p, f"buy:{rare_idx}")
-    check(len(p.inventory) == 1 and p.gold == before - it["price"],
-          f"куплено, золото {p.gold}")
+    check(len(p.inventory) == 1 and currency.total(p) == before - it["price"],
+          f"куплено, кошелёк {currency.fmt(p)}")
     check(it["name"] in r.alert, "всплывашка подтверждает покупку")
-    p.gold = 0
+    p.bronze, p.silver, p.gold = 0, 0, 0
     poor = game.handle(p, f"buyc:{rare_idx}")
     check(not any(a.startswith("buy:") for _, a in buttons(poor)),
           "без золота кнопки «Купить» нет")
@@ -173,9 +175,10 @@ def main():
     scard = game.handle(p, "sellc:1")
     check("Варн даёт" in scard.text, "карточка показывает выкуп")
     check(any(a == "sells:1" for _, a in buttons(scard)), "кнопка «Продать» на месте")
-    gold, n = p.gold, len(p.inventory)
+    gold, n = currency.total(p), len(p.inventory)
     sold = game.handle(p, "sells:1")
-    check(len(p.inventory) == n - 1 and p.gold > gold, "предмет продан, золото выросло")
+    check(len(p.inventory) == n - 1 and currency.total(p) > gold,
+          "предмет продан, деньги прибавились")
     check("скупка" in sold.text, "после продажи остаёмся в лавке")
     check("Продано" in sold.alert, "всплывашка подтверждает продажу")
 

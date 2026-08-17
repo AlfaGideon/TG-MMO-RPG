@@ -17,7 +17,14 @@ def main_menu_keyboard(has_character: bool = False, is_admin: bool = False,
         builder.button(text="🗺 Карта", callback_data="show_map")
         builder.button(text="🥾 В путь", callback_data="back_to_cell")
         builder.button(text="👥 Пати", callback_data="party_menu")
+        builder.button(text="🏛 Гильдия", callback_data="guild_menu")
         builder.button(text="🧭 Репутация", callback_data="reputation")
+        builder.button(text="🔮 Знамения", callback_data="omens_menu")
+        builder.button(text="🎓 Наставник", callback_data="mentor_menu")
+        builder.button(text="💀 Награды", callback_data="bounty_menu")
+        builder.button(text="📖 Бестиарий", callback_data="bestiary_menu")
+        builder.button(text="📜 Задания", callback_data="quests_menu")
+        builder.button(text="💬 Сообщество", callback_data="chat_menu")
         builder.button(text="🏆 Топ", callback_data="leaderboard")
         builder.button(text="⚖️ Аукцион", callback_data="auction_menu")
         # Лавка торговца — только у NPC на клетке: за товаром надо дойти.
@@ -161,7 +168,8 @@ def continue_keyboard(extra: list | None = None, with_inspect: bool = True):
 
 
 def profile_book_keyboard(page: int, total: int, titles: list,
-                          free_points: int | None = None):
+                          free_points: int | None = None,
+                          can_rebirth: bool = False):
     """Навигация «книги о герое»: только закладки-разделы и выход в меню.
 
     Раньше здесь были и стрелки «Пред./След.», и закладки всех разделов —
@@ -189,6 +197,12 @@ def profile_book_keyboard(page: int, total: int, titles: list,
             text=f"🎯 Очки характеристик ({free_points})",
             callback_data="stat_alloc",
         )
+        rows.append(1)
+
+    # Перерождение (core/prestige.py) — только когда герой дорос до порога:
+    # показывать заведомо недоступную кнопку всем значит дразнить новичков.
+    if can_rebirth:
+        builder.button(text="♻️ Перерождение", callback_data="rebirth_menu")
         rows.append(1)
 
     builder.button(text="🏠 Меню", callback_data="main_menu")
@@ -430,8 +444,14 @@ def inspect_keyboard(has_mob: bool, has_npc: bool, has_chest: bool,
                      has_landmark: bool = False, has_grave: bool = False,
                      has_players: bool = False, has_outpost: bool = False,
                      has_caravan: bool = False, has_siege: bool = False,
-                     has_water: bool = False, has_forest: bool = False):
+                     has_water: bool = False, has_forest: bool = False,
+                     can_dig: bool = False, has_treasure: bool = False,
+                     is_town: bool = False, illusory_dirs: list | None = None):
     builder = InlineKeyboardBuilder()
+    # Иллюзорная стена рядом: развеять её можно только стоя вплотную.
+    for direction, label in (illusory_dirs or []):
+        builder.button(text=f"🔍 Простучать стену {label}",
+                       callback_data=f"reveal_wall:{direction}")
     if has_outpost:
         builder.button(text="🏰 Аванпост фракций", callback_data="outpost_menu")
     if has_siege:
@@ -452,6 +472,16 @@ def inspect_keyboard(has_mob: bool, has_npc: bool, has_chest: bool,
         builder.button(text="🎣 Закинуть удочку (Рыбалка)", callback_data="gather_fish")
     if has_forest:
         builder.button(text="🌿 Сбор трав (Травничество)", callback_data="gather_herbs")
+    # Археология (core/archaeology.py): копать можно везде за городом,
+    # а «выкопать клад» появляется только на клетке из карты сокровищ.
+    if has_treasure:
+        builder.button(text="🏆 Выкопать клад по карте!", callback_data="dig_treasure")
+    if can_dig:
+        builder.button(text="⛏ Копать землю (Археология)", callback_data="dig_relic")
+    if is_town:
+        builder.button(text="🏦 Вклад в лавку", callback_data="invest_menu")
+        builder.button(text="💍 Ломбард", callback_data="pawnshop_menu")
+        builder.button(text="🕯 Чёрный рынок", callback_data="blackmarket_menu")
     if has_npc:
         builder.button(text="💬 Поговорить", callback_data="talk_npc")
     if is_crafter:
@@ -591,9 +621,12 @@ def inventory_section_keyboard(items: list, section: str, page: int = 0,
         qty = f" ×{inv_item.quantity}" if (inv_item.quantity or 1) > 1 else ""
         inst = inv_item.instance if inv_item.instance_id else None
         badge = f"{inst.badge()} " if inst else ""
+        # В колбэке — id вещи, а не её место в списке: список мог
+        # сдвинуться (что-то продали, сломали, положили в карман), и
+        # старая кнопка открывала бы соседний предмет.
         builder.button(
             text=f"{eq}{badge}{icon} {inv_item.display_name()}{qty}",
-            callback_data=f"inv_book:{section}:{idx}",
+            callback_data=f"inv_book:{section}:{idx}:{inv_item.id}",
         )
     rows = [1] * len(chunk)
 
@@ -616,7 +649,8 @@ def inventory_section_keyboard(items: list, section: str, page: int = 0,
 def item_book_keyboard(inv_item_id: int, section: str, index: int, total: int,
                        is_equipped: bool = False, can_equip: bool = False,
                        can_use: bool = False, can_sell: bool = False,
-                       in_stash: bool = False, can_stash: bool = False):
+                       in_stash: bool = False, can_stash: bool = False,
+                       can_salvage: bool = False, can_pawn: bool = False):
     """Книга предметов: карточка вещи + листание соседних страниц."""
     builder = InlineKeyboardBuilder()
     rows = []
@@ -633,6 +667,14 @@ def item_book_keyboard(inv_item_id: int, section: str, index: int, total: int,
         actions += 1
     if can_sell and not is_equipped and not in_stash:
         builder.button(text="🟣 ⚖️ На аукцион", callback_data=f"auction_sell:{inv_item_id}")
+        actions += 1
+    # Разбор на материалы (core/salvage.py) и залог у ростовщика
+    # (core/pawnshop.py) — только для своей, не надетой и не спрятанной вещи.
+    if can_salvage and not is_equipped and not in_stash:
+        builder.button(text="🟠 🔧 Разобрать", callback_data=f"salvage:{inv_item_id}")
+        actions += 1
+    if can_pawn and not is_equipped and not in_stash:
+        builder.button(text="⚫️ 💍 Заложить", callback_data=f"pawn:{inv_item_id}")
         actions += 1
     if in_stash:
         builder.button(text="🟢 🎒 Достать из кармана",
@@ -680,6 +722,7 @@ def auction_menu_keyboard(my_lot_count: int = 0):
     builder = InlineKeyboardBuilder()
     builder.button(text="🛒 Витрина", callback_data="auction_browse:0")
     builder.button(text="📢 Выставить вещь", callback_data="auction_my_items:0")
+    builder.button(text="🔨 Торги с молотка", callback_data="bids_menu")
     builder.button(text=f"📋 Мои лоты ({my_lot_count})", callback_data="auction_my_lots")
     builder.button(text="◀️ Назад", callback_data="main_menu")
     builder.adjust(1)

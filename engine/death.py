@@ -12,10 +12,12 @@
      проходит сам. У лекаря наконец появляется работа.
 
 Надгробия живут в настройках (общие для бота и панели), раны — у игрока.
+Могила помнит **этаж**: погибший в подземелье не светится на поверхности
+(паритет с фиксом серверного стека, см. AUDIT-BUGS.md, пункт 17).
 """
 import time
 
-from engine import data, rules
+from engine import currency, data, rules
 from engine.models import Reply
 
 GRAVES = "graves"           # список надгробий в settings
@@ -47,6 +49,7 @@ def bury(store, p, gold, items_lost=()):
     grave = {"owner": int(p.tg_id), "name": p.name, "gold": int(gold),
              "items": items_lost,
              "loc": int(p.loc), "x": int(p.x), "y": int(p.y),
+             "floor": int(getattr(p, "floor", 0) or 0),
              "at": int(time.time())}
     lst = _graves(store)
     # Одна могила на героя: старая рассыпается, чтобы не копить золото полем.
@@ -56,11 +59,17 @@ def bury(store, p, gold, items_lost=()):
     return grave
 
 
-def at(store, loc, x, y):
-    """Надгробие в этой клетке или None."""
+def at(store, loc, x, y, floor=0):
+    """Надгробие в этой клетке на этом этаже или None.
+
+    Старые могилы без ключа floor лежат на поверхности (этаж 0) — так
+    сохранения не ломаются, а новые могилы из подземелий не светятся
+    наверху (паритет с серверным стеком).
+    """
     decay(store)
     for g in _graves(store):
-        if (int(g["loc"]), int(g["x"]), int(g["y"])) == (int(loc), int(x), int(y)):
+        if (int(g["loc"]), int(g["x"]), int(g["y"])) == (int(loc), int(x), int(y)) \
+                and int(g.get("floor", 0) or 0) == int(floor or 0):
             return g
     return None
 
@@ -74,13 +83,20 @@ def mine(store, p):
 
 
 def keys(store):
-    """Ключи клеток с надгробиями — для карты."""
-    return {f"{g['loc']}:{g['x']}:{g['y']}" for g in _graves(store)}
+    """Ключи клеток с надгробиями — для карты (формат как у Cell.key)."""
+    out = set()
+    for g in _graves(store):
+        floor = int(g.get("floor", 0) or 0)
+        if floor == 0:
+            out.add(f"{g['loc']}:{g['x']}:{g['y']}")
+        else:
+            out.add(f"{g['loc']}:{floor}:{g['x']}:{g['y']}")
+    return out
 
 
 def claim(store, p):
     """Забрать содержимое надгробия под ногами."""
-    g = at(store, p.loc, p.x, p.y)
+    g = at(store, p.loc, p.x, p.y, getattr(p, "floor", 0) or 0)
     if g is None:
         return Reply(alert="Здесь нечего забирать.")
     own = int(g.get("owner", 0)) == int(p.tg_id)
@@ -90,13 +106,14 @@ def claim(store, p):
     taken = gold if own else gold // 2
     if not own and goods:
         goods = goods[:max(0, len(goods) // 2)]
-    p.gold += taken
+    currency.earn(p, taken)
     p.inventory.extend(goods)
     _graves(store)[:] = [x for x in _graves(store) if x is not g]
     store.save_player(p)
 
-    from engine import factions
+    from engine import factions, karma
     rep_lines = [] if own else factions.award(store, p, "grave_looted")
+    karma_line = "" if own else karma.on_grave_loot(p)
 
     got = [f"+{taken} 🪙"] if taken else []
     if goods:
@@ -109,10 +126,11 @@ def claim(store, p):
                 f"<i>Земля отпускает то, что взяла.</i>")
     else:
         rep = ("\n\n" + "\n".join(rep_lines)) if rep_lines else ""
+        kar = f"\n{karma_line}" if karma_line else ""
         text = (f"🪦 <b>Чужая могила</b>\n\n{g.get('name', 'Некто')} больше не "
                 f"придёт за этим.\nТы забрал: {body}\n\n"
                 f"<i>Половина рассыпалась прахом — мародёрство не в чести.</i>"
-                f"{rep}")
+                f"{rep}{kar}")
     return Reply(text=text, keyboard=[[("◀️ В мир", "world")]])
 
 
@@ -168,8 +186,10 @@ def defeat(store, p, mob_name):
 
     from engine import stash
 
-    lost = p.gold // 5
-    p.gold -= lost
+    # Теряется пятая часть кошелька целиком (бронза+серебро+золото),
+    # иначе герой с 3🟡 и 0🟤 не терял бы ничего.
+    lost = currency.total(p) // 5
+    currency.spend(p, lost)
     dropped = stash.drop_on_death(p, store=store)   # часть сумки выпадает
     kept = len(getattr(p, "stash", None) or [])
     grave = bury(store, p, lost, dropped) if store is not None else None
@@ -215,15 +235,19 @@ def grave_card(store, p):
         return Reply(alert="Твоих могил в мире нет.")
     where = (data.LOCATIONS[g["loc"]][0]
              if g["loc"] < len(data.LOCATIONS) else "?")
-    same = (int(g["loc"]), int(g["x"]), int(g["y"])) == (p.loc, p.x, p.y)
+    my_floor = getattr(p, "floor", 0) or 0
+    g_floor = int(g.get("floor", 0) or 0)
+    same = ((int(g["loc"]), int(g["x"]), int(g["y"])) == (p.loc, p.x, p.y)
+            and g_floor == my_floor)
     left = GRAVE_HOURS - int((time.time() - float(g.get("at", 0))) // 3600)
     rows = [[("💰 Забрать", "claim")]] if same else []
     rows.append([("◀️ В мир", "world")])
     body = ("Ты стоишь на ней — забирай." if same
             else "Дойди до этого места, чтобы вернуть своё.")
+    floor_line = f"\n🏢 Этаж: {g_floor + 1}" if g_floor else ""
     goods = list(g.get("items") or [])
     goods_line = f"\n🎒 Вещей: {len(goods)}" if goods else ""
     return Reply(text=(f"🪦 <b>Твоя могила</b>\n\n💰 {g['gold']} 🪙{goods_line}\n"
-                       f"📍 {where} [{g['x']},{g['y']}]\n"
+                       f"📍 {where} [{g['x']},{g['y']}]{floor_line}\n"
                        f"⌛ Истлеет через ~{max(0, left)} ч\n\n{body}"),
                  keyboard=rows)

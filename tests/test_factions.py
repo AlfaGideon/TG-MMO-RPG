@@ -9,7 +9,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from engine import combat, data, death, factions as F, shop
+from engine import currency, combat, data, death, factions as F, shop
 from engine.game import Game
 from engine.storage import Store
 from webapp.backend import MemoryStorage
@@ -111,12 +111,13 @@ def test_shop_discount():
     check(cheap < base, f"цена ниже: {cheap} против {base}")
 
     # Витрина, карточка и покупка обязаны показывать одну цену.
-    p.gold = 10000
+    p.bronze, p.silver, p.gold = 10000, 0, 0
     card = game.handle(p, f"buyc:0")
     check(str(cheap) in card.text, "в карточке та же цена")
-    before = p.gold
+    before = currency.total(p)
     game.handle(p, "buy:0")
-    check(before - p.gold == cheap, "списано ровно столько, сколько показано")
+    check(before - currency.total(p) == cheap,
+          "списано ровно столько, сколько показано")
 
 
 def test_npc_reaction():

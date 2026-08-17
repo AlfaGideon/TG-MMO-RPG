@@ -39,13 +39,31 @@ def bonuses(player, store=None):
 
 def stats(player, store=None):
     """Итоговые статы. Раненый герой слабее — штраф из engine.death."""
-    from engine import death
+    from engine import death, subclasses, talents, titles
 
     b = bonuses(player, store)
+    # Титул, таланты и фамильяр складываются поверх экипировки — в том же
+    # порядке и с теми же ключами, что делает core/stats.combat_stats.
+    for key, add in titles.title_bonus(player).items():
+        if add:
+            b[key] = b.get(key, 0) + add
+    tal = talents.talent_bonuses(player)
+    for key in ("damage", "defense", "luck"):
+        if tal.get(key):
+            b[key] = b.get(key, 0) + tal[key]
+    # Подкласс даёт множители, а не слагаемые. Их нельзя применять к одному
+    # лишь бонусу оружия: при уроне 3 и множителе 1.25 int() округлил бы
+    # обратно в 3, и берсерк ничем не отличался бы от паладина. Сервер
+    # (core/stats.attack_power) множит «сила + урон оружия» — делаем так же,
+    # передавая множители дальше в attack_roll и mob_roll.
+    sub = subclasses.subclass_bonuses(player)
     k = death.penalty(player)
     if k < 1.0:
         return _wounded_stats(player, b, k)
     return dict(
+        damage_mult=sub.get("damage_mult", 1.0),
+        defense_mult=sub.get("defense_mult", 1.0),
+        vampirism_pct=sub.get("vampirism_pct", 0),
         strength=player.strength + b.get("strength", 0),
         agility=player.agility + b.get("agility", 0),
         intelligence=player.intelligence + b.get("intelligence", 0),
@@ -62,7 +80,12 @@ def _wounded_stats(player, b, k):
     """Те же статы, но с множителем ранения. Максимумы HP/MP не режем:
     иначе текущее здоровье оказалось бы выше предела и полоска сломалась."""
     scale = lambda v: max(1, int(v * k))
+    from engine import subclasses as _subs
+    sub = _subs.subclass_bonuses(player)
     return dict(
+        damage_mult=sub.get("damage_mult", 1.0),
+        defense_mult=sub.get("defense_mult", 1.0),
+        vampirism_pct=sub.get("vampirism_pct", 0),
         strength=scale(player.strength + b.get("strength", 0)),
         agility=scale(player.agility + b.get("agility", 0)),
         intelligence=scale(player.intelligence + b.get("intelligence", 0)),
@@ -85,7 +108,8 @@ def add_exp(player, amount):
     Прирост статов у каждого класса свой (engine.data.CLASS_GROWTH):
     берсерк растёт в силе, некромант — в интеллекте и мане.
     """
-    from engine import hero
+    from engine import hero, talents
+    before_points = talents.points_for_level(player.level)
     player.exp += amount
     gained = 0
     while player.exp >= exp_needed(player.level):
@@ -95,12 +119,19 @@ def add_exp(player, amount):
             setattr(player, key, getattr(player, key, 0) + int(step))
         player.hp = player.max_hp
         gained += 1
+    # Очки талантов: одно раз в LEVELS_PER_POINT уровней. Считаем разницу,
+    # а не «+1 за уровень» — так герой не потеряет очки при скачке уровней.
+    earned = talents.points_for_level(player.level) - before_points
+    if earned > 0:
+        player.talent_points = (getattr(player, "talent_points", 0) or 0) + earned
     return gained
 
 
-def attack_roll(player, mob_defense):
-    s = stats(player)
-    base = s["strength"] + s["damage"]
+def attack_roll(player, mob_defense, store=None):
+    s = stats(player, store)
+    # Множитель подкласса применяется к «сила + урон оружия», а не к одному
+    # бонусу экипировки: иначе на малых числах он терялся при округлении.
+    base = int((s["strength"] + s["damage"]) * s.get("damage_mult", 1.0))
     crit = random.random() < min(0.35, s["luck"] / 100)
     dmg = max(1, base + random.randint(-2, 4) - mob_defense // 2)
     if crit:
@@ -108,12 +139,13 @@ def attack_roll(player, mob_defense):
     return dmg, crit
 
 
-def mob_roll(player, mob_damage):
-    s = stats(player)
+def mob_roll(player, mob_damage, store=None):
+    s = stats(player, store)
     dodge = random.random() < min(0.25, s["agility"] / 120)
     if dodge:
         return 0, True
-    dmg = max(0, mob_damage - s["endurance"] // 5 - s["defense"] // 2 + random.randint(-1, 2))
+    armor = int((s["defense"] + s["endurance"] // 5) * s.get("defense_mult", 1.0))
+    dmg = max(0, mob_damage - armor // 2 + random.randint(-1, 2))
     return dmg, False
 
 

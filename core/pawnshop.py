@@ -1,6 +1,13 @@
-"""Ростовщичество и залоговый ломбард у Падальщиков."""
+"""Ломбард: серверная часть.
+
+Ставки (доля выдачи, комиссия выкупа, срок) — общие для обоих стеков и
+живут в `engine/shadowecon.py`. Здесь остаётся работа с БД.
+"""
 from datetime import datetime, timedelta, timezone
+
 from sqlalchemy import select
+
+from engine import shadowecon as E
 from core.models import Character, InventoryItem, ItemInstance, PawnLoan
 
 
@@ -8,7 +15,8 @@ def _now():
     return datetime.now(timezone.utc)
 
 
-async def create_pawn_loan(session, character: Character, inv_item: InventoryItem, days: int = 3) -> dict:
+async def create_pawn_loan(session, character: Character, inv_item: InventoryItem,
+                           days: int = E.LOAN_DAYS) -> dict:
     """Заложить предмет ростовщику под процент."""
     from engine.currency import add_currency
     from core.loot import instance_price
@@ -20,10 +28,12 @@ async def create_pawn_loan(session, character: Character, inv_item: InventoryIte
 
     instance = inv_item.instance
     base_val = instance_price(instance, inv_item.item.price if inv_item.item else 10)
-    loan_val = max(20, int(base_val * 0.70))
-    buyback = int(loan_val * 1.15)  # 15% комиссия за выкуп
+    loan_val = E.loan_for(base_val)
+    buyback = E.buyback_for(loan_val)
 
-    # Убираем предмет из сумки
+    # Убираем предмет из сумки. Имя запоминаем ДО удаления: после
+    # session.delete обращение к inv_item.item уже небезопасно.
+    item_name = inv_item.item.name if inv_item.item else "вещь"
     inst_id = instance.id
     item_id = inv_item.item_id
     await session.delete(inv_item)
@@ -43,6 +53,22 @@ async def create_pawn_loan(session, character: Character, inv_item: InventoryIte
     # Выдаём наличные на руки
     add_currency(character, bronze=loan_val)
     await session.flush()
+
+    # Живая лента админки (№ 70): движение вещей через ломбард — такое же
+    # событие экономики, как новый лот аукциона (auction_new).
+    try:
+        from core.realtime import publish_sync
+
+        publish_sync("pawn_loan", {
+            "character_id": character.id,
+            "name": character.name,
+            "item": item_name,
+            "loan_bronze": loan_val,
+            "buyback_price": buyback,
+            "days": days,
+        })
+    except Exception:
+        pass
 
     return {
         "ok": True,
@@ -92,3 +118,33 @@ async def list_active_loans(session, character_id: int) -> list[PawnLoan]:
         .where(PawnLoan.is_liquidated == False)
     )
     return result.scalars().all()
+
+
+async def sweep_expired_loans(session) -> list[PawnLoan]:
+    """Изъять залоги, у которых вышел срок. Возвращает изъятые займы.
+
+    Раньше просроченный залог висел «активным» вечно: игрок не мог его
+    выкупить по смыслу, но и ростовщик вещь не забирал. Теперь просрочка
+    помечается `is_liquidated`, и вещь попадает на витрину чёрного рынка
+    (`core/blackmarket.list_liquidated_wares`).
+
+    Вызывается фоновым циклом бота (`bot/runner.py:_pawnshop_sweep_loop`)
+    и кнопкой в админке.
+    """
+    from core.dates import aware, utcnow
+
+    result = await session.execute(
+        select(PawnLoan)
+        .where(PawnLoan.is_redeemed == False)      # noqa: E712
+        .where(PawnLoan.is_liquidated == False)    # noqa: E712
+    )
+    now = utcnow()
+    liquidated = []
+    for loan in result.scalars().all():
+        expires = aware(loan.expires_at)
+        if expires is not None and now > expires:
+            loan.is_liquidated = True
+            liquidated.append(loan)
+    if liquidated:
+        await session.flush()
+    return liquidated

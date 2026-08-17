@@ -1,5 +1,11 @@
-"""Переработка и утилизация снаряжения на ремесленные материалы."""
+"""Разбор снаряжения: серверная часть.
+
+Таблица выхода материалов общая для обоих стеков и живёт в
+`engine/salvage.py`. Здесь остаётся работа с БД.
+"""
 from sqlalchemy import select
+
+from engine import salvage as S
 from core.models import Character, InventoryItem, Item, ItemInstance
 from core.enums import ItemRarity
 
@@ -10,26 +16,7 @@ def get_salvage_yield(inv_item: InventoryItem) -> dict:
     instance = inv_item.instance
     rarity = instance.rarity if instance else (item.rarity if item else ItemRarity.COMMON)
     upgrade_level = instance.upgrade_level if instance else 0
-
-    base_scrap = 2
-    if rarity in (ItemRarity.UNCOMMON, "uncommon"):
-        base_scrap = 4
-    elif rarity in (ItemRarity.RARE, "rare"):
-        base_scrap = 8
-    elif rarity in (ItemRarity.EPIC, "epic"):
-        base_scrap = 15
-    elif rarity in (ItemRarity.LEGENDARY, "legendary"):
-        base_scrap = 30
-
-    base_scrap += upgrade_level * 3
-    steel_bars = max(0, upgrade_level // 2)
-    magic_dust = 1 if rarity in (ItemRarity.RARE, ItemRarity.EPIC, ItemRarity.LEGENDARY, "rare", "epic", "legendary") else 0
-
-    return {
-        "iron_scrap": base_scrap,
-        "steel_bars": steel_bars,
-        "magic_dust": magic_dust,
-    }
+    return S.yield_for(rarity, upgrade_level)
 
 
 async def salvage_item(session, character: Character, inv_item: InventoryItem) -> dict:

@@ -16,7 +16,49 @@ import time
 
 from fastapi import Request
 
-SECRET = os.getenv("ADMIN_SECRET_KEY", "shadow-lands-secret")
+def _load_secret() -> str:
+    """Ключ подписи сессий: из окружения, иначе — свой на эту установку.
+
+    Раньше здесь стоял дефолт `"shadow-lands-secret"`, лежащий в публичном
+    репозитории: кто угодно мог подделать cookie и войти в панель, если её
+    выставили наружу (`AUDIT-BUGS.md`, «Прочее на заметку»). Падать без
+    переменной нельзя — панель задумана как «запустил и работает», поэтому
+    ключ генерируется один раз и сохраняется рядом с базой, в `data/`
+    (каталог в .gitignore, в репозиторий не попадёт).
+    """
+    env_key = (os.getenv("ADMIN_SECRET_KEY") or "").strip()
+    if env_key and env_key not in _WEAK_KEYS:
+        return env_key
+
+    path = os.path.join("data", "admin_secret.key")
+    try:
+        if os.path.exists(path):
+            saved = open(path, encoding="utf-8").read().strip()
+            if saved:
+                return saved
+        os.makedirs("data", exist_ok=True)
+        generated = secrets.token_urlsafe(48)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(generated)
+        try:                                   # только владелец, если ОС умеет
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+        if env_key:
+            print("⚠️  ADMIN_SECRET_KEY выглядит как пример из документации — "
+                  "сгенерирован собственный ключ (data/admin_secret.key).")
+        return generated
+    except OSError:
+        # Файловая система только для чтения: ключ живёт до перезапуска —
+        # сессии слетят, но подделать их снаружи всё равно нельзя.
+        return secrets.token_urlsafe(48)
+
+
+# Значения, которые нельзя принимать за настоящий ключ: они опубликованы.
+_WEAK_KEYS = {"shadow-lands-secret", "super-secret-key-change-me",
+              "change-me", "secret"}
+
+SECRET = _load_secret()
 COOKIE_NAME = "wa_session"
 SESSION_MAX_AGE = 30 * 24 * 3600  # 30 days
 

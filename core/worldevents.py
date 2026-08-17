@@ -262,6 +262,9 @@ async def _reward_boss(session, ev):
         ch.experience += max(10, int(b.get("hp", 1000) * share * 0.8))
         from core import factions as core_factions
         core_factions.award(ch, "boss_slain")
+        # Карма: победа над боссом очищает — единая точка на всех бойцов.
+        from core import karma as core_karma
+        core_karma.change_karma(ch, core_karma.KILL_BOSS)
 
 
 async def boss_contribution(session, ev, character) -> float:

@@ -176,6 +176,104 @@
 </div>
 </div>
 
+<!-- ══════════════ ЭНДГЕЙМ-ПРОГРЕСС ══════════════ -->
+{# Пункт № 69: перерождение, титулы, подкласс и таланты. Все числа берутся
+   из engine/prestige|titles|subclasses|talents через core/*-реэкспорты —
+   те же, что применяет core/stats.py в бою. #}
+<div class="card" id="progress">
+    <h3>🌌 Эндгейм-прогресс</h3>
+    <p class="section-sub">Почему у героя статы выше базовых: круги перерождения,
+       титул, специализация и открытые созвездия. Здесь только просмотр —
+       правится это игроком в боте.</p>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:0.6rem">
+        <div style="background:var(--bg-dark);border:1px solid var(--border);border-radius:8px;padding:0.7rem">
+            <b>♻️ Перерождение</b>
+            <p style="margin:.4rem 0 0">
+                Кругов: <b>{{ progress.rebirths }}</b>
+                {% if progress.rebirth_bonus_pct %}
+                <span class="badge badge-uncommon">+{{ progress.rebirth_bonus_pct }}% к базовым статам</span>
+                {% endif %}
+            </p>
+            <p class="hint" style="margin-top:.35rem">
+                Ритуал доступен с {{ progress.rebirth_min_level }}-го уровня.
+                {% if progress.can_rebirth %}Сейчас готов.{% else %}{{ progress.rebirth_reason }}{% endif %}
+            </p>
+        </div>
+
+        <div style="background:var(--bg-dark);border:1px solid var(--border);border-radius:8px;padding:0.7rem">
+            <b>🎖 Титул</b>
+            <p style="margin:.4rem 0 0">
+                {% if progress.active_title %}
+                <b>{{ progress.active_title }}</b>
+                {% else %}<span class="muted">не выбран</span>{% endif %}
+            </p>
+            <p class="hint" style="margin-top:.35rem">
+                Открыто {{ progress.titles | length }} из {{ progress.titles_total }}.
+                {% if progress.title_bonuses %}
+                Даёт: {% for k, v in progress.title_bonuses.items() %}{% if v %}{{ k }} +{{ v }}{% if not loop.last %}, {% endif %}{% endif %}{% endfor %}
+                {% endif %}
+            </p>
+        </div>
+
+        <div style="background:var(--bg-dark);border:1px solid var(--border);border-radius:8px;padding:0.7rem">
+            <b>🧭 Подкласс</b>
+            <p style="margin:.4rem 0 0">
+                {% if progress.subclass %}<b>{{ progress.subclass_name }}</b>
+                {% else %}<span class="muted">не выбран</span>{% endif %}
+            </p>
+            <p class="hint" style="margin-top:.35rem">
+                {% if progress.subclass %}{{ progress.subclass_desc }}
+                {% else %}Доступен с {{ progress.subclass_min_level }}-го уровня.{% endif %}
+            </p>
+        </div>
+
+        <div style="background:var(--bg-dark);border:1px solid var(--border);border-radius:8px;padding:0.7rem">
+            <b>⭐ Созвездия</b>
+            <p style="margin:.4rem 0 0">
+                Открыто <b>{{ progress.talent_spent }}</b> из {{ progress.talents_total }} ·
+                свободных очков: <b>{{ progress.talent_free }}</b>
+            </p>
+            <p class="hint" style="margin-top:.35rem">
+                Очко за каждые {{ progress.levels_per_point }} уровней —
+                на текущем уровне положено {{ progress.talent_earned }}.
+            </p>
+        </div>
+    </div>
+
+    {% if progress.titles %}
+    <p style="margin-top:.7rem"><b>Открытые титулы:</b>
+        {% for t in progress.titles %}
+        <span class="badge {% if t.active %}badge-uncommon{% endif %}"
+              title="{{ t.desc }}">{{ t.name }}{% if t.active %} ✓{% endif %}</span>
+        {% endfor %}
+    </p>
+    {% endif %}
+
+    {% if progress.talents %}
+    <div class="table-wrap" style="margin-top:.7rem">
+    <table>
+        <thead><tr><th>Созвездие</th><th>Что даёт</th></tr></thead>
+        <tbody>
+            {% for t in progress.talents %}
+            <tr><td data-label="Созвездие">{{ t.name }}</td>
+                <td data-label="Что даёт" class="muted">{{ t.desc }}</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% else %}
+    <p class="hint" style="margin-top:.7rem">Ни одного созвездия пока не открыто.</p>
+    {% endif %}
+
+    <form action="/player/{{ char.id }}/reset-talents" method="post"
+          style="margin-top:.8rem"
+          onsubmit="return confirm('Сбросить созвездия? Очки вернутся герою, бонусы исчезнут.')">
+        <button type="submit" class="btn btn-danger">↺ Сбросить созвездия</button>
+        <span class="hint">Очки возвращаются в свободные — герой распределит заново.</span>
+    </form>
+</div>
+
 <!-- ══════════════ ХАРАКТЕРИСТИКИ ══════════════ -->
 <div class="tab-panel" id="tab-stats">
 <div class="card">
@@ -219,6 +317,33 @@
                     <input type="number" name="gold" value="{{ char.gold }}" min="0" class="search-box">
                 </div>
             </div>
+        </fieldset>
+
+        {# Карма: моральный путь героя. Пороги и эффекты — core/karma.py,
+           поэтому подпись под полем всегда совпадает с тем, что в бою. #}
+        <fieldset class="field-group">
+            <span class="group-title">⚖️ Карма</span>
+            <div class="field-row cols-2">
+                <div>
+                    <label class="form-label">
+                        Карма ({{ karma.min }} … {{ karma.max }})
+                    </label>
+                    <input type="number" name="karma_score" value="{{ karma.value }}"
+                           min="{{ karma.min }}" max="{{ karma.max }}" class="search-box">
+                </div>
+                <div>
+                    <label class="form-label">Текущий путь</label>
+                    <p style="margin:.35rem 0 0;">
+                        <b>{{ karma.icon }} {{ karma.title }}</b><br>
+                        <span class="hint">{{ karma.effect }}</span>
+                    </p>
+                </div>
+            </div>
+            <p class="hint">
+                Благочестивый — от {{ karma.pious_at }}, Осквернитель — от
+                {{ karma.defiled_at }}. Растёт за упокоение нежити и мировых
+                боссов, падает за разграбление чужих могил.
+            </p>
         </fieldset>
 
         <fieldset class="field-group">

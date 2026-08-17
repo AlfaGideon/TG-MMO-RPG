@@ -8,7 +8,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from engine import combat, data, mapview, quests, respawn
+from engine import currency, combat, data, mapview, quests, respawn
 from engine.game import Game
 from engine.storage import Store
 from webapp.backend import MemoryStorage
@@ -231,9 +231,10 @@ def test_quest_hunt():
         killed += 1
     check(quests.complete(p, q), f"после {need} убийств задание готово")
 
-    gold = p.gold
+    gold = currency.total(p)
     r = game.handle(p, "qdone:0")
-    check("выполнено" in r.text and p.gold > gold, "сдано, награда получена")
+    check("выполнено" in r.text and currency.total(p) > gold,
+          "сдано, награда получена")
     check(bool(game.handle(p, "qdone:0").alert), "повторно не сдать")
 
 

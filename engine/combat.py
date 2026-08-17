@@ -2,8 +2,9 @@
 могут подтянуться другие твари — они ждут очереди в `queue`."""
 import random
 
-from engine import (cataclysm, craft, data, death, factions, items, party,
-                    quests, respawn, rules, texts)
+from engine import (bestiary, cataclysm, craft, currency, data, death,
+                    factions, items, karma, party, quests, respawn, rules,
+                    texts)
 from engine.models import Reply
 
 
@@ -23,7 +24,7 @@ def start(p, mob_index, ambush=False, store=None, origin=None):
                 "from": origin}
     if ambush:
         # Внезапный удар: за неожиданность игрок платит одним пропущенным.
-        dmg, dodged = rules.mob_roll(p, m[4])
+        dmg, dodged = rules.mob_roll(p, m[4], store)
         if store is not None:
             dmg = int(dmg * cataclysm.effects(store, p.loc).get("damage", 1.0))
         p.combat["log"].append(f"⚡ <b>{m[0]} нападает из засады!</b>")
@@ -32,7 +33,7 @@ def start(p, mob_index, ambush=False, store=None, origin=None):
         else:
             p.hp -= dmg
             p.combat["log"].append(f"👾 Внезапный удар на {dmg}.")
-        if p.hp <= 0:
+        if p.hp <= 0 and not _blessing_saves(p, p.combat):
             return _finish_lose(p, store)
     return view(p)
 
@@ -195,7 +196,7 @@ def _reward(p, m, world, store=None):
     if store is not None:
         k = party.bonus(store, p)
         gold, exp = max(1, int(gold * k)), max(1, int(exp * k))
-    p.gold += gold
+    currency.earn(p, gold)
     p.kills += 1
     levels = rules.add_exp(p, exp)
 
@@ -234,6 +235,14 @@ def _reward(p, m, world, store=None):
     if store is not None:                      # соратникам рядом — их доля
         lines.extend(party.share(store, p, m[6], m[7]))
         lines.extend(factions.on_kill(store, p, st["mob"]))
+        karma_line = karma.on_kill(p, m[0])
+        if karma_line:
+            lines.append(karma_line)
+        slain = bestiary.record_kill(p, m[0])
+        if slain and slain % bestiary.KILLS_PER_STEP == 0:
+            lines.append(f"📖 Бестиарий: {m[0]} — побед {slain}. "
+                         f"Урон по этому виду: "
+                         f"<b>+{bestiary.slayer_pct(p, m[0])}%</b>")
     for q in quests.on_kill(p, st["mob"]):     # охотничьи задания
         lines.append(f"📜 Задание «{quests.fields(q)['name']}» — можно сдавать!")
     if levels:
@@ -274,6 +283,10 @@ def action(p, what, world, store=None):
         from engine import hero
         power = hero.magic_power(p)          # дар к магии усиливает умение
         dmg = int((s["intelligence"] + s["damage"]) * 1.6 * power)
+        # Осквернители извлекают из Тьмы больше: +20 % к урону школы shadow.
+        if karma.defiled(p) and any(sc == karma.DARK_SCHOOL
+                                    for sc, _g in (getattr(p, "magic", []) or [])):
+            dmg = int(dmg * (1 + karma.DARK_DAMAGE_BONUS))
         st["mob_hp"] -= dmg
         mark = f" {hero.magic_short(getattr(p, 'magic', []))}" if power > 1 else ""
         st["log"].append(f"✨ Умение наносит {dmg} урона!{mark}")
@@ -281,7 +294,10 @@ def action(p, what, world, store=None):
         st["defend"] = True
         st["log"].append("🛡 Ты уходишь в глухую оборону.")
     else:
-        dmg, crit = rules.attack_roll(p, m[5])
+        dmg, crit = rules.attack_roll(p, m[5], store)
+        # Знание слабостей: +1 % за каждые 10 побед над видом (потолок 15 %),
+        # как и на сервере (bot/handlers/battle.py).
+        dmg = max(1, int(dmg * bestiary.get_mob_slayer_bonus(p, m[0])))
         st["mob_hp"] -= dmg
         st["log"].append(f"⚔️ {'КРИТ! ' if crit else ''}Ты наносишь {dmg} урона.")
 
@@ -291,7 +307,7 @@ def action(p, what, world, store=None):
     if store is not None:
         reinforce(p, store)              # в катаклизм на шум сбегаются другие
 
-    mdmg, dodged = rules.mob_roll(p, m[4])
+    mdmg, dodged = rules.mob_roll(p, m[4], store)
     if store is not None:
         mdmg = int(mdmg * cataclysm.effects(store, p.loc).get("damage", 1.0))
     if st.get("defend"):
@@ -300,6 +316,24 @@ def action(p, what, world, store=None):
     p.hp -= mdmg
     st["log"].append("💨 Ты уклонился!" if dodged else f"👾 {m[0]} бьёт на {mdmg}.")
 
+    if p.hp <= 0 and _blessing_saves(p, st):
+        return view(p)
     if p.hp <= 0:
         return _finish_lose(p, store)
     return view(p)
+
+
+def _blessing_saves(p, st):
+    """Карма: Благочестивого один раз за бой спасает от фатального удара.
+
+    Эффект обещан текстом `karma.karma_status` («защита от фатального
+    удара»). Флаг траты живёт в состоянии боя `p.combat`, поэтому за один
+    бой благословение срабатывает не больше раза. Паритет с серверным
+    стеком: `bot/handlers/battle.py:_blessing_saves`.
+    """
+    if st.get("blessing_used") or not karma.pious(p):
+        return False
+    st["blessing_used"] = True
+    p.hp = 1
+    st["log"].append("✨ <b>Благословение света спасло тебя!</b> Остался 1 HP.")
+    return True

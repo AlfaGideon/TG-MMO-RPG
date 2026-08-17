@@ -63,6 +63,11 @@ async def ensure_population(session, mob: Mob) -> list[MobSpawn]:
         return []
 
     limit = max(0, mob.population if mob.population is not None else 1)
+    # Фаза луны меняет плотность тварей: в полнолуние их ощутимо больше,
+    # на убывающей — меньше. Раньше PHASES[*]["mob_mult"] нигде не читался,
+    # и фазы были чистой декорацией в тексте клетки.
+    from core.lunar import get_phase
+    limit = max(0, int(round(limit * (await get_phase(session))["mob_mult"])))
     if limit == 0:
         return []
 

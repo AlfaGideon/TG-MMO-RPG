@@ -2,6 +2,7 @@
 import random
 
 from engine import (adminbot, adminroute, behavior, cataclysm, combat, data,
+                    progress, social_ui,
                     explore, hero, inventory, items, mapview, merchant,
                     respawn, rules, shop, social, stash, texts, trade, world)
 from engine.models import Reply
@@ -41,7 +42,15 @@ class Game:
             [("🧭 В мир", "world"), ("🧙 Профиль", "profile")],
             [("🎒 Инвентарь", "bag"), ("🏪 Лавка", "shop")],
             [("📜 Задания", "quests"), ("🤝 Отряд", "party")],
-            [("🧭 Репутация", "rep")],
+            [("🧭 Репутация", "rep"), ("🔮 Знамения", "omens")],
+            [("📖 Бестиарий", "bestiary"), ("🎖 Титулы", "titles")],
+            [("⭐ Созвездия", "talents"), ("🎓 Путь", "subclass")],
+            [("🏆 Зал Славы", "legends")],
+            [("💍 Ломбард", "pawn"), ("🏦 Вклад", "invest")],
+            [("🕯 Чёрный рынок", "market")],
+            [("⚔️ Арена", "arena"), ("🏛 Гильдия", "guild")],
+            [("🎓 Наставник", "mentor")],
+            [("🐾 Спутник", "familiar")],
             [("🔨 Мастерская", "craft"), ("🏛 Аукцион", "auc:0")],
             [("🏆 Топ", "top"), ("❓ Помощь", "help")],
         ]
@@ -363,7 +372,7 @@ class Game:
         return combat.action(p, what, self.world, self.store)
 
     def do_talk(self, p, arg):
-        return explore.talk(arg, p)
+        return explore.talk(arg, p, self.store)
 
     def do_heal(self, p, arg=""):
         return explore.heal(p)
@@ -379,11 +388,62 @@ class Game:
     do_bag = lambda self, p, arg="": inventory.bag(p, 0, self.store)
     do_bagp = lambda self, p, arg="0": inventory.bag(p, arg or 0, self.store)
     do_it = lambda self, p, arg: inventory.card(p, arg, self.store)
-    do_on = lambda self, p, arg: inventory.equip(p, arg)
-    do_off = lambda self, p, arg: inventory.unequip(p, arg)
-    do_use = lambda self, p, arg: inventory.use(p, arg)
-    do_sell = lambda self, p, arg: inventory.sell(p, arg)
-    do_toss = lambda self, p, arg: inventory.toss(p, arg)
+    do_on = lambda self, p, arg: inventory.equip(p, arg, self.store)
+    do_off = lambda self, p, arg: inventory.unequip(p, arg, self.store)
+    do_use = lambda self, p, arg: inventory.use(p, arg, self.store)
+    do_sell = lambda self, p, arg: inventory.sell(p, arg, self.store)
+    do_toss = lambda self, p, arg: inventory.toss(p, arg, self.store)
+
+    def do_omens(self, p, arg=""):
+        """🔮 Знамения: предвестия бед, общие для всех героев.
+
+        Если бедствие уже бушует — первым идёт его предвестие (№ 86), а
+        к каталогу подмешиваются знамения, добавленные из панели (№ 68).
+        """
+        from engine import cataclysm, omens
+
+        kinds = [e["kind"] for e in cataclysm.active(self.store, p.loc)
+                 if e.get("kind")]
+        return Reply(text=omens.omens_text(self.store.settings, kinds),
+                     keyboard=[[("◀️ Меню", "menu")]])
+
+    # Экраны прогресса (бестиарий, титулы, перерождение) вынесены в
+    # engine/progress.py: game.py держится в пределах 500 строк, это
+    # правило стережёт tests/test_wiring.py.
+    do_bestiary = lambda self, p, arg="": progress.bestiary_screen(p)
+    do_titles = lambda self, p, arg="": progress.titles_screen(p)
+    do_title = lambda self, p, arg="": progress.set_title(self.store, p, arg)
+    do_rebirth = lambda self, p, arg="": progress.rebirth_screen(p)
+    do_rebirthgo = lambda self, p, arg="": progress.rebirth_do(self.store, p)
+    do_talents = lambda self, p, arg="": progress.talents_screen(p)
+    do_talentgo = lambda self, p, arg="": progress.talent_unlock(self.store, p, arg)
+    do_subclass = lambda self, p, arg="": progress.subclass_screen(p)
+    do_subgo = lambda self, p, arg="": progress.subclass_choose(self.store, p, arg)
+    do_familiar = lambda self, p, arg="": progress.familiar_screen(p)
+    do_famgo = lambda self, p, arg="": progress.familiar_adopt(self.store, p, arg)
+    do_fish = lambda self, p, arg="": progress.fish(self.store, p)
+    do_herbs = lambda self, p, arg="": progress.herbs(self.store, p)
+    do_dig = lambda self, p, arg="": progress.dig(self.store, p)
+    do_honor = lambda self, p, arg="": progress.honor_grave(self.store, p)
+    do_ghost = lambda self, p, arg="": progress.ghost_screen(p)
+    do_ghostbuy = lambda self, p, arg="": progress.ghost_buy(self.store, p, arg)
+    do_legends = lambda self, p, arg="": progress.legends_screen(self.store)
+    do_pawn = lambda self, p, arg="": progress.pawn_screen(self.store, p)
+    do_pawnput = lambda self, p, arg="": progress.pawn_item(self.store, p, arg)
+    do_pawnback = lambda self, p, arg="": progress.pawn_redeem(self.store, p, arg)
+    do_invest = lambda self, p, arg="": progress.invest_screen(self.store, p)
+    do_investgo = lambda self, p, arg="": progress.invest_do(self.store, p, arg)
+    do_market = lambda self, p, arg="": progress.market_screen(self.store, p)
+    do_marketbuy = lambda self, p, arg="": progress.market_buy(self.store, p, arg)
+    do_arena = lambda self, p, arg="": social_ui.arena_screen(self.store, p)
+    do_arenago = lambda self, p, arg="": social_ui.arena_duel(self.store, p, arg)
+    do_guild = lambda self, p, arg="": social_ui.guild_screen(self.store, p)
+    do_guildnew = lambda self, p, arg="": social_ui.guild_create(self.store, p)
+    do_guildjoin = lambda self, p, arg="": social_ui.guild_join(self.store, p, arg)
+    do_guilddep = lambda self, p, arg="": social_ui.guild_deposit(self.store, p, arg)
+    do_mentor = lambda self, p, arg="": social_ui.mentor_screen(self.store, p)
+    do_mentorgo = lambda self, p, arg="": social_ui.mentor_bind(self.store, p, arg)
+
 
     # ── подземелья ──────────────────────────────────────────
     do_denter = lambda self, p, arg="": social.dungeon_enter(self.store, p)

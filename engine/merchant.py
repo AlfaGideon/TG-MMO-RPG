@@ -13,7 +13,7 @@
 import random
 import time
 
-from engine import itemui, items, rules
+from engine import currency, itemui, items, rules
 from engine.models import Reply
 
 KEY = "merchant"
@@ -120,13 +120,13 @@ def view(store, p, page=0):
     entries, page = itemui.slice_page([i for i in range(len(wares))], page)
 
     lines = [f"{MERCHANT_NAME}", f"<i>{MERCHANT_GREETING}</i>",
-             f"🪙 <b>{p.gold}</b> · 🎒 {len(p.inventory)}", ""]
+             f"👛 <b>{currency.fmt(p)}</b> · 🎒 {len(p.inventory)}", ""]
     if not wares:
         lines.append("<i>Витрина пуста — всё раскупили. Загляни позже.</i>")
     for num, _pos, pos in entries:
         w = wares[pos]
         tpl = rules.item(w["item"])
-        mark = "🪙" if p.gold >= w["price"] else "🚫"
+        mark = "🪙" if currency.can_afford(p, w["price"]) else "🚫"
         qty = f" ×{w['qty']}" if w["qty"] > 1 else ""
         lines.append(itemui.line(num, w["item"], f"{mark} <b>{w['price']}</b>{qty}"))
     lines.append("<i>Нажми номер — покажу товар.</i>")
@@ -151,12 +151,14 @@ def card(store, p, arg):
         return Reply(alert="Такого товара нет.")
     w = wares[pos]
     price = int(w["price"])
-    enough = p.gold >= price
-    extra = (f"💵 Цена: <b>{price}</b> 🪙\n👛 У тебя: <b>{p.gold}</b> 🪙")
+    enough = currency.can_afford(p, price)
+    extra = (f"💵 Цена: <b>{currency.short(price)}</b>\n"
+             f"👛 У тебя: <b>{currency.fmt(p)}</b>")
     if w["qty"] > 1:
         extra += f"\n📦 Осталось: {w['qty']} шт."
     if not enough:
-        extra += f"\n\n🚫 <i>Не хватает {price - p.gold} 🪙</i>"
+        extra += (f"\n\n🚫 <i>Не хватает "
+                  f"{currency.short(price - currency.total(p))}</i>")
     text = f"{MERCHANT_NAME} · товар\n\n" + itemui.card(w["item"], extra)
     rows = []
     if enough:
@@ -179,9 +181,10 @@ def buy(store, p, arg):
         return Reply(alert="Такого товара нет.")
     w = wares[pos]
     price = int(w["price"])
-    if p.gold < price:
-        return Reply(alert=f"Не хватает {price - p.gold} 🪙!")
-    p.gold -= price
+    if not currency.can_afford(p, price):
+        return Reply(alert="Не хватает "
+                     f"{currency.short(price - currency.total(p))}!")
+    currency.spend(p, price)
     w["qty"] -= 1
     p.inventory.append(w["item"])
     # Диковинки — именные: у снаряжения появляется экземпляр с историей.
@@ -190,7 +193,7 @@ def buy(store, p, arg):
     store.save_player(p)
     r = card(store, p, arg)
     name = rules.item(w["item"])["name"]
-    r.alert = f"Куплено: {name} за {price} 🪙"
+    r.alert = f"Куплено: {name} за {currency.short(price)}"
     if inst:
         r.alert += f" · <code>{items.tag(inst)}</code>"
     return r

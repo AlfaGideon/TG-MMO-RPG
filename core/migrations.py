@@ -5,6 +5,16 @@ from sqlalchemy import text
 from core.database import engine, DATABASE_URL
 from core.models import Base
 
+# Часть моделей объявлена не в core/models.py, а рядом со своей механикой
+# (core/guilds.py: Guild, GuildVaultItem, таблица guild_members). Без этого
+# импорта они не попадают в Base.metadata, и create_all их не создаёт —
+# гильдии падали с «no such table: guilds». Импорт только ради регистрации
+# в метаданных, поэтому noqa.
+from core import guilds as _guilds_models  # noqa: F401
+# То же самое для каналов сообщества (core/community.py: Channel,
+# CommunityMessage) — без импорта create_all их не увидит.
+from core import community as _community_models  # noqa: F401
+
 logger = logging.getLogger("migrations")
 
 

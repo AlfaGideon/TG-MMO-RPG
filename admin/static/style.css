@@ -531,7 +531,11 @@ body.no-scroll { overflow: hidden; }
 /* Длинная группа «Контент мира» растёт вместе с новыми редакторами:
    27 строк вместе с отступами занимают примерно 1 000px. */
 .nav-group.open .nav-subitems {
-    max-height: 64rem;
+    /* Запас на рост меню: max-height только «отпускает» анимацию раскрытия,
+       реальная высота задаётся содержимым. При 64rem новый пункт
+       («🧿 Подсистемы», 29-й) уже не помещался — это ловит
+       tests/test_admin_layout.py::test_nav_fits. */
+    max-height: 96rem;
     opacity: 1;
     margin-top: 0.15rem;
     margin-bottom: 0.3rem;
@@ -893,6 +897,12 @@ body.no-scroll { overflow: hidden; }
     border-radius: var(--radius);
     padding: 1.5rem;
     margin-bottom: 1.5rem;
+    /* Тень и подсветка кромки — часть обновлённого облика (2026-08-17).
+       Держим в одном объявлении: правило .card должно встречаться ровно
+       один раз (tests/test_admin_layout.py::test_css_sane). */
+    box-shadow: var(--shadow-sm);
+    position: relative;
+    transition: box-shadow 0.2s ease, border-color 0.2s ease;
 }
 
 .card h2 {
@@ -934,6 +944,9 @@ body.no-scroll { overflow: hidden; }
     flex-direction: column;
     align-items: center;
     gap: 0.15rem;
+    box-shadow: var(--shadow-sm);
+    transition: transform 0.15s ease, box-shadow 0.2s ease,
+                border-color 0.2s ease;
 }
 
 .stat-box .stat-icon { font-size: 1.4rem; margin-bottom: 0.3rem; }
@@ -1231,6 +1244,7 @@ td .btn { vertical-align: middle; }
     background: var(--bg-hover);
     color: var(--text);
     border-color: var(--border);
+    box-shadow: var(--shadow-sm);
 }
 
 .btn:hover { border-color: var(--accent); }
@@ -2108,4 +2122,174 @@ td > .inline-form { min-height: 1.95rem; }
         min-width: 2.25rem;
         height: 2.25rem;
     }
+}
+
+/* ════════════════════════════════════════════════════════════
+   ОБНОВЛЕНИЕ ОБЛИКА — 2026-08-17
+
+   Слой поверх базовых правил, а не переписывание с нуля: 2115
+   строк выше содержат выстраданные мелочи (высоты кнопок, контраст
+   бейджей, вместимость меню), ломать их ради красоты нельзя.
+
+   Что меняется:
+   * многослойный фон вместо плоской заливки — у панели появляется
+     глубина, но без «стеклянных» размытий, которые на слабых
+     машинах роняют прокрутку длинных таблиц;
+   * карточки с мягкой тенью и подсветкой верхней кромки;
+   * плотная типографика: числа моноширинные и с выравниванием
+     по разрядам — колонки цен перестают «плясать»;
+   * заметный фокус-ринг: без него панель непроходима с клавиатуры.
+
+   Цвета берутся ТОЛЬКО из переменных тем (это стережёт
+   tests/test_admin_layout.py::test_css_sane).
+   ════════════════════════════════════════════════════════════ */
+
+:root {
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.28);
+    --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.32);
+    --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.40);
+    --ring: 0 0 0 3px var(--accent-soft);
+    --card-edge: rgba(255, 255, 255, 0.06);
+    --surface-glow: radial-gradient(1200px 480px at 78% -8%,
+                    var(--accent-soft), transparent 62%);
+}
+
+[data-theme="light"] {
+    --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+    --shadow-md: 0 4px 16px rgba(15, 23, 42, 0.08);
+    --shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.12);
+    --card-edge: rgba(15, 23, 42, 0.05);
+}
+
+body {
+    /* Тонкий градиент по краю экрана: плоская заливка выглядела
+       «недорисованной» на широких мониторах. */
+    background-image: var(--surface-glow);
+    background-attachment: fixed;
+    background-repeat: no-repeat;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Карточки ───────────────────────────────────────────── */
+
+.card::before {
+    /* Светлая кромка сверху — карточка «поднимается» над фоном.
+       Псевдоэлемент, а не border-top: настоящая граница сдвигала бы
+       содержимое на 1px и ломала выравнивание в сетках. */
+    content: "";
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 1px;
+    background: var(--card-edge);
+    border-radius: var(--radius) var(--radius) 0 0;
+    pointer-events: none;
+}
+
+.card:hover { box-shadow: var(--shadow-md); }
+
+.card h2, .card h3 { letter-spacing: -0.01em; }
+
+/* ── Плитки статистики ──────────────────────────────────── */
+
+.stat-box:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+    border-color: var(--accent);
+}
+
+.stat-box .value {
+    /* Табличные цифры: в сетке плиток числа разной ширины больше
+       не сдвигают подписи под собой. */
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+}
+
+/* ── Таблицы ────────────────────────────────────────────── */
+
+table td.num,
+table td[data-label="Цена"],
+table td[data-label="Золото"],
+table td[data-label="Опыт"],
+table td[data-label="Ур."] {
+    font-variant-numeric: tabular-nums;
+}
+
+tbody tr { transition: background 0.12s ease; }
+
+/* ── Кнопки ─────────────────────────────────────────────── */
+
+/* Тень и подъём — в :hover/:active, а не в новом блоке `.btn {}`:
+   правило `.btn` должно быть объявлено ровно один раз
+   (tests/test_admin_layout.py::test_css_sane), иначе легко разъехаться. */
+.btn:hover { transform: translateY(-1px); }
+.btn:active { transform: translateY(0); }
+.btn-primary { box-shadow: var(--shadow-sm); }
+.btn-group .btn:hover { transform: none; }
+
+/* Фокус виден всегда: панель должна проходиться с клавиатуры.
+   :focus-visible, а не :focus — мышиный клик не рисует рамку. */
+.btn:focus-visible,
+.nav-sublink:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    box-shadow: var(--ring);
+}
+
+/* ── Боковое меню ───────────────────────────────────────── */
+
+.sidebar { box-shadow: var(--shadow-lg); }
+
+.nav-sublink {
+    position: relative;
+    transition: background 0.15s ease, color 0.15s ease,
+                padding-left 0.15s ease;
+}
+
+.nav-sublink:hover { padding-left: 1.05rem; }
+
+.nav-sublink.active::before {
+    /* Полоска-указатель у активного пункта: раньше активный пункт
+       отличался только фоном и терялся при беглом взгляде. */
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 3px;
+    height: 60%;
+    border-radius: 0 3px 3px 0;
+    background: var(--accent);
+}
+
+/* ── Верхняя панель ─────────────────────────────────────── */
+
+.topbar {
+    box-shadow: var(--shadow-sm);
+    backdrop-filter: saturate(140%);
+}
+
+/* ── Поля ввода ─────────────────────────────────────────── */
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not([type="submit"]):not([type="button"]),
+select,
+textarea {
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+/* ── Уважение к системным настройкам ────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+    /* Пользователь попросил меньше движения — выключаем анимации,
+       а не «немного уменьшаем». */
+    *, *::before, *::after {
+        animation-duration: 0.001ms !important;
+        transition-duration: 0.001ms !important;
+    }
+    .btn:hover, .stat-box:hover { transform: none; }
 }

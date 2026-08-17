@@ -4,14 +4,18 @@
 их ID и происхождением, летопись каждой вещи, рецепты крафта и живые
 лоты аукциона.
 """
-from engine import auction, craft, data, items, itemui
+import time
+
+from engine import auction, craft, data, items, itemui, rules
+from engine import shadowecon as E
 from webapp.html import esc
 
 TITLE = "💰 Экономика"
 CRUMBS = [("Экономика", "economy")]
 
 TABS = [("instances", "🆔 Экземпляры"), ("auction", "🏛 Аукцион"),
-        ("craft", "🔨 Крафт"), ("sources", "🏷 Значки")]
+        ("craft", "🔨 Крафт"), ("shadow", "🕯 Теневая экономика"),
+        ("sources", "🏷 Значки")]
 
 
 def render(ctx):
@@ -20,8 +24,12 @@ def render(ctx):
         f"<button class='btn {'primary' if tab == key else ''}' "
         f"data-act='eco-tab' data-arg='{key}'>{label}</button> "
         for key, label in TABS)
+    if tab not in dict(TABS):
+        tab = "instances"
+        ctx.state["eco_tab"] = tab
     body = {"instances": _instances, "auction": _auction,
-            "craft": _craft, "sources": _sources}[tab](ctx)
+            "craft": _craft, "shadow": _shadow,
+            "sources": _sources}[tab](ctx)
     return f"""
 <div class="card">
   <h2>💰 Экономика мира</h2>
@@ -252,6 +260,108 @@ def _craft(ctx):
 
 
 # ── значки ──────────────────────────────────────────────────
+
+def _shadow(ctx):
+    """Ломбард, вклады и чёрный рынок в панели (пункт № 71).
+
+    Данные — `engine/shadowecon.py`, тот же модуль, что обслуживает экраны
+    игрока в `engine/progress.py`, поэтому ставки в подсказках не
+    продублированы текстом, а взяты из констант.
+    """
+    E.sweep_loans(ctx.store)          # просрочка уходит на рынок и здесь
+    names = {p.tg_id: p.name for p in ctx.store.players.values()}
+    now = time.time()
+
+    loan_rows = ""
+    debt = 0
+    for loan in sorted(E.active_loans(ctx.store), key=lambda l: l.get("expires", 0)):
+        left = float(loan.get("expires", 0)) - now
+        hours = max(0, int(left // 3600))
+        debt += int(loan.get("buyback", 0))
+        item = rules.item(int(loan.get("idx", 0)))
+        loan_rows += (
+            f"<tr><td>{esc(names.get(int(loan.get('owner', 0)), '—'))}</td>"
+            f"<td>{item['icon']} {esc(item['name'])}</td>"
+            f"<td>{loan.get('loan', 0)}🟤</td>"
+            f"<td><b>{loan.get('buyback', 0)}🟤</b></td>"
+            f"<td>{'через ' + str(hours) + ' ч' if hours else 'вот-вот'}</td></tr>")
+    loans_body = (f"<div class='scroll'><table><tr><th>Герой</th><th>Залог</th>"
+                  f"<th>Выдано</th><th>Выкуп</th><th>Срок</th></tr>{loan_rows}"
+                  f"</table></div>") if loan_rows else (
+        "<p class='muted'>Действующих займов нет.</p>")
+
+    ware_rows = ""
+    for w in E.seized_wares(ctx.store):
+        item = rules.item(int(w.get("idx", 0)))
+        price = E.liquidated_price_for(int(w.get("buyback", 0)))
+        ware_rows += (f"<tr><td>{item['icon']} {esc(item['name'])}</td>"
+                      f"<td class='muted'>{esc(names.get(int(w.get('owner', 0)), '—'))}</td>"
+                      f"<td><b>{price}🟤</b></td></tr>")
+    market_body = (f"<div class='scroll'><table><tr><th>Товар</th>"
+                   f"<th>Прежний владелец</th><th>Цена</th></tr>{ware_rows}"
+                   f"</table></div>") if ware_rows else (
+        "<p class='muted'>Витрина пуста — никто не просрочил заём.</p>")
+
+    inv_rows = ""
+    pool_total = 0
+    by_loc = {}
+    for row in E.investments(ctx.store).values():
+        by_loc.setdefault(int(row["loc"]), []).append(row)
+    for li, rows_ in sorted(by_loc.items()):
+        pool = sum(int(r["invested"]) for r in rows_)
+        paid = sum(int(r["earned"]) for r in rows_)
+        pool_total += pool
+        loc_name = (data.LOCATIONS[li][0]
+                    if li < len(data.LOCATIONS) else f"локация {li}")
+        who = ", ".join(
+            f"{esc(names.get(int(r['owner']), '—'))} "
+            f"({E.share_pct(int(r['invested']), pool)}%)"
+            for r in sorted(rows_, key=lambda r: -int(r["invested"]))[:5])
+        inv_rows += (f"<tr><td><b>{esc(loc_name)}</b></td><td>{pool}🟤</td>"
+                     f"<td>{E.dividend_for(pool)}🟤/сут</td><td>{paid}🟤</td>"
+                     f"<td class='muted'>{who}</td></tr>")
+    inv_body = (f"<div class='scroll'><table><tr><th>Лавка</th><th>Капитал</th>"
+                f"<th>Выплата</th><th>Уже выплачено</th><th>Вкладчики</th>"
+                f"</tr>{inv_rows}</table></div>") if inv_rows else (
+        "<p class='muted'>Вкладов пока нет.</p>")
+
+    due = E.due_periods(ctx.store)
+    due_note = (f"<div class='hint warn'>Накопилось невыплаченных периодов: "
+                f"<b>{due}</b> — начислятся при заходе игрока на экран вклада "
+                f"или кнопкой ниже.</div>") if due else ""
+
+    return f"""
+{_tiles([("Займов", len(E.active_loans(ctx.store))),
+         ("Долг к выкупу", f"{debt}🟤"),
+         ("На рынке", len(E.seized_wares(ctx.store))),
+         ("Капитал лавок", f"{pool_total}🟤")])}
+<div class="card">
+  <h2>💍 Ломбард</h2>
+  <div class="hint">На руки дают {int(E.LOAN_SHARE * 100)} % оценки, выкуп
+     дороже займа на {int((E.BUYBACK_MARKUP - 1) * 100)} %, срок —
+     {E.LOAN_DAYS} дн. Просроченный залог изымается и уходит на чёрный рынок
+     с наценкой {int((E.LIQUIDATED_MARKUP - 1) * 100)} %: иначе выгодно было
+     бы не платить по долгу и выкупить свою же вещь дешевле.</div>
+  {loans_body}
+</div>
+<div class="card">
+  <h2>🕯 Чёрный рынок</h2>
+  {market_body}
+</div>
+<div class="card">
+  <h2>🏦 Вклады в лавки</h2>
+  <div class="hint">Выплата — {int(E.DIVIDEND_RATE * 100)} % от вклада каждые
+     {E.DIVIDEND_PERIOD_HOURS} ч. Фонового планировщика в браузере нет,
+     поэтому начисление ленивое: догоняет все пропущенные периоды.</div>
+  {due_note}
+  <div style="margin:.6rem 0">
+    <button class="btn primary" data-act="eco-dividends">💎 Начислить дивиденды</button>
+    <button class="btn" data-act="eco-sweep">⏳ Изъять просроченные залоги</button>
+  </div>
+  {inv_body}
+</div>
+"""
+
 
 def _sources(ctx):
     rows = "".join(

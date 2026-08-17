@@ -14,7 +14,7 @@
 import random
 import time
 
-from engine import audit, data, factions, items, rules
+from engine import audit, currency, data, factions, items, karma, legends, rules
 from engine.models import Reply
 
 BOSS = "worldboss"          # активный босс в settings
@@ -187,7 +187,7 @@ def _reward_all(store, ev, b):
             continue
         gold = max(10, int(b.get("hp", 1000) * share * 0.5))
         exp = max(10, int(b.get("hp", 1000) * share * 0.8))
-        p.gold += gold
+        currency.earn(p, gold)
         levels = rules.add_exp(p, exp)
         lines = [f"🏆 <b>{title(ev['key'])} повержен!</b>",
                  f"Твой вклад: <b>{int(share * 100)}%</b>",
@@ -202,6 +202,13 @@ def _reward_all(store, ev, b):
             name = items.title(inst) if inst else it["name"]
             lines.append(f"🎁 Трофей: {it['icon']} <b>{name}</b>")
         lines.extend(factions.award(store, p, "boss_slain"))
+        karma_line = karma.on_boss(p)
+        if karma_line:
+            lines.append(karma_line)
+        # Зал Славы: первое убийство каждого босса именное и навсегда.
+        if legends.record_first(store, f"boss:{ev['key']}",
+                                f"Первый победитель: {title(ev['key'])}", p):
+            lines.append("🏆 <b>Твоё имя вошло в Зал Славы!</b>")
         if levels:
             lines.append(f"🎖 Новый уровень: {p.level}!")
         store.save_player(p)
@@ -256,7 +263,7 @@ def strike(store, p):
     if p.hp <= 1:
         return Reply(alert="Ты слишком слаб. Отдохни или найди лекаря.")
 
-    dealt, crit = rules.attack_roll(p, b["defense"])
+    dealt, crit = rules.attack_roll(p, b["defense"], store)
     left, phased = hit(store, p, dealt)
 
     back = max(0, int(b["damage"] * random.uniform(0.5, 1.0))

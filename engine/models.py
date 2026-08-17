@@ -37,7 +37,30 @@ class Player:
     cls: str = ""
     level: int = 1
     exp: int = 0
-    gold: int = 50
+    gold: int = 0
+    # Стартовый капитал держим в бронзе: любые суммы движка считаются
+    # в ней (см. engine/currency), а 50 монет старого баланса — это 50🟤.
+    bronze: int = 50         # трёхвалютная экономика (1⚪ = 100🟤, 1🟡 = 100⚪)
+    silver: int = 0
+    wallet_v: int = 2        # версия формата кошелька (см. engine/currency)
+    karma_score: int = 0     # −500 (Осквернитель) .. +500 (Благочестивый)
+    rebirth_count: int = 0                          # кругов перерождения
+    active_title: str = ""                          # надетый титул
+    unlocked_titles_json: str = "[]"                # открытые титулы (JSON)
+    bestiary_kills_json: str = "{}"                 # атлас: {вид: побед}
+    talents_json: str = "[]"                        # зажжённые звёзды (JSON)
+    talent_points: int = 0                          # свободные очки талантов
+    subclass: str = ""                              # выбранная специализация
+    familiar_type: str = ""                         # вид спутника
+    familiar_level: int = 1
+    familiar_name: str = ""
+    relic_fragments: int = 0                        # осколки скрижали
+    treasure_map_coord: str = ""                    # "loc:3:x:5:y:5"
+    soul_ash: int = 0                               # прах предков (валюта призраков)
+    arena_rating: int = 1000                        # рейтинг Колизея Теней
+    gladiator_tokens: int = 0                       # жетоны за бои на арене
+    mentor_id: int = 0                              # tg_id наставника
+    honor_points: int = 0                           # очки чести наставника
     strength: int = 10
     agility: int = 10
     intelligence: int = 10
@@ -56,6 +79,9 @@ class Player:
     equipped: dict = field(default_factory=dict)    # {slot: item_index}
     magic: list = field(default_factory=list)       # [(школа, ступень), ...]
     worn: dict = field(default_factory=dict)        # {slot: uid экземпляра}
+    # {slot: позиция надетой вещи в inventory} — чтобы отличать конкретный
+    # предмет от такого же (долг A в AUDIT-BUGS.md). Ведётся engine/slots.py.
+    equipped_pos: dict = field(default_factory=dict)
     rolls: int = 0                                  # осталось перекатов статов
     roll_state: dict = field(default_factory=dict)  # текущий бросок при создании
     kills: int = 0

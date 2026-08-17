@@ -1,28 +1,15 @@
-"""Бродячие торговцы-призраки на местах древних могил."""
+"""Призрачные торговцы: серверная часть.
+
+Каталог товаров, цены в прахе и тексты — общие для обоих стеков и живут
+в `engine/spectral.py`. Здесь остаётся работа с БД.
+"""
 from sqlalchemy import select
+
+from engine import spectral as S
 from core.models import Character, InventoryItem, Item, ItemInstance, Grave
 
 
-SPECTRAL_WARES = [
-    {
-        "key": "spec_wound_heal",
-        "name": "📜 Свиток Очищения Ран",
-        "desc": "Мгновенно исцеляет любые кровоточащие раны после смерти.",
-        "cost_ash": 30,
-    },
-    {
-        "key": "spec_ethereal_blade",
-        "name": "🗡 Эфирный клинок",
-        "desc": "Призрачное оружие: +25 урона, игнорирующего броню.",
-        "cost_ash": 75,
-    },
-    {
-        "key": "spec_ancestor_tear",
-        "name": "💧 Слеза предков",
-        "desc": "Навсегда увеличивает максимальный запас маны на +10.",
-        "cost_ash": 50,
-    },
-]
+SPECTRAL_WARES = S.SPECTRAL_WARES
 
 
 def get_spectral_wares() -> list[dict]:
@@ -31,7 +18,7 @@ def get_spectral_wares() -> list[dict]:
 
 async def harvest_soul_ash(session, character: Character, grave: Grave) -> dict:
     """Почтить память павшего воина и собрать прах предков."""
-    gain = 25
+    gain = S.ASH_PER_GRAVE
     character.soul_ash = (character.soul_ash or 0) + gain
     await session.flush()
     return {
@@ -42,7 +29,7 @@ async def harvest_soul_ash(session, character: Character, grave: Grave) -> dict:
 
 
 async def buy_spectral_item(session, character: Character, item_key: str) -> dict:
-    ware = next((w for w in SPECTRAL_WARES if w["key"] == item_key), None)
+    ware = S.ware_by_key(item_key)
     if not ware:
         return {"ok": False, "reason": "Товар не найден."}
 
@@ -55,13 +42,13 @@ async def buy_spectral_item(session, character: Character, item_key: str) -> dic
     if item_key == "spec_wound_heal":
         from core import death as core_death
         core_death.heal_wounds(character)
-        msg = "Призрачный свет окутал тебя. Все раны мгновенно затянулись!"
+        msg = S.buy_text(ware, item_key)
     elif item_key == "spec_ancestor_tear":
-        character.max_mp = (character.max_mp or 50) + 10
+        character.max_mp = (character.max_mp or 50) + S.TEAR_MANA_BONUS
         character.current_mp = character.max_mp
-        msg = "Ты испил слезу предков. Максимальная мана увеличена на +10 навсегда!"
+        msg = S.buy_text(ware, item_key)
     else:
-        msg = f"Ты приобрёл {ware['name']} у призрачного торговца за {cost} 🕯 Праха предков!"
+        msg = S.buy_text(ware, item_key)
 
     await session.flush()
     return {"ok": True, "title": "Призрачный обмен", "desc": msg}

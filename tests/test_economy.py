@@ -27,7 +27,7 @@ _pyo.ffi = _ffi
 sys.modules.setdefault("pyodide", _pyo)
 sys.modules.setdefault("pyodide.ffi", _ffi)
 
-from engine import auction, craft, data, hero, items  # noqa: E402
+from engine import auction, craft, currency, data, hero, items  # noqa: E402
 from engine.game import Game  # noqa: E402
 from engine.storage import Store  # noqa: E402
 from webapp.backend import MemoryStorage  # noqa: E402
@@ -53,7 +53,7 @@ def hero_of(store, cls="warrior", gold=5000):
     game = Game(store)
     p = store.player(1, "Гидеон")
     game.handle(p, f"make:{cls}")
-    p.gold = gold
+    p.bronze, p.silver, p.gold = gold, 0, 0
     store.save_player(p)
     return game, p
 
@@ -155,11 +155,11 @@ def main():
         craft.add_material(store, p.tg_id, m, 10)
     ok, why = craft.can_craft(store, p, 0)
     check(ok, f"рецепт доступен: {why or 'ок'}")
-    before_gold = p.gold
+    before_gold = currency.total(p)
     inst, msg = craft.craft(store, p, 0)
     check(inst is not None, f"вещь скована: {msg}")
     check(items.badge(inst) == "🔨", "у скованной вещи значок 🔨")
-    check(p.gold < before_gold, "плата за работу списана")
+    check(currency.total(p) < before_gold, "плата за работу списана")
     check(craft.pouch(store, p.tg_id).get(0, 99) < 10, "материалы потрачены")
     poor = Store(MemoryStorage())
     _pg, pp = hero_of(poor, gold=0)
@@ -196,12 +196,12 @@ def main():
     check(not auction.active(seller_store, exclude=seller.tg_id),
           "свой лот себе не показывается")
 
-    seller_gold = seller.gold
+    seller_gold = currency.total(seller)
     ok4, msg4 = auction.buy(seller_store, buyer, lot["id"])
     check(ok4, f"покупка прошла: {msg4}")
     check(int(lot_item["owner"]) == buyer.tg_id, "вещь у покупателя")
     check(2 in buyer.inventory, "предмет попал в сумку покупателя")
-    check(seller_store.players[seller.tg_id].gold > seller_gold,
+    check(currency.total(seller_store.players[seller.tg_id]) > seller_gold,
           "продавцу зачислены деньги за вычетом комиссии")
     check(items.badge(lot_item) == "🔁", "торгованная вещь помечена 🔁")
     hist = items.history(lot_item)
@@ -210,9 +210,9 @@ def main():
     print("\n— Скупщик —")
     npc_item = items.create(seller_store, 3, source="mob", owner=seller.tg_id)
     seller.inventory.append(3)
-    before = seller.gold
+    before = currency.total(seller)
     ok5, msg5 = auction.sell_to_npc(seller_store, seller, npc_item["uid"])
-    check(ok5 and seller.gold > before, f"скупщик заплатил: {msg5}")
+    check(ok5 and currency.total(seller) > before, f"скупщик заплатил: {msg5}")
     check(any(l.get("seller_name") == auction.NPC_NAME
               for l in auction.active(seller_store)), "вещь снова на витрине")
 

@@ -9,7 +9,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from engine import combat, death, stash
+from engine import currency, combat, death, stash
 from engine.game import Game
 from engine.storage import Store
 from webapp.backend import MemoryStorage
@@ -164,7 +164,7 @@ def test_death_keeps_stash():
     p = hero(store, game)
     p.inventory = [0, 1, 2, 3, 4, 5]
     p.stash = [7, 8]
-    p.gold = 500
+    p.bronze, p.silver, p.gold = 500, 0, 0
     p.equipped = {}
     bag_before, stash_before = list(p.inventory), list(p.stash)
 
@@ -188,7 +188,7 @@ def test_death_keeps_worn():
     p = hero(store, game)
     p.inventory = [0, 1, 2, 3]
     p.equipped = {"weapon": 0}
-    p.gold = 100
+    p.bronze, p.silver, p.gold = 100, 0, 0
 
     kill(store, p)
     check(0 in p.inventory, "надетое оружие осталось при герое")
@@ -201,19 +201,19 @@ def test_return_for_goods():
     game = Game(store)
     p = hero(store, game)
     p.inventory = [0, 1, 2, 3]
-    p.gold = 200
+    p.bronze, p.silver, p.gold = 200, 0, 0
     p.equipped = {}
     kill(store, p)
 
     g = death.mine(store, p)
     goods = len(g.get("items") or [])
     gold = g["gold"]
-    n_before, gold_before = len(p.inventory), p.gold
+    n_before, gold_before = len(p.inventory), currency.total(p)
 
     p.loc, p.x, p.y = g["loc"], g["x"], g["y"]
     r = game.handle(p, "claim")
     check(len(p.inventory) == n_before + goods, "вещи вернулись все до одной")
-    check(p.gold == gold_before + gold, "и золото тоже")
+    check(currency.total(p) == gold_before + gold, "и деньги тоже")
     check("вещей" in r.text, "в отчёте перечислено")
     check(death.mine(store, p) is None, "могила исчезла")
 
@@ -228,10 +228,10 @@ def test_looting_stranger():
     b.loc, b.x, b.y = 1, 7, 7
     death.bury(store, b, 100, [0, 1, 2, 3])
     a.loc, a.x, a.y = 1, 7, 7
-    n_before, gold_before = len(a.inventory), a.gold
+    n_before, gold_before = len(a.inventory), currency.total(a)
 
     r = game.handle(a, "claim")
-    check(a.gold - gold_before == 50, "золота досталась половина")
+    check(currency.total(a) - gold_before == 50, "денег досталась половина")
     check(len(a.inventory) - n_before == 2, "вещей тоже половина")
     check("прах" in r.text, "объяснено, почему половина")
 

@@ -265,6 +265,24 @@ def destroy(store, uid):
     return registry(store).pop(str(uid), None)
 
 
+def resolve_owned(store, player, idx):
+    """Самый свежий именной экземпляр шаблона `idx`, принадлежащий игроку.
+
+    Нужен для `player.worn`: сумка хранит индексы шаблонов, а боевые статы
+    должны браться от конкретного надетого экземпляра. Экземпляры, уже
+    надетые в другой слот, исключаются. Возвращает запись или None.
+    """
+    if store is None:
+        return None
+    worn_uids = set((getattr(player, "worn", None) or {}).values())
+    candidates = [i for i in owned_by(store, player.tg_id)
+                  if int(i.get("idx", -1)) == int(idx)
+                  and i.get("uid") not in worn_uids]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda i: int(i.get("ts", 0)))
+
+
 def drop_one(store, tg_id, idx):
     """Убирает у игрока самый старый экземпляр шаблона (при продаже)."""
     mine = [i for i in owned_by(store, tg_id) if int(i.get("idx", -1)) == int(idx)]

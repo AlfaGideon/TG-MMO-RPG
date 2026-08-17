@@ -205,6 +205,54 @@ async def _finish_victory(callback, session, character, mob, spawn, state):
     # Фракции: за нежить хвалит стража, за зверьё — тоже, но меньше.
     rep_lines = core_factions.award_for_mob(character, mob)
 
+    # Карма: упокоение нежити очищает героя (пороги и дельты — core/karma.py).
+    from core import karma as core_karma
+    karma_line = core_karma.on_kill(character, mob)
+
+    # Задания: прогресс «убей N таких-то». Раньше core/quests не было
+    # вовсе — модель Quest существовала, а счётчик никто не двигал.
+    from core import quests as core_quests
+    quest_lines = await core_quests.record_kill(session, character, mob.name)
+
+    # Бестиарий: запись победы. Раньше core/bestiary.record_kill не звали
+    # ниоткуда, поэтому атлас монстров всегда оставался пустым.
+    from core import bestiary as core_bestiary
+    slain_total = core_bestiary.record_kill(character, mob.name)
+    bestiary_line = ""
+    if slain_total and slain_total % 10 == 0:      # круглая веха охотника
+        bonus_pct = int(round(
+            (core_bestiary.get_mob_slayer_bonus(character, mob.name) - 1) * 100))
+        bestiary_line = (f"📖 Бестиарий: {mob.name} — побед {slain_total}. "
+                         f"Урон по этому виду: <b>+{bonus_pct}%</b>")
+
+    # Наставничество: ученик приносит наставнику Очки Чести, а сам получает
+    # прибавку к опыту. get_mentorship_bonuses существовал без применения.
+    from core import mentorship as core_mentor
+    mentor_line = ""
+    mentor_bonuses = core_mentor.get_mentorship_bonuses(character)
+    if mentor_bonuses["has_mentor"]:
+        extra_exp = int(exp * mentor_bonuses["exp_bonus_pct"] / 100)
+        if extra_exp:
+            character.experience += extra_exp
+            exp += extra_exp
+            mentor_line = (f"🎓 Наставник ведёт тебя: "
+                           f"+{extra_exp}⭐ (+{mentor_bonuses['exp_bonus_pct']}%)")
+        await core_mentor.reward_mentor_for_progress(session, character)
+
+    # Награда за голову: если этот моб успел кого-то убить, за него платят
+    # сверх обычной добычи, а сам он перестаёт быть целью охоты.
+    bounty_line = ""
+    if spawn is not None and (spawn.kill_count or 0) > 0:
+        from core import bounty as core_bounty
+        from engine.currency import add_currency
+        reward = core_bounty.calculate_bounty_reward(spawn)
+        add_currency(character, bronze=reward)
+        title = spawn.bounty_title or "Убийца"
+        bounty_line = (f"💀 <b>Награда за голову!</b>\n"
+                       f"«{title}» больше никого не тронет: +{reward}🟤")
+        spawn.kill_count = 0
+        spawn.bounty_title = None
+
     # Realtime: победа в бою
     try:
         await rt_publish("battle_victory", {
@@ -254,6 +302,16 @@ async def _finish_victory(callback, session, character, mob, spawn, state):
     text = victory_text(mob, gold, exp)
     if rep_lines:                      # чем поступок отозвался у фракций
         text += "\n\n" + "\n".join(rep_lines)
+    if karma_line:                     # чем поступок отозвался в карме
+        text += "\n" + karma_line
+    if mentor_line:                    # прибавка от наставника
+        text += "\n" + mentor_line
+    if bestiary_line:                  # веха в бестиарии
+        text += "\n" + bestiary_line
+    for line in quest_lines:           # продвинулись задания
+        text += "\n" + line
+    if bounty_line:                    # закрытый контракт на голову
+        text += "\n\n" + bounty_line
     if levels_gained:
         text += (f"\n\n🎖 <b>Новый уровень: {character.level}!</b>\nЗдоровье восстановлено.\n"
                  f"🎯 Получено очков характеристик: <b>+{points_gained}</b> "
@@ -270,6 +328,22 @@ async def _finish_victory(callback, session, character, mob, spawn, state):
     )
 
 
+def _blessing_saves(character, state) -> bool:
+    """Карма: Благочестивого один раз за бой спасает от фатального удара.
+
+    Эффект обещан текстом `core/karma.karma_status` («защита от фатального
+    удара»), но раньше нигде не применялся. Флаг траты живёт в состоянии
+    боя, поэтому благословение срабатывает не чаще одного раза за бой.
+    Паритет: `engine/combat.py` делает то же самое через `p.combat`.
+    """
+    from core import karma as core_karma
+    if state.get("blessing_used") or not core_karma.pious(character):
+        return False
+    state["blessing_used"] = True
+    state["character_hp"] = 1
+    return True
+
+
 async def _finish_defeat(callback, session, character, mob, spawn, state):
     """Поражение в бою: надгробие с частью добра, ранение и сброс моба."""
     character.current_hp = 1
@@ -282,6 +356,11 @@ async def _finish_defeat(callback, session, character, mob, spawn, state):
         spawn.engaged_by_id = None
         # Моб зализывает раны, а не остаётся с 1 HP навсегда
         spawn.current_hp = mob.hp
+        # Убийца игрока получает имя и попадает на доску наград.
+        # core/bounty.record_mob_kill раньше не вызывался ниоткуда, поэтому
+        # список наград всегда оставался пустым.
+        from core import bounty as core_bounty
+        await core_bounty.record_mob_kill(session, spawn)
     note = await _lose_bag(session, character)
     await session.commit()
     combat_state.pop(callback.from_user.id, None)
@@ -339,6 +418,12 @@ async def combat_attack(callback: CallbackQuery):
         # Урон игрока: статы + оружие, минус защита моба
         base_atk = attack_power(stats, character) + random.randint(-2, 4) - mob_def // 2
         char_dmg = max(1, int(base_atk * stance_dmg_mult))
+        # Знание слабостей: +1 % урона за каждые 10 побед над этим видом
+        # (потолок +15 %). core/bestiary.get_mob_slayer_bonus раньше не
+        # вызывался нигде — бестиарий копил записи впустую.
+        from core import bestiary as core_bestiary
+        char_dmg = max(1, int(char_dmg * core_bestiary.get_mob_slayer_bonus(
+            character, mob.name)))
         crit = random.random() < min(0.35, (stats.get("luck", 10)) * 0.008)
         if crit:
             char_dmg = int(char_dmg * 1.7)
@@ -387,7 +472,7 @@ async def combat_attack(callback: CallbackQuery):
             await _finish_victory(callback, session, character, mob, spawn, state)
             return
 
-        if state["character_hp"] <= 0:
+        if state["character_hp"] <= 0 and not _blessing_saves(character, state):
             await _finish_defeat(callback, session, character, mob, spawn, state)
             return
 
@@ -449,7 +534,7 @@ async def combat_defend(callback: CallbackQuery):
         heal = max(1, max_hp_val // 40)
         state["character_hp"] = min(max_hp_val, state["character_hp"] + heal)
 
-        if state["character_hp"] <= 0:
+        if state["character_hp"] <= 0 and not _blessing_saves(character, state):
             await _finish_defeat(callback, session, character, mob, spawn, state)
             return
 
@@ -510,6 +595,22 @@ async def combat_skill(callback: CallbackQuery):
         base_char_dmg = int(attack_power(stats, character) * 1.8) + stats["intelligence"] // 2 + school_bonus + focus_bonus
         char_dmg = max(2, int(base_char_dmg * stance_spell_mult))
 
+        # Карма: Осквернители извлекают из Тьмы больше (+20 % к школе shadow).
+        from core import karma as core_karma
+        if (core_karma.defiled(character) and best is not None
+                and best.school == core_karma.DARK_SCHOOL):
+            char_dmg = int(char_dmg * (1 + core_karma.DARK_DAMAGE_BONUS))
+
+        # Фаза луны: в новолуние магия Тьмы сильнее (magic_dark_mult).
+        # Множитель существовал в core/lunar.py, но нигде не применялся.
+        from core import lunar as core_lunar
+        phase = await core_lunar.get_phase(session)
+        lunar_dark = phase["magic_dark_mult"]
+        lunar_note = ""
+        if lunar_dark != 1.0 and best is not None and best.school == core_karma.DARK_SCHOOL:
+            char_dmg = int(char_dmg * lunar_dark)
+            lunar_note = f"\n{phase['name']}: Тьма усилена ×{lunar_dark}"
+
         # Проверка элементарной реакции (комбо со стихией предыдущего каста)
         reaction_note = ""
         if best is not None:
@@ -537,7 +638,7 @@ async def combat_skill(callback: CallbackQuery):
             await _finish_victory(callback, session, character, mob, spawn, state)
             return
 
-        if state["character_hp"] <= 0:
+        if state["character_hp"] <= 0 and not _blessing_saves(character, state):
             await _finish_defeat(callback, session, character, mob, spawn, state)
             return
 
@@ -554,7 +655,7 @@ async def combat_skill(callback: CallbackQuery):
     await send_or_edit_photo(
         callback,
         f"{head}\n\n"
-        f"Ты вкладываешься полностью: {char_dmg} урона!{reaction_note}\n"
+        f"Ты вкладываешься полностью: {char_dmg} урона!{reaction_note}{lunar_note}\n"
         f"{mob.name} отвечает {mob_dmg} урона.\n\n"
         f"❤️ Ты: {state['character_hp']}/{character.max_hp}\n"
         f"💙 MP: {character.current_mp}/{character.max_mp}\n"

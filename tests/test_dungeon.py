@@ -9,7 +9,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from engine import adminmenu, adminops, combat, data, dungeon, mapview
+from engine import currency, adminmenu, adminops, combat, data, dungeon, mapview
 from engine.game import Game
 from engine.storage import Store
 from webapp.backend import MemoryStorage
@@ -171,9 +171,10 @@ def test_content_and_progress():
 
     if chest_cell:
         run["x"], run["y"] = chest_cell["x"], chest_cell["y"]
-        gold = p.gold
+        gold = currency.total(p)
         r = game.handle(p, "dchest")
-        check(p.gold > gold, f"сундук даёт золото: +{p.gold - gold}")
+        check(currency.total(p) > gold,
+              f"сундук даёт деньги: +{currency.total(p) - gold}")
         check(chest_cell["key"] in run["looted"], "сундук помечен вскрытым")
         after = dungeon.cell(store, p, chest_cell["x"], chest_cell["y"])
         check(not after["chest"], "повторно не появляется")

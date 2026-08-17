@@ -10,6 +10,8 @@ def register(app, A):
     A("inst-del", lambda arg: _inst_del(app, arg))
     A("lot-del", lambda arg: _lot_del(app, arg))
     A("instances-page", lambda arg: _set_page(app, arg))
+    A("eco-dividends", lambda _="": _dividends(app))
+    A("eco-sweep", lambda _="": _sweep(app))
 
 
 def _tab(app, tab):
@@ -62,4 +64,32 @@ def _lot_del(app, lot_id):
         app.store.save_player(seller)
     app.store.save()
     dom.toast("Лот снят с витрины")
+    app.render()
+
+
+def _dividends(app):
+    """Начислить накопившиеся дивиденды вручную (пункт № 71).
+
+    В браузере нет фонового планировщика, как `bot/runner.py:375` у
+    сервера, поэтому у админа должна быть кнопка. Начисление идемпотентно:
+    считает пропущенные периоды и двигает отметку времени.
+    """
+    from engine import shadowecon as E
+
+    payouts = E.accrue_dividends(app.store)
+    if not payouts:
+        dom.toast("Период ещё не наступил — начислять нечего")
+    else:
+        total = sum(p["amount"] for p in payouts)
+        dom.toast(f"Выплачено {total}🟤 · получателей: {len(payouts)}")
+    app.render()
+
+
+def _sweep(app):
+    """Изъять просроченные залоги: они уходят на чёрный рынок."""
+    from engine import shadowecon as E
+
+    seized = E.sweep_loans(app.store)
+    dom.toast(f"Изъято залогов: {len(seized)}" if seized
+              else "Просроченных залогов нет")
     app.render()

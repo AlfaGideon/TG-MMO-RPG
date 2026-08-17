@@ -6,6 +6,8 @@
 
 Вынесено отдельным файлом, чтобы не раздувать location.py и battle.py.
 """
+import time
+
 from aiogram import F, Router
 from aiogram.types import CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -54,6 +56,51 @@ def _menu_keyboard():
     builder = InlineKeyboardBuilder()
     builder.button(text="◀️ Меню", callback_data="main_menu")
     return builder.as_markup()
+
+
+@router.callback_query(F.data == "omens_menu")
+async def omens_menu(callback: CallbackQuery):
+    """🔮 Знамения: предвестия бед (каталог — engine/omens.py, общий для стеков)."""
+    from core import omens as core_omens
+
+    # Знамения читаются из БД: к каталогу подмешиваются добавленные из
+    # админки (№ 68), а при живом бедствии первым идёт его предвестие
+    # (№ 86) — раньше список был статичным и с миром не связан.
+    async with async_session() as session:
+        rows = await core_omens.current(session)
+        head = await core_omens.banner(session)
+        kinds = await core_omens.active_kinds(session)
+        character = await _character(session, callback.from_user.id)
+        who = character.name if character else "Герой"
+        char_id = character.id if character else None
+
+    # Живая лента админки (№ 70): видно, что игроки читают знамения и
+    # какое бедствие им предвещают.
+    try:
+        from core.realtime import publish_sync
+
+        publish_sync("omen_shown", {
+            "character_id": char_id, "name": who,
+            "title": rows[0]["title"] if rows else "",
+            "cataclysm": kinds[0] if kinds else None,
+        })
+    except Exception:
+        pass
+
+    lines = [head, "",
+             "🔮 <b>Знамения</b>", "",
+             "<i>Старики в Погосте шепчутся о дурных приметах:</i>", ""]
+    for o in rows:
+        lines.append(f"{o['icon']} <b>{o['title']}</b>")
+        lines.append(f"<i>{o['desc']}</i>")
+    lines += ["", "<i>Говорят, за знамением всегда приходит беда…</i>"]
+
+    await safe_edit_text(
+        callback,
+        "\n".join(lines),
+        reply_markup=_menu_keyboard(),
+        parse_mode="HTML",
+    )
 
 
 # ── репутация ───────────────────────────────────────────────
@@ -263,6 +310,10 @@ async def claim_grave(callback: CallbackQuery):
         gold, items, own = await core_death.claim(session, character, grave)
         if not own:
             core_factions.award(character, "grave_looted")
+            from core import karma as core_karma
+            karma_text = core_karma.on_grave_loot(character)
+        else:
+            karma_text = ""
         await session.commit()
 
     got = [f"+{gold} 🟤"] if gold else []
@@ -273,8 +324,9 @@ async def claim_grave(callback: CallbackQuery):
         text = (f"🪦 <b>Ты вернулся за своим.</b>\n\n{body}\n\n"
                 f"<i>Земля отпускает то, что взяла.</i>")
     else:
+        kar = f"\n{karma_text}" if karma_text else ""
         text = (f"🪦 <b>Чужая могила</b>\n\nТы забрал: {body}\n\n"
-                f"<i>Половина рассыпалась прахом — мародёрство не в чести.</i>")
+                f"<i>Половина рассыпалась прахом — мародёрство не в чести.</i>{kar}")
     await safe_edit_text(
         callback,
         text,
@@ -464,3 +516,282 @@ async def arena_duel_handler(callback: CallbackQuery):
         parse_mode="HTML"
     )
 
+
+
+# ── доска наград за головы ──────────────────────────────────
+# core/bounty.py существовал, но ни record_mob_kill, ни list_active_bounties
+# не вызывались: мобы-убийцы не получали имён, а доска была недостижима.
+# Теперь имя присваивается при гибели игрока (bot/handlers/battle.py),
+# а здесь — список целей и их местоположение.
+
+@router.callback_query(F.data == "bounty_menu")
+async def bounty_menu(callback: CallbackQuery):
+    """💀 Награды: список мобов-убийц и куш за их головы."""
+    from core import bounty as core_bounty
+    from bot.keyboards.inline import bounty_board_keyboard
+
+    async with async_session() as session:
+        character = await _character(session, callback.from_user.id)
+        if character is None:
+            await callback.answer("Сначала создай персонажа!", show_alert=True)
+            return
+
+        bounties = await core_bounty.list_active_bounties(session)
+        lines = ["💀 <b>Доска наград</b>", "",
+                 "<i>— Эти твари уже пролили кровь героев. За их головы платят.</i>", ""]
+        if not bounties:
+            lines.append("<i>Пока никто не отличился. Доска пуста — и это хорошо.</i>")
+        else:
+            for b in bounties[:10]:
+                mob_name = b.mob.name if b.mob else "Неизвестная тварь"
+                loc_name = b.location.name if b.location else "неизвестно где"
+                reward = core_bounty.calculate_bounty_reward(b)
+                lines.append(
+                    f"{b.bounty_title or 'Убийца'} — <b>{mob_name}</b>\n"
+                    f"   📍 {loc_name} · жертв: {b.kill_count} · "
+                    f"награда: <b>{reward}</b>🟤")
+        lines += ["", "<i>Найди цель в мире и убей — награда придёт сама.</i>"]
+
+    await safe_edit_text(
+        callback, "\n".join(lines),
+        reply_markup=bounty_board_keyboard(bounties[:10]),
+        parse_mode="HTML")
+
+
+@router.callback_query(F.data.startswith("bounty_track:"))
+async def bounty_track(callback: CallbackQuery):
+    """Подсказать, где искать цель (кнопка была без обработчика)."""
+    from core.models import MobSpawn
+
+    spawn_id = int(callback.data.split(":")[1])
+    async with async_session() as session:
+        spawn = (await session.execute(
+            select(MobSpawn).where(MobSpawn.id == spawn_id)
+            .options(selectinload(MobSpawn.mob), selectinload(MobSpawn.location),
+                     selectinload(MobSpawn.cell))
+        )).scalar_one_or_none()
+        if spawn is None or not spawn.is_alive:
+            await callback.answer("Цель уже мертва или исчезла.", show_alert=True)
+            return
+        mob_name = spawn.mob.name if spawn.mob else "тварь"
+        loc_name = spawn.location.name if spawn.location else "неизвестно где"
+        cell = spawn.cell
+        where = f" [{cell.x},{cell.y}]" if cell else ""
+
+    await callback.answer(
+        f"💀 {mob_name}\nИщи здесь: {loc_name}{where}", show_alert=True)
+
+
+# ── дуэль с игроком на клетке ───────────────────────────────
+# Кнопка «⚔️ Напасть на игрока» (pvp_select) существовала в клавиатуре
+# осмотра, но обработчика у неё не было — нажатие ничего не делало.
+
+DUEL_WAGERS = (0, 100, 500)
+
+
+@router.callback_query(F.data == "pvp_select")
+async def pvp_select(callback: CallbackQuery):
+    """Выбор соперника среди героев на той же клетке."""
+    async with async_session() as session:
+        character = await _character(session, callback.from_user.id)
+        if character is None or character.cell is None:
+            await callback.answer("Ошибка.", show_alert=True)
+            return
+
+        others = (await session.execute(
+            select(Character)
+            .where(Character.cell_id == character.cell_id)
+            .where(Character.location_id == character.location_id)
+            .where(Character.floor == (character.floor or 0))
+            .where(Character.id != character.id)
+            .where(Character.stats_locked == True)  # noqa: E712
+        )).scalars().all()
+
+        builder = InlineKeyboardBuilder()
+        if not others:
+            lines = ["⚔️ <b>Дуэль</b>", "", "<i>Здесь больше никого нет.</i>"]
+        else:
+            lines = ["⚔️ <b>Дуэль чести</b>", "",
+                     "<i>— Ставка на бочку, клинки наголо. Победитель забирает банк "
+                     "(5 % идёт арене).</i>", "",
+                     "Кто на этой клетке:"]
+            for o in others[:5]:
+                lines.append(f"• <b>{o.name}</b> (ур. {o.level})")
+                for wager in DUEL_WAGERS:
+                    label = "без ставки" if wager == 0 else f"{wager}🟤"
+                    builder.button(text=f"⚔️ {o.name} — {label}",
+                                   callback_data=f"duel_go:{o.id}:{wager}")
+        builder.button(text="◀️ Назад", callback_data="inspect")
+        builder.adjust(1)
+
+    await safe_edit_text(callback, "\n".join(lines),
+                         reply_markup=builder.as_markup(), parse_mode="HTML")
+
+
+# Вызовы на дуэль: {id вызванного: (id вызвавшего, ставка, момент вызова)}.
+# Состояние живёт в памяти процесса, как и боевое (combat_state в
+# battle.py): незакрытый вызов теряется при рестарте — это лучше, чем
+# таблица ради записи, живущей минуту.
+#
+# Третье поле (время) добавлено вместе с админской секцией «Арена»
+# (IDEAS-100.md № 67): без него вызов висел вечно — принять его можно было
+# и через сутки, когда соперник давно ушёл с клетки, а ставка уже была
+# потрачена. Теперь протухшие вызовы отсеиваются.
+DUEL_INVITE_TTL = 300          # секунд: дольше пяти минут вызов не ждёт
+
+duel_invites: dict[int, tuple[int, int, float]] = {}
+
+
+def prune_duel_invites(now=None) -> int:
+    """Убрать протухшие вызовы. Возвращает, сколько убрано."""
+    now = time.time() if now is None else now
+    stale = [tid for tid, inv in duel_invites.items()
+             if now - (inv[2] if len(inv) > 2 else 0) > DUEL_INVITE_TTL]
+    for tid in stale:
+        duel_invites.pop(tid, None)
+    return len(stale)
+
+
+def pending_duels(now=None) -> list[dict]:
+    """Живые вызовы — для секции «Арена» в админке (admin/main.py)."""
+    now = time.time() if now is None else now
+    prune_duel_invites(now)
+    return [{"target_id": tid, "challenger_tg": inv[0], "wager": inv[1],
+             "age": int(now - (inv[2] if len(inv) > 2 else now)),
+             "expires_in": max(0, int(DUEL_INVITE_TTL
+                                      - (now - (inv[2] if len(inv) > 2 else now))))}
+            for tid, inv in duel_invites.items()]
+
+
+def cancel_duel_invite(target_id: int) -> bool:
+    """Снять зависший вызов вручную (кнопка в админке)."""
+    return duel_invites.pop(int(target_id), None) is not None
+
+
+@router.callback_query(F.data.startswith("duel_go:"))
+async def duel_invite(callback: CallbackQuery):
+    """Отправить вызов на дуэль. Бой начнётся только после согласия."""
+    _, raw_id, raw_wager = callback.data.split(":")
+    target_id, wager = int(raw_id), int(raw_wager)
+    if wager not in DUEL_WAGERS:          # защита от подделанного колбэка
+        await callback.answer("Недопустимая ставка.", show_alert=True)
+        return
+
+    async with async_session() as session:
+        character = await _character(session, callback.from_user.id)
+        target = await session.get(Character, target_id)
+        if character is None or target is None:
+            await callback.answer("Соперник не найден.", show_alert=True)
+            return
+        if target.id == character.id:
+            await callback.answer("Нельзя драться с самим собой.", show_alert=True)
+            return
+        if (target.cell_id != character.cell_id
+                or (target.floor or 0) != (character.floor or 0)):
+            await callback.answer("Соперник ушёл с этой клетки.", show_alert=True)
+            return
+
+        from engine.currency import total_in_bronze
+        if total_in_bronze(character) < wager:
+            await callback.answer(f"У тебя не хватает {wager}🟤 на ставку.",
+                                  show_alert=True)
+            return
+
+        target_user = await session.get(User, target.user_id)
+        target_tg = target_user.telegram_id if target_user else None
+        challenger_name, target_name = character.name, target.name
+
+    if not target_tg:
+        await callback.answer("Соперник недоступен.", show_alert=True)
+        return
+
+    prune_duel_invites()
+    duel_invites[target_id] = (int(callback.from_user.id), wager, time.time())
+
+    stake = "без ставки" if wager == 0 else f"ставка {wager}🟤"
+    builder = InlineKeyboardBuilder()
+    builder.button(text=f"⚔️ Принять вызов ({stake})",
+                   callback_data=f"duel_accept:{target_id}")
+    builder.button(text="🚫 Отказаться", callback_data=f"duel_decline:{target_id}")
+    builder.adjust(1)
+    try:
+        await callback.bot.send_message(
+            target_tg,
+            f"⚔️ <b>Тебя вызвали на дуэль!</b>\n\n"
+            f"<b>{challenger_name}</b> обнажил клинок против тебя — {stake}.\n\n"
+            f"<i>Победитель забирает банк, 5 % идёт арене.</i>",
+            reply_markup=builder.as_markup(), parse_mode="HTML")
+    except Exception:
+        duel_invites.pop(target_id, None)
+        await callback.answer("Соперник недоступен для вызова.", show_alert=True)
+        return
+
+    await safe_edit_text(
+        callback,
+        f"⚔️ <b>Вызов брошен</b>\n\n"
+        f"Ты вызвал <b>{target_name}</b> на дуэль ({stake}).\n\n"
+        f"<i>Ждём ответа. Бой начнётся, только если соперник согласится.</i>",
+        reply_markup=continue_keyboard(), parse_mode="HTML")
+
+
+@router.callback_query(F.data.startswith("duel_decline:"))
+async def duel_decline(callback: CallbackQuery):
+    """Отклонить вызов."""
+    target_id = int(callback.data.split(":")[1])
+    duel_invites.pop(target_id, None)
+    await safe_edit_text(
+        callback,
+        "🚫 <b>Ты отказался от дуэли.</b>\n\n<i>Иногда это мудрее.</i>",
+        reply_markup=continue_keyboard(), parse_mode="HTML")
+
+
+@router.callback_query(F.data.startswith("duel_accept:"))
+async def duel_accept(callback: CallbackQuery):
+    """Принять вызов и провести дуэль (core/duels.resolve_wager_duel)."""
+    target_id = int(callback.data.split(":")[1])
+    prune_duel_invites()
+    invite = duel_invites.pop(target_id, None)
+    if invite is None:
+        await callback.answer("Вызов истёк или уже разрешён.", show_alert=True)
+        return
+    challenger_tg, wager = invite[0], invite[1]
+
+    async with async_session() as session:
+        defender = await _character(session, callback.from_user.id)
+        challenger = await _character(session, challenger_tg)
+        if defender is None or challenger is None:
+            await callback.answer("Соперник не найден.", show_alert=True)
+            return
+        if defender.id != target_id:      # вызов адресован не этому герою
+            await callback.answer("Этот вызов не тебе.", show_alert=True)
+            return
+        if (defender.cell_id != challenger.cell_id
+                or (defender.floor or 0) != (challenger.floor or 0)):
+            await callback.answer("Соперник ушёл с клетки — дуэль отменена.",
+                                  show_alert=True)
+            return
+
+        from core import duels as core_duels
+        res = await core_duels.resolve_wager_duel(session, challenger, defender, wager)
+        if not res["ok"]:
+            await callback.answer(res["reason"], show_alert=True)
+            return
+        await session.commit()
+        challenger_user = await session.get(User, challenger.user_id)
+        challenger_tg_id = challenger_user.telegram_id if challenger_user else None
+
+    tail = "\n".join(res["log"][-4:])
+    text = (
+        f"⚔️ <b>Дуэль окончена</b>\n\n"
+        f"Раундов: {res['rounds']}\n\n{tail}\n\n"
+        f"🏆 Победил: <b>{res['winner_name']}</b>\n"
+        f"💰 Банк: <b>{res['payout']}</b>🟤 — победителю"
+    )
+    await safe_edit_text(callback, text, reply_markup=continue_keyboard(),
+                         parse_mode="HTML")
+    # Вызвавший тоже должен узнать исход, а не гадать.
+    if challenger_tg_id:
+        try:
+            await callback.bot.send_message(challenger_tg_id, text, parse_mode="HTML")
+        except Exception:
+            pass

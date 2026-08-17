@@ -1,5 +1,5 @@
 """Страница: игроки и редактирование персонажа."""
-from engine import data, permissions, rules, stash
+from engine import bestiary, data, karma, permissions, rules, stash
 from webapp.html import esc
 
 TITLE = "👥 Игроки"
@@ -11,8 +11,19 @@ PER_PAGE = 15
 
 SORTABLE = [
     ("name", "Имя"), ("level", "Ур."), ("gold", "Золото"),
-    ("hp", "HP"), ("kills", "Убийств"),
+    ("hp", "HP"), ("kills", "Убийств"), ("karma_score", "Карма"),
 ]
+
+
+def _karma_cell(p):
+    """Значок и число кармы: сразу видно Осквернителя в общем списке."""
+    icon, title, _ = karma.karma_status(p)
+    score = getattr(p, "karma_score", 0) or 0
+    color = ("var(--ok)" if score >= karma.PIOUS_KARMA
+             else "var(--danger)" if score <= karma.DEFILED_KARMA
+             else "var(--text-muted)")
+    return (f"<span title='{esc(title)}' style='color:{color}'>"
+            f"{icon} {score:+d}</span>")
 
 
 def render(ctx):
@@ -58,13 +69,14 @@ def render(ctx):
             f"<td data-label='Ур.'><form class='inline-form' data-act='player-inline' data-arg='{p.tg_id}:level' onsubmit='return false'><input type='number' class='inline-num' value='{p.level}' min='1' max='999'></form></td>"
             f"<td data-label='HP'>{p.hp}/{p.max_hp}</td>"
             f"<td data-label='Золото'><form class='inline-form' data-act='player-inline' data-arg='{p.tg_id}:gold' onsubmit='return false'><input type='number' class='inline-num' value='{p.gold}' min='0' max='999999'></form></td>"
+            f"<td data-label='Карма'>{_karma_cell(p)}</td>"
             f"<td data-label='Позиция'>{esc(loc)} [{p.x},{p.y}]</td>"
             f"<td data-label='Предм.'>{len(p.inventory)}</td>"
             f"<td data-label='Роль'>{role_label}</td>"
             f"<td data-label=''><button class='btn' data-act='player-edit' data-arg='{p.tg_id}'>✏️</button> "
             f"<button class='btn danger' data-act='player-del' data-arg='{p.tg_id}'>🗑</button></td></tr>")
     if not rows:
-        rows = ("<tr><td colspan='11'><div class='empty-state'>"
+        rows = ("<tr><td colspan='12'><div class='empty-state'>"
                 "<div class='empty-icon'>👥</div>"
                 "<div>Пока никого. Запусти бота и напиши ему /start.</div>"
                 "<button class='btn primary' data-act='nav' data-arg='bot'>🤖 Запустить бота</button>"
@@ -137,6 +149,21 @@ def edit_form(ctx, tg_id):
         for i in kept) or "<span class='muted'>пусто</span>"
     give = "".join(f"<option value='{i}'>{esc(rules.item(i)['name'])}</option>"
                    for i in range(len(data.ITEMS)))
+
+    karma_icon, karma_title, karma_desc = karma.karma_status(p)
+    karma_pious, karma_defiled = karma.PIOUS_KARMA, karma.DEFILED_KARMA
+    karma_min, karma_max = karma.MIN_KARMA, karma.MAX_KARMA
+
+    # Бестиарий: те же числа, что в бою (engine/bestiary.slayer_pct).
+    beast = bestiary.get_bestiary(p)
+    beast_total = sum(beast.values())
+    beast_kinds = len(beast)
+    beast_chips = "".join(
+        f"<span class='chip' title='+{bestiary.slayer_pct(p, mob)}% урона по виду'>"
+        f"{esc(mob)} × {cnt} "
+        f"<b>+{bestiary.slayer_pct(p, mob)}%</b></span>"
+        for mob, cnt in sorted(beast.items(), key=lambda kv: -kv[1])[:12]
+    ) or "<span class='muted'>ещё никого не изучил</span>"
     
     return f"""
 <h2>✏️ {esc(p.name)} <span class="muted">#{p.tg_id}</span></h2>
@@ -156,6 +183,15 @@ def edit_form(ctx, tg_id):
   <div><label>Локация</label><select id='pf_loc'>{locs}</select></div>
   {f('x','X',p.x)}{f('y','Y',p.y)}
 </div>
+<h3>{karma_icon} Карма — {karma_title}</h3>
+<div class="hint">{karma_desc}<br>
+  Пороги: <b>≥ {karma_pious}</b> Благочестивый · <b>≤ {karma_defiled}</b> Осквернитель ·
+  диапазон {karma_min}…{karma_max}. Правка кармы меняет боевые эффекты сразу.</div>
+<div class="row" style="margin-top:.5rem">
+  {f('karma_score','Карма',getattr(p, 'karma_score', 0) or 0)}
+</div>
+<h3>📖 Атлас монстров <span class="muted">— {beast_total} побед, {beast_kinds} видов</span></h3>
+<div>{beast_chips}</div>
 <h3>🎒 Сумка — теряется при гибели</h3><div>{inv}</div>
 <h3>🔒 Защищённый карман — {len(kept)}/{stash.capacity(p, ctx.store)} · цел при гибели</h3>
 <div>{stash_chips}</div>

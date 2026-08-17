@@ -10,7 +10,7 @@
 """
 import time
 
-from engine import data, factions, items, rules
+from engine import currency, data, factions, items, rules
 from engine.models import Reply
 
 HUNT, REACH, DELIVER = "hunt", "reach", "deliver"
@@ -201,11 +201,11 @@ def hand_in(store, p, qid):
         return Reply(alert="Задание ещё не выполнено.")
 
     if f["kind"] == DELIVER:                 # предмет уходит заказчику
+        from engine import slots
         for _ in range(f["need"]):
-            if int(f["target"]) in p.inventory:
-                p.inventory.remove(int(f["target"]))
+            slots.take_first_unequipped(p, int(f["target"]))
 
-    p.gold += f["gold"]
+    currency.earn(p, f["gold"])
     levels = rules.add_exp(p, f["exp"])
     lines = [f"✅ <b>{f['name']}</b> — выполнено!",
              f"🪙 +{f['gold']}   ⭐ +{f['exp']}"]

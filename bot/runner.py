@@ -72,6 +72,7 @@ class BotRunner:
         self._task: Optional[asyncio.Task] = None
         self._portal_sweep_task: Optional[asyncio.Task] = None
         self._spawn_tick_task: Optional[asyncio.Task] = None
+        self._dividend_task: Optional[asyncio.Task] = None
         self._bg_tasks: set = set()      # ссылки на fire-and-forget задачи
         self._running = False
         self.last_error: Optional[str] = None
@@ -203,6 +204,17 @@ class BotRunner:
                 cleanup.add_done_callback(self._bg_tasks.discard)
                 self._portal_sweep_task = asyncio.create_task(self._portal_sweep_loop())
                 self._spawn_tick_task = asyncio.create_task(self._spawn_tick_loop())
+                self._dividend_task = asyncio.create_task(self._dividend_loop())
+                # Лента мира: подписка на шину событий и пересылка избранного
+                # в канал сообщества (bot/community_feed.py). Ошибка подписки
+                # не должна мешать запуску бота — чат вторичен по отношению
+                # к игре.
+                try:
+                    from bot.community_feed import world_feed
+
+                    await world_feed.start()
+                except Exception as exc:
+                    logger.warning("community: лента мира не запущена: %s", exc)
                 username = getattr(me, "username", None)
                 who = f" @{username}" if username else ""
                 if proxy_url:
@@ -347,7 +359,51 @@ class BotRunner:
                         logger.debug(f"portal auto-close notice failed: {e}")
             except Exception as e:
                 logger.debug(f"portal sweep failed: {e}")
+
+            # Просроченные залоги: ростовщик забирает вещь, и она уходит
+            # на витрину чёрного рынка. Раньше просрочка висела вечно.
+            try:
+                async with async_session() as session:
+                    from core.pawnshop import sweep_expired_loans
+                    seized = await sweep_expired_loans(session)
+                    await session.commit()
+                if seized:
+                    logger.debug(f"pawnshop: {len(seized)} loans liquidated")
+            except Exception as e:
+                logger.debug(f"pawnshop sweep failed: {e}")
+
             await asyncio.sleep(300)  # check every 5 minutes
+
+    async def _dividend_loop(self):
+        """Дивиденды вкладчикам городских лавок раз в сутки.
+
+        Вклады принимались и раньше (`core/investments.invest_in_town`),
+        но выплат не было вовсе: колонка `earned_dividends` не росла.
+        Цикл начисляет долю и сообщает вкладчику в личку.
+        """
+        from core.database import async_session
+        from core.investments import pay_dividends, DIVIDEND_PERIOD_HOURS
+
+        while self.is_running():
+            await asyncio.sleep(DIVIDEND_PERIOD_HOURS * 3600)
+            try:
+                async with async_session() as session:
+                    payouts = await pay_dividends(session)
+                    await session.commit()
+                for pay in payouts:
+                    if not pay.get("telegram_id"):
+                        continue
+                    try:
+                        await self.bot.send_message(
+                            pay["telegram_id"],
+                            f"🏦 <b>Дивиденды с лавки</b>\n\n"
+                            f"«{pay['location_name']}» принесла тебе "
+                            f"<b>+{pay['amount']}</b>🟤.",
+                            parse_mode="HTML")
+                    except Exception as e:
+                        logger.debug(f"dividend notice failed: {e}")
+            except Exception as e:
+                logger.debug(f"dividend payout failed: {e}")
 
     async def _spawn_tick_loop(self):
         """Живой мир: держит популяцию мобов на лимите и двигает их по карте.
@@ -369,12 +425,57 @@ class BotRunner:
                     returned = await sweep_expired(session)
                     if returned:
                         stats["lots_returned"] = len(returned)
+                    # Молоток по истёкшим торгам: вещь уходит лидеру, а
+                    # зарезервированные деньги — продавцу. Без этого цикла
+                    # выигранный лот висел бы, пока кто-нибудь не зайдёт
+                    # в раздел торгов (core/auction_bid.close_finished).
+                    from core.auction_bid import close_finished
+                    finished = await close_finished(session)
                     await session.commit()
+                    if finished:
+                        stats["bids_closed"] = len(finished)
+                        await self._notify_bid_results(finished)
                 if stats.get("spawned") or stats.get("moved"):
                     logger.debug(f"world tick: {stats}")
             except Exception as e:
                 logger.debug(f"spawn tick failed: {e}")
             await asyncio.sleep(20)
+
+    async def _notify_bid_results(self, finished):
+        """Разослать вести по закрытым торгам: победителю и продавцу."""
+        from core.database import async_session
+        from core.models import Character, User
+
+        async def tell(character_id, text):
+            if not character_id or not (self.is_running() and self.bot):
+                return
+            try:
+                async with async_session() as session:
+                    character = await session.get(Character, character_id)
+                    if character is None:
+                        return
+                    user = await session.get(User, character.user_id)
+                    if user is None:
+                        return
+                    tg_id = user.telegram_id
+                await self.bot.send_message(chat_id=tg_id, text=text,
+                                            parse_mode="HTML")
+            except Exception as exc:
+                logger.debug("bid notice failed: %s", exc)
+
+        for res in finished:
+            if res.get("sold"):
+                await tell(res.get("winner_id"),
+                           f"🔨 <b>Молоток!</b> Лот твой за "
+                           f"{res.get('amount', 0)}🟤 — вещь уже в сумке.")
+                await tell(res.get("seller_id"),
+                           f"💰 <b>Твой лот ушёл с молотка</b> за "
+                           f"{res.get('amount', 0)}🟤. На руки: "
+                           f"{res.get('payout', 0)}🟤.")
+            else:
+                await tell(res.get("seller_id"),
+                           "🔨 <b>Торги закончились без ставок</b> — "
+                           "вещь вернулась в сумку.")
 
     async def _poll(self):
         try:
@@ -393,12 +494,23 @@ class BotRunner:
             self._running = False
             # Если polling упал сам (например, сеть/Telegram недоступны),
             # фоновые циклы не должны ожить повторно при следующем старте.
-            for task in (self._portal_sweep_task, self._spawn_tick_task):
+            for task in (self._portal_sweep_task, self._spawn_tick_task,
+                         self._dividend_task):
                 if task and not task.done():
                     task.cancel()
             self._portal_sweep_task = None
             self._spawn_tick_task = None
+            self._dividend_task = None
             await self._close_current_bot()
+
+    async def _stop_world_feed(self):
+        """Отписать ленту мира от шины при остановке бота."""
+        try:
+            from bot.community_feed import world_feed
+
+            await world_feed.stop()
+        except Exception:
+            pass
 
     async def stop(self) -> bool:
         async with self._start_lock:
@@ -437,6 +549,16 @@ class BotRunner:
                 except asyncio.CancelledError:
                     pass
                 self._spawn_tick_task = None
+
+            if self._dividend_task:
+                self._dividend_task.cancel()
+                try:
+                    await self._dividend_task
+                except asyncio.CancelledError:
+                    pass
+                self._dividend_task = None
+
+            await self._stop_world_feed()
 
             if self.dp:
                 await self.dp.emit_shutdown()

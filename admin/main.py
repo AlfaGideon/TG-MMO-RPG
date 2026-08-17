@@ -681,6 +681,69 @@ async def player_detail(request: Request, char_id: int):
                 "value": pts, "rank_icon": r_icon, "rank_title": r_title,
             })
         allegiance = core_factions.allegiance(char)
+        # Карма: значок, титул и описание эффекта — те же, что видит игрок
+        # в профиле бота (единственный источник — core/karma.py).
+        from core import karma as core_karma
+        karma_icon, karma_title, karma_effect = core_karma.karma_status(char)
+        karma_info = {
+            "value": getattr(char, "karma_score", 0) or 0,
+            "icon": karma_icon, "title": karma_title, "effect": karma_effect,
+            "min": core_karma.MIN_KARMA, "max": core_karma.MAX_KARMA,
+            "pious_at": core_karma.PIOUS_KARMA,
+            "defiled_at": core_karma.DEFILED_KARMA,
+        }
+        # Эндгейм-прогресс: перерождение, титулы, подкласс, таланты.
+        # Раньше эти модули не упоминались в админке ни разу (пункт № 69):
+        # админ не видел, почему у героя завышенные статы.
+        from core import prestige as core_prestige
+        from core import subclasses as core_subclasses
+        from core import talents as core_talents
+        from core import titles as core_titles
+
+        rebirths = getattr(char, "rebirth_count", 0) or 0
+        can_reborn, rebirth_reason = core_prestige.can_rebirth(char)
+        unlocked_titles = core_titles.get_unlocked_titles(char)
+        title_bonuses = core_titles.title_bonus(char)
+        sub_key = getattr(char, "subclass", None)
+        sub_def = core_subclasses.SUBCLASSES.get(sub_key) if sub_key else None
+        unlocked_talents = core_talents.get_unlocked_talents(char)
+        spent_points = len(unlocked_talents)
+        earned_points = core_talents.points_for_level(char.level or 1)
+        progress_info = {
+            "rebirths": rebirths,
+            # +10 % к базовым статам за круг — core/prestige.perform_rebirth.
+            "rebirth_bonus_pct": rebirths * 10,
+            "rebirth_min_level": core_prestige.REBIRTH_MIN_LEVEL,
+            "can_rebirth": can_reborn,
+            "rebirth_reason": rebirth_reason,
+            "active_title": getattr(char, "active_title", None),
+            "title_bonuses": title_bonuses,
+            "titles": [
+                {"name": name,
+                 "active": name == getattr(char, "active_title", None),
+                 "desc": (core_titles.TITLES_CATALOG.get(name) or {}).get("desc", "")}
+                for name in unlocked_titles
+            ],
+            "titles_total": len(core_titles.TITLES_CATALOG),
+            "subclass": sub_key,
+            "subclass_name": (sub_def or {}).get("name", ""),
+            "subclass_desc": (sub_def or {}).get("desc", ""),
+            "subclass_min_level": core_subclasses.SUBCLASS_MIN_LEVEL,
+            "subclass_bonuses": core_subclasses.subclass_bonuses(char),
+            "talents": [
+                {"key": key,
+                 "name": (core_talents.TALENT_STARS.get(key) or {}).get("name", key),
+                 "desc": (core_talents.TALENT_STARS.get(key) or {}).get("desc", "")}
+                for key in unlocked_talents
+            ],
+            "talent_free": getattr(char, "talent_points", 0) or 0,
+            "talent_spent": spent_points,
+            "talent_earned": earned_points,
+            "talents_total": len(core_talents.TALENT_STARS),
+            "talent_bonuses": core_talents.talent_bonuses(char),
+            "levels_per_point": core_talents.LEVELS_PER_POINT,
+        }
+
         from core import stash as stash_core
         vip_days_val = await stash_core.tune(session, "vip_days")
 
@@ -711,12 +774,14 @@ async def player_detail(request: Request, char_id: int):
             "schools": [(k, v[0], v[1]) for k, v in MAGIC_SCHOOLS.items()],
             "grades": [(k, v[0]) for k, v in AFFINITY_GRADES.items()],
             "rep_rows": rep_rows,
+            "karma": karma_info,
             "rep_allegiance": allegiance,
             "rep_min": core_factions.MIN_REP,
             "rep_max": core_factions.MAX_REP,
             "is_banned": bool(char.user.is_banned),
             "ban_reason": char.user.ban_reason,
             "vip_days": vip_days_val,
+            "progress": progress_info,
         },
     )
 
@@ -760,6 +825,7 @@ async def player_edit(
     cell_y: int = Form(None),
     is_vip: bool = Form(False),
     vip_days: int = Form(0),
+    karma_score: int = Form(None),
     image_url: str = Form(""),
     image: UploadFile = File(None),
 ):
@@ -806,6 +872,12 @@ async def player_edit(
             char.current_hp = min(max(0, current_hp), char.max_hp)
             char.current_mp = min(max(0, current_mp), char.max_mp)
             char.is_vip = is_vip
+            # Карма: кламп по границам core/karma.py, чтобы правка из
+            # админки не могла выйти за пределы, которые считает игра.
+            if karma_score is not None:
+                from core import karma as core_karma
+                char.karma_score = max(core_karma.MIN_KARMA,
+                                       min(core_karma.MAX_KARMA, int(karma_score)))
 
             # Перенос по миру: ищем указанную клетку, иначе любую проходимую
             if location_id:
@@ -987,6 +1059,29 @@ async def player_reroll_stats(request: Request, char_id: int, grant: int = Form(
                     statroll.apply_stats(char, statroll.roll_stats(cls_def.base_stats()))
             await session.commit()
     return RedirectResponse(url=f"/player/{char_id}", status_code=303)
+
+
+@app.post("/player/{char_id}/reset-talents")
+async def player_reset_talents(request: Request, char_id: int):
+    """Сброс созвездий (пункт № 69).
+
+    Очки не сгорают, а возвращаются в свободные: `talent_points` = столько,
+    сколько положено на текущем уровне (`talents.points_for_level`), минус
+    ноль потраченных. Считается именно так, а не «+1 за уровень», иначе при
+    скачке уровня очки терялись бы — та же логика, что в engine/talents.
+    """
+    guard(request, "manage_players")
+    from core import talents as core_talents
+
+    async with async_session() as session:
+        char = await session.get(Character, char_id)
+        if char is not None:
+            char.talents_json = "[]"
+            char.talent_points = core_talents.points_for_level(char.level or 1)
+            await session.commit()
+            logging.getLogger(__name__).info(
+                "admin: talents reset for character %s", char_id)
+    return RedirectResponse(url=f"/player/{char_id}#progress", status_code=303)
 
 
 @app.post("/player/{char_id}/give-item")
@@ -1823,11 +1918,96 @@ async def battles(
             base_query.offset(meta["offset"]).limit(per_page)
         )
         rows = result.scalars().all()
+
+        # ── Арена и дуэли (пункт № 67) ──────────────────────
+        # core/arena.py и core/duels.py не упоминались в админке ни разу:
+        # рейтинги были видны только самому игроку в боте.
+        from core.models import CharacterShadow
+        from engine import arena as engine_arena
+
+        shadows = (await session.execute(
+            select(CharacterShadow)
+            .options(selectinload(CharacterShadow.character))
+            .order_by(CharacterShadow.arena_rating.desc())
+            .limit(20)
+        )).scalars().all()
+        arena_rows = [{
+            "id": sh.id,
+            "character_id": sh.character_id,
+            "name": sh.name,
+            "cls": sh.character_class,
+            "level": sh.level,
+            "gear_score": sh.gear_score,
+            "rating": sh.arena_rating,
+            "hp": sh.max_hp,
+            "damage": sh.damage,
+            "defense": sh.defense,
+            "tokens": (sh.character.gladiator_tokens or 0) if sh.character else 0,
+            "updated_at": dates.aware(sh.updated_at),
+        } for sh in shadows]
+
+    # Активные вызовы живут в памяти процесса бота (world_extra.duel_invites),
+    # а не в БД: запись живёт минуты. Если бот в другом процессе — список
+    # пуст, и это честно написано в шаблоне.
+    try:
+        from bot.handlers import world_extra
+
+        pending = world_extra.pending_duels()
+        duel_ttl = world_extra.DUEL_INVITE_TTL
+        duel_wagers = list(world_extra.DUEL_WAGERS)
+    except Exception:
+        pending, duel_ttl, duel_wagers = [], 0, []
+
+    duel_rows = []
+    if pending:
+        async with async_session() as session:
+            for inv in pending:
+                target = await session.get(Character, inv["target_id"])
+                challenger = (await session.execute(
+                    select(Character).join(User)
+                    .where(User.telegram_id == inv["challenger_tg"])
+                )).scalars().first()
+                duel_rows.append({
+                    "target_id": inv["target_id"],
+                    "target": target.name if target else f"#{inv['target_id']}",
+                    "challenger": challenger.name if challenger else "—",
+                    "wager": inv["wager"],
+                    "age": inv["age"],
+                    "expires_in": inv["expires_in"],
+                })
+
     return templates.TemplateResponse(
         request,
         "battles.html",
-        {"battles": rows, "pagination": meta, "sort": sort, "order": order},
+        {"battles": rows, "pagination": meta, "sort": sort, "order": order,
+         "arena_rows": arena_rows, "duel_rows": duel_rows,
+         "duel_ttl": duel_ttl, "duel_wagers": duel_wagers,
+         "arena_start_rating": engine_arena.START_RATING,
+         "arena_win_rating": engine_arena.WIN_RATING,
+         "arena_loss_rating": engine_arena.LOSS_RATING,
+         "arena_win_tokens": engine_arena.WIN_TOKENS,
+         "arena_loss_tokens": engine_arena.LOSS_TOKENS,
+         "arena_max_rounds": engine_arena.MAX_ROUNDS},
     )
+
+
+@app.post("/battles/duel/{target_id}/cancel")
+async def battles_cancel_duel(request: Request, target_id: int):
+    """Снять зависший вызов на дуэль (пункт № 67).
+
+    Вызовы висят в памяти процесса бота; протухшие отсеиваются по TTL сами,
+    но админу нужна кнопка на случай, когда игрок жалуется прямо сейчас.
+    """
+    guard(request, "manage_players")
+    try:
+        from bot.handlers import world_extra
+
+        removed = world_extra.cancel_duel_invite(target_id)
+    except Exception:
+        removed = False
+    logging.getLogger(__name__).info(
+        "admin: duel invite for %s cancelled=%s", target_id, removed)
+    return RedirectResponse("/battles#arena", status_code=303)
 
 
 # ── Settings / Bot Control ─────────────────────────────────
@@ -4849,6 +5029,206 @@ async def upgrade_rule_delete(request: Request, rule_id: int):
 
 # ── Mob population control ──────────────────────────────────
 
+# ── Сообщество: каналы, мост в Telegram, модерация ─────────
+
+COMMUNITY_KIND_LABELS = {"fixed": "постоянный", "guild": "гильдия",
+                         "faction": "фракция"}
+COMMUNITY_ACCESS_LABELS = {"public": "открытый", "members": "по членству",
+                           "readonly": "только игра пишет"}
+COMMUNITY_SOURCE_LABELS = {"bot": "из бота", "telegram": "из группы",
+                           "game": "событие мира", "admin": "из панели"}
+
+
+@app.get("/community")
+async def community_page(request: Request):
+    """Каналы сообщества, состояние моста и объявления."""
+    guard(request, "manage_content")
+    from sqlalchemy import func as sa_func
+
+    from bot import community_bridge as bridge
+    from core import community as C
+
+    async with async_session() as session:
+        await C.ensure_default_channels(session)
+        await session.commit()
+        channels = await C.list_channels(session, active_only=False)
+        counts = dict((await session.execute(
+            select(C.CommunityMessage.channel_id,
+                   sa_func.count(C.CommunityMessage.id))
+            .where(C.CommunityMessage.is_deleted == False)  # noqa: E712
+            .group_by(C.CommunityMessage.channel_id)
+        )).all())
+        info = await C.stats(session)
+        rows = [{
+            "key": ch.key, "label": ch.label(), "kind": ch.kind,
+            "access": ch.access, "thread_id": ch.thread_id,
+            "topic_text": ch.topic, "count": counts.get(ch.id, 0),
+        } for ch in channels]
+
+    return templates.TemplateResponse(
+        request, "community.html",
+        {
+            "channels": rows, "stats": info,
+            "chat_id": await bridge.get_chat_id(),
+            "bridge_enabled": await bridge.is_enabled(),
+            "bot_running": bot_runner.is_running(),
+            "kind_labels": COMMUNITY_KIND_LABELS,
+            "access_labels": COMMUNITY_ACCESS_LABELS,
+        },
+    )
+
+
+@app.get("/community/{key}")
+async def community_channel(request: Request, key: str):
+    """Журнал одного канала с модерацией."""
+    guard(request, "manage_content")
+    from core import community as C
+
+    async with async_session() as session:
+        channel = await C.get_channel(session, key)
+        if channel is None:
+            return RedirectResponse("/community", status_code=303)
+        messages = await C.recent(session, channel, limit=200)
+
+    return templates.TemplateResponse(
+        request, "community_channel.html",
+        {
+            "channel": channel, "messages": messages,
+            "kind_label": COMMUNITY_KIND_LABELS.get(channel.kind, channel.kind),
+            "access_label": COMMUNITY_ACCESS_LABELS.get(channel.access,
+                                                        channel.access),
+            "source_labels": COMMUNITY_SOURCE_LABELS,
+        },
+    )
+
+
+@app.post("/community/bridge")
+async def community_set_bridge(request: Request, chat_id: str = Form(""),
+                               enabled: str = Form("1")):
+    """Сохранить ID супергруппы и состояние моста."""
+    guard(request, "manage_content")
+    from bot import community_bridge as bridge
+
+    await bridge.set_chat_id(chat_id)
+    await bridge.set_enabled(enabled == "1")
+    logging.getLogger(__name__).info(
+        "community: мост chat_id=%r enabled=%s", chat_id.strip(), enabled == "1")
+    return RedirectResponse("/community", status_code=303)
+
+
+@app.post("/community/setup-topics")
+async def community_setup_topics(request: Request):
+    """Создать форум-темы под все каналы разом."""
+    guard(request, "manage_content")
+    from bot import community_bridge as bridge
+
+    try:
+        result = await bridge.setup_all_topics(bot_runner.bot)
+        logging.getLogger(__name__).info(
+            "community: тем создано %d, пропущено %d",
+            len(result["created"]), len(result["skipped"]))
+    except Exception as exc:
+        logging.getLogger(__name__).warning(
+            "community: создание тем не удалось: %s", exc)
+    return RedirectResponse("/community", status_code=303)
+
+
+@app.post("/community/announce")
+async def community_announce(request: Request, channel_key: str = Form(""),
+                             text: str = Form("")):
+    """Объявление от имени мира в выбранный канал."""
+    guard(request, "manage_content")
+    from bot import community_bridge as bridge
+
+    if text.strip():
+        await bridge.announce(channel_key, text.strip(), bot_runner.bot)
+    return RedirectResponse(f"/community/{channel_key}", status_code=303)
+
+
+@app.post("/community/message/{message_id}/delete")
+async def community_delete_message(request: Request, message_id: int):
+    """Мягкое удаление сообщения: строка остаётся для истории модерации."""
+    guard(request, "manage_content")
+    from core import community as C
+
+    async with async_session() as session:
+        msg = await session.get(C.CommunityMessage, message_id)
+        key = ""
+        if msg is not None:
+            channel = await session.get(C.Channel, msg.channel_id)
+            key = channel.key if channel else ""
+            await C.delete_message(session, message_id)
+            await session.commit()
+    return RedirectResponse(f"/community/{key}" if key else "/community",
+                            status_code=303)
+
+
+@app.get("/editor/omens")
+async def editor_omens(request: Request):
+    """Редактор знамений (пункт № 68).
+
+    Каталог общий для обоих стеков (`engine/omens.py`); добавленные здесь
+    знамения хранятся в `AppSetting` и подмешиваются к нему. Заодно видно
+    привязку знамений к бедствиям (№ 86): пока катаклизм бушует, игрок
+    видит его предвестие вместо случайной приметы.
+    """
+    guard(request, "manage_content")
+    from core import omens as core_omens
+    from engine.cataclysm_kinds import KINDS, ORDER
+
+    async with async_session() as session:
+        settings_map = await core_omens.load_settings(session)
+        kinds_now = await core_omens.active_kinds(session)
+        preview = core_omens.omen_banner(settings_map, kinds_now)
+
+    return templates.TemplateResponse(
+        request, "editor_omens.html",
+        {
+            "builtin": core_omens.OMENS,
+            "custom": core_omens.custom_omens(settings_map),
+            "active_kinds": kinds_now,
+            "preview": preview,
+            "kind_omens": [
+                {"key": k, "icon": KINDS[k].get("icon", "❓"),
+                 "name": KINDS[k].get("name", k),
+                 "omen": KINDS[k].get("omen", "")}
+                for k in ORDER if k in KINDS
+            ],
+        },
+    )
+
+
+@app.post("/editor/omens/add")
+async def editor_omens_add(
+    request: Request,
+    icon: str = Form("🔮"), title: str = Form(""), desc: str = Form(""),
+):
+    """Добавить своё знамение. Пустой заголовок отсеивает валидация ядра."""
+    guard(request, "manage_content")
+    from core import omens as core_omens
+
+    if title.strip():
+        async with async_session() as session:
+            await core_omens.add_custom(session, icon.strip(), title.strip(),
+                                        desc.strip())
+            await session.commit()
+        logging.getLogger(__name__).info("admin: omen added %r", title.strip())
+    return RedirectResponse("/editor/omens", status_code=303)
+
+
+@app.post("/editor/omens/{index}/delete")
+async def editor_omens_delete(request: Request, index: int):
+    """Удалить своё знамение по номеру. Встроенные не трогаются."""
+    guard(request, "manage_content")
+    from core import omens as core_omens
+
+    async with async_session() as session:
+        await core_omens.delete_custom(session, index)
+        await session.commit()
+    logging.getLogger(__name__).info("admin: omen #%s deleted", index)
+    return RedirectResponse("/editor/omens", status_code=303)
+
+
 @app.get("/editor/living")
 async def editor_living(request: Request):
     """Жизнь мира: катаклизмы, мировой босс, фракции, надгробия.
@@ -5182,8 +5562,12 @@ async def editor_auction(request: Request, status: str = "active"):
     guard(request, "manage_content")
     async with async_session() as session:
         from core.auction import sweep_expired
+        from core.auction_bid import close_finished
 
         await sweep_expired(session)
+        # И молоток по истёкшим торгам — иначе в админке висели бы
+        # «активные» лоты, срок которых давно вышел.
+        await close_finished(session)
         await session.commit()
 
         query = (
@@ -5233,6 +5617,10 @@ async def editor_auction(request: Request, status: str = "active"):
             "turnover": turnover,
             "statuses": [s.value for s in AuctionStatus],
             "instances": instances,
+            # Счётчик торгов: сколько лотов сейчас уходит с молотка.
+            "bid_lots": sum(1 for lot in lots
+                            if (lot.start_bid or 0) > 0
+                            and lot.status == AuctionStatus.ACTIVE.value),
         },
     )
 
@@ -5884,6 +6272,22 @@ async def api_live_portals():
         return {"portals": out}
 
 
+@app.get("/api/live/feed")
+async def api_live_feed(limit: int = 60):
+    """История живой ленты с готовым текстом (пункт № 70).
+
+    Форматирование — на сервере (`core/realtime.format_radar_event`), чтобы
+    новый тип события не пришлось дублировать в JS каждой страницы.
+    """
+    limit = max(1, min(int(limit or 60), 200))
+    events = []
+    for ev in RT.get_history(limit=limit):
+        if ev.get("type") == "ping":
+            continue
+        events.append({**ev, "text": RT.format_radar_event(ev)})
+    return {"events": events}
+
+
 @app.websocket("/ws/live")
 async def ws_live(websocket: WebSocket):
     """Live-канал панели.
@@ -5895,13 +6299,14 @@ async def ws_live(websocket: WebSocket):
     await websocket.accept()
     q = await RT.subscribe()
     try:
-        # отдаём историю сразу
+        # отдаём историю сразу; text добавляем здесь, чтобы каждая
+        # страница не пересобирала формулировки события заново (№ 70)
         for ev in RT.get_history(limit=30):
-            await websocket.send_json(ev)
+            await websocket.send_json({**ev, "text": RT.format_radar_event(ev)})
         while True:
             try:
                 ev = await asyncio.wait_for(q.get(), timeout=25.0)
-                await websocket.send_json(ev)
+                await websocket.send_json({**ev, "text": RT.format_radar_event(ev)})
             except asyncio.TimeoutError:
                 # ping чтобы не отвалился
                 await websocket.send_json({"type": "ping", "ts": datetime.utcnow().isoformat()})
@@ -6171,52 +6576,176 @@ async def editor_suggestions_action(
 
 @app.get("/editor/ui-layouts")
 async def editor_ui_layouts(request: Request):
+    """Разметка интерфейсов: сцены, галерея фонов, состояние каждой.
+
+    Было: два пустых поля — «ключ» и «URL картинки», значения которых
+    взять неоткуда. Стало: выбор сцены из каталога `core/ui_layouts` и
+    картинки из папки фонов.
+    """
     guard(request, "manage_content")
+    import json as _json
+
+    from core import ui_layouts as UL
+
     async with async_session() as session:
-        result = await session.execute(select(UILayout).order_by(UILayout.key))
-        layouts = result.scalars().all()
-    return templates.TemplateResponse(request, "ui_layouts.html", {"layouts": layouts})
+        rows = (await session.execute(
+            select(UILayout).order_by(UILayout.key))).scalars().all()
+
+    by_key = {}
+    layouts = []
+    for layout in rows:
+        try:
+            slots = _json.loads(layout.slots_json or "[]")
+        except (TypeError, ValueError):
+            slots = []
+        size = UL.image_size(layout.image_url) or (0, 0)
+        report = UL.validate(layout.key, slots, size[0], size[1])
+        scene = UL.scene(layout.key)
+        problem = ""
+        if report["missing"]:
+            problem = f"не хватает слотов: {len(report['missing'])}"
+        elif report["unknown"]:
+            problem = "чужие имена слотов"
+        elif report["duplicates"]:
+            problem = "повторы имён"
+        elif report["outside"]:
+            problem = "слоты за краем"
+        elif not scene:
+            problem = "неизвестная сцена"
+        row = {
+            "id": layout.id, "key": layout.key,
+            "title": scene["title"] if scene else layout.key,
+            "image_url": layout.image_url,
+            "slot_count": len(slots),
+            "ready": bool(report["ok"] and scene),
+            "problem": problem,
+            "updated_at": layout.updated_at,
+        }
+        layouts.append(row)
+        by_key[layout.key] = row
+
+    scenes = []
+    for scene in UL.SCENES:
+        existing = by_key.get(scene["key"])
+        scenes.append({**scene,
+                       "existing_id": existing["id"] if existing else None,
+                       "ready": existing["ready"] if existing else False})
+
+    return templates.TemplateResponse(
+        request, "ui_layouts.html",
+        {
+            "layouts": layouts, "scenes": scenes,
+            "gallery": UL.gallery(),
+            "ready_count": sum(1 for r in layouts if r["ready"]),
+        },
+    )
 
 
 @app.get("/editor/ui-layout/{layout_id}")
 async def editor_ui_layout_designer(request: Request, layout_id: int):
+    """Редактор одной разметки: слоты сцены, пресет, живая проверка."""
     guard(request, "manage_content")
+    import json as _json
+
+    from core import ui_layouts as UL
+
     async with async_session() as session:
         layout = await session.get(UILayout, layout_id)
         if not layout:
             return RedirectResponse(url="/editor/ui-layouts")
-    return templates.TemplateResponse(request, "ui_layout_designer.html", {"layout": layout})
+
+    scene = UL.scene(layout.key)
+    size = UL.image_size(layout.image_url) or (1024, 1024)
+    try:
+        slots = _json.loads(layout.slots_json or "[]")
+    except (TypeError, ValueError):
+        slots = []
+
+    return templates.TemplateResponse(
+        request, "ui_layout_designer.html",
+        {
+            "layout": layout,
+            "scene_title": scene["title"] if scene else layout.key,
+            "scene_icon": scene["icon"] if scene else "🎨",
+            "scene_hint": (scene["hint"] if scene else
+                           "Сцена не из каталога: бот такую разметку не ищет."),
+            "scene_slots_json": _json.dumps(UL.scene_slots(layout.key),
+                                            ensure_ascii=False),
+            "slots_json": _json.dumps(slots, ensure_ascii=False),
+            "preset_json": _json.dumps(UL.preset(layout.key, size[0], size[1]),
+                                       ensure_ascii=False),
+            "img_w": size[0], "img_h": size[1],
+        },
+    )
 
 
 @app.post("/editor/ui-layout/new")
-async def editor_ui_layout_new(request: Request, key: str = Form(...), image_url: str = Form(...)):
+async def editor_ui_layout_new(request: Request, key: str = Form(...),
+                               image_url: str = Form(...)):
+    """Создать разметку для сцены. Ключ — только из каталога.
+
+    Свободный ввод ключа убран намеренно: разметка с выдуманным ключом
+    никогда не находилась ботом, а понять это было невозможно.
+    """
     guard(request, "manage_content")
+    from core import ui_layouts as UL
+
+    key = (key or "").strip()
+    if UL.scene(key) is None:
+        return RedirectResponse(url="/editor/ui-layouts", status_code=303)
+
     async with async_session() as session:
-        layout = UILayout(key=key.strip(), image_url=image_url.strip(), slots_json="[]")
+        existing = (await session.execute(
+            select(UILayout).where(UILayout.key == key))).scalar_one_or_none()
+        if existing is not None:
+            return RedirectResponse(url=f"/editor/ui-layout/{existing.id}",
+                                    status_code=303)
+        layout = UILayout(key=key, image_url=(image_url or "").strip(),
+                          slots_json="[]")
         session.add(layout)
         await session.commit()
-    return RedirectResponse(url=f"/editor/ui-layout/{layout.id}", status_code=303)
+        layout_id = layout.id
+    return RedirectResponse(url=f"/editor/ui-layout/{layout_id}",
+                            status_code=303)
 
 
-@app.post("/api/ui-layout/{layout_id}/save")
-async def api_ui_layout_save(request: Request, layout_id: int, slots: list = Form(...)):
-    # В FastAPI list в Form(...) обычно требует специфической обработки или JSON body.
-    # Для простоты примем JSON body.
-    pass
-
-# Переделаю сохранение на JSON эндпоинт
 @app.post("/api/ui-layout/{layout_id}/save-json")
 async def api_ui_layout_save_json(request: Request, layout_id: int):
+    """Сохранить слоты. В ответе — готова ли разметка к работе."""
     guard(request, "manage_content")
+    import json as _json
+
+    from core import ui_layouts as UL
+
     data = await request.json()
-    slots_json = data.get("slots_json", "[]")
+    raw = data.get("slots_json", "[]")
+    try:
+        slots = _json.loads(raw) if isinstance(raw, str) else raw
+    except (TypeError, ValueError):
+        return {"success": False, "error": "Слоты пришли в непонятном виде"}
+    if not isinstance(slots, list):
+        return {"success": False, "error": "Ожидался список слотов"}
+
     async with async_session() as session:
         layout = await session.get(UILayout, layout_id)
-        if layout:
-            layout.slots_json = slots_json
-            await session.commit()
-            return {"success": True}
-    return {"success": False, "error": "Layout not found"}
+        if layout is None:
+            return {"success": False, "error": "Разметка не найдена"}
+        layout.slots_json = _json.dumps(slots, ensure_ascii=False)
+        await session.commit()
+        key, image_url = layout.key, layout.image_url
+
+    # Готовые картинки экипировки собраны по СТАРОЙ разметке — сбрасываем,
+    # иначе игроки продолжат видеть прежнее расположение слотов.
+    try:
+        from bot.utils.gearview import clear_cache
+
+        clear_cache()
+    except Exception:
+        pass
+
+    size = UL.image_size(image_url) or (0, 0)
+    report = UL.validate(key, slots, size[0], size[1])
+    return {"success": True, "ready": report["ok"], "report": report}
 
 
 @app.post("/editor/ui-layout/{layout_id}/delete")
@@ -6251,6 +6780,205 @@ async def api_location_players(location_id: int):
                 "is_vip": VIP.is_vip_active(char),
             })
         return {"players": players, "count": len(players)}
+
+
+# ── Подсистемы: ломбард, вклады, рынок, луна, гильдии, дуэли ──
+# Эти механики жили в core/ без единого упоминания в админке: владелец не
+# видел ни займов, ни вкладов, ни витрины чёрного рынка, хотя игроки уже
+# ими пользуются. Одна страница вместо шести — данных немного, а разносить
+# их по разделам значило бы плодить полупустые экраны.
+
+@app.get("/editor/subsystems")
+async def editor_subsystems(request: Request):
+    guard(request, "manage_content")
+    from core import blackmarket as core_bm
+    from core import investments as core_inv
+    from core import lunar as core_lunar
+    from core.models import PawnLoan, TownInvestment
+
+    async with async_session() as session:
+        # Ломбард: активные и закрытые займы с именем владельца и вещи.
+        loans = (await session.execute(
+            select(PawnLoan)
+            .options(selectinload(PawnLoan.character))
+            .order_by(PawnLoan.id.desc())
+            .limit(200)
+        )).scalars().all()
+        loan_rows = []
+        now = dates.utcnow()
+        for loan in loans:
+            item = await session.get(Item, loan.item_id)
+            expires = dates.aware(loan.expires_at)
+            overdue = bool(expires and now > expires and not loan.is_redeemed
+                           and not loan.is_liquidated)
+            loan_rows.append({
+                "id": loan.id,
+                "character": loan.character.name if loan.character else "—",
+                "character_id": loan.character_id,
+                "item": item.name if item else "—",
+                "loan_bronze": loan.loan_bronze,
+                "buyback_price": loan.buyback_price,
+                "expires_at": expires,
+                "overdue": overdue,
+                "state": ("выкуплен" if loan.is_redeemed else
+                          "изъят" if loan.is_liquidated else
+                          "просрочен" if overdue else "активен"),
+            })
+        active_loans = sum(1 for r in loan_rows if r["state"] == "активен")
+        overdue_loans = sum(1 for r in loan_rows if r["state"] == "просрочен")
+
+        # Вклады в лавки: по локациям и по вкладчикам.
+        invs = (await session.execute(
+            select(TownInvestment)
+            .options(selectinload(TownInvestment.character),
+                     selectinload(TownInvestment.location))
+            .order_by(TownInvestment.invested_bronze.desc())
+            .limit(200)
+        )).scalars().all()
+        inv_rows = [{
+            "id": inv.id,
+            "location": inv.location.name if inv.location else "—",
+            "character": inv.character.name if inv.character else "—",
+            "invested": inv.invested_bronze or 0,
+            "dividends": inv.earned_dividends or 0,
+        } for inv in invs]
+        inv_total = sum(r["invested"] for r in inv_rows)
+        div_total = sum(r["dividends"] for r in inv_rows)
+
+        # Гильдии: модели объявлены в core/guilds.py, а не в core/models.py.
+        try:
+            from core.guilds import Guild
+            guilds = (await session.execute(
+                select(Guild).options(selectinload(Guild.members))
+                .order_by(Guild.treasury_bronze.desc()).limit(100)
+            )).scalars().all()
+            guild_rows = [{
+                "id": g.id, "name": g.name, "level": g.level or 1,
+                "treasury": g.treasury_bronze or 0,
+                "members": len(g.members or []),
+            } for g in guilds]
+        except Exception:            # таблицы ещё не созданы миграцией
+            guild_rows = []
+
+        # Карма игроков: крайние точки шкалы — кто святой, кто осквернитель.
+        from core import karma as core_karma
+        karma_chars = (await session.execute(
+            select(Character)
+            .where(Character.karma_score != 0)
+            .order_by(Character.karma_score.desc())
+            .limit(20)
+        )).scalars().all()
+        karma_rows = [{
+            "id": c.id, "name": c.name, "value": c.karma_score or 0,
+            "icon": core_karma.karma_status(c)[0],
+            "title": core_karma.karma_status(c)[1],
+        } for c in karma_chars]
+
+        # Изъятые за просрочку вещи, осевшие на витрине рынка.
+        seized_rows = await core_bm.list_liquidated_wares(session, limit=30)
+        # Текущая фаза с учётом ручной заморозки.
+        phase = await core_lunar.get_phase(session)
+        override_row = (await session.execute(
+            select(AppSetting).where(AppSetting.key == core_lunar.LUNAR_OVERRIDE_KEY)
+        )).scalar_one_or_none()
+        lunar_override = (override_row.value or "").strip() if override_row else ""
+
+    return templates.TemplateResponse(
+        request, "editor_subsystems.html",
+        {
+            "loan_rows": loan_rows, "active_loans": active_loans,
+            "overdue_loans": overdue_loans,
+            "inv_rows": inv_rows, "inv_total": inv_total,
+            "div_total": div_total,
+            "dividend_rate": core_inv.DIVIDEND_RATE,
+            "guild_rows": guild_rows,
+            "karma_rows": karma_rows,
+            "phase": phase, "phases": core_lunar.PHASES,
+            "lunar_override": lunar_override,
+            "natural_phase": core_lunar.get_current_lunar_phase(),
+            "wares": core_bm.get_black_market_wares(),
+            "seized_rows": seized_rows,
+        },
+    )
+
+
+@app.post("/editor/subsystems/pay-dividends")
+async def subsystems_pay_dividends(request: Request):
+    """Ручная выплата дивидендов (обычно её делает цикл в bot/runner.py)."""
+    guard(request, "manage_content")
+    from core.investments import pay_dividends
+
+    async with async_session() as session:
+        payouts = await pay_dividends(session)
+        await session.commit()
+    logging.getLogger(__name__).info(
+        "admin: dividends paid manually, %d payouts", len(payouts))
+    return RedirectResponse("/editor/subsystems", status_code=303)
+
+
+@app.post("/editor/subsystems/loan/{loan_id}/liquidate")
+async def subsystems_liquidate_loan(request: Request, loan_id: int):
+    """Изъять просроченный залог: вещь уходит ростовщику окончательно."""
+    guard(request, "manage_content")
+    from core.models import PawnLoan
+
+    async with async_session() as session:
+        loan = await session.get(PawnLoan, loan_id)
+        if loan and not loan.is_redeemed and not loan.is_liquidated:
+            loan.is_liquidated = True
+            await session.commit()
+            logging.getLogger(__name__).info(
+                "admin: pawn loan %s liquidated", loan_id)
+    return RedirectResponse("/editor/subsystems", status_code=303)
+
+
+@app.post("/editor/subsystems/sweep-loans")
+async def subsystems_sweep_loans(request: Request):
+    """Изъять все просроченные залоги разом (обычно это делает бот)."""
+    guard(request, "manage_content")
+    from core.pawnshop import sweep_expired_loans
+
+    async with async_session() as session:
+        seized = await sweep_expired_loans(session)
+        await session.commit()
+    logging.getLogger(__name__).info(
+        "admin: %d overdue loans liquidated", len(seized))
+    return RedirectResponse("/editor/subsystems", status_code=303)
+
+
+@app.post("/editor/subsystems/lunar")
+async def subsystems_set_lunar(request: Request, phase_key: str = Form("")):
+    """Заморозить фазу луны или вернуть естественный цикл (пустое значение)."""
+    guard(request, "manage_content")
+    from core import lunar as core_lunar
+
+    async with async_session() as session:
+        try:
+            await core_lunar.set_override(session, phase_key)
+        except ValueError:
+            # Неизвестный ключ из подделанной формы: молча ничего не меняем,
+            # как это делает editor_cell_save с мусором в числовых полях.
+            return RedirectResponse("/editor/subsystems", status_code=303)
+        await session.commit()
+    logging.getLogger(__name__).info("admin: lunar override = %r", phase_key)
+    return RedirectResponse("/editor/subsystems", status_code=303)
+
+
+@app.post("/editor/subsystems/guild/{guild_id}/disband")
+async def subsystems_disband_guild(request: Request, guild_id: int):
+    """Распустить гильдию: участники освобождаются, хранилище удаляется."""
+    guard(request, "manage_content")
+    from core.guilds import Guild, guild_members
+
+    async with async_session() as session:
+        guild = await session.get(Guild, guild_id)
+        if guild is not None:
+            await session.execute(
+                delete(guild_members).where(guild_members.c.guild_id == guild_id))
+            await session.delete(guild)          # vault удалится каскадом
+            await session.commit()
+            logging.getLogger(__name__).info("admin: guild %s disbanded", guild_id)
+    return RedirectResponse("/editor/subsystems", status_code=303)
 
 
 def main():

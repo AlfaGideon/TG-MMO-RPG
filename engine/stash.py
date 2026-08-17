@@ -15,7 +15,7 @@
 """
 import time
 
-from engine import data, itemui, rules
+from engine import data, itemui, rules, slots
 from engine.models import Reply
 
 # Значения по умолчанию. Живые настройки лежат в settings и правятся из
@@ -176,10 +176,10 @@ def put(p, arg, store=None):
     if free_slots(p, store) <= 0:
         return Reply(alert=f"Карман полон: {capacity(p, store)} ячеек. "
                            f"Освободи место или расширь VIP-статусом.")
-    idx = p.inventory.pop(pos)
+    # Уходит КОНКРЕТНАЯ вещь: если спрятали вторую копию надетой, слот
+    # остаётся занятым (раньше экипировка снималась по совпадению индекса).
+    idx = slots.take_at(p, pos)
     it = rules.item(idx)
-    if p.equipped.get(it["type"]) == idx:     # спрятанное нельзя носить
-        p.equipped.pop(it["type"], None)
     _stash(p).append(idx)
     r = view(p, store=store)
     r.alert = f"🔒 В карман: {it['name']}"
@@ -213,15 +213,17 @@ def drop_on_death(p, rng=None, store=None):
     import random
 
     rng = rng or random
-    worn = set(p.equipped.values())
-    losable = [i for i, idx in enumerate(p.inventory) if idx not in worn]
+    # Иммунитет получает только надетая ВЕЩЬ, а не любая с тем же индексом:
+    # раньше дубликат надетого меча никогда не выпадал в надгробие.
+    worn_at = slots.equipped_positions(p)
+    losable = [i for i in range(len(p.inventory)) if i not in worn_at]
     if not losable:
         return []
     count = max(1, int(len(losable) * tune(store, "stash_loss_share")))
     lost_pos = sorted(rng.sample(losable, min(count, len(losable))), reverse=True)
     lost = []
-    for pos in lost_pos:
-        lost.append(p.inventory.pop(pos))
+    for pos in lost_pos:              # с конца, поэтому позиции не съезжают
+        lost.append(slots.take_at(p, pos))
     return lost
 
 

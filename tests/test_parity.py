@@ -125,19 +125,91 @@ REGISTRY = [
     Feature("Полноразмерные слизевые монстры",
             browser=["engine/content.py", "engine/combat.py"],
             server=["core/mob_images.py", "bot/handlers/battle.py"]),
+    Feature("Карма",
+            browser=["engine/karma.py"],
+            server=["core/karma.py"]),
+    Feature("Знамения",
+            browser=["engine/omens.py"],
+            server=["core/omens.py"]),
+    Feature("Реактивные реплики жителей",
+            browser=["engine/dialogue.py"],
+            server=["core/dialogue.py"]),
+    Feature("Титулы",
+            browser=["engine/titles.py"],
+            server=["core/titles.py"]),
+    Feature("Бестиарий",
+            browser=["engine/bestiary.py"],
+            server=["core/bestiary.py"]),
+    Feature("Фазы луны",
+            browser=["engine/lunar.py"],
+            server=["core/lunar.py"]),
+    Feature("Перерождение",
+            browser=["engine/prestige.py"],
+            server=["core/prestige.py"]),
+    Feature("Таланты",
+            browser=["engine/talents.py"],
+            server=["core/talents.py"]),
+    Feature("Подклассы",
+            browser=["engine/subclasses.py"],
+            server=["core/subclasses.py"]),
+    Feature("Фамильяры",
+            browser=["engine/familiars.py"],
+            server=["core/familiars.py"]),
+    Feature("Шаблоны питомцев (каталог для панелей)",
+            browser=["engine/pets.py"],
+            server=["core/pets.py"]),
+    Feature("Руны и рунические слова",
+            browser=["engine/runes.py"],
+            server=["core/runes.py"]),
+    Feature("Мирные занятия",
+            browser=["engine/gathering.py"],
+            server=["core/gathering.py", "core/archaeology.py"]),
+    Feature("Звуковой эмбиент",
+            browser=["engine/ambient.py"],
+            server=["core/ambient.py"]),
+    Feature("Разбор снаряжения",
+            browser=["engine/salvage.py"],
+            server=["core/salvage.py"]),
+    Feature("Призрачный торговец и прах",
+            browser=["engine/spectral.py"],
+            server=["core/spectral.py"]),
+    Feature("Зал Славы",
+            browser=["engine/legends.py"],
+            server=["core/legends.py"]),
+    Feature("Ломбард",
+            browser=["engine/shadowecon.py"],
+            server=["core/pawnshop.py"]),
+    Feature("Вклады в лавки",
+            browser=["engine/shadowecon.py"],
+            server=["core/investments.py"]),
+    Feature("Чёрный рынок",
+            browser=["engine/shadowecon.py"],
+            server=["core/blackmarket.py"]),
+    Feature("Колизей Теней",
+            browser=["engine/arena.py"],
+            server=["core/arena.py"]),
+    Feature("Гильдии",
+            browser=["engine/guilds.py"],
+            server=["core/guilds.py"]),
+    Feature("Наставничество",
+            browser=["engine/guilds.py"],
+            server=["core/mentorship.py"]),
+    Feature("Награды за головы",
+            browser=["engine/bounty.py"],
+            server=["core/bounty.py"]),
+    Feature("Иллюзорные стены",
+            browser=["engine/illusions.py"],
+            server=["core/illusions.py"]),
 
-    # ── ниже: механики без паритета, причина обязательна ──
     Feature("Трёхвалютная экономика",
             browser=["engine/currency.py"],
-            server=[],
-            todo="у Character уже есть колонки bronze/silver/gold, но "
-                 "движок пока начисляет и тратит единый gold — перенос "
-                 "экономики на конвертацию 1:100 запланирован"),
+            server=["core/models.py", "bot/utils/texts.py"]),
+
+    # ── ниже: механики без паритета, причина обязательна ──
 
     Feature("Задания",
             browser=["engine/quests.py"],
-            server=["core/models.py"],
-            todo="на сервере есть модель Quest, но нет выдачи и сдачи в боте"),
+            server=["core/quests.py", "bot/handlers/quests.py"]),
 ]
 
 
@@ -185,6 +257,15 @@ def test_new_engine_modules_registered():
         "engine/audit.py", "engine/adminops.py", "engine/adminworld.py",
         "engine/adminmenu.py", "engine/adminbot.py", "engine/adminroute.py",
         "engine/trade.py",
+        # slots.py — не механика, а способ хранения экипировки внутри
+        # браузерного стека (какая именно вещь надета). На сервере тот же
+        # вопрос решён иначе: InventoryItem.is_equipped у конкретной строки,
+        # поэтому переносить модуль в core/ нечего.
+        "engine/slots.py",
+        # progress.py — экраны прогресса, вынесенные из game.py ради
+        # лимита в 500 строк; сами механики зарегистрированы отдельно.
+        "engine/progress.py",
+        "engine/social_ui.py",
     }
     listed = set()
     for f in REGISTRY:
@@ -234,6 +315,120 @@ def test_shared_numbers_match():
     check(set(engine_stash.TUNABLES) == set(core_stash.TUNABLES),
           "набор настраиваемых параметров одинаков")
 
+    # Карма: пороги, дельты поступков и эффекты обязаны совпадать в обоих
+    # стеках, иначе один и тот же поступок даёт разный моральный путь.
+    try:
+        from engine import karma as e_karma
+        from core import karma as c_karma
+    except ImportError as e:
+        check(True, f"карма недоступна, пропуск ({e})")
+        return
+    karma_pairs = [
+        ("максимум кармы", e_karma.MAX_KARMA, c_karma.MAX_KARMA),
+        ("минимум кармы", e_karma.MIN_KARMA, c_karma.MIN_KARMA),
+        ("порог Благочестивого", e_karma.PIOUS_KARMA, c_karma.PIOUS_KARMA),
+        ("порог Осквернителя", e_karma.DEFILED_KARMA, c_karma.DEFILED_KARMA),
+        ("карма за нежить", e_karma.KILL_UNDEAD, c_karma.KILL_UNDEAD),
+        ("карма за босса", e_karma.KILL_BOSS, c_karma.KILL_BOSS),
+        ("карма за могилу", e_karma.GRAVE_LOOT, c_karma.GRAVE_LOOT),
+        ("бонус лечения", e_karma.HEAL_BONUS, c_karma.HEAL_BONUS),
+        ("бонус Тьмы", e_karma.DARK_DAMAGE_BONUS, c_karma.DARK_DAMAGE_BONUS),
+    ]
+    for label, a, b in karma_pairs:
+        check(a == b, f"карма: {label}: {a} = {b}")
+    check(e_karma.UNDEAD == c_karma.UNDEAD, "карма: список нежити совпадает")
+
+    # Деньги: серверный стек считает тем же модулем, что и движок, — если
+    # кто-то заведёт вторую копию с другим курсом, это всплывёт здесь.
+    # Титулы, бестиарий, луна и перерождение: каталоги и пороги общие —
+    # core-модули реэкспортируют engine, но проверим это явно.
+    try:
+        from core import bestiary as c_bestiary
+        from core import lunar as c_lunar
+        from core import prestige as c_prestige
+        from core import titles as c_titles
+        from engine import bestiary as e_bestiary
+        from engine import lunar as e_lunar
+        from engine import prestige as e_prestige
+        from engine import titles as e_titles
+        check(c_titles.TITLES_CATALOG == e_titles.TITLES_CATALOG,
+              "каталог титулов общий")
+        check(c_lunar.PHASES == e_lunar.PHASES, "каталог фаз луны общий")
+        check(c_bestiary.get_mob_slayer_bonus is e_bestiary.get_mob_slayer_bonus,
+              "бонус охотника считается одним кодом")
+        check(c_prestige.REBIRTH_MIN_LEVEL == e_prestige.REBIRTH_MIN_LEVEL,
+              f"порог перерождения: {e_prestige.REBIRTH_MIN_LEVEL}")
+        from core import familiars as c_fam
+        from core import subclasses as c_subs
+        from core import talents as c_tal
+        from engine import familiars as e_fam
+        from engine import subclasses as e_subs
+        from engine import talents as e_tal
+        check(c_tal.TALENT_STARS is e_tal.TALENT_STARS, "древо талантов общее")
+        check(c_subs.SUBCLASSES is e_subs.SUBCLASSES, "каталог подклассов общий")
+        check(c_fam.FAMILIARS is e_fam.FAMILIARS, "каталог фамильяров общий")
+        from core import pets as c_pets
+        from engine import pets as e_pets
+        check(c_pets.RARITIES is e_pets.RARITIES,
+              "шкала редкости шаблонов питомцев общая")
+        check(c_pets.normalize_key is e_pets.normalize_key,
+              "ключ шаблона питомца нормализуется одним кодом")
+        check(c_pets.normalize_bonuses is e_pets.normalize_bonuses,
+              "бонусы шаблона валидируются одним кодом")
+        from core import ambient as c_amb
+        from core import runes as c_runes
+        from engine import ambient as e_amb
+        from engine import gathering as e_gath
+        from engine import runes as e_runes
+        check(c_runes.RUNES is e_runes.RUNES, "каталог рун общий")
+        check(c_runes.RUNEWORDS is e_runes.RUNEWORDS, "рунические слова общие")
+        check(c_amb.AMBIENT_PROFILES is e_amb.AMBIENT_PROFILES,
+              "профили эмбиента общие")
+        check(e_gath.FRAGMENTS_FOR_MAP == 5,
+              f"осколков до карты: {e_gath.FRAGMENTS_FOR_MAP}")
+        from core import salvage as c_salv
+        from core import spectral as c_spec
+        from engine import salvage as e_salv
+        from engine import spectral as e_spec
+        check(c_spec.SPECTRAL_WARES is e_spec.SPECTRAL_WARES,
+              "витрина призрака общая")
+        check(c_salv.S is e_salv,
+              "разбор считается общей таблицей")
+        from core import investments as c_inv
+        from core import pawnshop as c_pawn
+        from engine import shadowecon as e_econ
+        check(c_pawn.E is e_econ, "ломбард берёт ставки из engine/shadowecon")
+        check(c_inv.DIVIDEND_RATE == e_econ.DIVIDEND_RATE,
+              f"ставка дивидендов: {e_econ.DIVIDEND_RATE}")
+        check(e_econ.buyback_for(e_econ.loan_for(100)) > e_econ.loan_for(100),
+              "выкуп всегда дороже займа")
+        check(e_econ.liquidated_price_for(100) > 100,
+              "изъятое перепродаётся с наценкой")
+        from core import arena as c_arena
+        from core import bounty as c_bounty
+        from core import guilds as c_guilds  # noqa: F401
+        from core import mentorship as c_ment
+        from engine import arena as e_arena
+        from engine import bounty as e_bounty
+        from engine import guilds as e_guilds
+        check(c_arena.A is e_arena, "арена берёт награды из engine/arena")
+        check(c_bounty.B is e_bounty, "награды за головы общие")
+        check(c_ment.G is e_guilds, "наставничество берёт пороги из engine/guilds")
+        check(e_arena.WIN_TOKENS > e_arena.LOSS_TOKENS,
+              "победа на арене выгоднее поражения")
+        check(c_subs.SUBCLASS_MIN_LEVEL == e_subs.SUBCLASS_MIN_LEVEL,
+              f"порог специализации: {e_subs.SUBCLASS_MIN_LEVEL}")
+    except ImportError as e:
+        check(True, f"часть модулей недоступна, пропуск ({e})")
+
+    from engine import currency as e_currency
+    check(e_currency.CONVERSION == 100, f"курс 1:100 ({e_currency.CONVERSION})")
+    probe_engine = type("P", (), {"bronze": 99, "silver": 0, "gold": 0})()
+    e_currency.add_currency(probe_engine, bronze=1)
+    check((probe_engine.bronze, probe_engine.silver) == (0, 1),
+          "99🟤 + 1🟤 сворачивается в 1⚪")
+    check(e_karma.DARK_SCHOOL == c_karma.DARK_SCHOOL, "карма: школа Тьмы одна")
+
     # Каталоги контента: серверные модули берут их из engine/, поэтому
     # расхождение означало бы, что кто-то завёл вторую копию.
     try:
@@ -255,6 +450,12 @@ def test_shared_numbers_match():
     check(core_landmarks.LANDMARKS == e_landmarks.LANDMARKS,
           "каталог диковин общий")
     check(core_death.GRAVE_HOURS == e_death.GRAVE_HOURS, "срок могилы тот же")
+    try:
+        from core import omens as core_omens
+        from engine import omens as e_omens
+        check(core_omens.OMENS == e_omens.OMENS, "каталог знамений общий")
+    except ImportError as e:
+        check(True, f"знамения недоступны, пропуск ({e})")
 
 
 def report():

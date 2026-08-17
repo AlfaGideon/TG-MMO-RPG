@@ -5,7 +5,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from engine import combat, data, rules, world
+from engine import combat, currency, data, rules, world
 from engine.storage import Store
 from engine.game import Game
 from webapp.backend import MemoryStorage
@@ -148,12 +148,15 @@ def main():
         game.handle(p, "fight:hit")
         guard += 1
     check(not p.combat, f"бой завершён за {guard} ходов")
-    check(p.kills >= 1 or p.gold != 50, "награда или поражение обработаны")
+    check(p.kills >= 1 or currency.total(p) != 50,
+          "награда или поражение обработаны")
 
     print("\n— Экономика —")
-    p.gold = 500
+    # Кошелёк трёхвалютный: суммы задаём и сверяем в бронзе (engine/currency).
+    p.bronze, p.silver, p.gold = 500, 0, 0
     game.handle(p, "buy:0")
-    check(p.inventory and p.gold == 480, f"покупка: золото {p.gold}, предметов {len(p.inventory)}")
+    check(p.inventory and currency.total(p) == 480,
+          f"покупка: кошелёк {currency.fmt(p)}, предметов {len(p.inventory)}")
     game.handle(p, "on:0")
     check(p.equipped.get("weapon") == 0, "оружие надето")
     check(rules.stats(p)["damage"] == 3, "бонус урона применён")
@@ -161,7 +164,8 @@ def main():
     check(not p.equipped, "оружие снято")
     n = len(p.inventory)
     game.handle(p, "sell:0")
-    check(len(p.inventory) == n - 1 and p.gold == 490, f"продажа: {p.gold} 🪙")
+    check(len(p.inventory) == n - 1 and currency.total(p) == 490,
+          f"продажа: {currency.fmt(p)}")
 
     print("\n— Прокачка —")
     p.level, p.exp = 1, 0
@@ -173,7 +177,8 @@ def main():
     store2 = Store(store.backend)
     q = store2.players.get(1001)
     check(q is not None and q.name == "Тестер", "игрок восстановлен")
-    check(q.level == p.level and q.gold == p.gold, "статы совпали после перезагрузки")
+    check(q.level == p.level and currency.total(q) == currency.total(p),
+          "статы совпали после перезагрузки")
     check(len(store2.world) == len(store.world), "мир восстановлен")
 
     print("\n— Все действия роутера —")
@@ -223,7 +228,7 @@ def main():
     p2 = store.player(2001, "Путник")
     game2 = Game(store)
     game2.handle(p2, "make:warrior")
-    p2.gold = 5000
+    p2.bronze, p2.silver, p2.gold = 5000, 0, 0
     check(M.at(store, p2.loc) is None, "торговца ещё нет")
 
     # Админское появление: торговец стоит в локации героя.
@@ -239,12 +244,12 @@ def main():
           "в клетке виден торговец и кнопка к нему")
     r = game2.handle(p2, "merchant")
     check("Кольцо удачи" in r.text, "витрина показывает товар")
-    gold_before = p2.gold
+    gold_before = currency.total(p2)
     r = game2.handle(p2, "mcard:0")
     check(any("Купить" in b[0] for row in r.keyboard for b in row),
           "карточка товара открыта")
     r = game2.handle(p2, "mbuy:0")
-    check(p2.gold == gold_before - 100, "золото списано за покупку")
+    check(currency.total(p2) == gold_before - 100, "деньги списаны за покупку")
     check(p2.inventory.count(24) == 1, "диковинка в сумке")
     st = M.at(store, p2.loc)
     check(st["items"][0]["qty"] == 1, "остаток на витрине уменьшен")

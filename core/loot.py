@@ -271,11 +271,16 @@ async def roll_drops(session, owner_type: str, owner_id: int | None, luck: int =
 
     drops = []
     luck_bonus = min(0.15, (luck or 0) * 0.004)
+    # Фаза луны влияет на щедрость мира: material_mult множит шанс выпадения
+    # (в полнолуние +25 %). Раньше множитель не применялся нигде.
+    from core.lunar import get_phase
+    lunar_mult = (await get_phase(session))["material_mult"]
     events = await active_events(session)
     for entry in entries:
         if entry.item is None:
             continue
-        if random.random() > min(1.0, (entry.chance or 0) + luck_bonus):
+        chance = ((entry.chance or 0) + luck_bonus) * lunar_mult
+        if random.random() > min(1.0, chance):
             continue
         # Уникальное уже разобрано или праздник не идёт — пропускаем
         if not await can_drop(session, entry.item, events):

@@ -9,6 +9,99 @@
 {% endblock %}
 
 {% block content %}
+
+{# ══ Арена и дуэли (IDEAS-100.md № 67) ══
+   core/arena.py хранит «тени» — слепки героев, с которыми дерутся, пока
+   владелец офлайн. Числа наград берутся из engine/arena.py, единственного
+   источника правды для обоих стеков. #}
+<div class="card" id="arena">
+    <div class="toolbar">
+        <h2 style="margin-bottom:0;">🩸 Колизей Теней</h2>
+        <span class="hint">{{ arena_rows | length }} теней в рейтинге</span>
+    </div>
+    <p class="section-sub">
+        Соперник не обязан быть онлайн: дерутся со «слепком» его статов.
+        Старт — {{ arena_start_rating }} рейтинга, победа +{{ arena_win_rating }}
+        и {{ arena_win_tokens }} жетонов, поражение {{ arena_loss_rating }}
+        и {{ arena_loss_tokens }} жетонов, ничья по {{ arena_max_rounds }} раундам.
+    </p>
+    <div class="table-wrap">
+    <table>
+        <thead>
+            <tr><th>#</th><th>Герой</th><th>Класс</th><th>Ур.</th>
+                <th>Рейтинг</th><th>Жетоны</th><th>Слепок</th><th>Обновлён</th></tr>
+        </thead>
+        <tbody>
+            {% for a in arena_rows %}
+            <tr>
+                <td data-label="#">{{ loop.index }}</td>
+                <td data-label="Герой"><a href="/player/{{ a.character_id }}">{{ a.name }}</a></td>
+                <td data-label="Класс">{{ a.cls }}</td>
+                <td data-label="Ур.">{{ a.level }}</td>
+                <td data-label="Рейтинг"><b>{{ a.rating }}</b></td>
+                <td data-label="Жетоны">{{ a.tokens }}</td>
+                <td data-label="Слепок" class="muted">
+                    ❤️ {{ a.hp }} · ⚔️ {{ a.damage }} · 🛡 {{ a.defense }} · GS {{ a.gear_score }}
+                </td>
+                <td data-label="Обновлён">{{ a.updated_at.strftime('%Y-%m-%d %H:%M') if a.updated_at else '-' }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="8">
+                <div class="empty-state">
+                    <div class="empty-icon">🩸</div>
+                    <div>Теней пока нет — их создаёт первый заход героя на арену.</div>
+                </div>
+            </td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</div>
+
+<div class="card">
+    <div class="toolbar">
+        <h2 style="margin-bottom:0;">⚔️ Вызовы на дуэль</h2>
+        <span class="hint">{{ duel_rows | length }} ждут ответа</span>
+    </div>
+    <p class="section-sub">
+        Ставки: {% for w in duel_wagers %}{{ w }}🟤{% if not loop.last %} · {% endif %}{% endfor %}.
+        Победитель забирает банк за вычетом 5 % комиссии арены.
+        Вызов живёт {{ duel_ttl }} с и хранится в памяти процесса бота —
+        если бот запущен отдельно от админки, список будет пуст.
+    </p>
+    <div class="table-wrap">
+    <table>
+        <thead>
+            <tr><th>Вызвал</th><th>Вызван</th><th>Ставка</th>
+                <th>Ждёт</th><th>Истечёт через</th><th></th></tr>
+        </thead>
+        <tbody>
+            {% for d in duel_rows %}
+            <tr>
+                <td data-label="Вызвал">{{ d.challenger }}</td>
+                <td data-label="Вызван"><a href="/player/{{ d.target_id }}">{{ d.target }}</a></td>
+                <td data-label="Ставка">{% if d.wager %}{{ d.wager }}🟤{% else %}без ставки{% endif %}</td>
+                <td data-label="Ждёт">{{ d.age }} с</td>
+                <td data-label="Истечёт через">{{ d.expires_in }} с</td>
+                <td data-label="">
+                    <form action="/battles/duel/{{ d.target_id }}/cancel" method="post" style="margin:0">
+                        <button type="submit" class="btn btn-danger">✖ Снять вызов</button>
+                    </form>
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6">
+                <div class="empty-state">
+                    <div class="empty-icon">⚔️</div>
+                    <div>Зависших вызовов нет.</div>
+                </div>
+            </td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</div>
+
 <div class="card">
     <div class="toolbar">
         <h2 style="margin-bottom:0;">⚔️ История боёв</h2>

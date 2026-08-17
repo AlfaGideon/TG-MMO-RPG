@@ -1,218 +1,347 @@
 {% extends "base.html" %}
 {% import "macros.html" as macros %}
-{% block title %}Редактор разметки: {{ layout.key }}{% endblock %}
-{% block page_title %}🎨 Редактор разметки{% endblock %}
+
+{% block title %}Редактор разметки: {{ scene_title }}{% endblock %}
+{% block page_title %}🎨 {{ scene_title }}{% endblock %}
+
 {% block breadcrumbs %}
-{{ macros.crumbs([('Контент','/content'), ('Разметка UI','/editor/ui-layouts'), (layout.key, none)]) }}
+{{ macros.crumbs([('Dashboard','/'), ('Контент','/content'),
+                  ('Разметка UI','/editor/ui-layouts'), (layout.key, none)]) }}
 {% endblock %}
+
 {% block content %}
-<div class="header-row">
-    <div>
-        <h1>🎨 Дизайнер интерфейса: <code>{{ layout.key }}</code></h1>
-        <p class="text-muted">Кликайте по картинке, чтобы создать слот. Перетаскивайте за края, чтобы изменить размер.</p>
+
+{# Ключевые правки редактора:
+   1. SVG получил viewBox в пикселях ОРИГИНАЛА картинки. Раньше слоты
+      писались в экранных координатах, а картинка масштабировалась
+      (max-width:1000px) — на фоне 1024px разметка уезжала.
+   2. Слоты не выдумываются: список нужных имён приходит из
+      core/ui_layouts.SCENES, добавить чужое имя нельзя.
+   3. Живая проверка: панель сразу говорит, чего не хватает. #}
+
+<div class="card">
+    <div class="toolbar">
+        <h3 style="margin-bottom:0;">{{ scene_icon }} {{ scene_title }}</h3>
+        <span class="hint"><code>{{ layout.key }}</code> ·
+            фон {{ img_w }}×{{ img_h }} px</span>
     </div>
-    <div class="btn-group">
-        <button class="btn btn-primary" onclick="saveLayout()">💾 Сохранить всё</button>
-        <a href="/editor/ui-layouts" class="btn">◀️ Назад</a>
+    <p class="section-sub">{{ scene_hint }}</p>
+    <div id="status-bar" class="hint">Проверка…</div>
+    <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.7rem">
+        <button type="button" class="btn btn-primary" onclick="saveLayout()">💾 Сохранить</button>
+        <button type="button" class="btn" onclick="applyPreset()">✨ Расставить автоматически</button>
+        <button type="button" class="btn" onclick="clearSlots()"
+                data-confirm="Убрать все слоты с картинки?">🧹 Очистить</button>
+        <a href="/editor/ui-layouts" class="btn">◀️ К списку</a>
     </div>
 </div>
 
-<div class="layout-container mt-20">
-    <div class="designer-canvas-wrap">
-        <div id="designer-root" style="position: relative; display: inline-block;">
-            <img id="bg-image" src="{{ layout.image_url }}" style="display: block; max-width: 1000px; border: 1px solid #444;">
-            <svg id="canvas-overlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; cursor: crosshair;"></svg>
+<div class="designer-layout">
+    <div class="card designer-stage">
+        <h3>🖼 Холст</h3>
+        <p class="section-sub">
+            Перетаскивайте рамки мышью, угол — размер. Координаты
+            сохраняются в пикселях оригинала, поэтому масштаб просмотра
+            на результат не влияет.
+        </p>
+        <div class="designer-canvas-wrap">
+            <div id="designer-root">
+                <img id="bg-image" src="{{ layout.image_url }}" alt="{{ layout.key }}">
+                <svg id="canvas-overlay" viewBox="0 0 {{ img_w }} {{ img_h }}"
+                     preserveAspectRatio="none"></svg>
+            </div>
         </div>
     </div>
-    
-    <div class="sidebar-controls card">
-        <h3>📦 Слоты</h3>
-        <div id="slots-list" class="slots-list">
-            <!-- JS populated -->
-        </div>
-        <button class="btn btn-sm mt-10 w-full" onclick="addSlot()">➕ Добавить вручную</button>
+
+    <div class="card designer-side">
+        <h3>📦 Слоты сцены</h3>
+        <p class="section-sub">
+            Имена заданы сценой — их не нужно придумывать. Нажмите
+            «Поставить», чтобы разместить слот на картинке.
+        </p>
+        <div id="slots-list"></div>
     </div>
 </div>
 
 <style>
-    .layout-container { display: flex; gap: 20px; align-items: flex-start; }
-    .designer-canvas-wrap { flex: 1; overflow: auto; background: #222; padding: 20px; border-radius: 8px; }
-    .sidebar-controls { width: 300px; padding: 15px; }
-    .slots-list { max-height: 600px; overflow-y: auto; }
-    .slot-item { border-bottom: 1px solid #444; padding: 10px 0; }
-    .slot-item:last-child { border-bottom: none; }
-    .slot-item-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
-    .slot-coords { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; font-family: monospace; font-size: 12px; }
-    .w-full { width: 100%; }
-    
-    .overlay-rect { fill: rgba(0, 255, 255, 0.1); stroke: cyan; stroke-width: 2; cursor: move; }
-    .overlay-rect.selected { fill: rgba(255, 255, 0, 0.2); stroke: yellow; }
-    .resize-handle { fill: white; stroke: #000; cursor: nwse-resize; }
+    .designer-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 22rem;
+        gap: 1.5rem;
+        align-items: start;
+    }
+    .designer-canvas-wrap {
+        overflow: auto;
+        background: var(--bg-dark);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 1rem;
+    }
+    #designer-root { position: relative; display: inline-block; line-height: 0; }
+    #bg-image { display: block; max-width: 100%; height: auto; border-radius: 8px; }
+    #canvas-overlay {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        cursor: crosshair;
+    }
+    .slot-row {
+        display: flex;
+        align-items: center;
+        gap: .5rem;
+        padding: .5rem 0;
+        border-bottom: 1px solid var(--border);
+    }
+    .slot-row:last-child { border-bottom: none; }
+    .slot-row .grow { flex: 1; min-width: 0; }
+    .slot-row .coords {
+        font-size: .72rem;
+        color: var(--text-muted);
+        font-variant-numeric: tabular-nums;
+    }
+    .slot-row.placed .name { color: var(--success); }
+    .slot-row.active { background: var(--accent-soft); border-radius: 8px; }
+    .overlay-rect { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 3; cursor: move; }
+    .overlay-rect.selected { stroke: var(--warning); stroke-width: 4; }
+    .resize-handle { fill: var(--accent); cursor: nwse-resize; }
+    .slot-caption { fill: var(--text); font-size: 22px; font-weight: 600; }
+
+    @media (max-width: 1100px) {
+        .designer-layout { grid-template-columns: 1fr; }
+    }
 </style>
 
 <script>
-    let layoutId = {{ layout.id }};
-    let slots = {{ layout.slots_json|safe }};
-    let selectedIndex = -1;
-    const canvas = document.getElementById('canvas-overlay');
-    const bgImg = document.getElementById('bg-image');
+// Слоты сцены: имена приходят с сервера и менять их нельзя — рендер
+// (bot/utils/images.render_ui) ищет предмет ровно по этому имени.
+const SCENE_SLOTS = {{ scene_slots_json|safe }};
+const LAYOUT_ID = {{ layout.id }};
+const IMG_W = {{ img_w }};
+const IMG_H = {{ img_h }};
+const PRESET = {{ preset_json|safe }};
 
-    function init() {
-        render();
-        
-        canvas.addEventListener('mousedown', (e) => {
-            if (e.target === canvas) {
-                const rect = canvas.getBoundingClientRect();
-                const x = e.clientX - rect.left;
-                const y = e.clientY - rect.top;
-                addSlot(x, y, 80, 80);
-            }
+let slots = {{ slots_json|safe }};
+let selected = -1;
+
+const canvas = document.getElementById('canvas-overlay');
+const svgNS = 'http://www.w3.org/2000/svg';
+
+function byName(name) {
+    return slots.find(s => s.name === name);
+}
+
+/** Экранные координаты → пиксели оригинала (учёт масштаба картинки). */
+function toImageCoords(evt) {
+    const box = canvas.getBoundingClientRect();
+    return {
+        x: Math.round((evt.clientX - box.left) / box.width * IMG_W),
+        y: Math.round((evt.clientY - box.top) / box.height * IMG_H),
+        scaleX: IMG_W / box.width,
+        scaleY: IMG_H / box.height,
+    };
+}
+
+function placeSlot(name) {
+    if (byName(name)) return;
+    const fromPreset = PRESET.find(p => p.name === name);
+    const size = Math.max(48, Math.round(Math.min(IMG_W, IMG_H) * 0.14));
+    slots.push(fromPreset ? Object.assign({}, fromPreset) : {
+        name, x: Math.round(IMG_W / 2 - size / 2),
+        y: Math.round(IMG_H / 2 - size / 2), w: size, h: size,
+    });
+    selected = slots.length - 1;
+    render();
+}
+
+function removeSlot(name) {
+    slots = slots.filter(s => s.name !== name);
+    selected = -1;
+    render();
+}
+
+function applyPreset() {
+    slots = PRESET.map(p => Object.assign({}, p));
+    selected = -1;
+    render();
+}
+
+function clearSlots() {
+    slots = [];
+    selected = -1;
+    render();
+}
+
+function updateField(name, field, value) {
+    const slot = byName(name);
+    if (!slot) return;
+    slot[field] = Math.max(0, parseInt(value, 10) || 0);
+    render();
+}
+
+/** Живая проверка — та же логика, что на сервере (core/ui_layouts.validate). */
+function checkLayout() {
+    const names = slots.map(s => s.name);
+    const expected = SCENE_SLOTS.map(s => s.name);
+    const missing = expected.filter(n => !names.includes(n));
+    const outside = slots.filter(s =>
+        s.x < 0 || s.y < 0 || s.x + s.w > IMG_W || s.y + s.h > IMG_H
+    ).map(s => s.name);
+
+    const bar = document.getElementById('status-bar');
+    if (!missing.length && !outside.length) {
+        bar.className = 'hint';
+        bar.innerHTML = '✅ Разметка полная: бот отрисует все ' +
+                        expected.length + ' слотов.';
+        return;
+    }
+    bar.className = 'hint warn';
+    const parts = [];
+    if (missing.length) parts.push('не расставлены: <b>' + missing.join(', ') + '</b>');
+    if (outside.length) parts.push('за краем картинки: <b>' + outside.join(', ') + '</b>');
+    bar.innerHTML = '⚠️ ' + parts.join(' · ');
+}
+
+function render() {
+    // ── список слотов ──
+    const list = document.getElementById('slots-list');
+    list.innerHTML = '';
+    SCENE_SLOTS.forEach((meta, i) => {
+        const slot = byName(meta.name);
+        const row = document.createElement('div');
+        row.className = 'slot-row' + (slot ? ' placed' : '') +
+                        (slot && slots.indexOf(slot) === selected ? ' active' : '');
+
+        const info = document.createElement('div');
+        info.className = 'grow';
+        info.innerHTML = '<b class="name">' + meta.icon + ' ' + meta.label + '</b>' +
+            '<br><code style="font-size:.7rem">' + meta.name + '</code>' +
+            (slot ? '<div class="coords">x ' + slot.x + ' · y ' + slot.y +
+                    ' · ' + slot.w + '×' + slot.h + '</div>'
+                  : '<div class="coords">не размещён</div>');
+        row.appendChild(info);
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn' + (slot ? ' btn-danger' : ' btn-primary');
+        btn.textContent = slot ? '🗑' : 'Поставить';
+        btn.addEventListener('click', () =>
+            slot ? removeSlot(meta.name) : placeSlot(meta.name));
+        row.appendChild(btn);
+
+        list.appendChild(row);
+    });
+
+    // ── холст ──
+    canvas.innerHTML = '';
+    slots.forEach((s, i) => {
+        const group = document.createElementNS(svgNS, 'g');
+
+        const rect = document.createElementNS(svgNS, 'rect');
+        rect.setAttribute('x', s.x);
+        rect.setAttribute('y', s.y);
+        rect.setAttribute('width', s.w);
+        rect.setAttribute('height', s.h);
+        rect.setAttribute('class', 'overlay-rect' + (i === selected ? ' selected' : ''));
+        rect.addEventListener('mousedown', e => {
+            e.stopPropagation();
+            selected = i;
+            startDrag(e, i, 'move');
+            render();
         });
-    }
+        group.appendChild(rect);
 
-    function addSlot(x = 50, y = 50, w = 80, h = 80) {
-        const name = 'slot_' + (slots.length + 1);
-        slots.push({ name, x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) });
-        selectedIndex = slots.length - 1;
-        render();
-    }
-
-    function removeSlot(index) {
-        slots.splice(index, 1);
-        if (selectedIndex >= slots.length) selectedIndex = slots.length - 1;
-        render();
-    }
-
-    function render() {
-        // Render List
-        const list = document.getElementById('slots-list');
-        list.innerHTML = '';
-        slots.forEach((s, i) => {
-            const div = document.createElement('div');
-            div.className = 'slot-item' + (i === selectedIndex ? ' selected' : '');
-            div.innerHTML = `
-                <div class="slot-item-head">
-                    <input type="text" value="${s.name}" class="search-box sm" style="width: 150px" onchange="updateSlot(${i}, 'name', this.value)">
-                    <button class="btn btn-sm btn-danger" onclick="removeSlot(${i})">🗑</button>
-                </div>
-                <div class="slot-coords">
-                    <span>X: <input type="number" value="${s.x}" onchange="updateSlot(${i}, 'x', this.value)"></span>
-                    <span>Y: <input type="number" value="${s.y}" onchange="updateSlot(${i}, 'y', this.value)"></span>
-                    <span>W: <input type="number" value="${s.w}" onchange="updateSlot(${i}, 'w', this.value)"></span>
-                    <span>H: <input type="number" value="${s.h}" onchange="updateSlot(${i}, 'h', this.value)"></span>
-                </div>
-            `;
-            list.appendChild(div);
+        const handleSize = Math.max(12, Math.round(IMG_W * 0.018));
+        const handle = document.createElementNS(svgNS, 'rect');
+        handle.setAttribute('x', s.x + s.w - handleSize);
+        handle.setAttribute('y', s.y + s.h - handleSize);
+        handle.setAttribute('width', handleSize);
+        handle.setAttribute('height', handleSize);
+        handle.setAttribute('class', 'resize-handle');
+        handle.addEventListener('mousedown', e => {
+            e.stopPropagation();
+            selected = i;
+            startDrag(e, i, 'resize');
+            render();
         });
+        group.appendChild(handle);
 
-        // Render Canvas
-        canvas.innerHTML = '';
-        slots.forEach((s, i) => {
-            const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
-            
-            const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-            rect.setAttribute('x', s.x);
-            rect.setAttribute('y', s.y);
-            rect.setAttribute('width', s.w);
-            rect.setAttribute('height', s.h);
-            rect.setAttribute('class', 'overlay-rect' + (i === selectedIndex ? ' selected' : ''));
-            
-            rect.addEventListener('mousedown', (e) => {
-                e.stopPropagation();
-                selectedIndex = i;
-                startDrag(e, i, 'move');
-                render();
-            });
+        const caption = document.createElementNS(svgNS, 'text');
+        caption.setAttribute('x', s.x + 6);
+        caption.setAttribute('y', s.y + 26);
+        caption.setAttribute('class', 'slot-caption');
+        caption.textContent = s.name;
+        group.appendChild(caption);
 
-            const handle = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-            handle.setAttribute('x', s.x + s.w - 8);
-            handle.setAttribute('y', s.y + s.h - 8);
-            handle.setAttribute('width', 8);
-            handle.setAttribute('height', 8);
-            handle.setAttribute('class', 'resize-handle');
-            handle.addEventListener('mousedown', (e) => {
-                e.stopPropagation();
-                selectedIndex = i;
-                startDrag(e, i, 'resize');
-                render();
-            });
+        canvas.appendChild(group);
+    });
 
-            const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
-            text.setAttribute('x', s.x + 5);
-            text.setAttribute('y', s.y + 15);
-            text.setAttribute('fill', 'white');
-            text.setAttribute('font-size', '12px');
-            text.textContent = s.name;
+    checkLayout();
+}
 
-            g.appendChild(rect);
-            g.appendChild(handle);
-            g.appendChild(text);
-            canvas.appendChild(g);
+let drag = null;
+
+function startDrag(evt, index, mode) {
+    const point = toImageCoords(evt);
+    drag = {
+        index, mode,
+        startX: evt.clientX, startY: evt.clientY,
+        scaleX: point.scaleX, scaleY: point.scaleY,
+        origX: slots[index].x, origY: slots[index].y,
+        origW: slots[index].w, origH: slots[index].h,
+    };
+    window.addEventListener('mousemove', onDrag);
+    window.addEventListener('mouseup', stopDrag);
+}
+
+function onDrag(evt) {
+    if (!drag) return;
+    // Сдвиг мыши переводим в пиксели оригинала — иначе на уменьшенной
+    // картинке слот полз бы медленнее курсора.
+    const dx = Math.round((evt.clientX - drag.startX) * drag.scaleX);
+    const dy = Math.round((evt.clientY - drag.startY) * drag.scaleY);
+    const s = slots[drag.index];
+    if (drag.mode === 'move') {
+        s.x = Math.min(Math.max(0, drag.origX + dx), IMG_W - s.w);
+        s.y = Math.min(Math.max(0, drag.origY + dy), IMG_H - s.h);
+    } else {
+        s.w = Math.min(Math.max(16, drag.origW + dx), IMG_W - s.x);
+        s.h = Math.min(Math.max(16, drag.origH + dy), IMG_H - s.y);
+    }
+    render();
+}
+
+function stopDrag() {
+    drag = null;
+    window.removeEventListener('mousemove', onDrag);
+    window.removeEventListener('mouseup', stopDrag);
+}
+
+async function saveLayout() {
+    const bar = document.getElementById('status-bar');
+    try {
+        const resp = await fetch('/api/ui-layout/' + LAYOUT_ID + '/save-json', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({slots_json: JSON.stringify(slots)}),
         });
-    }
-
-    function updateSlot(index, field, value) {
-        if (field === 'name') slots[index][field] = value;
-        else slots[index][field] = parseInt(value);
-        render();
-    }
-
-    let dragData = null;
-    function startDrag(e, index, mode) {
-        const rect = canvas.getBoundingClientRect();
-        dragData = {
-            index, mode,
-            startX: e.clientX,
-            startY: e.clientY,
-            originalX: slots[index].x,
-            originalY: slots[index].y,
-            originalW: slots[index].w,
-            originalH: slots[index].h
-        };
-        window.addEventListener('mousemove', onDrag);
-        window.addEventListener('mouseup', stopDrag);
-    }
-
-    function onDrag(e) {
-        if (!dragData) return;
-        const dx = e.clientX - dragData.startX;
-        const dy = e.clientY - dragData.startY;
-        const s = slots[dragData.index];
-
-        if (dragData.mode === 'move') {
-            s.x = Math.max(0, dragData.originalX + dx);
-            s.y = Math.max(0, dragData.originalY + dy);
+        const result = await resp.json();
+        if (result.success) {
+            bar.className = 'hint';
+            bar.innerHTML = '💾 Сохранено. ' +
+                (result.ready ? 'Бот уже использует эту разметку.'
+                              : 'Но слоты ещё не все — см. предупреждение выше.');
+            if (!result.ready) checkLayout();
         } else {
-            s.w = Math.max(10, dragData.originalW + dx);
-            s.h = Math.max(10, dragData.originalH + dy);
+            bar.className = 'hint warn';
+            bar.textContent = '❌ ' + (result.error || 'не сохранилось');
         }
-        render();
+    } catch (e) {
+        bar.className = 'hint warn';
+        bar.textContent = '❌ Сбой сети при сохранении';
     }
+}
 
-    function stopDrag() {
-        dragData = null;
-        window.removeEventListener('mousemove', onDrag);
-        window.removeEventListener('mouseup', stopDrag);
-    }
-
-    async function saveLayout() {
-        try {
-            const resp = await fetch(`/api/ui-layout/${layoutId}/save-json`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ slots_json: JSON.stringify(slots) })
-            });
-            const result = await resp.json();
-            if (result.success) {
-                alert('Разметка сохранена!');
-            } else {
-                alert('Ошибка: ' + result.error);
-            }
-        } catch (e) {
-            alert('Сбой сети при сохранении');
-        }
-    }
-
-    window.onload = init;
+document.addEventListener('DOMContentLoaded', render);
 </script>
 {% endblock %}

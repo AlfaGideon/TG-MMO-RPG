@@ -16,6 +16,7 @@
 """
 import time
 
+from engine import currency
 from engine.models import Reply
 
 PARTIES = "parties"
@@ -183,7 +184,7 @@ def share(store, p, gold, exp):
     for q in mates:
         q_gold = max(1, int(gold * part))
         q_exp = max(1, int(exp * part))
-        q.gold += q_gold
+        currency.earn(q, q_gold)
         levels = rules.add_exp(q, q_exp)
         store.save_player(q)
         _tell(store, q.tg_id,
