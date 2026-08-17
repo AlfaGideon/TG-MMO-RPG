@@ -6576,52 +6576,176 @@ async def editor_suggestions_action(
 
 @app.get("/editor/ui-layouts")
 async def editor_ui_layouts(request: Request):
+    """Разметка интерфейсов: сцены, галерея фонов, состояние каждой.
+
+    Было: два пустых поля — «ключ» и «URL картинки», значения которых
+    взять неоткуда. Стало: выбор сцены из каталога `core/ui_layouts` и
+    картинки из папки фонов.
+    """
     guard(request, "manage_content")
+    import json as _json
+
+    from core import ui_layouts as UL
+
     async with async_session() as session:
-        result = await session.execute(select(UILayout).order_by(UILayout.key))
-        layouts = result.scalars().all()
-    return templates.TemplateResponse(request, "ui_layouts.html", {"layouts": layouts})
+        rows = (await session.execute(
+            select(UILayout).order_by(UILayout.key))).scalars().all()
+
+    by_key = {}
+    layouts = []
+    for layout in rows:
+        try:
+            slots = _json.loads(layout.slots_json or "[]")
+        except (TypeError, ValueError):
+            slots = []
+        size = UL.image_size(layout.image_url) or (0, 0)
+        report = UL.validate(layout.key, slots, size[0], size[1])
+        scene = UL.scene(layout.key)
+        problem = ""
+        if report["missing"]:
+            problem = f"не хватает слотов: {len(report['missing'])}"
+        elif report["unknown"]:
+            problem = "чужие имена слотов"
+        elif report["duplicates"]:
+            problem = "повторы имён"
+        elif report["outside"]:
+            problem = "слоты за краем"
+        elif not scene:
+            problem = "неизвестная сцена"
+        row = {
+            "id": layout.id, "key": layout.key,
+            "title": scene["title"] if scene else layout.key,
+            "image_url": layout.image_url,
+            "slot_count": len(slots),
+            "ready": bool(report["ok"] and scene),
+            "problem": problem,
+            "updated_at": layout.updated_at,
+        }
+        layouts.append(row)
+        by_key[layout.key] = row
+
+    scenes = []
+    for scene in UL.SCENES:
+        existing = by_key.get(scene["key"])
+        scenes.append({**scene,
+                       "existing_id": existing["id"] if existing else None,
+                       "ready": existing["ready"] if existing else False})
+
+    return templates.TemplateResponse(
+        request, "ui_layouts.html",
+        {
+            "layouts": layouts, "scenes": scenes,
+            "gallery": UL.gallery(),
+            "ready_count": sum(1 for r in layouts if r["ready"]),
+        },
+    )
 
 
 @app.get("/editor/ui-layout/{layout_id}")
 async def editor_ui_layout_designer(request: Request, layout_id: int):
+    """Редактор одной разметки: слоты сцены, пресет, живая проверка."""
     guard(request, "manage_content")
+    import json as _json
+
+    from core import ui_layouts as UL
+
     async with async_session() as session:
         layout = await session.get(UILayout, layout_id)
         if not layout:
             return RedirectResponse(url="/editor/ui-layouts")
-    return templates.TemplateResponse(request, "ui_layout_designer.html", {"layout": layout})
+
+    scene = UL.scene(layout.key)
+    size = UL.image_size(layout.image_url) or (1024, 1024)
+    try:
+        slots = _json.loads(layout.slots_json or "[]")
+    except (TypeError, ValueError):
+        slots = []
+
+    return templates.TemplateResponse(
+        request, "ui_layout_designer.html",
+        {
+            "layout": layout,
+            "scene_title": scene["title"] if scene else layout.key,
+            "scene_icon": scene["icon"] if scene else "🎨",
+            "scene_hint": (scene["hint"] if scene else
+                           "Сцена не из каталога: бот такую разметку не ищет."),
+            "scene_slots_json": _json.dumps(UL.scene_slots(layout.key),
+                                            ensure_ascii=False),
+            "slots_json": _json.dumps(slots, ensure_ascii=False),
+            "preset_json": _json.dumps(UL.preset(layout.key, size[0], size[1]),
+                                       ensure_ascii=False),
+            "img_w": size[0], "img_h": size[1],
+        },
+    )
 
 
 @app.post("/editor/ui-layout/new")
-async def editor_ui_layout_new(request: Request, key: str = Form(...), image_url: str = Form(...)):
+async def editor_ui_layout_new(request: Request, key: str = Form(...),
+                               image_url: str = Form(...)):
+    """Создать разметку для сцены. Ключ — только из каталога.
+
+    Свободный ввод ключа убран намеренно: разметка с выдуманным ключом
+    никогда не находилась ботом, а понять это было невозможно.
+    """
     guard(request, "manage_content")
+    from core import ui_layouts as UL
+
+    key = (key or "").strip()
+    if UL.scene(key) is None:
+        return RedirectResponse(url="/editor/ui-layouts", status_code=303)
+
     async with async_session() as session:
-        layout = UILayout(key=key.strip(), image_url=image_url.strip(), slots_json="[]")
+        existing = (await session.execute(
+            select(UILayout).where(UILayout.key == key))).scalar_one_or_none()
+        if existing is not None:
+            return RedirectResponse(url=f"/editor/ui-layout/{existing.id}",
+                                    status_code=303)
+        layout = UILayout(key=key, image_url=(image_url or "").strip(),
+                          slots_json="[]")
         session.add(layout)
         await session.commit()
-    return RedirectResponse(url=f"/editor/ui-layout/{layout.id}", status_code=303)
+        layout_id = layout.id
+    return RedirectResponse(url=f"/editor/ui-layout/{layout_id}",
+                            status_code=303)
 
 
-@app.post("/api/ui-layout/{layout_id}/save")
-async def api_ui_layout_save(request: Request, layout_id: int, slots: list = Form(...)):
-    # В FastAPI list в Form(...) обычно требует специфической обработки или JSON body.
-    # Для простоты примем JSON body.
-    pass
-
-# Переделаю сохранение на JSON эндпоинт
 @app.post("/api/ui-layout/{layout_id}/save-json")
 async def api_ui_layout_save_json(request: Request, layout_id: int):
+    """Сохранить слоты. В ответе — готова ли разметка к работе."""
     guard(request, "manage_content")
+    import json as _json
+
+    from core import ui_layouts as UL
+
     data = await request.json()
-    slots_json = data.get("slots_json", "[]")
+    raw = data.get("slots_json", "[]")
+    try:
+        slots = _json.loads(raw) if isinstance(raw, str) else raw
+    except (TypeError, ValueError):
+        return {"success": False, "error": "Слоты пришли в непонятном виде"}
+    if not isinstance(slots, list):
+        return {"success": False, "error": "Ожидался список слотов"}
+
     async with async_session() as session:
         layout = await session.get(UILayout, layout_id)
-        if layout:
-            layout.slots_json = slots_json
-            await session.commit()
-            return {"success": True}
-    return {"success": False, "error": "Layout not found"}
+        if layout is None:
+            return {"success": False, "error": "Разметка не найдена"}
+        layout.slots_json = _json.dumps(slots, ensure_ascii=False)
+        await session.commit()
+        key, image_url = layout.key, layout.image_url
+
+    # Готовые картинки экипировки собраны по СТАРОЙ разметке — сбрасываем,
+    # иначе игроки продолжат видеть прежнее расположение слотов.
+    try:
+        from bot.utils.gearview import clear_cache
+
+        clear_cache()
+    except Exception:
+        pass
+
+    size = UL.image_size(image_url) or (0, 0)
+    report = UL.validate(key, slots, size[0], size[1])
+    return {"success": True, "ready": report["ok"], "report": report}
 
 
 @app.post("/editor/ui-layout/{layout_id}/delete")

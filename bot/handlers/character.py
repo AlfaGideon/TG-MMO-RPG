@@ -122,13 +122,25 @@ async def _show_profile(callback: CallbackQuery, page: int = 0):
         can_rebirth = (page == stats_page
                        and core_prestige.can_rebirth(character)[0])
 
+        # На развороте «🛡 Снаряжение» показываем отрисованную экипировку
+        # по разметке из панели (bot/utils/gearview). Раньше рендер
+        # существовал, но его никто не вызывал — разметка ни на что не
+        # влияла. Если разметки нет или ничего не надето, остаётся портрет.
+        screen_image = portrait
+        if PROFILE_PAGES[page][0] == "gear":
+            from bot.utils.gearview import render_equipment
+
+            gear_image = await render_equipment(session, character)
+            if gear_image:
+                screen_image = gear_image
+
         await send_or_edit_photo(
             callback,
             text,
             reply_markup=profile_book_keyboard(
                 page, total, [title for _, title in PROFILE_PAGES],
                 free_points=free, can_rebirth=can_rebirth),
-            image_url=portrait,
+            image_url=screen_image,
         )
 
 

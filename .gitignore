@@ -30,3 +30,7 @@ Thumbs.db
 # Downloaded tunnel binary (core/tunnel.py auto-downloads cloudflared here)
 bin/cloudflared
 bin/cloudflared.exe
+
+# Картинки экипировки, собранные Pillow по разметке из панели.
+# Это кэш: пересоздаётся сам, в репозитории ему делать нечего.
+admin/static/ui/rendered/
