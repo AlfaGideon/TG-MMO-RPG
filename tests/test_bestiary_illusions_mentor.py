@@ -234,10 +234,24 @@ async def test_mentor_bonus_and_honor_points_flow():
         await session.commit()
 
 
-def test_auction_bid_stub_is_documented():
-    """Мёртвый модуль честно помечен заглушкой, а не выглядит рабочим."""
+def test_auction_bid_is_no_longer_a_stub():
+    """Раньше здесь сторожили заглушку — теперь сторожим реализацию.
+
+    Пункт № 59 закрыт: `core/auction_bid.py` больше не мёртвый модуль с
+    одной константой, а рабочие торги. Тест перевёрнут намеренно, чтобы
+    случайный откат к заглушке заметили сразу. Подробные проверки самой
+    механики — в `tests/test_auction_bids.py`.
+    """
     from core import auction_bid
 
-    assert "ЗАГЛУШКА" in (auction_bid.__doc__ or ""), \
-        "auction_bid.py должен явно объявлять себя нереализованным"
-    assert auction_bid.BID_AUCTION_KEY == "bid_auction"
+    doc = auction_bid.__doc__ or ""
+    assert "ЗАГЛУШКА" not in doc, \
+        "модуль снова объявляет себя заглушкой — торги потеряны"
+    assert not hasattr(auction_bid, "BID_AUCTION_KEY"), \
+        "мёртвая константа должна была уйти вместе с заглушкой"
+
+    # Публичный интерфейс торгов на месте.
+    for name in ("place_bid", "buyout", "close_finished", "list_bid_lot",
+                 "cancel_bid_lot", "next_bid", "is_bid_lot"):
+        assert callable(getattr(auction_bid, name, None)), \
+            f"в auction_bid нет функции {name}"

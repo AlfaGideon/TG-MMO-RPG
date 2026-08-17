@@ -49,6 +49,8 @@
             <div class="value">{{ counts.get('sold', 0) }}</div><div class="label">продано</div></div>
         <div class="stat-box"><div class="stat-icon">⌛</div>
             <div class="value">{{ counts.get('expired', 0) }}</div><div class="label">просрочено</div></div>
+        <div class="stat-box"><div class="stat-icon">🔨</div>
+            <div class="value">{{ bid_lots }}</div><div class="label">идут торги</div></div>
         <div class="stat-box"><div class="stat-icon">🪙</div>
             <div class="value">{{ turnover }}</div><div class="label">оборот, золота</div></div>
     </div>
@@ -67,6 +69,7 @@
     <table>
         <thead>
             <tr><th>#</th><th>Предмет</th><th>ID</th><th>Цена</th>
+                <th>Торги</th>
                 <th>Продавец</th><th>Покупатель</th><th>Статус</th>
                 <th>Создан</th><th></th></tr>
         </thead>
@@ -83,7 +86,26 @@
                     <a href="/instance/{{ lot.instance.id }}"><code>{{ lot.instance.badge() }}{{ lot.instance.uid }}</code></a>
                     {% else %}—{% endif %}
                 </td>
-                <td data-label="Цена" class="num"><b>{{ lot.price }}</b> 🪙</td>
+                <td data-label="Цена" class="num">
+                    {% if lot.start_bid %}
+                    {% if lot.price %}<b>{{ lot.price }}</b> 🪙<br>
+                    <span class="muted">выкуп</span>
+                    {% else %}<span class="muted">только ставки</span>{% endif %}
+                    {% else %}<b>{{ lot.price }}</b> 🪙{% endif %}
+                </td>
+                {# Колонка торгов (IDEAS-100.md № 59): у обычных лотов пусто,
+                   у лотов с молотка — текущая ставка, лидер и число ставок. #}
+                <td data-label="Торги">
+                    {% if lot.start_bid %}
+                    {% if lot.current_bid %}
+                    🔨 <b>{{ lot.current_bid }}</b>🟤<br>
+                    <span class="muted">{{ lot.current_bidder_name or 'аноним' }}
+                        · ставок {{ lot.bid_count or 0 }}</span>
+                    {% else %}
+                    <span class="muted">старт {{ lot.start_bid }}🟤, ставок нет</span>
+                    {% endif %}
+                    {% else %}<span class="muted">—</span>{% endif %}
+                </td>
                 <td data-label="Продавец">
                     {% if lot.is_npc_lot %}<span style="color:var(--text-muted)">🤖 Скупщик</span>
                     {% elif lot.seller %}<a href="/player/{{ lot.seller.id }}">{{ lot.seller.name }}</a>
@@ -115,7 +137,7 @@
                 </td>
             </tr>
             {% else %}
-            <tr><td colspan="9">
+            <tr><td colspan="10">
                 <div class="empty-state">
                     <div class="empty-icon">⚖️</div>
                     <div>Лотов нет.</div>

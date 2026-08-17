@@ -677,6 +677,18 @@ class AuctionLot(Base):
     status = Column(String(16), default=AuctionStatus.ACTIVE.value, index=True)
     is_npc_lot = Column(Boolean, default=False)  # выставлено скупщиком
 
+    # ── торги со ставками (core/auction_bid.py) ──
+    # Лот с start_bid > 0 живёт по правилам аукциона с молотка: игроки
+    # поднимают цену, по истечении срока вещь уходит лидеру. У обычного
+    # лота эти поля нулевые, и он ведёт себя как раньше — фиксированная
+    # цена «купить сразу».
+    start_bid = Column(Integer, default=0)      # 0 = торгов нет
+    current_bid = Column(Integer, default=0)    # текущая ставка лидера
+    current_bidder_id = Column(Integer, ForeignKey("characters.id"),
+                               nullable=True)
+    current_bidder_name = Column(String(64), default="")
+    bid_count = Column(Integer, default=0)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     expires_at = Column(DateTime(timezone=True), nullable=True)
     sold_at = Column(DateTime(timezone=True), nullable=True)
@@ -685,6 +697,7 @@ class AuctionLot(Base):
     item = relationship("Item")
     seller = relationship("Character", foreign_keys=[seller_id])
     buyer = relationship("Character", foreign_keys=[buyer_id])
+    current_bidder = relationship("Character", foreign_keys=[current_bidder_id])
 
 
 class CharacterAffinity(Base):

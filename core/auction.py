@@ -83,7 +83,13 @@ def price_bounds(instance: ItemInstance, item: Item) -> tuple[int, int]:
 
 
 async def active_lots(session, exclude_seller_id: int | None = None, limit: int = 50):
-    """Лоты, доступные к покупке прямо сейчас."""
+    """Лоты с фиксированной ценой, доступные к покупке прямо сейчас.
+
+    Лоты с молотка (`start_bid > 0`, см. `core/auction_bid.py`) на эту
+    витрину не попадают: там цена растёт со ставками, и кнопка «Купить»
+    увела бы вещь мимо торгов по устаревшей цене. У них своя витрина —
+    `auction_bid.active_bid_lots`.
+    """
     query = (
         select(AuctionLot)
         .options(
@@ -91,6 +97,7 @@ async def active_lots(session, exclude_seller_id: int | None = None, limit: int 
             selectinload(AuctionLot.instance),
         )
         .where(AuctionLot.status == AuctionStatus.ACTIVE.value)
+        .where(func.coalesce(AuctionLot.start_bid, 0) == 0)
         .order_by(AuctionLot.created_at.desc())
         .limit(limit)
     )
@@ -242,6 +249,11 @@ async def buy_lot(session, buyer: Character, lot: AuctionLot) -> dict:
     """Покупка лота. Вещь меняет владельца и обрастает историей."""
     if lot.status != AuctionStatus.ACTIVE.value:
         return {"ok": False, "reason": "Лот уже продан или снят."}
+    if (lot.start_bid or 0) > 0:
+        # Лот с молотка покупается только через core/auction_bid.buyout:
+        # там сначала возвращается резерв текущему лидеру.
+        return {"ok": False,
+                "reason": "Этот лот уходит с молотка — делай ставку."}
     if lot.seller_id == buyer.id:
         return {"ok": False, "reason": "Нельзя купить собственный лот."}
     from engine.currency import total_in_bronze, deduct_currency, add_currency
@@ -302,6 +314,11 @@ async def sweep_expired(session) -> list[AuctionLot]:
     result = await session.execute(
         select(AuctionLot)
         .where(AuctionLot.status == AuctionStatus.ACTIVE.value)
+        # Лоты с молотка закрывает auction_bid.close_finished: там нужно
+        # отдать вещь лидеру, а не вернуть продавцу. Если бы их подбирал
+        # этот sweep, выигранный лот уезжал бы обратно к владельцу, а
+        # деньги победителя остались бы в резерве навсегда.
+        .where(func.coalesce(AuctionLot.start_bid, 0) == 0)
         .where(AuctionLot.expires_at.isnot(None))
         .where(AuctionLot.expires_at < _now())
     )

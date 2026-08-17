@@ -722,6 +722,7 @@ def auction_menu_keyboard(my_lot_count: int = 0):
     builder = InlineKeyboardBuilder()
     builder.button(text="🛒 Витрина", callback_data="auction_browse:0")
     builder.button(text="📢 Выставить вещь", callback_data="auction_my_items:0")
+    builder.button(text="🔨 Торги с молотка", callback_data="bids_menu")
     builder.button(text=f"📋 Мои лоты ({my_lot_count})", callback_data="auction_my_lots")
     builder.button(text="◀️ Назад", callback_data="main_menu")
     builder.adjust(1)

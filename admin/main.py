@@ -5562,8 +5562,12 @@ async def editor_auction(request: Request, status: str = "active"):
     guard(request, "manage_content")
     async with async_session() as session:
         from core.auction import sweep_expired
+        from core.auction_bid import close_finished
 
         await sweep_expired(session)
+        # И молоток по истёкшим торгам — иначе в админке висели бы
+        # «активные» лоты, срок которых давно вышел.
+        await close_finished(session)
         await session.commit()
 
         query = (
@@ -5613,6 +5617,10 @@ async def editor_auction(request: Request, status: str = "active"):
             "turnover": turnover,
             "statuses": [s.value for s in AuctionStatus],
             "instances": instances,
+            # Счётчик торгов: сколько лотов сейчас уходит с молотка.
+            "bid_lots": sum(1 for lot in lots
+                            if (lot.start_bid or 0) > 0
+                            and lot.status == AuctionStatus.ACTIVE.value),
         },
     )
 

@@ -425,12 +425,57 @@ class BotRunner:
                     returned = await sweep_expired(session)
                     if returned:
                         stats["lots_returned"] = len(returned)
+                    # Молоток по истёкшим торгам: вещь уходит лидеру, а
+                    # зарезервированные деньги — продавцу. Без этого цикла
+                    # выигранный лот висел бы, пока кто-нибудь не зайдёт
+                    # в раздел торгов (core/auction_bid.close_finished).
+                    from core.auction_bid import close_finished
+                    finished = await close_finished(session)
                     await session.commit()
+                    if finished:
+                        stats["bids_closed"] = len(finished)
+                        await self._notify_bid_results(finished)
                 if stats.get("spawned") or stats.get("moved"):
                     logger.debug(f"world tick: {stats}")
             except Exception as e:
                 logger.debug(f"spawn tick failed: {e}")
             await asyncio.sleep(20)
+
+    async def _notify_bid_results(self, finished):
+        """Разослать вести по закрытым торгам: победителю и продавцу."""
+        from core.database import async_session
+        from core.models import Character, User
+
+        async def tell(character_id, text):
+            if not character_id or not (self.is_running() and self.bot):
+                return
+            try:
+                async with async_session() as session:
+                    character = await session.get(Character, character_id)
+                    if character is None:
+                        return
+                    user = await session.get(User, character.user_id)
+                    if user is None:
+                        return
+                    tg_id = user.telegram_id
+                await self.bot.send_message(chat_id=tg_id, text=text,
+                                            parse_mode="HTML")
+            except Exception as exc:
+                logger.debug("bid notice failed: %s", exc)
+
+        for res in finished:
+            if res.get("sold"):
+                await tell(res.get("winner_id"),
+                           f"🔨 <b>Молоток!</b> Лот твой за "
+                           f"{res.get('amount', 0)}🟤 — вещь уже в сумке.")
+                await tell(res.get("seller_id"),
+                           f"💰 <b>Твой лот ушёл с молотка</b> за "
+                           f"{res.get('amount', 0)}🟤. На руки: "
+                           f"{res.get('payout', 0)}🟤.")
+            else:
+                await tell(res.get("seller_id"),
+                           "🔨 <b>Торги закончились без ставок</b> — "
+                           "вещь вернулась в сумку.")
 
     async def _poll(self):
         try:
