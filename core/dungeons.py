@@ -49,10 +49,34 @@ def is_portal_open(template: DungeonTemplate) -> bool:
         return False
     if template.portal_closed_at is not None:
         return False
+    # portal_opened_at=None remains open for legacy portal cells created
+    # before lifecycle timestamps were added to the schema.
     if template.portal_opened_at is not None \
             and _now() - _aware(template.portal_opened_at) > PORTAL_MAX_LIFETIME:
         return False
     return True
+
+
+async def sweep_expired_portals(session) -> list[DungeonTemplate]:
+    """Close every portal older than :data:`PORTAL_MAX_LIFETIME`.
+
+    The admin page and BotRunner both call this helper. It intentionally does
+    the timezone comparison in Python because SQLite returns naive datetimes
+    while PostgreSQL/asyncpg returns aware ones.
+    """
+    result = await session.execute(
+        select(DungeonTemplate)
+        .where(DungeonTemplate.portal_opened_at.isnot(None))
+        .where(DungeonTemplate.portal_closed_at.is_(None))
+    )
+    expired = []
+    now = _now()
+    for template in result.scalars().all():
+        if now - _aware(template.portal_opened_at) <= PORTAL_MAX_LIFETIME:
+            continue
+        await close_portal(session, template)
+        expired.append(template)
+    return expired
 
 
 DUNGEON_AFFIXES = {

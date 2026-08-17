@@ -3,7 +3,7 @@ import shutil
 import random
 import logging
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI, Request, Form, UploadFile, File, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import RedirectResponse, JSONResponse, Response
@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware  # noqa: F401 (kept for compat)
 from starlette.types import ASGIApp, Scope, Receive, Send
-from sqlalchemy import select, func, delete, String
+from sqlalchemy import select, func, delete, update, String
 from sqlalchemy.orm import selectinload
 import asyncio
 
@@ -4001,7 +4001,13 @@ async def editor_dungeons(request: Request):
         # можно ли закрывать портал — там могут быть живые игроки.
         result = await session.execute(
             select(DungeonRun)
-            .options(selectinload(DungeonRun.character))
+            # Шаблон рендерится уже после выхода из async_session. Без eager
+            # load вкладка падала с DetachedInstanceError, если внутри был
+            # хотя бы один игрок.
+            .options(
+                selectinload(DungeonRun.character),
+                selectinload(DungeonRun.template),
+            )
             .where(DungeonRun.is_active == True)
             .order_by(DungeonRun.id.desc())
         )
@@ -4038,6 +4044,7 @@ async def dungeon_template_new(
     mob_level_max: int = Form(5),
     mob_pool: str = Form(""),
     image_url: str = Form(""),
+    is_active: bool = Form(False),
 ):
     guard(request, "manage_content")
     async with async_session() as session:
@@ -4046,12 +4053,12 @@ async def dungeon_template_new(
             floors_count=max(1, floors_count), min_level=min_level,
             wall_chance=wall_chance, chest_chance=chest_chance, mob_chance=mob_chance,
             mob_level_min=mob_level_min, mob_level_max=mob_level_max,
-            mob_pool=mob_pool, image_url=image_url.strip(), is_active=True,
+            mob_pool=mob_pool, image_url=image_url.strip(), is_active=is_active,
         )
         session.add(tpl)
         await session.flush()
 
-        portal_cell = await _open_dungeon_portal(session, tpl)
+        portal_cell = await _open_dungeon_portal(session, tpl) if is_active else None
         await session.commit()
 
         if portal_cell:
@@ -4091,7 +4098,7 @@ async def _open_dungeon_portal(session, template: DungeonTemplate):
     cell = random.choice(candidates)
     cell.dungeon_template_id = template.id
     cell.tile_type = "portal"
-    template.portal_opened_at = datetime.utcnow()
+    template.portal_opened_at = datetime.now(timezone.utc)
     template.portal_closed_at = None
     await session.flush()
     return cell
@@ -4132,6 +4139,10 @@ async def dungeon_template_edit(
             tpl.mob_pool = mob_pool
             tpl.image_url = image_url.strip()
             tpl.is_active = is_active
+            if not is_active:
+                # Не оставляем на карте мёртвый вход в выключенный шаблон.
+                from core.dungeons import close_portal
+                await close_portal(session, tpl)
             await session.commit()
     return RedirectResponse(url="/editor/dungeons", status_code=303)
 
@@ -4174,6 +4185,13 @@ async def dungeon_template_delete(request: Request, template_id: int):
             cell.dungeon_template_id = None
             if cell.tile_type == "portal":
                 cell.tile_type = "road"
+        # template_id nullable, но FK без ON DELETE SET NULL. На PostgreSQL
+        # удаление шаблона с активным/старым забегом иначе завершалось 500.
+        await session.execute(
+            update(DungeonRun)
+            .where(DungeonRun.template_id == template_id)
+            .values(template_id=None)
+        )
         await session.execute(delete(DungeonTemplate).where(DungeonTemplate.id == template_id))
         await session.commit()
     return RedirectResponse(url="/editor/dungeons", status_code=303)
@@ -4198,6 +4216,9 @@ async def dungeon_template_open_portal(request: Request, template_id: int):
             if cell.tile_type == "portal":
                 cell.tile_type = "road"
 
+        # Явная команда «Открыть портал» также включает ранее выключенный
+        # шаблон; иначе на карте появлялась клетка, в которую нельзя войти.
+        tpl.is_active = True
         portal_cell = await _open_dungeon_portal(session, tpl)
         await session.commit()
 

@@ -1062,6 +1062,7 @@ UNIQUE constraint.
 | `test_admin_logs.py` | вкладка «Логи»: страница, API, тихий `/api/bot/status` |
 | `test_admin_realtime.py` | живая панель: WebSocket и пагинация без cartesian product |
 | `test_admin_subsystems.py` | админка видит карму, ломбард, вклады, луну, гильдии, рынок |
+| `test_admin_dungeons_runtime.py` | вкладка подземелий с активным забегом, авто-закрытие порталов и безопасное удаление шаблона |
 | `test_templates.py` | статическая проверка Jinja2-шаблонов |
 | `test_miniapp.py` | Telegram Mini App: подпись `initData`, вход по кнопке |
 | `test_miniapp_and_radar.py` | эмбиент, симулятор сборок, радар-HUD |
