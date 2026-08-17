@@ -62,4 +62,11 @@ echo ""
 echo "  Чтобы остановить — нажми Ctrl+C"
 echo ""
 
+# Браузер открываем фоном: launch.py занимает терминал до остановки сервера.
+# Помощник ждёт готовности панели и только тогда открывает вкладку.
+# Отключить: SL_NO_BROWSER=1 ./Запустить_бота_Mac.sh
+SL_STARTING_FLAG="$(mktemp -t shadowlands_starting.XXXXXX)"
+trap 'rm -f "$SL_STARTING_FLAG"' EXIT
+python tools/open_admin.py --stop-file "$SL_STARTING_FLAG" &
+
 python launch.py

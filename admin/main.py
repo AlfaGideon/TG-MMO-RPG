@@ -5084,7 +5084,13 @@ async def community_page(request: Request):
             "key": ch.key, "label": ch.label(), "kind": ch.kind,
             "access": ch.access, "thread_id": ch.thread_id,
             "topic_text": ch.topic, "count": counts.get(ch.id, 0),
+            "is_active": bool(ch.is_active),
         } for ch in channels]
+
+    async with async_session() as session:
+        top = await C.top_posters(session, 8)
+        activity = [(ch.label(), n)
+                    for ch, n in await C.channel_activity(session, 8)]
 
     return templates.TemplateResponse(
         request, "community.html",
@@ -5095,6 +5101,7 @@ async def community_page(request: Request):
             "bot_running": bot_runner.is_running(),
             "kind_labels": COMMUNITY_KIND_LABELS,
             "access_labels": COMMUNITY_ACCESS_LABELS,
+            "top_posters": top, "activity": activity,
         },
     )
 
@@ -5110,6 +5117,8 @@ async def community_channel(request: Request, key: str):
         if channel is None:
             return RedirectResponse("/community", status_code=303)
         messages = await C.recent(session, channel, limit=200)
+        pinned = await C.pinned(session, channel)
+        reactions = await C.reactions_for(session, [m.id for m in messages])
 
     return templates.TemplateResponse(
         request, "community_channel.html",
@@ -5119,6 +5128,7 @@ async def community_channel(request: Request, key: str):
             "access_label": COMMUNITY_ACCESS_LABELS.get(channel.access,
                                                         channel.access),
             "source_labels": COMMUNITY_SOURCE_LABELS,
+            "pinned": pinned, "reactions": reactions,
         },
     )
 
@@ -5164,6 +5174,91 @@ async def community_announce(request: Request, channel_key: str = Form(""),
     if text.strip():
         await bridge.announce(channel_key, text.strip(), bot_runner.bot)
     return RedirectResponse(f"/community/{channel_key}", status_code=303)
+
+
+@app.post("/community/message/{message_id}/pin")
+async def community_pin_message(request: Request, message_id: int):
+    """Закрепить сообщение в канале (закреп ровно один)."""
+    guard(request, "manage_content")
+    from core import community as C
+
+    async with async_session() as session:
+        msg = await session.get(C.CommunityMessage, message_id)
+        key = ""
+        if msg is not None:
+            channel = await session.get(C.Channel, msg.channel_id)
+            key = channel.key if channel else ""
+            await C.pin_message(session, message_id)
+            await session.commit()
+    return RedirectResponse(f"/community/{key}" if key else "/community",
+                            status_code=303)
+
+
+@app.post("/community/{key}/unpin")
+async def community_unpin(request: Request, key: str):
+    """Снять закреп с канала."""
+    guard(request, "manage_content")
+    from core import community as C
+
+    async with async_session() as session:
+        channel = await C.get_channel(session, key)
+        if channel is not None:
+            await C.unpin_channel(session, channel)
+            await session.commit()
+    return RedirectResponse(f"/community/{key}", status_code=303)
+
+
+@app.post("/community/channel/create")
+async def community_create_channel(request: Request, key: str = Form(""),
+                                   title: str = Form(""), icon: str = Form("💬"),
+                                   topic: str = Form(""),
+                                   access: str = Form("public")):
+    """Завести свой канал сверх стартового набора.
+
+    Ключ нормализуем: он попадает в callback_data бота, где двоеточие —
+    разделитель, а пробелы и кириллица ломают разбор.
+    """
+    guard(request, "manage_content")
+    from core import community as C
+
+    title = (title or "").strip()
+    # Пустой ключ достраиваем из названия: заполнять оба поля вручную —
+    # лишняя работа, а название есть всегда.
+    safe_key = C.slugify_key(key or title)
+    if not safe_key or not title:
+        return RedirectResponse("/community", status_code=303)
+    if access not in {a.value for a in C.ChannelAccess}:
+        access = C.ChannelAccess.PUBLIC.value
+
+    async with async_session() as session:
+        if await C.get_channel(session, safe_key) is None:
+            session.add(C.Channel(
+                key=safe_key, title=title[:96], icon=(icon or "💬")[:8],
+                topic=(topic or "").strip(), kind=C.ChannelKind.FIXED.value,
+                access=access, sort_order=200,
+            ))
+            await session.commit()
+            logging.getLogger(__name__).info(
+                "community: канал %s создан из панели", safe_key)
+    return RedirectResponse("/community", status_code=303)
+
+
+@app.post("/community/{key}/toggle")
+async def community_toggle_channel(request: Request, key: str):
+    """Скрыть канал или вернуть его игрокам.
+
+    Мягкое отключение вместо удаления: журнал сообщений и привязка темы
+    сохраняются, канал просто исчезает из меню бота.
+    """
+    guard(request, "manage_content")
+    from core import community as C
+
+    async with async_session() as session:
+        channel = await C.get_channel(session, key)
+        if channel is not None:
+            channel.is_active = not bool(channel.is_active)
+            await session.commit()
+    return RedirectResponse("/community", status_code=303)
 
 
 @app.post("/community/message/{message_id}/delete")

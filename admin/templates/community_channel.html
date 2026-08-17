@@ -26,11 +26,22 @@
     <p class="section-sub">{{ channel.topic }}</p>
     {% endif %}
 
+    {% if pinned %}
+    <div class="hint" style="margin-bottom:.8rem">
+        📌 <b>Закреплено:</b>
+        {{ pinned.author_name or 'Мир' }}: {{ pinned.text }}
+        <form action="/community/{{ channel.key }}/unpin" method="post"
+              style="display:inline;margin-left:.5rem">
+            <button type="submit" class="btn">Снять закреп</button>
+        </form>
+    </div>
+    {% endif %}
+
     <div class="table-wrap">
     <table>
         <thead>
             <tr><th>Когда</th><th>Автор</th><th>Сообщение</th>
-                <th>Откуда</th><th></th></tr>
+                <th>Реакции</th><th>Откуда</th><th></th></tr>
         </thead>
         <tbody>
             {% for m in messages %}
@@ -47,18 +58,35 @@
                     {{ m.author_name or '—' }}
                     {% endif %}
                 </td>
-                <td data-label="Сообщение">{{ m.text }}</td>
+                <td data-label="Сообщение">
+                    {% if m.is_pinned %}<span class="badge badge-uncommon">📌</span>{% endif %}
+                    {{ m.text }}
+                </td>
+                <td data-label="Реакции" class="muted">
+                    {% set counts = reactions.get(m.id) %}
+                    {% if counts %}
+                        {% for emoji, n in counts.items() %}{{ emoji }}&nbsp;{{ n }} {% endfor %}
+                    {% else %}—{% endif %}
+                </td>
                 <td data-label="Откуда" class="muted">{{ source_labels.get(m.source, m.source) }}</td>
                 <td data-label="">
+                    <div style="display:flex;gap:.3rem">
+                    {% if not m.is_pinned %}
+                    <form action="/community/message/{{ m.id }}/pin" method="post"
+                          style="margin:0">
+                        <button type="submit" class="btn" title="Закрепить">📌</button>
+                    </form>
+                    {% endif %}
                     <form action="/community/message/{{ m.id }}/delete" method="post"
                           style="margin:0">
                         <button type="submit" class="btn btn-danger"
                                 data-confirm="Скрыть это сообщение?">🗑</button>
                     </form>
+                    </div>
                 </td>
             </tr>
             {% else %}
-            <tr><td colspan="5">
+            <tr><td colspan="6">
                 <div class="empty-state">
                     <div class="empty-icon">🕯</div>
                     <div>В канале пока тихо.</div>

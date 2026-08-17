@@ -195,6 +195,111 @@ async def cmd_channels(message: Message):
     await message.reply("\n".join(lines), parse_mode="HTML")
 
 
+@router.message(Command("топ", "top"), F.chat.type.in_(GROUP_TYPES))
+async def cmd_top(message: Message):
+    """Кто держит мир: сильнейшие герои по уровню."""
+    async with async_session() as session:
+        heroes = (await session.execute(
+            select(Character.name, Character.level, Character.character_class)
+            .order_by(Character.level.desc(), Character.experience.desc())
+            .limit(LIST_LIMIT)
+        )).all()
+
+    if not heroes:
+        await message.reply("🏆 Героев пока нет — мир ждёт первого.")
+        return
+    lines = ["🏆 <b>Сильнейшие герои</b>"]
+    medals = ["🥇", "🥈", "🥉"]
+    for i, (name, level, klass) in enumerate(heroes):
+        mark = medals[i] if i < len(medals) else f"{i + 1}."
+        lines.append(f"   {mark} {name} — ур. <b>{level}</b> <i>({klass})</i>")
+    await message.reply("\n".join(lines), parse_mode="HTML")
+
+
+@router.message(Command("сводка", "digest"), F.chat.type.in_(GROUP_TYPES))
+async def cmd_digest(message: Message):
+    """Пульс сообщества: сколько говорят и кто громче всех."""
+    async with async_session() as session:
+        info = await C.stats(session)
+        top = await C.top_posters(session, LIST_LIMIT)
+        activity = await C.channel_activity(session, 3)
+
+    lines = ["📊 <b>Пульс сообщества</b>",
+             f"Сообщений: <b>{info['messages']}</b> · "
+             f"каналов: <b>{info['channels']}</b> · "
+             f"реакций: <b>{info['reactions']}</b>", ""]
+    if top:
+        lines.append("🗣 <b>Самые говорливые</b>")
+        for i, (name, count) in enumerate(top, 1):
+            lines.append(f"   {i}. {name} — <b>{count}</b>")
+    if activity:
+        lines.append("🔥 <b>Живые каналы</b>")
+        for ch, count in activity:
+            lines.append(f"   {ch.label()} — <b>{count}</b>")
+    await message.reply("\n".join(lines), parse_mode="HTML")
+
+
+@router.message(Command("закреп", "pinned"), F.chat.type.in_(GROUP_TYPES))
+async def cmd_pinned(message: Message):
+    """Что закреплено в канале этой темы.
+
+    Работает только внутри привязанной темы: в общем чате группы
+    непонятно, о каком канале речь.
+    """
+    thread_id = getattr(message, "message_thread_id", None)
+    from bot import community_bridge as bridge
+
+    chat_id = await bridge.get_chat_id()
+    async with async_session() as session:
+        channel = await C.by_thread(session, chat_id, thread_id) \
+            if chat_id and thread_id else None
+        if channel is None:
+            await message.reply(
+                "📌 Команда работает внутри темы канала сообщества.")
+            return
+        pin = await C.pinned(session, channel)
+
+    if pin is None:
+        await message.reply(f"📌 В {channel.label()} ничего не закреплено.")
+        return
+    who = pin.author_name or "Мир"
+    await message.reply(f"📌 <b>Закреплено в {channel.label()}</b>\n\n"
+                        f"<b>{who}</b>: {pin.text}", parse_mode="HTML")
+
+
+@router.message(Command("поиск", "search"), F.chat.type.in_(GROUP_TYPES))
+async def cmd_search(message: Message):
+    """Поиск по журналу сообщества прямо из чата."""
+    parts = (message.text or "").split(maxsplit=1)
+    query = parts[1].strip() if len(parts) > 1 else ""
+    if len(query) < 2:
+        await message.reply(
+            "🔎 Что искать? Например: <code>/поиск подземелье</code>",
+            parse_mode="HTML")
+        return
+
+    character = await _require_character(message)
+    if character is None:
+        return
+
+    async with async_session() as session:
+        results = await C.search(session, query, character=character,
+                                 limit=LIST_LIMIT)
+
+    if not results:
+        await message.reply(f"🔎 По запросу «{query}» ничего не нашлось.")
+        return
+    lines = [f"🔎 <b>Найдено по «{query}»</b>"]
+    for msg, channel in results:
+        who = msg.author_name or ("Мир" if msg.is_system else "Кто-то")
+        body = " ".join((msg.text or "").split())
+        if len(body) > 70:
+            body = body[:69] + "…"
+        label = channel.label() if channel is not None else "канал"
+        lines.append(f"   {label} · <b>{who}</b>: <i>{body}</i>")
+    await message.reply("\n".join(lines), parse_mode="HTML")
+
+
 @router.message(Command("помощь", "help"), F.chat.type.in_(GROUP_TYPES))
 async def cmd_help(message: Message):
     await message.reply(
@@ -203,7 +308,11 @@ async def cmd_help(message: Message):
         "/гильдия — казна и состав\n"
         "/аукцион — свежие лоты\n"
         "/арена — топ Колизея и вызовы\n"
-        "/каналы — карта сообщества\n\n"
+        "/топ — сильнейшие герои\n"
+        "/каналы — карта сообщества\n"
+        "/сводка — пульс сообщества\n"
+        "/закреп — что закреплено в этой теме\n"
+        "/поиск &lt;слово&gt; — найти в журнале\n\n"
         "<i>Всё остальное — в личке бота.</i>",
         parse_mode="HTML")
 

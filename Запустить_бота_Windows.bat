@@ -50,8 +50,13 @@ if not exist "launch.py" (
     cd /d "%CD%\TG-MMO-RPG"
 )
 
-:: Не создаём второй сервер: это предотвращает конфликт бота и порта 8000.
-%PYTHON% -c "import socket; s=socket.socket(); s.settimeout(1); busy=s.connect_ex(('127.0.0.1', 8000)) == 0; s.close(); raise SystemExit(0 if busy else 1)"
+:: Порт панели берём из .env (ADMIN_PORT), по умолчанию 8000.
+set "ADMIN_PANEL_PORT=8000"
+for /f "usebackq tokens=* delims=" %%P in (`%PYTHON% -c "import sys; sys.path.insert(0,'tools'); import open_admin; print(open_admin.resolve_port())" 2^>nul`) do set "ADMIN_PANEL_PORT=%%P"
+set "ADMIN_PANEL_URL=http://localhost:%ADMIN_PANEL_PORT%"
+
+:: Не создаём второй сервер: это предотвращает конфликт бота и порта панели.
+%PYTHON% -c "import socket,sys; s=socket.socket(); s.settimeout(1); busy=s.connect_ex(('127.0.0.1', int(sys.argv[1]))) == 0; s.close(); raise SystemExit(0 if busy else 1)" %ADMIN_PANEL_PORT%
 if not errorlevel 1 goto :ALREADY_RUNNING
 
 echo 🐍 Создаю виртуальное окружение (если его нет)...
@@ -94,7 +99,7 @@ echo  ==========================================
 echo   ✅ Запускаю единственный экземпляр сервера
 echo  ==========================================
 echo.
-echo   🏠 Локальная панель: http://localhost:8000
+echo   🏠 Локальная панель: %ADMIN_PANEL_URL%
 echo   🌐 Публичный HTTPS-адрес (serveo.net / localhost.run) появится в этом окне
 echo      после запуска и сохранится в Настройках панели.
 echo   🕹 Бот запускается в панели: Настройки → Запустить бота
@@ -103,9 +108,21 @@ echo.
 echo   👉 Не закрывай это окно. Остановка: Ctrl+C
 echo.
 
+:: Браузер с админкой открываем ФОНОМ: launch.py занимает это окно до
+:: остановки сервера, поэтому «открыть после запуска» можно только так.
+:: Помощник ждёт, пока панель реально ответит, и лишь тогда открывает вкладку.
+:: Отключить автооткрытие: set SL_NO_BROWSER=1 перед запуском файла.
+echo 🌐 Браузер с панелью откроется автоматически, как только сервер будет готов...
+set "SL_STARTING_FLAG=%TEMP%\shadowlands_starting_%RANDOM%%RANDOM%.tmp"
+echo starting> "%SL_STARTING_FLAG%"
+start "" /b python tools\open_admin.py --stop-file "%SL_STARTING_FLAG%"
+
 :: launch.py запускает и панель, и бота (если токен сохранён),
 :: и штатный SSH-туннель (serveo / localhost.run). Никакие другие .bat запускать не нужно.
 python launch.py
+
+:: Маячок убираем: если сервер не поднялся, фоновый помощник не будет ждать зря.
+del "%SL_STARTING_FLAG%" >nul 2>&1
 
 echo.
 echo Сервер остановлен.
@@ -115,13 +132,13 @@ exit /b
 :ALREADY_RUNNING
 echo.
 echo  ==========================================
-echo   ⚠️ Сервер уже запущен на порту 8000.
+echo   ⚠️ Сервер уже запущен на порту %ADMIN_PANEL_PORT%.
 echo  ==========================================
 echo.
 echo   Второй экземпляр не запущен: это защищает от
 echo   конфликта Telegram-бота (TelegramConflictError).
-echo   Открываю уже работающую панель: http://localhost:8000
+echo   Открываю уже работающую панель: %ADMIN_PANEL_URL%
 echo.
-start "" "http://localhost:8000"
+start "" "%ADMIN_PANEL_URL%"
 pause
 exit /b 0
