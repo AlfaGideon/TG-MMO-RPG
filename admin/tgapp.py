@@ -31,6 +31,46 @@ router = APIRouter()
 
 MAX_AUTH_AGE = 24 * 3600  # подписанные данные принимаем в течение суток
 
+# Защита от повтора (replay): initData — «bearer»-данные, их можно передать
+# дважды (скрипт, повторная отправка после XSS). Подпись не различает
+# «первый» и «второй» вход, поэтому короткое время храним отпечатки
+# УСПЕШНО принятых initData и второй такой же запрос без живой сессии
+# отклоняем. Живая сессия — послабление намеренное: при перезагрузке
+# мини-приложения Telegram отдаёт тот же initData, блокировать честный вход
+# нельзя; при следующем открытии кнопки initData будет свежий.
+_REPLAY_TTL = 120
+_replay_seen: "dict[str, float]" = {}
+
+
+def _replay_fingerprint(init_data: str) -> str:
+    return hashlib.sha256(init_data.encode("utf-8", "replace")).hexdigest()
+
+
+def _replay_seen_check(init_data: str) -> bool:
+    """True — такие initData успешно принимали минуту назад."""
+    now = time.time()
+    if len(_replay_seen) > 4096:
+        for key in [k for k, t in _replay_seen.items() if now - t > _REPLAY_TTL]:
+            _replay_seen.pop(key, None)
+    return now - _replay_seen.get(_replay_fingerprint(init_data), 0.0) < _REPLAY_TTL
+
+
+def _remember_init_data(init_data: str) -> None:
+    _replay_seen[_replay_fingerprint(init_data)] = time.time()
+
+
+async def _has_live_session(request: Request) -> bool:
+    """Есть ли у клиента уже проверенная живая сессия веб-админа."""
+    existing = webauth.parse_session_token(request.cookies.get(webauth.COOKIE_NAME, ""))
+    if not existing:
+        return False
+    try:
+        async with async_session() as session:
+            fresh_user = await session.get(User, existing[0])
+    except Exception:
+        return False
+    return bool(fresh_user is not None and fresh_user.is_web_admin)
+
 PAGE = """<!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -159,8 +199,19 @@ async def tgapp_auth(request: Request):
         payload = await request.json()
     except Exception:
         payload = {}
-    data = validate_init_data(str(payload.get("initData", "") or ""),
-                              await _bot_token())
+    init_data = str(payload.get("initData", "") or "")
+
+    # Повторно присланный initData (перезагрузка мини-приложения Telegram
+    # отдаёт ту же строку) — пропускаем только клиентам с живой сессией;
+    # чужая «найдённая» подпись без cookie второй раз не сработает.
+    if _replay_seen_check(init_data) and not await _has_live_session(request):
+        return JSONResponse(
+            {"ok": False,
+             "error": "Эти данные входа уже использованы минуту назад. "
+                      "Закрой и снова открой панель кнопкой из бота."},
+            status_code=403,
+        )
+    data = validate_init_data(init_data, await _bot_token())
     if not data:
         return JSONResponse(
             {"ok": False,
@@ -183,11 +234,14 @@ async def tgapp_auth(request: Request):
             status_code=403,
         )
 
+    _remember_init_data(init_data)
     token = webauth.make_session_token(user.id, user.web_admin_role or "viewer")
     resp = JSONResponse({"ok": True})
+    proto = (request.headers.get("x-forwarded-proto", "") or request.url.scheme)
     resp.set_cookie(
         webauth.COOKIE_NAME, token,
         max_age=webauth.SESSION_MAX_AGE, httponly=True, samesite="lax",
+        secure=proto.split(",")[0].strip().lower() == "https",
     )
     logger.info(f"Mini App вход: {tg_user['id']} ({user.web_admin_role or 'viewer'})")
     return resp

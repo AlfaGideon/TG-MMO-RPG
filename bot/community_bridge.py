@@ -209,7 +209,11 @@ async def relay_from_game(character, channel_key: str, text: str,
                     "reason": "Ты только что писал то же самое. "
                               "Придумай что-нибудь новое."}
 
-        line = f"<b>{character.name}</b>: {body}"
+        # В тему группы текст уходит с parse_mode="HTML": игровое имя уже
+        # очищено clean_name, а вот тело сообщения — нет. Без экранирования
+        # одно «<» ломало доставку, а <a href> превращалось в фишинг-ссылку.
+        from html import escape as _esc
+        line = f"<b>{_esc(character.name, quote=False)}</b>: {_esc(body, quote=False)}"
         msg = await post_message(session, channel, body, character=character,
                                  source="bot", reply_to_id=reply_to_id)
         tg_id = await send_to_channel(session, channel, line, bot)
@@ -255,8 +259,12 @@ async def notify_subscribers(channel_key: str, author, body: str,
         if not targets:
             return 0
 
-        label = channel.label()
-        who = getattr(author, "name", "") or "Кто-то"
+        from html import escape as _esc
+
+        label = _esc(channel.label(), quote=False)
+        who = _esc(getattr(author, "name", "") or "Кто-то", quote=False)
+        # snippet строится из пользовательского текста — тоже экранируем.
+        body = _esc(body, quote=False)
         snippet = body if len(body) <= 120 else body[:119] + "…"
 
         for character_id in targets:

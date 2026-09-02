@@ -37,6 +37,25 @@ PAGE_SIZE = 12          # сообщений на экране: больше н�
 SNIPPET = 60            # длина цитаты в ветке и в результатах поиска
 
 
+def _q(text) -> str:
+    """HTML-экранирование пользовательского текста для parse_mode="HTML".
+
+    Сообщения канала пишут игроки, а имена авторов из группы — это ещё и
+    Telegram `full_name`, где `<`, `>` и `&` разрешены. Без экранирования
+    игрок мог подделать разметку (фишинговые <a href>) или одним «<»
+    обрывать весь экран канала (TelegramBadRequest). Системные строки
+    (лента мира) выводятся как есть: они сами несут теги форматирования.
+    """
+    from html import escape
+
+    return escape(str(text if text is not None else ""), quote=False)
+
+
+def _body(m) -> str:
+    """Тело сообщения: игрок — экранирован, система — размечена заранее."""
+    return m.text if m.is_system else _q(m.text)
+
+
 class ChatForm(StatesGroup):
     """Игрок пишет в канал. Ключ канала лежит в data, а не в имени состояния."""
     waiting_for_text = State()
@@ -116,9 +135,9 @@ async def chat_menu(callback: CallbackQuery):
             mark = " <i>(закрытый)</i>"
         count = unread.get(ch.id, 0)
         badge = f" — <b>{count} новых</b>" if count else ""
-        lines.append(f"{ch.label()}{mark}{badge}")
+        lines.append(f"{_q(ch.label())}{mark}{badge}")
         if ch.topic:
-            lines.append(f"   <i>{ch.topic}</i>")
+            lines.append(f"   <i>{_q(ch.topic)}</i>")
     if not channels:
         lines.append("<i>Пока ни одного канала. Загляни позже.</i>")
     total_new = sum(unread.values())
@@ -136,13 +155,13 @@ def _render_message(m, reactions: dict, parents: dict) -> list:
     parent = parents.get(m.reply_to_id) if m.reply_to_id else None
     if parent is not None:
         who = parent.author_name or "Кто-то"
-        out.append(f"   ↪️ <i>{who}: {_shorten(parent.text)}</i>")
+        out.append(f"   ↪️ <i>{_q(who)}: {_shorten(_body(parent))}</i>")
     if m.is_system:
         out.append(f"📜 <i>{m.text}</i>")
     else:
         who = m.author_name or "Кто-то"
         pin = "📌 " if m.is_pinned else ""
-        out.append(f"{pin}<b>{who}</b>: {m.text}")
+        out.append(f"{pin}<b>{_q(who)}</b>: {_q(m.text)}")
     counts = reactions.get(m.id) or {}
     if counts:
         out.append("   " + "  ".join(f"{e} {n}" for e, n in counts.items()))
@@ -184,14 +203,14 @@ async def _render_channel(callback, key: str, page: int = 0):
 
         last_id = messages[-1].id if messages else 0
 
-    lines = [f"{channel.label()}"]
+    lines = [f"{_q(channel.label())}"]
     if page_data["pages"] > 1:
         lines[0] += f"  <i>(стр. {page_data['page'] + 1}/{page_data['pages']})</i>"
     lines.append("")
     if channel.topic:
-        lines += [f"<i>{channel.topic}</i>", ""]
+        lines += [f"<i>{_q(channel.topic)}</i>", ""]
     if pin is not None and page == 0:
-        lines += [f"📌 <b>Закреплено:</b> <i>{_shorten(pin.text, 120)}</i>", ""]
+        lines += [f"📌 <b>Закреплено:</b> <i>{_shorten(_body(pin), 120)}</i>", ""]
     if not messages:
         lines.append("<i>Здесь ещё тихо. Скажи первое слово.</i>")
     for m in messages:
@@ -323,7 +342,7 @@ async def chat_write(callback: CallbackQuery, state: FSMContext):
     builder.button(text="✖️ Отмена", callback_data=f"chat_cancel:{key}")
     await safe_edit_text(
         callback,
-        f"✍️ <b>Сообщение в {label}</b>\n\n"
+        f"✍️ <b>Сообщение в {_q(label)}</b>\n\n"
         f"Напиши текст одним сообщением — оно уйдёт в канал и в группу "
         f"сообщества.\n\n<i>Максимум {C.MESSAGE_LIMIT} символов.</i>",
         reply_markup=builder.as_markup(), parse_mode="HTML")
@@ -344,7 +363,7 @@ async def chat_reply(callback: CallbackQuery, state: FSMContext):
         if parent is None or parent.channel_id != channel.id:
             await callback.answer("Сообщение не найдено.", show_alert=True)
             return
-        quote = f"{parent.author_name or 'Кто-то'}: {_shorten(parent.text)}"
+        quote = _q(parent.author_name or 'Кто-то') + ": " + _shorten(_body(parent))
 
     await state.set_state(ChatForm.waiting_for_text)
     await state.update_data(chat_channel=key, chat_reply_to=int(message_id))
@@ -401,7 +420,7 @@ async def chat_digest(callback: CallbackQuery):
     lines.append("🗣 <b>Самые говорливые</b>")
     if top:
         for i, (name, count) in enumerate(top, 1):
-            lines.append(f"   {i}. {name} — <b>{count}</b>")
+            lines.append(f"   {i}. {_q(name)} — <b>{count}</b>")
     else:
         lines.append("   <i>Пока тихо.</i>")
 
@@ -409,7 +428,7 @@ async def chat_digest(callback: CallbackQuery):
     shown = [(ch, n) for ch, n in activity if ch.id in visible]
     if shown:
         for ch, count in shown:
-            lines.append(f"   {ch.label()} — <b>{count}</b>")
+            lines.append(f"   {_q(ch.label())} — <b>{count}</b>")
     else:
         lines.append("   <i>Пока тихо.</i>")
 
@@ -447,8 +466,8 @@ async def chat_search_run(message: Message, state: FSMContext):
     for msg, channel in results:
         who = msg.author_name or ("Мир" if msg.is_system else "Кто-то")
         label = channel.label() if channel is not None else "канал"
-        lines.append(f"{label} · <b>{who}</b>")
-        lines.append(f"   <i>{_shorten(msg.text, 90)}</i>")
+        lines.append(f"{_q(label)} · <b>{_q(who)}</b>")
+        lines.append(f"   <i>{_shorten(_body(msg), 90)}</i>")
 
     await message.answer("\n".join(lines),
                          reply_markup=continue_keyboard([("💬 Сообщество",

@@ -5,11 +5,22 @@
 (/logs). Сама консоль продолжает работать как раньше.
 """
 import logging
+import re
 import threading
 from collections import deque
 from datetime import datetime
 
 MAX_RECORDS = 2000
+
+# Telegram-токен выглядит как «123456:AAA...». Сетевые библиотеки (aiogram,
+# aiohttp) при ошибках печатают полный URL запроса — вместе с токеном.
+# Вкладка «📜 Логи» панели доступна всем, у кого есть право просмотра,
+# поэтому токен в буфер попадать не должен.
+_TOKEN_RE = re.compile(r"\d{6,}:[A-Za-z0-9_-]{30,}")
+
+
+def redact_secrets(text: str) -> str:
+    return _TOKEN_RE.sub("<bot-token>", str(text))
 
 
 class RingBufferHandler(logging.Handler):
@@ -26,7 +37,7 @@ class RingBufferHandler(logging.Handler):
                 "time": datetime.fromtimestamp(record.created).strftime("%H:%M:%S"),
                 "level": record.levelname,
                 "logger": record.name,
-                "message": self.format(record),
+                "message": redact_secrets(self.format(record)),
             }
             with self._lock:
                 self._records.append(entry)

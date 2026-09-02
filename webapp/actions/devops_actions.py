@@ -161,18 +161,83 @@ def _safe_expr(where):
 
 
 def _eval_expr(expr, row):
+    """Безопасный вычислитель WHERE-выражений — без eval().
+
+    `eval` с `{"__builtins__": {}}` песочницей не является: выражения
+    вида `().__class__.__bases__[0].__subclasses__()` (а все символы этой
+    конструкции фильтр `_safe_expr` пропускал) дают произвольный код прямо
+    в рантайме панели. Здесь вместо eval — разбор через ast и белый список
+    узлов: поля строки, литералы, арифметика, сравнения, and/or/not, in
+    и единственный разрешённый вызов get("поле").
+    """
+    import ast
+
     def get(path, default=None):
-        parts = path.split(".")
         val = row
-        for p in parts:
-            if isinstance(val, dict) and p in val:
-                val = val[p]
+        for part in str(path).split("."):
+            if isinstance(val, dict) and part in val:
+                val = val[part]
             else:
                 return default
         return val
-    env = {"row": row, "get": get}
-    env.update(row)
-    return bool(eval(expr, {"__builtins__": {}}, env))
+
+    binops = {ast.Add: lambda a, b: a + b, ast.Sub: lambda a, b: a - b,
+              ast.Mult: lambda a, b: a * b, ast.Div: lambda a, b: a / b,
+              ast.Mod: lambda a, b: a % b}
+    cmps = {ast.Eq: lambda a, b: a == b, ast.NotEq: lambda a, b: a != b,
+            ast.Lt: lambda a, b: a < b, ast.LtE: lambda a, b: a <= b,
+            ast.Gt: lambda a, b: a > b, ast.GtE: lambda a, b: a >= b,
+            ast.In: lambda a, b: a in b, ast.NotIn: lambda a, b: a not in b}
+
+    def ev(node):
+        if isinstance(node, ast.Expression):
+            return ev(node.body)
+        if isinstance(node, ast.Constant):
+            if isinstance(node.value, (int, float, str, bool, type(None))):
+                return node.value
+            raise ValueError(f"Литерал недопустим: {node.value!r}")
+        if isinstance(node, ast.Name):
+            if node.id in row:
+                return row[node.id]
+            raise ValueError(f"Неизвестное поле: {node.id}")
+        if isinstance(node, ast.BinOp) and type(node.op) in binops:
+            return binops[type(node.op)](ev(node.left), ev(node.right))
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+            return not ev(node.operand)
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+            return -ev(node.operand)
+        if isinstance(node, ast.BoolOp):
+            vals = [ev(v) for v in node.values]
+            if isinstance(node.op, ast.And):
+                return all(vals)
+            return any(vals)
+        if isinstance(node, ast.Compare):
+            left = ev(node.left)
+            for op, comparator in zip(node.ops, node.comparators):
+                if type(op) not in cmps:
+                    raise ValueError("Оператор запрещён")
+                right = ev(comparator)
+                if not cmps[type(op)](left, right):
+                    return False
+                left = right
+            return True
+        if isinstance(node, (ast.List, ast.Tuple)):
+            return [ev(e) for e in node.elts]
+        if isinstance(node, ast.Call):
+            if (isinstance(node.func, ast.Name) and node.func.id == "get"
+                    and len(node.args) == 1 and not node.keywords):
+                path = ev(node.args[0])
+                if not isinstance(path, str):
+                    raise ValueError("get() ждёт имя поля строкой")
+                return get(path)
+            raise ValueError("Вызовы функций запрещены (разрешён только get)")
+        raise ValueError("Конструкция недопустима в фильтре")
+
+    try:
+        tree = ast.parse(expr.strip(), mode="eval")
+    except SyntaxError as e:
+        raise ValueError(f"Не разобрать выражение: {e}") from None
+    return bool(ev(tree))
 
 
 def _sql_html(cols, rows):

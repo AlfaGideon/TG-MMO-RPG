@@ -431,7 +431,8 @@
         <input type="hidden" name="is_vip" value="{{ 'true' if char.is_vip else '' }}">
         <input type="hidden" name="vip_days" value="0">
         <button type="submit" class="btn btn-primary">💾 Сохранить изменения</button>
-        <a href="/player/{{ char.id }}/heal" class="btn">✨ Полностью восстановить</a>
+        <button type="submit" class="btn" formaction="/player/{{ char.id }}/heal"
+                formmethod="post" formnovalidate title="Только восстановить HP/MP, без сохранения изменений">✨ Полностью восстановить</button>
         <div class="sticky-actions">
             <button type="submit" class="btn btn-primary">💾 Сохранить</button>
         </div>
