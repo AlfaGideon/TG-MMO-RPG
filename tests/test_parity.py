@@ -210,6 +210,11 @@ REGISTRY = [
     Feature("Задания",
             browser=["engine/quests.py"],
             server=["core/quests.py", "bot/handlers/quests.py"]),
+
+    Feature("Осады замков",
+            browser=["engine/siege.py"],
+            server=["core/worldevents.py", "bot/handlers/location.py",
+                    "admin/templates/editor_living.html"]),
 ]
 
 

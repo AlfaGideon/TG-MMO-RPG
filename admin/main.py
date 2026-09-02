@@ -5528,6 +5528,13 @@ async def editor_living(request: Request):
 
         cataclysms = await core_events.active_cataclysms(session)
         boss = await core_events.active_boss(session)
+        sieges = (await session.execute(
+            select(WorldEvent)
+            .options(selectinload(WorldEvent.location))
+            .where(WorldEvent.kind == "siege")
+            .where(WorldEvent.is_active == True)  # noqa: E712
+            .order_by(WorldEvent.id.desc())
+        )).scalars().all()
 
         result = await session.execute(select(Grave))
         graves = result.scalars().all()
@@ -5582,6 +5589,8 @@ async def editor_living(request: Request):
             "cataclysm_kinds": core_events.KINDS,
             "cataclysm_order": core_events.ORDER,
             "boss": boss,
+            "sieges": sieges,
+            "siege_rules": core_events.SIEGE_RULES,
             "boss_kinds": core_events.BOSSES,
             "boss_order": core_events.BOSS_ORDER,
             "graves": graves,
@@ -5615,6 +5624,36 @@ async def living_cataclysm(request: Request, key: str = Form(...),
                 float(hours) if hours.strip() else None)
         except ValueError:
             pass
+        await session.commit()
+    return RedirectResponse(url="/editor/living", status_code=303)
+
+
+@app.post("/editor/living/siege")
+async def living_siege(request: Request, location_id: str = Form(...),
+                       attacker: str = Form(...), hours: str = Form("")):
+    """Начать осаду замка фракцией (правила и дефолты — engine/siege.py)."""
+    guard(request, "manage_content")
+    from core import worldevents as core_events
+
+    async with async_session() as session:
+        try:
+            await core_events.siege_begin(
+                session, int(location_id), attacker,
+                float(hours) if hours.strip() else None)
+        except (ValueError, TypeError):
+            pass
+        await session.commit()
+    return RedirectResponse(url="/editor/living", status_code=303)
+
+
+@app.post("/editor/living/siege/{event_id}/end")
+async def living_siege_end(request: Request, event_id: int):
+    """Снять осаду вручную (осада идёт на время, но владельцу можно быстрее)."""
+    guard(request, "manage_content")
+    async with async_session() as session:
+        ev = await session.get(WorldEvent, event_id)
+        if ev is not None and ev.kind == "siege":
+            ev.is_active = False
         await session.commit()
     return RedirectResponse(url="/editor/living", status_code=303)
 

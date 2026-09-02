@@ -116,6 +116,11 @@ class Store:
         self.settings.setdefault("cataclysm_chance", 0.02)
         self.settings.setdefault("cataclysm_limit", 2)
         self.settings.setdefault("cataclysm_notify", True)
+        # Осады: свои события в настройках — видны и боту, и панели (паритет
+        # с серверной таблицей WorldEvent kind="siege").
+        self.settings.setdefault("sieges", [])
+        self.settings.setdefault("siege_auto", True)
+        self.settings.setdefault("siege_chance", 0.012)
         # Обновления и предложения игроков — для паритета с серверным стеком
         self.settings.setdefault("updates", [])
         self.settings.setdefault("suggestions", [])

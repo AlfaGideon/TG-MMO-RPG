@@ -2,7 +2,7 @@
 import random
 
 from engine import (adminbot, adminroute, behavior, cataclysm, combat, data,
-                    progress, social_ui,
+                    progress, siege, social_ui,
                     explore, hero, inventory, items, mapview, merchant,
                     respawn, rules, shop, social, stash, texts, trade, world)
 from engine.models import Reply
@@ -236,6 +236,7 @@ class Game:
         alarm = cataclysm.banner(self.store, p.loc)
         if alarm:
             rows.insert(0, [("🌋 Что происходит?", "disaster")])
+        siege.button(self.store, p, rows)     # 🔥 вход в осаду под ногами
         here = mapview.others_here(self.store, p, p.loc, p.x, p.y)
         reply = Reply(text=texts.cell_view(p, cell, alarm, here), keyboard=rows)
         if merchant.at(self.store, p.loc):
@@ -428,6 +429,7 @@ class Game:
     do_ghost = lambda self, p, arg="": progress.ghost_screen(p)
     do_ghostbuy = lambda self, p, arg="": progress.ghost_buy(self.store, p, arg)
     do_legends = lambda self, p, arg="": progress.legends_screen(self.store)
+    do_siege = lambda self, p, arg="": siege.play(self.store, p, arg)
     do_pawn = lambda self, p, arg="": progress.pawn_screen(self.store, p)
     do_pawnput = lambda self, p, arg="": progress.pawn_item(self.store, p, arg)
     do_pawnback = lambda self, p, arg="": progress.pawn_redeem(self.store, p, arg)

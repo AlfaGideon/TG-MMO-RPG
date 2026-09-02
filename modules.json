@@ -19,6 +19,7 @@
     "engine/horde.py",
     "engine/behavior.py",
     "engine/slots.py",
+    "engine/siege.py",
     "engine/bestiary.py",
     "engine/titles.py",
     "engine/lunar.py",

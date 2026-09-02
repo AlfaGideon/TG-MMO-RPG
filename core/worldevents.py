@@ -12,9 +12,11 @@
 """
 import json
 import random
+import time
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
+from sqlalchemy.orm import selectinload
 
 from engine.cataclysm_kinds import KINDS, MOB_MULT, ORDER  # noqa: F401
 from engine.worldboss import BOSSES, MIN_SHARE, PHASE_AT
@@ -44,7 +46,10 @@ def title(kind, key):
 async def active_cataclysms(session, location_id=None):
     """Живые бедствия. Просроченные снимаются сами."""
     await sweep(session)
+    # location подгружаем сразу: шаблоны панели рендерятся вне сессии,
+    # а локальное бедствие без имени места выглядит поломанным.
     q = select(WorldEvent).where(WorldEvent.kind == "cataclysm") \
+                          .options(selectinload(WorldEvent.location)) \
                           .where(WorldEvent.is_active == True)
     result = await session.execute(q)
     events = result.scalars().all()
@@ -376,3 +381,107 @@ async def spawn_caravan(session, location_id: int, hours: float = 6.0):
     await session.flush()
     return ev
 
+
+
+# ── осады цитаделей (правила — engine/siege.py) ─────────────
+# IDEAS-next, пункт 4. Раньше осада была декорацией: событие показывало
+# HP ворот, но повлиять на него мог только админ, снявший событие. Теперь
+# герой бьёт по воротам или чинит их — роль определяет преданность
+# (engine.factions.allegiance), числа считает общий движковый модуль,
+# поэтому сервер и браузер играют по одним и тем же правилам.
+
+from engine.siege import RULES as SIEGE_RULES   # числовые правила — там же,
+                                                  # где и у браузерного стека
+
+_siege_cd: "dict[int, float]" = {}     # char_id -> unix-секунда удара
+
+
+def siege_cooldown_left(char_id: int, now=None) -> int:
+    from engine import siege as S
+    now = time.time() if now is None else now
+    return max(0, int(S.RULES["cooldown"] - (now - _siege_cd.get(int(char_id), 0))))
+
+
+async def siege_state(session, character) -> dict:
+    """Что видит герой на клетке осады: роль, прочность, срок, кулдаун."""
+    from engine import siege as S
+
+    await sweep(session)
+    sieges = await active_sieges(session, character.location_id)
+    if not sieges:
+        return {"ok": False, "reason": "Здесь нет осады."}
+    ev = sieges[0]
+    attacker = S.attacker_of({"attacker": ev.key})
+    from core import factions as core_factions
+    role = S.role_for(core_factions.allegiance(character), attacker)
+    loc = await session.get(Location, ev.location_id) if ev.location_id else None
+    left = 0
+    if ev.until is not None:
+        left = max(0, int((_aware(ev.until) - _now()).total_seconds() // 60))
+    return {"ok": True, "event_id": ev.id, "attacker": attacker,
+            "role": role, "hp": int(ev.hp or 0), "max_hp": int(ev.max_hp or 0),
+            "left_min": left, "castle": (loc.name if loc else "—"),
+            "cooldown": siege_cooldown_left(character.id)}
+
+
+async def siege_hit(session, character) -> dict:
+    """Один удар: штурм или починка. Правила и числа — из engine/siege."""
+    from engine import siege as S
+    from engine.currency import add_currency
+    from core import factions as core_factions
+
+    st = await siege_state(session, character)
+    if not st["ok"]:
+        return st
+    if st["cooldown"] > 0:
+        return {"ok": False, "reason": f"Ты только что бил. Отдышись {st['cooldown']} с."}
+    ev = await session.get(WorldEvent, st["event_id"])
+    if ev is None or not ev.is_active:
+        return {"ok": False, "reason": "Осада уже снята."}
+
+    roll = S.strike_roll(st["role"], character.level)
+    hp, outcome = S.apply_roll(ev.hp, ev.max_hp, st["role"], roll)
+    ev.hp = hp
+    captured = outcome == "captured"
+    if captured:
+        ev.is_active = False
+    _siege_cd[int(character.id)] = time.time()
+
+    gold = S.gold_for(st["role"], captured)
+    if gold:
+        add_currency(character, bronze=gold)
+    side = (st["attacker"] if st["role"] == "assault"
+            else S.defender_faction(st["castle"]))
+    bump = S.RULES["rep_hit"] + (S.RULES["rep_capture"] if captured else 0)
+    rep = core_factions.load(character)
+    S.bump_side(rep, side, bump, core_factions.MIN_REP, core_factions.MAX_REP)
+    core_factions.save(character, rep)
+
+    if captured:
+        from core.legends import record_server_first
+        await record_server_first(
+            session, f"siege-capture:{ev.location_id}",
+            f"Первое падение цитадели: {st['castle']}", character)
+
+    await session.flush()
+    return {"ok": True, "role": st["role"], "roll": roll, "outcome": outcome,
+            "hp": hp, "max_hp": int(ev.max_hp or 0), "gold": gold,
+            "rep": bump, "side": side, "castle": st["castle"]}
+
+
+async def siege_begin(session, castle_location_id: int, attacking_faction: str,
+                      hours=None) -> WorldEvent:
+    """Заварушка: админская кнопка и автотесты идут только через неё,
+    чтобы дефолты hp/hours жили в одном месте — RULES движка."""
+    from engine import siege as S
+    from core import factions as core_factions
+    if attacking_faction not in core_factions.FACTIONS:
+        raise ValueError("Неизвестная фракция")
+    loc = await session.get(Location, int(castle_location_id))
+    if loc is None:
+        raise ValueError("Замок не найден")
+    if await active_sieges(session, loc.id):
+        raise ValueError("Этот замок уже осаждают")
+    return await start_siege(session, loc.id, attacking_faction,
+                             hp=S.RULES["hp"],
+                             hours=S.RULES["hours"] if hours is None else float(hours))
