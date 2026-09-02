@@ -119,6 +119,15 @@ async def _apply(session, ev, k):
 
 async def _restore(session, ev):
     """Вернуть рельеф и сундуки. Тварей не воскрешаем — их вернёт спавн."""
+    # Летопись (IDEAS-100 № 60): мир пережил этот катаклизм — веха
+    # без автора. Точка одна на оба пути завершения (ручное закрытие
+    # из админки и автоснятие по сроку в sweep), запись дедуплицируется
+    # по ключу внутри record_server_first.
+    if ev.kind == "cataclysm":
+        from core.legends import record_server_first
+        await record_server_first(
+            session, f"cataclysm:{ev.key}",
+            f"Первое пережитое бедствие: {title('cataclysm', ev.key)}")
     try:
         snap = json.loads(ev.snapshot or "{}")
     except (ValueError, TypeError):
@@ -237,6 +246,15 @@ async def hit_boss(session, character, damage):
         if res.rowcount == 1:
             await _reward_boss(session, ev)
             ev.is_active = False
+            # Летопись (IDEAS-100 № 60): первый на сервере разгром этого
+            # босса записывается на добившего — он же единственный
+            # победитель гонки. Повторная запись того же ключа
+            # отклоняется внутри record_server_first, поэтому «первый»
+            # остаётся первым навсегда.
+            from core.legends import record_server_first
+            await record_server_first(
+                session, f"boss:{ev.key}",
+                f"Первое убийство: {title('boss', ev.key)}", character)
     await session.flush()
     return ev_hp, phased
 

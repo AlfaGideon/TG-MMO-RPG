@@ -73,6 +73,7 @@ class BotRunner:
         self._portal_sweep_task: Optional[asyncio.Task] = None
         self._spawn_tick_task: Optional[asyncio.Task] = None
         self._dividend_task: Optional[asyncio.Task] = None
+        self._reminder_task: Optional[asyncio.Task] = None
         self._bg_tasks: set = set()      # ссылки на fire-and-forget задачи
         self._running = False
         self.last_error: Optional[str] = None
@@ -205,6 +206,7 @@ class BotRunner:
                 self._portal_sweep_task = asyncio.create_task(self._portal_sweep_loop())
                 self._spawn_tick_task = asyncio.create_task(self._spawn_tick_loop())
                 self._dividend_task = asyncio.create_task(self._dividend_loop())
+                self._reminder_task = asyncio.create_task(self._reminder_loop())
                 # Лента мира: подписка на шину событий и пересылка избранного
                 # в канал сообщества (bot/community_feed.py). Ошибка подписки
                 # не должна мешать запуску бота — чат вторичен по отношению
@@ -405,6 +407,37 @@ class BotRunner:
             except Exception as e:
                 logger.debug(f"dividend payout failed: {e}")
 
+    async def _reminder_loop(self):
+        """Персональные напоминания раз в 2 минуты (IDEAS-next, пункт 10).
+
+        Молоток, закрытие портала и TTL вызова и раньше срабатывали сами —
+        но игрок узнавал о финише только заглянув в бота. Этот цикл ничего
+        не решает: он лишь спрашивает у
+        `bot.reminders.collect_due_reminders`, кому что сообщить, и
+        отправляет. Ошибка отдельной весточки не должна глушить остальные,
+        поэтому каждая отправка в своём try.
+        """
+        from core.database import async_session
+        from bot.reminders import collect_due_reminders
+        from bot.broadcast import broadcast_to_all
+
+        while self.is_running():
+            await asyncio.sleep(120)
+            try:
+                async with async_session() as session:
+                    due = await collect_due_reminders(session)
+                for msg in due:
+                    try:
+                        if msg.get("broadcast"):
+                            await broadcast_to_all(self.bot, msg["text"])
+                        elif self.bot is not None and msg.get("tg_id"):
+                            await self.bot.send_message(msg["tg_id"], msg["text"],
+                                                         parse_mode="HTML")
+                    except Exception as e:
+                        logger.debug(f"reminder send failed: {e}")
+            except Exception as e:
+                logger.debug(f"reminder pass failed: {e}")
+
     async def _spawn_tick_loop(self):
         """Живой мир: держит популяцию мобов на лимите и двигает их по карте.
 
@@ -495,12 +528,13 @@ class BotRunner:
             # Если polling упал сам (например, сеть/Telegram недоступны),
             # фоновые циклы не должны ожить повторно при следующем старте.
             for task in (self._portal_sweep_task, self._spawn_tick_task,
-                         self._dividend_task):
+                         self._dividend_task, self._reminder_task):
                 if task and not task.done():
                     task.cancel()
             self._portal_sweep_task = None
             self._spawn_tick_task = None
             self._dividend_task = None
+            self._reminder_task = None
             await self._close_current_bot()
 
     async def _stop_world_feed(self):
@@ -557,6 +591,14 @@ class BotRunner:
                 except asyncio.CancelledError:
                     pass
                 self._dividend_task = None
+
+            if self._reminder_task:
+                self._reminder_task.cancel()
+                try:
+                    await self._reminder_task
+                except asyncio.CancelledError:
+                    pass
+                self._reminder_task = None
 
             await self._stop_world_feed()
 

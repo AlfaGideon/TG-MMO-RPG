@@ -26,6 +26,7 @@ def main_menu_keyboard(has_character: bool = False, is_admin: bool = False,
         builder.button(text="📜 Задания", callback_data="quests_menu")
         builder.button(text="💬 Сообщество", callback_data="chat_menu")
         builder.button(text="🏆 Топ", callback_data="leaderboard")
+        builder.button(text="🏛 Летопись", callback_data="legends_hall")
         builder.button(text="⚖️ Аукцион", callback_data="auction_menu")
         # Лавка торговца — только у NPC на клетке: за товаром надо дойти.
         # Подземелье и лавка лекаря носятся с собой лишь у VIP.

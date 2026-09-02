@@ -795,3 +795,22 @@ async def duel_accept(callback: CallbackQuery):
             await callback.bot.send_message(challenger_tg_id, text, parse_mode="HTML")
         except Exception:
             pass
+
+
+@router.callback_query(F.data == "legends_hall")
+async def legends_hall_handler(callback: CallbackQuery):
+    """🏛 Летопись сервера (IDEAS-100 № 60): зал славы для игроков.
+
+    Экран собирает общая `hall_of_legends_text` — та же вёрстка, что в
+    браузерном стеке (`engine/progress.legends_screen`). Записи пишут
+    `core/worldevents` (первый разгром мирового босса, первое пережитое
+    бедствие); экран доступен всем, кнопка — в главном меню.
+    """
+    from core import legends as core_legends
+
+    async with async_session() as session:
+        records = await core_legends.get_hall_of_legends(session)
+        text = core_legends.hall_of_legends_text(records)
+    await safe_edit_text(callback, text,
+                         reply_markup=main_menu_keyboard(has_character=True),
+                         parse_mode="HTML")

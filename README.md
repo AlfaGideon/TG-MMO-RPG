@@ -1091,6 +1091,7 @@ UNIQUE constraint.
 | `test_deep_fixes.py` | защита от `None` в статах, gear score, валюте и цене аукциона |
 | `test_audit_fixes.py` | баги из `AUDIT-BUGS.md`: сироты аукциона, секрет админки, колбэки, квесты |
 | `test_security_fixes.py` | аудит безопасности: экранирования, обходы SQL-песочницы, CSRF, replay initData, whitelist загрузок |
+| `test_legends_and_reminders.py` | Летопись сервера (№ 60): запись рекордов, экран, экранирование имён; напоминания: лоты, порталы, дуэли |
 | `test_bugfixes.py` | регрессии ручного аудита поверх основных наборов |
 
 ### Бот, админка и точки входа

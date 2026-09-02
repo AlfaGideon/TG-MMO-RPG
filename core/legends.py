@@ -16,8 +16,15 @@ def _now():
     return datetime.now(timezone.utc)
 
 
-async def record_server_first(session, record_key: str, title: str, character: Character, detail: str = "") -> bool:
-    """Фиксирует историческое первопроходство на сервере."""
+async def record_server_first(session, record_key: str, title: str,
+                              character: Character | None = None, detail: str = "") -> bool:
+    """Фиксирует историческое первопроходство на сервере.
+
+    `character=None` — вехи без автора («пережитый» миром катаклизм):
+    владельцем строки становится «Сервер». Имя героя в летопись пишется
+    копией (`holder_character_name`), а не ссылкой, — удаление персонажа
+    не вычёркивает рекорд из истории.
+    """
     existing = await session.scalar(
         select(ServerRecord).where(ServerRecord.record_key == record_key)
     )
@@ -27,8 +34,8 @@ async def record_server_first(session, record_key: str, title: str, character: C
     rec = ServerRecord(
         record_key=record_key,
         title=title,
-        holder_character_name=character.name,
-        holder_character_id=character.id,
+        holder_character_name=character.name if character else "Сервер",
+        holder_character_id=character.id if character else None,
         detail=detail,
     )
     session.add(rec)
