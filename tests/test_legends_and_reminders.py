@@ -160,8 +160,6 @@ def test_hall_text_escapes_names():
 
 def test_legends_button_and_handler_registered():
     pytest.importorskip("aiogram")
-    from sqlalchemy import select  # noqa: F401  (кнопка проверяется ниже)
-
     from bot.keyboards.inline import main_menu_keyboard
     kb = main_menu_keyboard(has_character=True)
     datas = [b.callback_data for row in kb.inline_keyboard for b in row]
@@ -227,7 +225,7 @@ async def test_reminders_auction_end_notifies_seller_and_leader():
         lot = await _mk_lot(session, minutes_left=5, bidding=True,
                             seller_char=seller, bidder_char=leader)
         leader_user = await session.get(User, leader.user_id)
-        far = await _mk_lot(session, minutes_left=120, seller_char=seller)
+        await _mk_lot(session, minutes_left=120, seller_char=seller)
         due = await reminders.collect_due_reminders(session)
 
         tg_ids = [d["tg_id"] for d in due]

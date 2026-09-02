@@ -463,6 +463,9 @@ def inspect_keyboard(has_mob: bool, has_npc: bool, has_chest: bool,
         builder.button(text="⚔️ Атаковать", callback_data="cell_attack")
     if has_players:
         builder.button(text="⚔️ Напасть на игрока", callback_data="pvp_select")
+        # Прямой обмен «рука в руку» (IDEAS-next пункт 2): та же клетка,
+        # никакой комиссии аукциона.
+        builder.button(text="🎁 Подарить игроку", callback_data="gift_select")
     if has_landmark:
         builder.button(text="❇️ Изучить", callback_data="study_landmark")
     if has_grave:

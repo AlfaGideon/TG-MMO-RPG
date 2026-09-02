@@ -11,6 +11,7 @@ from .dungeon import router as dungeon_router
 from .craft import router as craft_router
 from .auction import router as auction_router
 from .auction_bids import router as auction_bids_router
+from .gifts import router as gifts_router
 from .merchant import router as merchant_router
 from .admin import router as admin_router
 from .world_extra import router as world_extra_router
@@ -37,6 +38,7 @@ routers = [
     admin_router,
     world_extra_router,
     guilds_router,
+    gifts_router,
     quests_router,
     community_router,
     # Роутер группы идёт последним: он ловит сообщения из супергруппы,
