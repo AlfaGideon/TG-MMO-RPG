@@ -215,6 +215,10 @@ REGISTRY = [
             browser=["engine/siege.py"],
             server=["core/worldevents.py", "bot/handlers/location.py",
                     "admin/templates/editor_living.html"]),
+
+    Feature("Дом героя",
+            browser=["engine/homestead.py", "engine/stash.py"],
+            server=["core/homestead.py", "bot/handlers/inventory.py"]),
 ]
 
 

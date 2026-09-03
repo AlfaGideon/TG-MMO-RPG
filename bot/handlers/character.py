@@ -30,7 +30,8 @@ async def _profile_extra(session, character):
     bag = await session.scalar(
         select(func.count(InventoryItem.id))
         .where(InventoryItem.character_id == character.id)
-        .where(InventoryItem.in_stash == False)  # noqa: E712
+        .where(InventoryItem.in_stash == False)   # noqa: E712
+        .where(InventoryItem.in_home == False)    # noqa: E712
     ) or 0
     stash = await session.scalar(
         select(func.count(InventoryItem.id))

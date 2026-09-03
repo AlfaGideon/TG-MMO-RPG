@@ -607,17 +607,29 @@ def inventory_hub_keyboard(counts: dict):
     builder.button(
         text=f"🔒 Карман ({counts.get('stash', 0)}/{counts.get('stash_cap', 0)})",
         callback_data="inv_sec:stash:0")
+    builder.button(
+        text=f"🏠 Дом ({counts.get('home', 0)}/{counts.get('home_cap', 0)})",
+        callback_data="inv_sec:home:0")
     builder.button(text="🏠 Меню", callback_data="main_menu")
     builder.adjust(1)
     return builder.as_markup()
 
 
 def inventory_section_keyboard(items: list, section: str, page: int = 0,
-                               per_page: int = 6):
-    """Список одного отделения. Открытие вещи ведёт в книгу предметов."""
+                               per_page: int = 6, header_buttons=None):
+    """Список одного отделения. Открытие вещи ведёт в книгу предметов.
+
+    `header_buttons` — дополнительные кнопки над списком: так в
+    отделении дома живут «осесть» и «надстроить», не связанные с
+    конкретной вещью.
+    """
     builder = InlineKeyboardBuilder()
     start = page * per_page
     chunk = items[start:start + per_page]
+
+    head = list(header_buttons or [])
+    for text, cb in head:
+        builder.button(text=text, callback_data=cb)
 
     for idx, inv_item in enumerate(chunk, start=start):
         eq = "✅ " if inv_item.is_equipped else ""
@@ -632,7 +644,7 @@ def inventory_section_keyboard(items: list, section: str, page: int = 0,
             text=f"{eq}{badge}{icon} {inv_item.display_name()}{qty}",
             callback_data=f"inv_book:{section}:{idx}:{inv_item.id}",
         )
-    rows = [1] * len(chunk)
+    rows = [1] * len(head) + [1] * len(chunk)
 
     nav = 0
     if page > 0:
@@ -654,30 +666,34 @@ def item_book_keyboard(inv_item_id: int, section: str, index: int, total: int,
                        is_equipped: bool = False, can_equip: bool = False,
                        can_use: bool = False, can_sell: bool = False,
                        in_stash: bool = False, can_stash: bool = False,
-                       can_salvage: bool = False, can_pawn: bool = False):
+                       can_salvage: bool = False, can_pawn: bool = False,
+                       in_home: bool = False, can_home: bool = False):
     """Книга предметов: карточка вещи + листание соседних страниц."""
     builder = InlineKeyboardBuilder()
     rows = []
 
     actions = 0
-    if can_equip and not in_stash:
+    # Дом — тот же сейф, что и карман: пока вещь в сундуке, её нельзя
+    # надеть, продать или заложить — сначала достань.
+    locked = in_stash or in_home
+    if can_equip and not locked:
         if is_equipped:
             builder.button(text="🟡 🚫 Снять", callback_data=f"unequip:{inv_item_id}")
         else:
             builder.button(text="🟢 ✅ Экипировать", callback_data=f"equip:{inv_item_id}")
         actions += 1
-    if can_use and not in_stash:
+    if can_use and not locked:
         builder.button(text="🔵 🧪 Использовать", callback_data=f"use:{inv_item_id}")
         actions += 1
-    if can_sell and not is_equipped and not in_stash:
+    if can_sell and not is_equipped and not locked:
         builder.button(text="🟣 ⚖️ На аукцион", callback_data=f"auction_sell:{inv_item_id}")
         actions += 1
     # Разбор на материалы (core/salvage.py) и залог у ростовщика
     # (core/pawnshop.py) — только для своей, не надетой и не спрятанной вещи.
-    if can_salvage and not is_equipped and not in_stash:
+    if can_salvage and not is_equipped and not locked:
         builder.button(text="🟠 🔧 Разобрать", callback_data=f"salvage:{inv_item_id}")
         actions += 1
-    if can_pawn and not is_equipped and not in_stash:
+    if can_pawn and not is_equipped and not locked:
         builder.button(text="⚫️ 💍 Заложить", callback_data=f"pawn:{inv_item_id}")
         actions += 1
     if in_stash:
@@ -688,7 +704,15 @@ def item_book_keyboard(inv_item_id: int, section: str, index: int, total: int,
         builder.button(text="🟢 🔒 Убрать в карман",
                        callback_data=f"stash_put:{inv_item_id}")
         actions += 1
-    if not in_stash and not is_equipped:
+    if in_home:
+        builder.button(text="🏠 🎒 Достать из сундука",
+                       callback_data=f"home_take:{inv_item_id}")
+        actions += 1
+    elif can_home:
+        builder.button(text="🏠 Отнести в сундук",
+                       callback_data=f"home_put:{inv_item_id}")
+        actions += 1
+    if not locked and not is_equipped:
         builder.button(text="🔴 🗑 Выбросить", callback_data=f"drop:{inv_item_id}")
         actions += 1
     if actions:

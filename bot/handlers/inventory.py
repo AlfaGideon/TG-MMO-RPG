@@ -4,6 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from core import history
+from core import homestead as core_home
 from core import stash as stash_core
 from core.database import async_session
 from core.models import (User, Character, InventoryItem, Item, ItemInstance,
@@ -91,6 +92,7 @@ SECTIONS = {
     "bag": "🎒 Сумка · предметы",
     "mat": "🧱 Сумка · материалы",
     "stash": "🔒 Карман",
+    "home": "🏠 Дом",
 }
 
 SECTION_HINTS = {
@@ -99,6 +101,8 @@ SECTION_HINTS = {
     "mat": "Сырьё для ремесла: само по себе бесполезно, в кузне — незаменимо.",
     "stash": "Защищённый карман: эти вещи переживут смерть. "
              "Перекладывать можно только в безопасных землях.",
+    "home": "Домашний сундук: тоже переживёт гибель, но вместительнее "
+            "кармана и открывается только у своих дверей.",
 }
 
 
@@ -108,9 +112,11 @@ def split_sections(items) -> dict:
     Одна общая простыня мешала: надетое, руда и спрятанное в карман шли
     вперемешку, и найти нужное оружие было делом случая.
     """
-    buckets = {"gear": [], "bag": [], "mat": [], "stash": []}
+    buckets = {"gear": [], "bag": [], "mat": [], "stash": [], "home": []}
     for inv in items:
-        if inv.in_stash:
+        if getattr(inv, "in_home", False):
+            buckets["home"].append(inv)
+        elif inv.in_stash:
             buckets["stash"].append(inv)
         elif inv.is_equipped:
             buckets["gear"].append(inv)
@@ -141,6 +147,7 @@ async def inventory(callback: CallbackQuery):
 
     counts = {k: len(v) for k, v in buckets.items()}
     counts["stash_cap"] = cap
+    counts["home_cap"] = core_home.capacity_for(character)
 
     lines = [
         "🎒 <b>Снаряжение героя</b>",
@@ -189,11 +196,21 @@ async def inventory_section(callback: CallbackQuery):
         items = await load_inventory(session, character.id)
         bucket = split_sections(items)[section]
         cap = await stash_core.capacity(session, character)
+        # Дом: состояние считаем здесь же — вне сессии БД не тронуть.
+        hst = (await core_home.home_state(session, character)
+               if section == "home" else None)
         from core import ui_images
         inventory_img = await ui_images.get(session, "inventory")
 
     title = SECTIONS[section]
-    if section == "stash":
+    header = []
+    if hst is not None:
+        title += f" ({hst['count']}/{hst['capacity']})"
+        if not hst["settled"]:
+            header.append((f"🏠 Оселиться здесь ({hst['next_cost']}🟤)", "home_buy"))
+        elif hst["next_cost"]:
+            header.append((f"⬆️ Надстроить ({hst['next_cost']}🟤)", "home_up"))
+    elif section == "stash":
         title += f" ({len(bucket)}/{cap})"
     else:
         title += f" ({len(bucket)})"
@@ -208,7 +225,8 @@ async def inventory_section(callback: CallbackQuery):
     await send_or_edit_photo(
         callback,
         text,
-        reply_markup=inventory_section_keyboard(bucket, section, page=page),
+        reply_markup=inventory_section_keyboard(bucket, section, page=page,
+                                                header_buttons=header),
         image_url=inventory_img,
         parse_mode="HTML",
     )
@@ -278,8 +296,12 @@ async def inventory_book(callback: CallbackQuery):
         location = await session.get(Location, character.location_id)
         can_stash = (stash_core.safe_here(location)
                      and await stash_core.free_slots(session, character) > 0)
+        can_home = inv_item.in_home or (core_home.at_home(character)
+                                        and await core_home.free(session, character) > 0)
         if inv_item.in_stash:
             text += "\n\n🔒 <i>В защищённом кармане — не теряется при гибели.</i>"
+        elif getattr(inv_item, "in_home", False):
+            text += "\n\n🏠 <i>В домашнем сундуке — цел и невредим дома.</i>"
         elif not stash_core.safe_here(location):
             text += "\n\n<i>Карман открывается только в безопасных землях.</i>"
 
@@ -297,6 +319,7 @@ async def inventory_book(callback: CallbackQuery):
             can_equip=can_equip, can_use=can_use, can_sell=can_sell,
             in_stash=bool(inv_item.in_stash), can_stash=can_stash,
             can_salvage=can_salvage, can_pawn=can_pawn,
+            in_home=bool(inv_item.in_home), can_home=can_home,
         ),
         image_url=(item.image_url or inventory_img) if item else inventory_img,
     )
@@ -365,6 +388,76 @@ async def stash_take(callback: CallbackQuery):
     await callback.answer(msg, show_alert=not ok)
     if ok:
         await item_detail(callback)
+
+
+@router.callback_query(F.data == "home_buy")
+async def home_buy(callback: CallbackQuery):
+    """Осесть: дом привязывается к текущей безопасной локации."""
+    async with async_session() as session:
+        character = await _character_of(session, callback.from_user.id)
+        if character is None:
+            await callback.answer("Сначала создай персонажа!", show_alert=True)
+            return
+        ok, msg = await core_home.settle(session, character)
+        await session.commit()
+    await callback.answer(msg, show_alert=not ok)
+    if ok:
+        await _show_home(callback)
+
+
+@router.callback_query(F.data == "home_up")
+async def home_upgrade(callback: CallbackQuery):
+    """Надстройка: следующий уровень дома за бронзу."""
+    async with async_session() as session:
+        character = await _character_of(session, callback.from_user.id)
+        if character is None:
+            await callback.answer("Сначала создай персонажа!", show_alert=True)
+            return
+        ok, msg = await core_home.upgrade(session, character)
+        await session.commit()
+    await callback.answer(msg, show_alert=not ok)
+    if ok:
+        await _show_home(callback)
+
+
+@router.callback_query(F.data.startswith("home_put:"))
+async def home_put(callback: CallbackQuery):
+    """Вещь → домашний сундук (только у своих дверей)."""
+    inv_id = int(callback.data.split(":")[1])
+    async with async_session() as session:
+        character = await _character_of(session, callback.from_user.id)
+        inv_item = await session.get(InventoryItem, inv_id)
+        if character is None or inv_item is None:
+            await callback.answer("Предмет не найден.", show_alert=True)
+            return
+        ok, msg = await core_home.put(session, character, inv_item)
+        await session.commit()
+    await callback.answer(msg, show_alert=not ok)
+    if ok:
+        await item_detail(callback)
+
+
+@router.callback_query(F.data.startswith("home_take:"))
+async def home_take(callback: CallbackQuery):
+    """Сундук → сумка."""
+    inv_id = int(callback.data.split(":")[1])
+    async with async_session() as session:
+        character = await _character_of(session, callback.from_user.id)
+        inv_item = await session.get(InventoryItem, inv_id)
+        if character is None or inv_item is None:
+            await callback.answer("Предмет не найден.", show_alert=True)
+            return
+        ok, msg = await core_home.take(session, character, inv_item)
+        await session.commit()
+    await callback.answer(msg, show_alert=not ok)
+    if ok:
+        await item_detail(callback)
+
+
+async def _show_home(callback: CallbackQuery):
+    """Перерисовать отделение дома после покупки/надстройки."""
+    callback.data = "inv_sec:home:0"
+    await inventory_section(callback)
 
 
 @router.callback_query(F.data.startswith("equip:"))

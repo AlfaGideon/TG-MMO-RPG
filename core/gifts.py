@@ -53,6 +53,7 @@ async def giftable_items(session, character) -> list[InventoryItem]:
         .where(InventoryItem.character_id == character.id)
         .where(InventoryItem.is_equipped == False)  # noqa: E712
         .where(InventoryItem.in_stash == False)    # noqa: E712
+        .where(InventoryItem.in_home == False)      # noqa: E712
         .order_by(InventoryItem.id)
     )).scalars().all()
     out = []
@@ -73,9 +74,9 @@ async def gift_item(session, sender, recipient, inv_item: InventoryItem,
         return {"ok": False, "reason": "Эта вещь тебе не принадлежит."}
     if inv_item.is_equipped:
         return {"ok": False, "reason": "Сначала сними предмет."}
-    if inv_item.in_stash:
-        return {"ok": False, "reason": "Из защищённого кармана не дарят — "
-                                       "сначала достань в сумку."}
+    if inv_item.in_stash or inv_item.in_home:
+        return {"ok": False, "reason": "Вещь спрятана в кармане или сундуке "
+                                       "— сначала достань в сумку."}
     # Item/Instance подгружаем явно: в async-сессии ленивая загрузка
     # вне зелёного контекста — это MissingGreenlet, а не «типа работает».
     item = inv_item.item if "item" in inv_item.__dict__ \

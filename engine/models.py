@@ -76,6 +76,11 @@ class Player:
     y: int = 5
     inventory: list = field(default_factory=list)   # сумка: теряется при смерти
     stash: list = field(default_factory=list)       # защищённый карман: цел всегда
+    # Дом героя (engine/homestead.py): якорь и самый вместительный
+    # сейф. Сундук доступен, только когда p.loc == home_loc.
+    home: list = field(default_factory=list)        # содержимое сундука
+    home_loc: int = -1                              # где осел, -1 — нигде
+    house_level: int = 0                            # 0 — дома нет, 1..3 — уровень
     equipped: dict = field(default_factory=dict)    # {slot: item_index}
     magic: list = field(default_factory=list)       # [(школа, ступень), ...]
     worn: dict = field(default_factory=dict)        # {slot: uid экземпляра}

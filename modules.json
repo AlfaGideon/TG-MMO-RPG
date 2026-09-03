@@ -60,6 +60,7 @@
     "engine/adminroute.py",
     "engine/itemui.py",
     "engine/stash.py",
+    "engine/homestead.py",
     "engine/landmarks.py",
     "engine/dungeon.py",
     "engine/dungeonui.py",

@@ -2,7 +2,7 @@
 import random
 
 from engine import (adminbot, adminroute, behavior, cataclysm, combat, data,
-                    progress, siege, social_ui,
+                    homestead, progress, siege, social_ui,
                     explore, hero, inventory, items, mapview, merchant,
                     respawn, rules, shop, social, stash, texts, trade, world)
 from engine.models import Reply
@@ -237,6 +237,7 @@ class Game:
         if alarm:
             rows.insert(0, [("🌋 Что происходит?", "disaster")])
         siege.button(self.store, p, rows)     # 🔥 вход в осаду под ногами
+        homestead.button(self.store, p, rows)  # 🏠 свой порог виден сразу
         here = mapview.others_here(self.store, p, p.loc, p.x, p.y)
         reply = Reply(text=texts.cell_view(p, cell, alarm, here), keyboard=rows)
         if merchant.at(self.store, p.loc):
@@ -381,8 +382,7 @@ class Game:
     def do_chest(self, p, arg=""):
         return explore.chest(p, self._cell(p), self.store)
 
-    def do_rest(self, p, arg=""):
-        return explore.rest(p, self.store)
+    do_rest = lambda self, p, arg="": explore.rest(p, self.store)
 
     # ── инвентарь (реализация в engine/inventory.py) ────────
     # Сумка и экипировка: обёртки над engine/inventory.py.
@@ -430,6 +430,7 @@ class Game:
     do_ghostbuy = lambda self, p, arg="": progress.ghost_buy(self.store, p, arg)
     do_legends = lambda self, p, arg="": progress.legends_screen(self.store)
     do_siege = lambda self, p, arg="": siege.play(self.store, p, arg)
+    do_house = lambda self, p, arg="": homestead.play(self.store, p, arg)
     do_pawn = lambda self, p, arg="": progress.pawn_screen(self.store, p)
     do_pawnput = lambda self, p, arg="": progress.pawn_item(self.store, p, arg)
     do_pawnback = lambda self, p, arg="": progress.pawn_redeem(self.store, p, arg)
@@ -464,8 +465,7 @@ class Game:
     do_study = lambda self, p, arg="": social.study(self.store, p, self._cell(p))
 
     # ── защищённый карман ───────────────────────────────────
-    def do_stash(self, p, arg=""):
-        return social.stash_view(self.store, p)
+    do_stash = lambda self, p, arg="": social.stash_view(self.store, p)
 
     def do_stput(self, p, arg):
         return social.stash_put(self.store, p, arg)
