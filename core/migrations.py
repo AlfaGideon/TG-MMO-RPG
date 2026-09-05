@@ -174,6 +174,21 @@ async def run_migrations():
             if "in_stash" not in cols:
                 await conn.execute(text(
                     "ALTER TABLE inventory_items ADD COLUMN in_stash BOOLEAN DEFAULT 0"))
+            if "in_home" not in cols:
+                await conn.execute(text(
+                    "ALTER TABLE inventory_items ADD COLUMN in_home BOOLEAN DEFAULT 0"))
+
+        # Дом героя: уровень особняка и якорь — локация, где герой осел.
+        if "characters" in tables:
+            cols_result = await conn.execute(text("PRAGMA table_info(characters)"))
+            cols = {row[1] for row in cols_result.fetchall()}
+            if "house_level" not in cols:
+                await conn.execute(text(
+                    "ALTER TABLE characters ADD COLUMN house_level INTEGER DEFAULT 0"))
+            if "home_location_id" not in cols:
+                await conn.execute(text(
+                    "ALTER TABLE characters ADD COLUMN home_location_id "
+                    "INTEGER REFERENCES locations(id)"))
 
         # Add missing columns to users
         if "users" in tables:

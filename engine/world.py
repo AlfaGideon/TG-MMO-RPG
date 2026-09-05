@@ -55,6 +55,7 @@ SEEDS = [
     ("chests",    "📦 Сундуки",    "где лежит добыча",                  389),
     ("npc",       "💬 NPC",        "места жителей в безопасных землях", 769),
     ("cataclysm", "🌋 Катаклизмы", "череда бедствий и их размах",       1543),
+    ("siege",     "🔥 Осады",      "кто и какой замок идёт стеной",     2521),
 ]
 SEED_KEYS = [k for k, _, _, _ in SEEDS]
 SEED_LABELS = {k: lbl for k, lbl, _, _ in SEEDS}
@@ -473,7 +474,6 @@ def _populate(cells, rnd, locs=None, seeds=None, sizes=None):
             chest_rnd.shuffle(spots)
             for c in spots[:5]:
                 c.chest = True
-
 
 
 def cell_at(cells, loc, x, y, floor=0):

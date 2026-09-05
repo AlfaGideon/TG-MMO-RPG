@@ -274,6 +274,10 @@ class Character(Base):
     boots_id = Column(Integer, ForeignKey("items.id"), nullable=True)
     accessory_id = Column(Integer, ForeignKey("items.id"), nullable=True)
 
+    # Дом героя (IDEAS-next № 8): уровень и место, где герой осел.
+    # Числа сундуков и лечения — engine/homestead.py, общие со стеком A.
+    house_level = Column(Integer, default=0)
+    home_location_id = Column(Integer, ForeignKey("locations.id"), nullable=True)
     is_vip = Column(Boolean, default=False)
     vip_until = Column(DateTime(timezone=True), nullable=True)
     # VIP may temporarily leave the world while remaining completely immune.
@@ -730,6 +734,9 @@ class InventoryItem(Base):
     # Защищённый карман: такие вещи не выпадают при гибели. Ячеек мало
     # (см. core/stash.py), поэтому игрок выбирает, что беречь.
     in_stash = Column(Boolean, default=False, index=True)
+    # Домашний сундук (engine/homestead.py): тоже цел при гибели, но
+    # открыть можно только стоя у своего дома.
+    in_home = Column(Boolean, default=False, index=True)
 
     character = relationship("Character", back_populates="inventory")
     item = relationship("Item")

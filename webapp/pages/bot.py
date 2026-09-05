@@ -20,11 +20,22 @@ def _transport_block(ctx):
     opts = "".join(
         f"<option value='{k}'{' selected' if k == mode else ''}>{esc(v)}</option>"
         for k, v in MODE_LABELS.items())
+    # Честное предупреждение о цене релея: токен едет в URL чужому серверу.
+    relay_warn = ""
+    if mode != "direct":
+        relay_warn = (
+            "<div class=\"hint warn\">⚠️ Режим релея отправляет токен бота "
+            "вместе с запросом третьим сторонам (провайдер прокси видит его в "
+            "URL и может сохранить). Считай токен известным владельцу релея: "
+            "держи отдельного бота под такой режим и умей отозвать его у "
+            "@BotFather. Безопаснее — «Напрямую» или свой собственный релей."
+            "</div>")
     return f"""
 <div class="card">
   <h2>🔀 Транспорт до Telegram</h2>
   <div class="hint warn">С осени 2025 Telegram отклоняет запросы с браузерным
     User-Agent. Если «Напрямую» не работает — выбери прокси-релей и проверь токен снова.</div>
+  {relay_warn}
   <div class="row">
     <div><label>Режим</label><select id="proxyMode">{opts}</select></div>
     <div style="flex:2"><label>Свой прокси (префикс URL)</label>

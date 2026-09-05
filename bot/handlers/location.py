@@ -1811,8 +1811,10 @@ async def caravan_act_callback(callback: CallbackQuery):
     )
 
 
-@router.callback_query(F.data == "siege_menu")
-async def siege_menu_callback(callback: CallbackQuery):
+async def _siege_screen(callback: CallbackQuery):
+    """Экран осады с ролью героя и кнопкой удара (правила — engine/siege)."""
+    from core import worldevents as core_worldevents
+
     async with async_session() as session:
         char = (await session.execute(
             select(Character).join(User).where(User.telegram_id == callback.from_user.id)
@@ -1820,23 +1822,67 @@ async def siege_menu_callback(callback: CallbackQuery):
         if not char or not char.location_id:
             await callback.answer("Ошибка.", show_alert=True)
             return
+        st = await core_worldevents.siege_state(session, char)
+    if not st["ok"]:
+        await callback.answer("Осада снята — стена устояла.", show_alert=True)
+        return
 
-        from core import worldevents as core_worldevents
-        sieges = await core_worldevents.active_sieges(session, char.location_id)
-        if not sieges:
-            await callback.answer("Осада снята.", show_alert=True)
-            return
-
-        s = sieges[0]
-        text = (
-            "🔥 <b>Осада Цитадели!</b>\n\n"
-            f"Вражеские осадные орудия бьют по главным воротам замка!\n"
-            f"Осадная мощь: <b>{s.hp}/{s.max_hp}</b> HP\n\n"
-            "<i>Защити ворота своей цитадели или добей укрепления врагов!</i>"
-        )
+    from engine import factions as engine_factions
+    atk = engine_factions.FACTIONS.get(st["attacker"], ("⚔️", st["attacker"]))
+    side = (f"{atk[1]} штурмует — ты бьёшь по воротам"
+            if st["role"] == "assault"
+            else f"{atk[1]} бьёт по воротам — ты держишь стену")
+    text = (
+        "🔥 <b>Осада Цитадели!</b>\n\n"
+        f"Замок: <b>{st['castle']}</b>\n"
+        f"{atk[0]} Врата: <b>{st['hp']}/{st['max_hp']}</b> · "
+        f"ещё {st['left_min']} мин\n\n"
+        f"<i>{side}.</i>"
+    )
     builder = InlineKeyboardBuilder()
+    if st["cooldown"] > 0:
+        builder.button(text=f"⏳ Отдышись: {st['cooldown']} с",
+                       callback_data="siege_menu")
+    else:
+        builder.button(text="⚔️ Бить по воротам" if st["role"] == "assault"
+                       else "🛡 Чинить ворота", callback_data="siege_hit")
     builder.button(text="◀️ Назад", callback_data="inspect")
-    await safe_edit_text(callback, text, reply_markup=builder.as_markup(), parse_mode="HTML")
+    builder.adjust(1)
+    await safe_edit_text(callback, text, reply_markup=builder.as_markup(),
+                         parse_mode="HTML")
+
+
+@router.callback_query(F.data == "siege_menu")
+async def siege_menu_callback(callback: CallbackQuery):
+    await _siege_screen(callback)
+
+
+@router.callback_query(F.data == "siege_hit")
+async def siege_hit_callback(callback: CallbackQuery):
+    """Удар по воротам или починка — раз в минуту (core/worldevents)."""
+    from core import worldevents as core_worldevents
+
+    async with async_session() as session:
+        char = (await session.execute(
+            select(Character).join(User).where(User.telegram_id == callback.from_user.id)
+        )).scalar_one_or_none()
+        if not char:
+            await callback.answer("Ошибка.", show_alert=True)
+            return
+        res = await core_worldevents.siege_hit(session, char)
+        await session.commit()
+
+    if not res.get("ok"):
+        await callback.answer(res.get("reason", "Не вышло."), show_alert=True)
+        return
+    parts = [("💥 Удар нанёс " if res["role"] == "assault" else "🛡 Починка +")
+             + str(res["roll"]),
+             f"🪙 +{res['gold']}🟤", f"⭐ репутация +{res['rep']}"]
+    if res["outcome"] == "captured":
+        parts.append("⚡ ЗАМОК ПАЛ — осада завершена!")
+    await callback.answer(" · ".join(parts), show_alert=True)
+    if res["outcome"] != "captured":
+        await _siege_screen(callback)
 
 
 @router.callback_query(F.data.startswith("sabotage_menu:"))

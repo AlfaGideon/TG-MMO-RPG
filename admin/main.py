@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 import random
 import logging
@@ -172,6 +173,21 @@ def paginate(total: int, page: int, per_page: int):
     }
 
 
+def _script_json(obj) -> str:
+    """json.dumps, безопасный для вставки в <script>…</script> страницы.
+
+    Автоэкранирование Jinja внутри <script> не работает (браузер не
+    разворачивает сущности в JS), поэтому такие места в шаблонах идут через
+    `| safe`. Чтобы строка вида `</script><script>…`, которую админ может
+    записать в имя слота, не «вылезала» из скриптового контекста, закрывающий
+    `</` заменяем на `<` + косая черта с экранированием — для JSON/JS это
+    тот же символ `/`.
+    """
+    import json as _json
+
+    return _json.dumps(obj, ensure_ascii=False).replace("</", "<\\/")
+
+
 def apply_sort(query, model, sort: str, order: str, default=("id", "desc")):
     """Применяет сортировку к SQLAlchemy-запросу."""
     allowed = {c.name for c in model.__table__.columns}
@@ -264,6 +280,57 @@ class RoleMiddleware:
 
 
 app.add_middleware(RoleMiddleware)
+
+
+class CsrfOriginMiddleware:
+    """Проверка same-origin для всех небезопасных методов (POST/PUT/PATCH/DELETE).
+
+    Зачем: панель считает «нет cookie — это владелец» и не использует
+    CSRF-токены. Для статичного хостинга это нормально, но локальный запуск
+    (localhost:8000) или публичный туннель — нет: произвольный сайт в
+    браузере админа мог послать форму на панель и получить действия владельца
+    (смену токена, рассылку, удаление). Браузер обязан добавлять Origin у
+    кросс-сайтовых POST, а форма панели приносит Origin/Referer своего же
+    origin — сравниваем их с Host. Заголовков нет вовсе — не-браузерный
+    клиент (тесты, curl, интеграции): пропускаем, ломать их нельзя.
+    """
+
+    _UNSAFE = {"POST", "PUT", "PATCH", "DELETE"}
+
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send):
+        if scope["type"] != "http" or scope.get("method") not in self._UNSAFE:
+            await self.app(scope, receive, send)
+            return
+
+        headers = {}
+        for name, value in scope.get("headers", []):
+            headers[name.decode("latin-1").lower()] = value.decode("latin-1")
+
+        host = headers.get("host", "")
+        source = headers.get("origin", "") or headers.get("referer", "")
+        if source:
+            from urllib.parse import urlsplit
+
+            netloc = urlsplit(source).netloc
+            if netloc and netloc.lower() != host.lower():
+                await self._send_forbidden(send)
+                return
+        await self.app(scope, receive, send)
+
+    @staticmethod
+    async def _send_forbidden(send: Send):
+        body = ('{"detail":"Межсайтовый запрос отклонён: отправьте форму '
+                'со страницы панели."}').encode("utf-8")
+        await send({"type": "http.response.start", "status": 403,
+                    "headers": [(b"content-type", b"application/json; charset=utf-8"),
+                                (b"content-length", str(len(body)).encode())]})
+        await send({"type": "http.response.body", "body": body})
+
+
+app.add_middleware(CsrfOriginMiddleware)
 
 
 @app.exception_handler(HTTPException)
@@ -365,6 +432,26 @@ async def admin_login_page(request: Request, uid: str = ""):
     return templates.TemplateResponse(request, "login.html", {"uid": uid, "error": None})
 
 
+def _is_https(request: Request) -> bool:
+    """Панель за TLS (хостинг, туннель) — cookie тогда только по https."""
+    proto = request.headers.get("x-forwarded-proto", "") or request.url.scheme
+    return proto.split(",")[0].strip().lower() == "https"
+
+
+def _login_bucket(request: Request, uid: str) -> str:
+    """Ключ троттлинга: логин + клиент. IP берём с осторожностью — за
+    прокси он в X-Forwarded-For, но заголовок подделываем, поэтому ключ
+    только «смягчает» перебор, а не является средством защиты."""
+    ip = ""
+    fwd = request.headers.get("x-forwarded-for", "")
+    if fwd:
+        ip = fwd.split(",")[0].strip()
+    else:
+        client = getattr(request, "client", None)
+        ip = client.host if client else ""
+    return f"{uid}|{ip}"
+
+
 @app.post("/admin-login")
 async def admin_login_submit(request: Request, uid: str = Form(...), password: str = Form(...)):
     try:
@@ -372,6 +459,16 @@ async def admin_login_submit(request: Request, uid: str = Form(...), password: s
     except ValueError:
         return templates.TemplateResponse(
             request, "login.html", {"uid": uid, "error": "Некорректный Telegram ID."}
+        )
+
+    bucket = _login_bucket(request, uid)
+    wait = webauth.login_retry_after(bucket)
+    if wait:
+        return templates.TemplateResponse(
+            request, "login.html",
+            {"uid": uid, "error": f"Слишком много неудачных попыток. "
+                                   f"Повторите через {max(1, wait // 60)} мин."},
+            status_code=429,
         )
 
     async with async_session() as session:
@@ -386,15 +483,18 @@ async def admin_login_submit(request: Request, uid: str = Form(...), password: s
         or not user.web_admin_password_hash
         or not webauth.verify_password(password, user.web_admin_password_hash)
     ):
+        webauth.note_login_failure(bucket)
         return templates.TemplateResponse(
             request, "login.html", {"uid": uid, "error": "Неверный Telegram ID или пароль."}
         )
 
+    webauth.clear_login_failures(bucket)
     token = webauth.make_session_token(user.id, user.web_admin_role or "viewer")
     resp = RedirectResponse(url="/", status_code=303)
     resp.set_cookie(
         webauth.COOKIE_NAME, token,
         max_age=webauth.SESSION_MAX_AGE, httponly=True, samesite="lax",
+        secure=_is_https(request),
     )
     return resp
 
@@ -786,15 +886,42 @@ async def player_detail(request: Request, char_id: int):
     )
 
 
+# Загружать в /static можно только растровые картинки. Расширение из
+# имени файла раньше бралось как есть — .html/.xhtml/.svg в uploads
+# отдавались бы с того же origin и превращали загрузку в XSS панели
+# (svg умеет <script>). Whitelist совпадает с _save_library_upload.
+_ALLOWED_IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+
+
+def _safe_image_ext(filename: str) -> str:
+    ext = os.path.splitext(filename or "")[1].lower()
+    return ext if ext in _ALLOWED_IMAGE_EXT else ".png"
+
+
+def _read_upload_limited(image, limit: int = MAX_UPLOAD_BYTES) -> bytes | None:
+    """Прочитать загруженный файл с потолком размера (защита от забивания
+    диска). None — файл больше лимита."""
+    data = image.file.read(limit + 1)
+    try:
+        image.file.seek(0)
+    except Exception:
+        pass
+    return None if len(data) > limit else data
+
+
 def save_uploaded_image(image: UploadFile, entity_type: str, entity_id: int, fallback_url: str = "") -> str:
     if image and image.filename:
-        ext = os.path.splitext(image.filename)[1] or ".png"
-        filename = f"{entity_type}_{entity_id}{ext}"
+        data = _read_upload_limited(image)
+        if data is None:
+            return ""
+        ext = _safe_image_ext(image.filename)
+        filename = f"{entity_type}_{int(entity_id)}{ext}"
         upload_dir = f"admin/static/uploads/{entity_type}"
         os.makedirs(upload_dir, exist_ok=True)
         filepath = os.path.join(upload_dir, filename)
         with open(filepath, "wb") as f:
-            shutil.copyfileobj(image.file, f)
+            f.write(data)
         return f"/static/uploads/{entity_type}/{filename}"
     elif fallback_url and fallback_url.strip():
         return fallback_url.strip()
@@ -971,9 +1098,14 @@ async def player_inline_edit(
     return JSONResponse({"success": True})
 
 
-@app.get("/player/{char_id}/heal")
+@app.post("/player/{char_id}/heal")
 async def player_heal(request: Request, char_id: int):
-    """Быстрое восстановление HP/MP до максимума."""
+    """Быстрое восстановление HP/MP до максимума.
+
+    Метод специально POST (не GET): изменение состояния недоступно ни
+    картинкой-приманкой с чужого сайта, ни «случайной» ссылкой — и то и
+    другое браузер прислал бы как GET.
+    """
     guard(request, "manage_players")
     async with async_session() as session:
         char = await session.get(Character, char_id)
@@ -2163,7 +2295,8 @@ async def api_bot_stop(request: Request):
 
 
 @app.get("/api/bot/status")
-async def api_bot_status():
+async def api_bot_status(request: Request):
+    guard(request, "view_dash")
     return {
         "running": bot_runner.is_running(),
         "error": bot_runner.last_error,
@@ -4449,6 +4582,9 @@ def _save_library_upload(image: UploadFile, kind: str, ref: str) -> tuple[str, s
     ext = os.path.splitext(image.filename or "")[1].lower() or ".png"
     if ext not in (".jpg", ".jpeg", ".png", ".webp", ".gif"):
         ext = ".png"
+    data = _read_upload_limited(image)
+    if data is None:
+        raise HTTPException(status_code=413, detail="Файл больше 20 МБ — не тянем.")
     safe_kind = "".join(ch for ch in kind if ch.isalnum() or ch in ("_", "-"))[:32] or "misc"
     safe_ref = "".join(ch for ch in str(ref) if ch.isalnum() or ch in ("_", "-"))[:48] or "asset"
     token = uuid4().hex[:12]
@@ -4456,27 +4592,53 @@ def _save_library_upload(image: UploadFile, kind: str, ref: str) -> tuple[str, s
     upload_dir = f"admin/static/uploads/library/{safe_kind}"
     os.makedirs(upload_dir, exist_ok=True)
     with open(os.path.join(upload_dir, filename), "wb") as fh:
-        shutil.copyfileobj(image.file, fh)
+        fh.write(data)
     return f"/static/uploads/library/{safe_kind}/{filename}", (image.filename or filename)[:160]
 
 
 def _faction_crest_path(key: str) -> str:
+    # key приходит из формы (?kind=faction&ref=…): без проверки по каталогу
+    # фракций «../../etc/x» записывал бы файл мимо каталога гербов.
+    from engine.factions import FACTIONS
+
+    if key not in FACTIONS:
+        raise HTTPException(status_code=400, detail="Неизвестная фракция")
     return os.path.join(FACTION_CREST_DIR, f"{key}.jpg")
+
+
+def _faction_crest_backup_path(key: str) -> str:
+    """Резервная копия герба. Тот же whitelist ключей, что и у самого герба:
+    путь собирается из пользовательского `ref` и не должен уходить из папки."""
+    from engine.factions import FACTIONS
+
+    if key not in FACTIONS:
+        raise HTTPException(status_code=400, detail="Неизвестная фракция")
+    return os.path.join(FACTION_CREST_DIR, "_originals", f"{key}.jpg")
 
 
 def _save_faction_crest(key: str, image: UploadFile) -> None:
     """Герб фракции пересохраняется JPEG'ом с прежним именем файла — пути
     в боте (FACTION_IMAGES) менять не нужно. Оригинал один раз откладываем
     в _originals для кнопки «Вернуть оригинал»."""
+    import io
+
     from PIL import Image
 
     target = _faction_crest_path(key)
-    backup = os.path.join(FACTION_CREST_DIR, "_originals", f"{key}.jpg")
+    backup = _faction_crest_backup_path(key)
+    # BytesIO вместо file-объекта: ограничение размера проверяется до
+    # декодирования, иначе «decompression bomb» из 20-мегабайтного PNG
+    # разворачивался в гигабайты пикселей до всякой проверки.
+    data = _read_upload_limited(image)
+    if data is None:
+        raise HTTPException(status_code=413, detail="Файл больше 20 МБ — не тянем.")
     if os.path.isfile(target) and not os.path.isfile(backup):
         os.makedirs(os.path.dirname(backup), exist_ok=True)
         shutil.copyfile(target, backup)
     os.makedirs(FACTION_CREST_DIR, exist_ok=True)
-    Image.open(image.file).convert("RGB").save(target, "JPEG", quality=90)
+    with Image.open(io.BytesIO(data)) as im:
+        im.load()
+        im.convert("RGB").save(target, "JPEG", quality=90)
 
 
 def _img_group(gid: str, title: str, note: str, slots: list) -> dict:
@@ -4683,7 +4845,10 @@ async def editor_images_set(
     has_file, url = bool(image and image.filename), (url or "").strip()
 
     if kind == "faction":
-        backup = os.path.join(FACTION_CREST_DIR, "_originals", f"{ref}.jpg")
+        # ref приходит из формы: обе папки (герб и его резервная копия)
+        # собираются только через валидатор ключей фракции — иначе
+        # "../../etc/x" читал/писал бы файлы вне каталога.
+        backup = _faction_crest_backup_path(ref)
         if restore and os.path.isfile(backup):
             shutil.copyfile(backup, _faction_crest_path(ref))
         elif has_file:
@@ -5363,6 +5528,13 @@ async def editor_living(request: Request):
 
         cataclysms = await core_events.active_cataclysms(session)
         boss = await core_events.active_boss(session)
+        sieges = (await session.execute(
+            select(WorldEvent)
+            .options(selectinload(WorldEvent.location))
+            .where(WorldEvent.kind == "siege")
+            .where(WorldEvent.is_active == True)  # noqa: E712
+            .order_by(WorldEvent.id.desc())
+        )).scalars().all()
 
         result = await session.execute(select(Grave))
         graves = result.scalars().all()
@@ -5417,6 +5589,8 @@ async def editor_living(request: Request):
             "cataclysm_kinds": core_events.KINDS,
             "cataclysm_order": core_events.ORDER,
             "boss": boss,
+            "sieges": sieges,
+            "siege_rules": core_events.SIEGE_RULES,
             "boss_kinds": core_events.BOSSES,
             "boss_order": core_events.BOSS_ORDER,
             "graves": graves,
@@ -5450,6 +5624,36 @@ async def living_cataclysm(request: Request, key: str = Form(...),
                 float(hours) if hours.strip() else None)
         except ValueError:
             pass
+        await session.commit()
+    return RedirectResponse(url="/editor/living", status_code=303)
+
+
+@app.post("/editor/living/siege")
+async def living_siege(request: Request, location_id: str = Form(...),
+                       attacker: str = Form(...), hours: str = Form("")):
+    """Начать осаду замка фракцией (правила и дефолты — engine/siege.py)."""
+    guard(request, "manage_content")
+    from core import worldevents as core_events
+
+    async with async_session() as session:
+        try:
+            await core_events.siege_begin(
+                session, int(location_id), attacker,
+                float(hours) if hours.strip() else None)
+        except (ValueError, TypeError):
+            pass
+        await session.commit()
+    return RedirectResponse(url="/editor/living", status_code=303)
+
+
+@app.post("/editor/living/siege/{event_id}/end")
+async def living_siege_end(request: Request, event_id: int):
+    """Снять осаду вручную (осада идёт на время, но владельцу можно быстрее)."""
+    guard(request, "manage_content")
+    async with async_session() as session:
+        ev = await session.get(WorldEvent, event_id)
+        if ev is not None and ev.kind == "siege":
+            ev.is_active = False
         await session.commit()
     return RedirectResponse(url="/editor/living", status_code=303)
 
@@ -6214,25 +6418,62 @@ async def settings_sql_page(request: Request):
     return templates.TemplateResponse(request, "settings_sql.html", {"rows": None, "cols": [], "query": "", "error": None})
 
 
+SQL_MAX_ROWS = 1000
+
+# Блокировка не только DML-слов, но и функций, которыми «SELECT» превращается
+# в запись/DoS/чтение ФС (pg_sleep, большие объекты, dblink, SQLite pragma).
+# Это только страховка: главный запрет выдаёт сама СУБД через read-only
+# транзакцию ниже.
+_SQL_FORBIDDEN = re.compile(
+    r"\b(drop|delete|update|insert|alter|create|truncate|replace|attach|detach|"
+    r"pragma[\w.]*|vacuum|reindex|grant|revoke|copy|call|exec|execute|listen|notify|"
+    r"refresh|checkpoint|set|reset|into|load|pg_read_file|pg_ls_dir|pg_stat_file|"
+    r"pg_sleep|pg_read_binary_file|pg_terminate_backend|pg_cancel_backend|"
+    r"pg_switch_wal|lo_import|lo_export|lo_get|lo_put|dblink|query_to_xml|"
+    r"sleep|benchmark|load_file|outfile|dumpfile)\b", re.I)
+
+
 @app.post("/settings/sql")
 async def settings_sql_run(request: Request, query: str = Form("")):
     guard(request, "settings")
-    import re
-
-    q = (query or "").strip()
-    forbidden = re.compile(r"\b(drop|delete|update|insert|alter|create|truncate|replace)\b", re.I)
+    q = (query or "").strip().rstrip(";").strip()
     error = None
     rows = None
     cols = []
 
-    if not q.lower().startswith("select") or forbidden.search(q):
+    if not q.lower().startswith("select") or not re.match(r"^select\s", q, re.I):
         error = "Разрешены только SELECT-запросы."
+    elif ";" in q:
+        error = "Один запрос за раз: точка с запятой запрещена."
+    elif _SQL_FORBIDDEN.search(q):
+        error = "Запрос содержит запрещённое ключевое слово или функцию."
     else:
+        from sqlalchemy import text as sa_text
+        from core.database import DATABASE_URL
+        is_sqlite = DATABASE_URL.startswith("sqlite")
+
         try:
             async with async_session() as session:
-                result = await session.execute(q)
-                cols = list(result.keys())
-                rows = [tuple(row) for row in result.all()]
+                conn = await session.connection()
+                if is_sqlite:
+                    # query_only живёт на соединении: включаем на время
+                    # запроса и гарантированно снимаем (пул переиспользует).
+                    await conn.exec_driver_sql("PRAGMA query_only = ON")
+                else:
+                    # Postgres: транзакция только для чтения + потолок времени.
+                    await session.execute(sa_text("SET LOCAL transaction_read_only = ON"))
+                    await session.execute(sa_text("SET LOCAL statement_timeout = 5000"))
+                try:
+                    result = await session.execute(sa_text(q))
+                    cols = list(result.keys())
+                    rows = [tuple(row) for row in result.fetchmany(SQL_MAX_ROWS)]
+                finally:
+                    if is_sqlite:
+                        try:
+                            await conn.exec_driver_sql("PRAGMA query_only = OFF")
+                        except Exception:
+                            pass
+                await session.rollback()
         except Exception as e:
             error = str(e)
 
@@ -6246,6 +6487,7 @@ async def settings_sql_run(request: Request, query: str = Form("")):
 
 @app.get("/map")
 async def players_map(request: Request):
+    guard(request, "view_players")
     async with async_session() as session:
         result = await session.execute(select(Location).order_by(Location.world_x, Location.world_y))
         locations = result.scalars().all()
@@ -6288,6 +6530,7 @@ async def players_map(request: Request):
 @app.get("/api/live/state")
 async def api_live_state(request: Request):
     """Снапшот для первичной загрузки live-страниц: игроки, порталы, экономика."""
+    guard(request, "view_dash")
     async with async_session() as session:
         # Игроки с позициями
         result = await session.execute(
@@ -6362,12 +6605,14 @@ async def api_live_state(request: Request):
 
 
 @app.get("/api/vip/benefits")
-async def api_vip_benefits():
+async def api_vip_benefits(request: Request):
+    guard(request, "view_dash")
     return {"benefits": VIP.vip_benefits_list()}
 
 
 @app.get("/api/live/portals")
-async def api_live_portals():
+async def api_live_portals(request: Request):
+    guard(request, "view_dash")
     async with async_session() as session:
         result = await session.execute(select(DungeonTemplate).order_by(DungeonTemplate.id))
         from core.dungeons import is_portal_open
@@ -6389,7 +6634,8 @@ async def api_live_portals():
 
 
 @app.get("/api/live/feed")
-async def api_live_feed(limit: int = 60):
+async def api_live_feed(request: Request, limit: int = 60):
+    guard(request, "view_dash")
     """История живой ленты с готовым текстом (пункт № 70).
 
     Форматирование — на сервере (`core/realtime.format_radar_event`), чтобы
@@ -6411,7 +6657,23 @@ async def ws_live(websocket: WebSocket):
     Аннотация WebSocket обязательна: без неё FastAPI считает параметр
     обычным query-полем, не находит его при handshake и отвергает соединение
     HTTP 403 ещё до `accept()`.
+
+    RoleMiddleware пропускает WebSocket, поэтому права проверяем здесь:
+    запрос без cookie — это по-прежнему «владелец» (модель панели), а вот
+    сессию выданного админа сверяем с базой — отозванный доступ не должен
+    продолжать стримить события мира «вечно висящим» соединением.
     """
+    token = websocket.cookies.get(webauth.COOKIE_NAME)
+    if token:
+        session_data = webauth.parse_session_token(token)
+        if not session_data:
+            await websocket.close(code=4401)
+            return
+        async with async_session() as db:
+            user = await db.get(User, session_data[0])
+            if user is None or not user.is_web_admin:
+                await websocket.close(code=4403)
+                return
     await websocket.accept()
     q = await RT.subscribe()
     try:
@@ -6441,6 +6703,7 @@ async def ws_live(websocket: WebSocket):
 @app.get("/api/search")
 async def api_search(request: Request, q: str = ""):
     """Глобальный поиск по игрокам, предметам, мобам и локациям."""
+    guard(request, "view_dash")
     if len(q.strip()) < 2:
         return {"results": {}}
 
@@ -6634,6 +6897,8 @@ async def editor_suggestions_action(
     comment: str = Form(""),
 ):
     guard(request, "manage_content")
+    from html import escape as _esc
+
     async with async_session() as session:
         result = await session.execute(
             select(PlayerSuggestion)
@@ -6650,7 +6915,7 @@ async def editor_suggestions_action(
                 s.status = "taken_in_work"
                 notification_text = (
                     "💡 <b>Твоё предложение взято в работу!</b>\n\n"
-                    f"Идея: <i>«{s.text}»</i>\n\n"
+                    f"Идея: <i>«{_esc(s.text)}»</i>\n\n"
                     "👨‍💻 <b>Ответ разработчиков:</b>\n"
                     "Спасибо за отличную идею! Мы взяли её в работу и уже трудимся над реализацией. Ожидай её в грядущих обновлениях!"
                 )
@@ -6659,7 +6924,7 @@ async def editor_suggestions_action(
                 refusal_reason = comment.strip() or "К сожалению, сейчас мы не можем реализовать эту идею из-за баланса или технических ограничений."
                 notification_text = (
                     "💡 <b>Статус твоего предложения обновлён.</b>\n\n"
-                    f"Идея: <i>«{s.text}»</i>\n\n"
+                    f"Идея: <i>«{_esc(s.text)}»</i>\n\n"
                     "🚫 <b>Отказ:</b>\n"
                     f"{refusal_reason}\n\n"
                     "<i>Спасибо за активность! Мы всё равно ценим любой вклад.</i>"
@@ -6668,7 +6933,7 @@ async def editor_suggestions_action(
                 s.status = "accepted_implemented"
                 notification_text = (
                     "💡 <b>Ура! Твоя идея принята и успешно реализована!</b>\n\n"
-                    f"Идея: <i>«{s.text}»</i>\n\n"
+                    f"Идея: <i>«{_esc(s.text)}»</i>\n\n"
                     "🎉 <b>Статус:</b> Реализовано.\n"
                     "Жди следующих обновлений игры — твоё предложение уже в коде! Спасибо за помощь в развитии Shadow Lands! 👑"
                 )
@@ -6785,11 +7050,9 @@ async def editor_ui_layout_designer(request: Request, layout_id: int):
             "scene_icon": scene["icon"] if scene else "🎨",
             "scene_hint": (scene["hint"] if scene else
                            "Сцена не из каталога: бот такую разметку не ищет."),
-            "scene_slots_json": _json.dumps(UL.scene_slots(layout.key),
-                                            ensure_ascii=False),
-            "slots_json": _json.dumps(slots, ensure_ascii=False),
-            "preset_json": _json.dumps(UL.preset(layout.key, size[0], size[1]),
-                                       ensure_ascii=False),
+            "scene_slots_json": _script_json(UL.scene_slots(layout.key)),
+            "slots_json": _script_json(slots),
+            "preset_json": _script_json(UL.preset(layout.key, size[0], size[1])),
             "img_w": size[0], "img_h": size[1],
         },
     )
@@ -6875,8 +7138,9 @@ async def editor_ui_layout_delete(request: Request, layout_id: int):
 
 # ── API: игроки на конкретной локации (для редактора локаций) ──
 @app.get("/api/location/{location_id}/players")
-async def api_location_players(location_id: int):
+async def api_location_players(request: Request, location_id: int):
     """Список игроков на конкретной локации с этажами для редактора локаций."""
+    guard(request, "view_players")
     async with async_session() as session:
         result = await session.execute(
             select(Character, Cell)

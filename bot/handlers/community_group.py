@@ -34,6 +34,15 @@ GROUP_TYPES = {"group", "supergroup"}
 LIST_LIMIT = 5
 
 
+def _q(text) -> str:
+    """Экран для HTML-ответов в чате: имена, тексты сообщений и цитаты
+    игроков (а также названия, которые админ ввёл без санитайзера) вставляются
+    в parse_mode="HTML" только после экранирования."""
+    from html import escape
+
+    return escape(str(text if text is not None else ""), quote=False)
+
+
 async def _character(session, telegram_id: int):
     return (await session.execute(
         select(Character).join(User).where(User.telegram_id == telegram_id)
@@ -72,7 +81,7 @@ async def cmd_profile(message: Message):
         unlocked = len(core_titles.get_unlocked_titles(char))
 
     lines = [
-        f"🧙 <b>{char.name}</b> — {char.character_class}, ур. {char.level}",
+        f"🧙 <b>{_q(char.name)}</b> — {_q(char.character_class)}, ур. {char.level}",
         f"❤️ {char.current_hp}/{char.max_hp} · "
         f"💪 {char.strength} · 🏃 {char.agility} · 🧠 {char.intelligence}",
         f"{faction[0]} {faction[1]} · {icon} {karma_title}",
@@ -111,11 +120,11 @@ async def cmd_guild(message: Message):
             .order_by(Character.level.desc())
         )).all()
 
-    lines = [f"🏰 <b>{guild.name}</b> — уровень {guild.level or 1}",
+    lines = [f"🏰 <b>{_q(guild.name)}</b> — уровень {guild.level or 1}",
              f"💰 Казна: {guild.treasury_bronze or 0}🟤 · "
              f"👥 Участников: {len(members)}"]
     for name, level in members[:LIST_LIMIT]:
-        lines.append(f"   • {name} <i>(ур. {level})</i>")
+        lines.append(f"   • {_q(name)} <i>(ур. {level})</i>")
     if len(members) > LIST_LIMIT:
         lines.append(f"   <i>…и ещё {len(members) - LIST_LIMIT}</i>")
     await message.reply("\n".join(lines), parse_mode="HTML")
@@ -143,7 +152,7 @@ async def cmd_auction(message: Message):
         await message.reply("⚖️ На аукционе сейчас пусто.")
         return
     lines = ["⚖️ <b>Свежие лоты</b>"]
-    lines += [f"   • {name} — <b>{price}</b>🟤" for name, price in rows]
+    lines += [f"   • {_q(name)} — <b>{price}</b>🟤" for name, price in rows]
     lines.append("<i>Купить можно в боте: меню → ⚖️ Аукцион.</i>")
     await message.reply("\n".join(lines), parse_mode="HTML")
 
@@ -167,7 +176,7 @@ async def cmd_arena(message: Message):
     lines = ["🩸 <b>Колизей Теней</b>"]
     if top:
         for i, sh in enumerate(top, 1):
-            lines.append(f"   {i}. {sh.name} — <b>{sh.arena_rating}</b> "
+            lines.append(f"   {i}. {_q(sh.name)} — <b>{sh.arena_rating}</b> "
                          f"<i>(ур. {sh.level})</i>")
     else:
         lines.append("   <i>Теней пока нет — арена ждёт первого бойца.</i>")
@@ -189,9 +198,9 @@ async def cmd_channels(message: Message):
         mark = {C.ChannelAccess.READONLY.value: " <i>(только игра пишет)</i>",
                 C.ChannelAccess.MEMBERS.value: " <i>(закрытый)</i>"}.get(
                     ch.access, "")
-        lines.append(f"{ch.label()}{mark}")
+        lines.append(f"{_q(ch.label())}{mark}")
         if ch.topic:
-            lines.append(f"   <i>{ch.topic}</i>")
+            lines.append(f"   <i>{_q(ch.topic)}</i>")
     await message.reply("\n".join(lines), parse_mode="HTML")
 
 
@@ -212,7 +221,7 @@ async def cmd_top(message: Message):
     medals = ["🥇", "🥈", "🥉"]
     for i, (name, level, klass) in enumerate(heroes):
         mark = medals[i] if i < len(medals) else f"{i + 1}."
-        lines.append(f"   {mark} {name} — ур. <b>{level}</b> <i>({klass})</i>")
+        lines.append(f"   {mark} {_q(name)} — ур. <b>{level}</b> <i>({klass})</i>")
     await message.reply("\n".join(lines), parse_mode="HTML")
 
 
@@ -231,11 +240,11 @@ async def cmd_digest(message: Message):
     if top:
         lines.append("🗣 <b>Самые говорливые</b>")
         for i, (name, count) in enumerate(top, 1):
-            lines.append(f"   {i}. {name} — <b>{count}</b>")
+            lines.append(f"   {i}. {_q(name)} — <b>{count}</b>")
     if activity:
         lines.append("🔥 <b>Живые каналы</b>")
         for ch, count in activity:
-            lines.append(f"   {ch.label()} — <b>{count}</b>")
+            lines.append(f"   {_q(ch.label())} — <b>{count}</b>")
     await message.reply("\n".join(lines), parse_mode="HTML")
 
 
@@ -263,8 +272,9 @@ async def cmd_pinned(message: Message):
         await message.reply(f"📌 В {channel.label()} ничего не закреплено.")
         return
     who = pin.author_name or "Мир"
-    await message.reply(f"📌 <b>Закреплено в {channel.label()}</b>\n\n"
-                        f"<b>{who}</b>: {pin.text}", parse_mode="HTML")
+    body = pin.text if pin.is_system else _q(pin.text)
+    await message.reply(f"📌 <b>Закреплено в {_q(channel.label())}</b>\n\n"
+                        f"<b>{_q(who)}</b>: {body}", parse_mode="HTML")
 
 
 @router.message(Command("поиск", "search"), F.chat.type.in_(GROUP_TYPES))
@@ -289,14 +299,15 @@ async def cmd_search(message: Message):
     if not results:
         await message.reply(f"🔎 По запросу «{query}» ничего не нашлось.")
         return
-    lines = [f"🔎 <b>Найдено по «{query}»</b>"]
+    lines = [f"🔎 <b>Найдено по «{_q(query)}»</b>"]
     for msg, channel in results:
         who = msg.author_name or ("Мир" if msg.is_system else "Кто-то")
         body = " ".join((msg.text or "").split())
         if len(body) > 70:
             body = body[:69] + "…"
+        body = _q(body) if not msg.is_system else body
         label = channel.label() if channel is not None else "канал"
-        lines.append(f"   {label} · <b>{who}</b>: <i>{body}</i>")
+        lines.append(f"   {_q(label)} · <b>{_q(who)}</b>: <i>{body}</i>")
     await message.reply("\n".join(lines), parse_mode="HTML")
 
 

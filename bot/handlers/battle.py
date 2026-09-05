@@ -779,18 +779,22 @@ async def rest(callback: CallbackQuery):
             await callback.answer("Сначала создай персонажа!", show_alert=True)
             return
 
-        heal = character.max_hp // 3
+        from core import homestead as core_home
+        # У домашнего очага отдыхается щедрее, чем у костра (engine/homestead).
+        share = await core_home.rest_share_for(session, character)
+        hearth = core_home.at_home(character)
+        heal = core_home.rest_amount(character.max_hp, share)
         character.current_hp = min(character.max_hp, character.current_hp + heal)
-        mp_restore = character.max_mp // 3
+        mp_restore = core_home.rest_amount(character.max_mp, share)
         character.current_mp = min(character.max_mp, character.current_mp + mp_restore)
         await session.commit()
 
+    head = ("🔥 <b>Отдых дома</b>\n\nСтены лечат лучше костра.\n"
+            if hearth else "🏕 <b>Отдых</b>\n\nТы отдохнул у костра.\n")
     await safe_edit_text(
         callback,
-        f"🏕 <b>Отдых</b>\n\n"
-        f"Ты отдохнул у костра.\n"
-        f"❤️ +{heal} HP | 💙 +{mp_restore} MP\n\n"
-        f"Текущее здоровье: {character.current_hp}/{character.max_hp}",
+        head + f"❤️ +{heal} HP | 💙 +{mp_restore} MP\n\n"
+               f"Текущее здоровье: {character.current_hp}/{character.max_hp}",
         reply_markup=continue_keyboard(),
         parse_mode="HTML",
     )

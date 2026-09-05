@@ -9,7 +9,7 @@
 `worn` никто не заполнял, и в бою всегда считались статы шаблона —
 паритет с серверным стеком восстановлен (AUDIT-BUGS.md, пункт B).
 """
-from engine import combat, currency, itemui, rules, slots, stash
+from engine import combat, currency, homestead, itemui, rules, slots, stash
 from engine.models import Reply
 
 
@@ -71,6 +71,8 @@ def card(p, arg, store=None):
         rows.append([("💍 Заложить", f"pawnput:{pos}")])
     if stash.safe_here(p) and stash.free_slots(p, store) > 0:
         rows.append([("🔒 Убрать в карман", f"stput:{pos}")])
+    if homestead.can_put(p):        # домой — только стоя у своих дверей
+        rows.append([("🏠 Отнести в сундук", f"house:put:{pos}")])
     rows.append([("◀️ В сумку", f"bagp:{page}")])
     return Reply(text=text, keyboard=rows)
 

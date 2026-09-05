@@ -143,15 +143,19 @@ def chest(p, cell, store):
 
 
 def rest(p, store):
-    """Привал. В бедствие отдыхается хуже — множитель `rest`."""
+    """Привал. У домашнего очага лечит сильнее, в бедствие — хуже."""
+    from engine import homestead
     s = rules.stats(p)
     calm = cataclysm.effects(store, p.loc)["rest"]
-    hp = max(1, int(s["max_hp"] // 3 * calm))
-    mp = max(1, int(s["max_mp"] // 3 * calm))
+    share = homestead.rest_share(getattr(p, "house_level", 0) or 0,
+                                 homestead.at_home(p), homestead.is_vip(p))
+    hp = max(1, int(homestead.rest_amount(s["max_hp"], share) * calm))
+    mp = max(1, int(homestead.rest_amount(s["max_mp"], share) * calm))
     p.hp = min(s["max_hp"], p.hp + hp)
     p.mp = min(s["max_mp"], p.mp + mp)
     note = "\n<i>Бедствие не даёт толком выспаться.</i>" if calm < 1 else ""
-    return Reply(text=(f"🏕 <b>Привал</b>\n\nТы отдохнул у костра.\n"
+    where = "у домашнего очага" if homestead.at_home(p) else "у костра"
+    return Reply(text=(f"🏕 <b>Привал</b>\n\nТы отдохнул {where}.\n"
                        f"❤️ +{hp} HP · 💙 +{mp} MP{note}\n\n"
                        f"Сейчас: {p.hp}/{s['max_hp']} HP"),
                  keyboard=BACK_WORLD)

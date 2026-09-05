@@ -95,6 +95,44 @@ def caps_for(role, custom=None):
     return set(rank_caps(role or "viewer"))
 
 
+# ── Троттлинг подбора пароля ─────────────────────────────────
+# Пароли генерируем криптостойкими, но форма принимает и маленькие ID-логины,
+# а панель может висеть на публичном туннеле. Считаем неудачи в памяти
+# процесса: (telegram id + ip) → список отметок. Это не заменяет fail2ban,
+# но обрывает скриптовый перебор «500 паролей за минуту».
+LOGIN_WINDOW = 15 * 60          # 15 минут
+LOGIN_MAX_FAILS = 8             # попыток в окне
+_login_fails: "dict[str, list[float]]" = {}
+
+
+def _login_key(uid) -> str:
+    return str(uid)
+
+
+def login_retry_after(uid) -> int:
+    """Сколько секунд ждать после серии неудач; 0 — входить можно."""
+    now = time.time()
+    stamps = [t for t in _login_fails.get(_login_key(uid), []) if now - t < LOGIN_WINDOW]
+    if len(stamps) >= LOGIN_MAX_FAILS:
+        _login_fails[_login_key(uid)] = stamps
+        return int(LOGIN_WINDOW - (now - stamps[0])) + 1
+    _login_fails[_login_key(uid)] = stamps
+    return 0
+
+
+def note_login_failure(uid) -> None:
+    key = _login_key(uid)
+    if len(_login_fails) > 2048:          # страховка от разрастания словаря
+        for stale in [k for k, v in _login_fails.items()
+                      if not v or time.time() - max(v) > LOGIN_WINDOW]:
+            _login_fails.pop(stale, None)
+    _login_fails.setdefault(key, []).append(time.time())
+
+
+def clear_login_failures(uid) -> None:
+    _login_fails.pop(_login_key(uid), None)
+
+
 def generate_password(length: int = 10) -> str:
     alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
     return "".join(secrets.choice(alphabet) for _ in range(length))

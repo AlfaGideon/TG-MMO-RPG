@@ -58,7 +58,18 @@ def stamp(ts) -> str:
 
 
 def hall_text(records: list) -> str:
-    """Экран Зала Славы. Принимает список словарей (движок) либо строк БД."""
+    """Экран Зала Славы. Принимает список словарей (движок) либо строк БД.
+
+    Имя героя и заголовок экранируются: экран выводится с parse_mode="HTML"
+    и в боте, и в браузерной панели, а имя — ввод игрока. Без `escape`
+    имя вида `<b href=…>` испортило бы разметку (и это же stored-XSS в
+    панели). Обёртки <b> добавляем уже после экранирования.
+    """
+    from html import escape
+
+    def _h(text):
+        return escape(str(text or ""), quote=False)
+
     if not records:
         return (
             "🏆 <b>Глобальный Зал Славы (Server Legends)</b>\n\n"
@@ -68,10 +79,10 @@ def hall_text(records: list) -> str:
     lines = ["🏆 <b>Глобальный Зал Славы Теневых Земель</b>\n"]
     for r in records[:SHOWN]:
         if isinstance(r, dict):
-            title, holder, when = r.get("title", "?"), r.get("holder", "?"), stamp(r.get("ts"))
+            title, holder, when = _h(r.get("title", "?")), _h(r.get("holder", "?")), stamp(r.get("ts"))
         else:                                   # строка ServerRecord с сервера
-            title = r.title
-            holder = r.holder_character_name
+            title = _h(r.title)
+            holder = _h(r.holder_character_name)
             when = r.achieved_at.strftime("%d.%m.%Y") if r.achieved_at else "—"
         lines.append(f"⭐ <b>{title}</b>\n   Первопроходец: <b>{holder}</b> ({when})\n")
     return "\n".join(lines)

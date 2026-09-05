@@ -111,6 +111,20 @@ def get_current_omens(settings=None, active_kinds=()) -> list:
     return omens
 
 
+def _h(text) -> str:
+    """HTML-экранирование текста знамения.
+
+    Знамения № 68 добавляет админ из панели (а предпросмотр панели выводит
+    баннер через `| safe`), и тот же текст уходит в Telegram с
+    parse_mode="HTML". Без экранирования символы `<`, `>`, `&` ломали
+    разметку (TelegramBadRequest у бота, а в превью — произвольный HTML/XSS
+    на странице «Знамения»). Обёртки <b>/<i> добавляем уже после.
+    """
+    from html import escape
+
+    return escape(str(text or ""), quote=False)
+
+
 def omen_banner(settings=None, active_kinds=()) -> str:
     """Баннер знамения. При живом бедствии показывает именно его предвестие."""
     import random
@@ -119,15 +133,16 @@ def omen_banner(settings=None, active_kinds=()) -> str:
     # Предвестие реального бедствия важнее случайной приметы, поэтому при
     # активном катаклизме берём первую строку, а не случайную.
     omen = rows[0] if active_kinds and rows else random.choice(rows or OMENS)
-    return f"{omen['icon']} <b>Знамение: {omen['title']}</b>\n<i>{omen['desc']}</i>"
+    return (f"{_h(omen['icon'])} <b>Знамение: {_h(omen['title'])}</b>"
+            f"\n<i>{_h(omen['desc'])}</i>")
 
 
 def omens_lines(settings=None, active_kinds=()) -> list:
     """Строки для экрана: значок, заголовок и описание каждого знамения."""
     out = []
     for o in get_current_omens(settings, active_kinds):
-        out.append(f"{o['icon']} <b>{o['title']}</b>")
-        out.append(f"<i>{o['desc']}</i>")
+        out.append(f"{_h(o['icon'])} <b>{_h(o['title'])}</b>")
+        out.append(f"<i>{_h(o['desc'])}</i>")
     return out
 
 

@@ -76,6 +76,66 @@
 </div>
 
 <div class="card">
+    <h2>🔥 Осады замков ({{ sieges|length }})</h2>
+    <p class="section-sub">
+        Фракция идёт стеной на чужой замок: её герои бьют по воротам, все
+        прочие — чинят. Ворота падают — осада завершена; выходит срок —
+        стену удержали. Прочность {{ siege_rules.hp }} на {{ siege_rules.hours }} ч,
+        удар героя раз в {{ siege_rules.cooldown }} с. Правила общие с
+        браузерным стеком — engine/siege.py.
+    </p>
+    {% if sieges %}
+    <table>
+        <thead><tr><th>Замок</th><th>Атакующие</th><th>Ворота</th><th>До</th><th></th></tr></thead>
+        <tbody>
+        {% for ev in sieges %}
+        {% set atk = factions.get(ev.key[6:]) %}
+        <tr>
+            <td><b>{{ ev.location.name if ev.location else '—' }}</b></td>
+            <td>{{ atk[0] if atk else '⚔️' }} {{ atk[1] if atk else ev.key }}</td>
+            <td>❤️ {{ ev.hp }}/{{ ev.max_hp }}</td>
+            <td>{{ ev.until.strftime('%d.%m %H:%M') if ev.until else '—' }}</td>
+            <td>
+                <form action="/editor/living/siege/{{ ev.id }}/end" method="post" style="display:inline">
+                    <button type="submit" class="btn btn-sm">🕊 Снять</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="muted">Ворота целы: осад нет.</p>
+    {% endif %}
+    <form action="/editor/living/siege" method="post"
+          style="display:flex;gap:0.6rem;flex-wrap:wrap;align-items:flex-end;margin-top:1rem">
+        <div>
+            <label class="form-label">Замок</label>
+            <select name="location_id" class="search-box" style="max-width:220px">
+                {% for loc in locations %}
+                <option value="{{ loc.id }}">{{ loc.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label class="form-label">Кто осажает</label>
+            <select name="attacker" class="search-box" style="max-width:220px">
+                {% for key in faction_order %}
+                {% set f = factions[key] %}
+                <option value="{{ key }}">{{ f[0] }} {{ f[1] }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label class="form-label">Часов</label>
+            <input type="number" name="hours" min="1" max="48" step="1"
+                   class="search-box" style="max-width:110px" placeholder="по умолч.">
+        </div>
+        <button type="submit" class="btn btn-primary">🔥 Начать осаду</button>
+    </form>
+</div>
+
+<div class="card">
     <h2>🏰 Мировой босс</h2>
     <p class="section-sub">
         Босс — событие, а не клетка: держит общий счётчик урона и раздаёт

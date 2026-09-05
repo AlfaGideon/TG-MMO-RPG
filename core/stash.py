@@ -146,6 +146,7 @@ async def drop_on_death(session, character, rng=None):
         select(InventoryItem)
         .where(InventoryItem.character_id == character.id)
         .where(InventoryItem.in_stash == False)
+        .where(InventoryItem.in_home == False)   # домашний сундук цел
         .where(InventoryItem.is_equipped == False)
     )
     losable = result.scalars().all()
