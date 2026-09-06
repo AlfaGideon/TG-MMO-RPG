@@ -9,7 +9,7 @@
 """
 import random
 
-from engine import currency, data, items
+from engine import currency, data, durability, items
 from engine.models import Reply
 
 KEY = "materials"           # {tg_id: {material_idx: count}}
@@ -125,6 +125,74 @@ def craft(store, p, i):
     return inst, f"изготовлено: {items.title(inst)}"
 
 
+# ── починка ─────────────────────────────────────────────────
+
+def repair_view(store, p, page=0):
+    """Список своих вещей, которые надо починить (🔩)."""
+    from engine import durability, itemui
+    mine = [i for i in items.owned_by(store, p.tg_id)
+            if durability.is_gear(i) and durability.cur(i) < durability.max_of(i)]
+    if not mine:
+        return Reply(text=("🔩 <b>Починка</b>\n\n<i>У тебя нет изношенного "
+                           "снаряжения. Прочность тратится в бою и при "
+                           "смерти.</i>"),
+                     keyboard=[[("◀️ В мастерскую", "craft")]])
+    entries, page = itemui.slice_page(mine, page)
+    mat = int(durability.RULES["material"])
+    lines = ["🔩 <b>Починка</b>",
+             f"🪙 <b>{p.gold}</b> · 🧰 {material_line(mat, 1)}", ""]
+    for num, _pos, inst in entries:
+        cost = durability.repair_cost(inst)
+        lines.append(f"{itemui.digit(num)} {inst['icon']} "
+                     f"<b>{items.title(inst)}</b>")
+        lines.append(f"     {durability.card_line(inst)} · {cost}🪙 + "
+                     f"{material_line(mat, 1)}")
+    rows, row = [], []
+    for num, _pos, inst in entries:
+        row.append((f"{itemui.digit(num)}{inst['icon']}",
+                    f"repairing:{inst['uid']}"))
+        if len(row) == itemui.PER_ROW:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows += itemui.pager(page, len(mine), "repair")
+    rows.append([("◀️ В мастерскую", "craft")])
+    lines.append("")
+    lines.append("<i>Починка возвращает вещь к максимуму — вместе с её статами.</i>")
+    return Reply(text="\n".join(lines), keyboard=rows)
+
+
+def repair(store, p, uid):
+    """Починить экземпляр за бронзу и железный лом."""
+    from engine import durability
+    inst = items.get(store, uid)
+    if inst is None:
+        return False, "предмет не найден"
+    if int(inst.get("owner") or 0) != int(p.tg_id):
+        return False, "это не твоя вещь"
+    if not durability.is_gear(inst):
+        return False, "у этой вещи нет прочности"
+    if durability.cur(inst) >= durability.max_of(inst):
+        return False, "вещь уже в исправности"
+    cost = durability.repair_cost(inst)
+    if not currency.can_afford(p, cost):
+        return False, f"не хватает {cost - p.gold} 🪙"
+    need = durability.repair_materials(inst)
+    have = pouch(store, p.tg_id)
+    for idx, count in need.items():
+        if have.get(int(idx), 0) < int(count):
+            return False, f"не хватает {material(idx)[0].lower()} ×{count}"
+    take_materials(store, p.tg_id, need)
+    currency.spend(p, cost)
+    was, now = durability.cur(inst), durability.max_of(inst)
+    inst["durability"] = now
+    items.record(store, inst, "repaired", p.tg_id,
+                 detail=f"{was}→{now} прочность", price=cost)
+    store.save_player(p)
+    return True, f"{items.title(inst)} починено: {was}→{now} 🔩 · −{cost}🪙"
+
+
 # ── заточка ─────────────────────────────────────────────────
 
 def upgrade_odds(level):
@@ -188,7 +256,7 @@ def workshop(store, p):
     lines.append("<i>Выбери станок, чтобы посмотреть рецепты.</i>")
 
     rows = [[(f"{ic} {nm}", f"craft:{key}") for key, (ic, nm) in data.STATIONS.items()]]
-    rows.append([("⚡ Заточка", "sharpen:0")])
+    rows.append([("⚡ Заточка", "sharpen:0"), ("🔩 Починка", "repair:0")])
     rows.append([("🎒", "bag"), ("◀️ Меню", "menu")])
     return Reply(text="\n".join(lines), keyboard=rows)
 

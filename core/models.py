@@ -333,6 +333,9 @@ class Character(Base):
     # создании героя. Ноль — статы зафиксированы окончательно.
     rerolls_left = Column(Integer, default=0)
     stats_locked = Column(Boolean, default=False)
+    # Настройки вестей (1.5 из IDEAS-new-2026): JSON-текст с каналами и
+    # тихими часами; дефолты живут в engine/notify.py.
+    prefs = Column(Text, default="{}")
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -569,6 +572,10 @@ class ItemInstance(Base):
     quality = Column(Integer, default=100)   # 60..140 %, влияет на цену и статы
     upgrade_level = Column(Integer, default=0)
     prefix = Column(String(64), default="")  # «Ржавый», «Закалённый» и т.п.
+    # Прочность (IDEAS-new-2026, 2.2): снаряжение изнашивается в бою и
+    # чинится у кузницы. −1 — у вещей без прочности (расходники/ресурсы).
+    durability = Column(Integer, default=-1)
+    durability_max = Column(Integer, default=-1)
 
     bonus_strength = Column(Integer, default=0)
     bonus_agility = Column(Integer, default=0)

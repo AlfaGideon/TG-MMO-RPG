@@ -2,7 +2,7 @@
 import random
 
 from engine import (adminbot, adminroute, behavior, cataclysm, combat, data,
-                    homestead, progress, siege, social_ui,
+                    homestead, progress, pulse, siege, social_ui,
                     explore, hero, inventory, items, mapview, merchant,
                     respawn, rules, shop, social, stash, texts, trade, world)
 from engine.models import Reply
@@ -39,6 +39,7 @@ class Game:
             return Reply(text=texts.WELCOME, keyboard=[
                 [("⚔️ Создать героя", "new")], [("❓ Помощь", "help")]])
         rows = [
+            [("🩸 Пульс", "pulse"), ("🔕 Вести", "notify")],
             [("🧭 В мир", "world"), ("🧙 Профиль", "profile")],
             [("🎒 Инвентарь", "bag"), ("🏪 Лавка", "shop")],
             [("📜 Задания", "quests"), ("🤝 Отряд", "party")],
@@ -168,9 +169,9 @@ class Game:
     def do_profile(self, p, arg=""):
         if not p.created_char:
             return Reply(alert="Сначала создай героя!")
-        return Reply(text=texts.profile(p, self.store), keyboard=[
-            [("🎒 Инвентарь", "bag"), ("🧭 В мир", "world")], [("◀️ Меню", "menu")]])
-
+        return Reply(text=texts.profile(p, self.store), keyboard=[[("🎒 Инвентарь", "bag"), ("🧭 В мир", "world")], [("◀️ Меню", "menu")]])
+    do_pulse = lambda self, p, arg="": pulse.pulse(p, self.store)
+    do_notify = lambda self, p, arg="": progress.notify_action(self.store, p, arg)
     # ── VIP-выход ───────────────────────────────────────────
     def do_offline(self, p, arg=""):
         ok, msg = stash.set_offline(p, True)
@@ -180,7 +181,6 @@ class Game:
                      "👑 VIP-защита от мобов, игроков и катаклизмов активна.\n"
                      "Все действия скрыты до возвращения в мир.",
                      keyboard=[[("🧭 Вернуться в мир", "offline_resume")]])
-
     # ── мир ─────────────────────────────────────────────────
     def _cell(self, p):
         return world.cell_at(self.world, p.loc, p.x, p.y, getattr(p, "floor", 0))

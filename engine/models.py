@@ -93,6 +93,7 @@ class Player:
     quests: dict = field(default_factory=dict)      # {id: {n, done}} — задания
     quest_day: str = ""                             # дата сброса ежедневных
     wounded_until: float = 0.0                      # до какого времени ранен
+    prefs: dict = field(default_factory=dict)       # настройки вестей
     party_invite: int = 0                           # id отряда, куда позвали
     landmarks: list = field(default_factory=list)   # осмотренные достопримечательности
     reputation: dict = field(default_factory=dict)  # {фракция: очки}

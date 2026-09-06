@@ -3,7 +3,7 @@ from aiogram.types import CallbackQuery
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from core import history
+from core import durability, history
 from core import homestead as core_home
 from core import stash as stash_core
 from core.database import async_session
@@ -286,6 +286,10 @@ async def inventory_book(callback: CallbackQuery):
                      "из такого куются вещи с собственной судьбой.</i>")
 
         can_equip = item is not None and item.item_type in EQUIPPABLE
+        if can_equip and inv_item.instance is not None and \
+                durability.is_gear(inv_item.instance, item) and \
+                durability.broken(inv_item.instance):
+            can_equip = False
         can_use = item is not None and item.item_type == ItemType.CONSUMABLE
         can_sell = bool(inv_item.instance_id) and item is not None and item.is_sellable
         # Разобрать можно снаряжение (материалы и расходники — нет),
@@ -480,6 +484,14 @@ async def equip_item(callback: CallbackQuery):
         item = inv_item.item
         if item.item_type not in EQUIPPABLE:
             await callback.answer("Это нельзя надеть.", show_alert=True)
+            return
+
+        if inv_item.instance is not None and \
+                durability.is_gear(inv_item.instance, item) and \
+                durability.broken(inv_item.instance):
+            await callback.answer(
+                "🔩 Эта вещь сломана. Почини её в кузнице!", show_alert=True
+            )
             return
 
         character = await session.get(Character, inv_item.character_id)

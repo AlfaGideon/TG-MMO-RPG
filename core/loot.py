@@ -12,6 +12,7 @@ from datetime import datetime
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
+from engine import durability as rules
 from core.enums import ItemRarity, ItemSource, ItemType
 from core.models import (
     AppSetting, DropEntry, InventoryItem, Item, ItemInstance, Mob, UpgradeRule,
@@ -154,6 +155,9 @@ def create_instance(
                                         ItemSource.DUNGEON.value):
         source = ItemSource.FESTIVE.value
 
+    # Прочность (IDEAS-new-2026, 2.2): есть только у носимых вещей.
+    gear = item.item_type.value in rules.GEAR_TYPES
+    dur_max = int(rules.RULES["max"]) if gear else -1
     inst = ItemInstance(
         uid=new_uid(),
         item_id=item.id,
@@ -168,6 +172,8 @@ def create_instance(
         festive_event=(item.festive_event or "")[:64],
         magic_school=item.magic_school,
         magic_power=item.magic_power or 0,
+        durability=dur_max,
+        durability_max=dur_max,
     )
 
     for field, base in item.base_bonuses().items():

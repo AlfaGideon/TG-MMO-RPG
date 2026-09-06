@@ -478,3 +478,18 @@ def market_buy(store, p, arg):
              f"<i>Прежний владелец не сумел вернуть долг вовремя.</i>",
         keyboard=[[("🕯 Ещё раз", "market")], [("◀️ Меню", "menu")]])
 
+
+
+
+
+# ── настройки вестей (IDEAS-new-2026, 1.5) ─────────────────
+def notify_screen(p):
+    """🔕 Центр вестей — экран живёт в engine/notify_ui.py."""
+    from engine import notify_ui
+    return notify_ui.notify_screen(p)
+
+
+def notify_action(store, p, arg=""):
+    """Тумблеры вестей — логика в engine/notify_ui.py."""
+    from engine import notify_ui
+    return notify_ui.notify_action(store, p, arg)

@@ -5,7 +5,7 @@ from aiogram.types import CallbackQuery
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from core import magic, statpoints
+from core import durability, magic, statpoints
 from core.database import async_session
 from core.loot import give_mob_loot
 from core.models import User, Character, Mob, Battle, Cell, MobSpawn
@@ -69,8 +69,11 @@ async def _lose_bag(session, character):
     deduct_currency(character, gold_lost)
     grave = await core_death.bury(session, character, gold_lost, item_ids)
     core_death.wound(character)
+    wear_warnings = await durability.decay(session, character, "death")
 
     parts = []
+    if wear_warnings:
+        parts.append("\n".join(wear_warnings))
     if grave:
         parts.append(f"🪦 Осталось на месте гибели: <b>{gold_lost}</b> 🟤")
     if lost:
@@ -319,6 +322,9 @@ async def _finish_victory(callback, session, character, mob, spawn, state):
                  f"<i>Распредели их: 🧙 Профиль → 🎯 Очки характеристик.</i>")
     if loot:
         text += "\n\n" + loot_text(loot)
+    wear_lines = state.get("wear") or []
+    if wear_lines:
+        text += "\n\n" + "\n".join(wear_lines)
 
     await safe_edit_text(
         callback,
@@ -461,6 +467,12 @@ async def combat_attack(callback: CallbackQuery):
         state["damage_dealt"] += (char_dmg + dot_dmg)
         state["damage_taken"] += mob_dmg
 
+        # Прочность (2.2): свой удар стачивает оружие, полученный — защиту.
+        state.setdefault("wear", [])
+        state["wear"] += await durability.decay(session, character, "attack")
+        if mob_dmg > 0:
+            state["wear"] += await durability.decay(session, character, "taken")
+
         # Шанс моба начать подготовку сильного удара на следующем ходе
         if not state.get("channeling") and state["rounds"] % 3 == 0 and state["mob_hp"] > 0 and random.random() < 0.45:
             state["channeling"] = {"name": f"🔥 Разрушительный выпад {mob.name}", "damage": int(mob.damage * 2.2)}
@@ -495,6 +507,9 @@ async def combat_attack(callback: CallbackQuery):
         )
         if extra_notes:
             round_txt += "\n\n" + "\n".join(extra_notes)
+        wear_lines = state.get("wear") or []
+        if wear_lines:
+            round_txt += "\n\n" + "\n".join(wear_lines)
 
         await send_or_edit_photo(
             callback,
@@ -529,6 +544,11 @@ async def combat_defend(callback: CallbackQuery):
         state["rounds"] += 1
         state["damage_taken"] += mob_dmg
 
+        # Прочность (2.2): даже под щитом броня треплется.
+        state.setdefault("wear", [])
+        if mob_dmg > 0:
+            state["wear"] += await durability.decay(session, character, "taken")
+
         # В глухой обороне понемногу восстанавливается дыхание
         max_hp_val = character.max_hp or 100
         heal = max(1, max_hp_val // 40)
@@ -540,13 +560,17 @@ async def combat_defend(callback: CallbackQuery):
 
         await session.commit()
 
+    body = (f"🛡 <b>Ты уходишь в защиту</b>\n\n"
+            f"{mob.name} бьёт, но щит держит: всего {mob_dmg} урона.\n"
+            f"Ты переводишь дыхание: +{heal} HP.\n\n"
+            f"❤️ Ты: {state['character_hp']}/{character.max_hp}\n"
+            f"👾 {mob.name}: {state['mob_hp']}")
+    wear_lines = state.get("wear") or []
+    if wear_lines:
+        body += "\n\n" + "\n".join(wear_lines)
     await send_or_edit_photo(
         callback,
-        f"🛡 <b>Ты уходишь в защиту</b>\n\n"
-        f"{mob.name} бьёт, но щит держит: всего {mob_dmg} урона.\n"
-        f"Ты переводишь дыхание: +{heal} HP.\n\n"
-        f"❤️ Ты: {state['character_hp']}/{character.max_hp}\n"
-        f"👾 {mob.name}: {state['mob_hp']}",
+        body,
         reply_markup=combat_keyboard(is_channeling=bool(state.get("channeling")), stance=stance),
         image_url=_mob_image(mob),
     )
@@ -630,6 +654,12 @@ async def combat_skill(callback: CallbackQuery):
         state["damage_dealt"] += char_dmg
         state["damage_taken"] += mob_dmg
 
+        # Прочность (2.2): умение тоже стачивает оружие, ответ — защиту.
+        state.setdefault("wear", [])
+        state["wear"] += await durability.decay(session, character, "attack")
+        if mob_dmg > 0:
+            state["wear"] += await durability.decay(session, character, "taken")
+
         spawn = await session.get(MobSpawn, state["spawn_id"]) if state.get("spawn_id") else None
         if spawn is not None:
             spawn.current_hp = max(0, state["mob_hp"])
@@ -652,14 +682,18 @@ async def combat_skill(callback: CallbackQuery):
     else:
         head = f"✨ <b>Удар силой!</b> (−{cost} MP)"
 
+    body = (f"{head}\n\n"
+            f"Ты вкладываешься полностью: {char_dmg} урона!{reaction_note}{lunar_note}\n"
+            f"{mob.name} отвечает {mob_dmg} урона.\n\n"
+            f"❤️ Ты: {state['character_hp']}/{character.max_hp}\n"
+            f"💙 MP: {character.current_mp}/{character.max_mp}\n"
+            f"👾 {mob.name}: {state['mob_hp']}")
+    wear_lines = state.get("wear") or []
+    if wear_lines:
+        body += "\n\n" + "\n".join(wear_lines)
     await send_or_edit_photo(
         callback,
-        f"{head}\n\n"
-        f"Ты вкладываешься полностью: {char_dmg} урона!{reaction_note}{lunar_note}\n"
-        f"{mob.name} отвечает {mob_dmg} урона.\n\n"
-        f"❤️ Ты: {state['character_hp']}/{character.max_hp}\n"
-        f"💙 MP: {character.current_mp}/{character.max_mp}\n"
-        f"👾 {mob.name}: {state['mob_hp']}",
+        body,
         reply_markup=combat_keyboard(is_channeling=bool(state.get("channeling")), stance=stance),
         image_url=_mob_image(mob),
     )
@@ -687,6 +721,8 @@ async def combat_interrupt(callback: CallbackQuery):
         state.setdefault("statuses", {})["stun"] = 1
         bash_dmg = max(5, (character.strength or 10) // 2)
         state["mob_hp"] -= bash_dmg
+        state.setdefault("wear", [])
+        state["wear"] += await durability.decay(session, character, "attack")
 
         spawn = await session.get(MobSpawn, state["spawn_id"]) if state.get("spawn_id") else None
         if spawn is not None:
@@ -698,13 +734,17 @@ async def combat_interrupt(callback: CallbackQuery):
 
         await session.commit()
 
+    body = (f"💥 <b>ЗАКЛИНАНИЕ ПРЕРВАНО!</b>\n\n"
+            f"Ты вовремя нанёс сокрушительный удар щитом ({bash_dmg} урона) и сбил {chan_name}!\n"
+            f"💫 <b>{mob.name} оглушён на 1 ход!</b>\n\n"
+            f"❤️ Ты: {state['character_hp']}/{character.max_hp}\n"
+            f"👾 {mob.name}: {state['mob_hp']}")
+    wear_lines = state.get("wear") or []
+    if wear_lines:
+        body += "\n\n" + "\n".join(wear_lines)
     await send_or_edit_photo(
         callback,
-        f"💥 <b>ЗАКЛИНАНИЕ ПРЕРВАНО!</b>\n\n"
-        f"Ты вовремя нанёс сокрушительный удар щитом ({bash_dmg} урона) и сбил {chan_name}!\n"
-        f"💫 <b>{mob.name} оглушён на 1 ход!</b>\n\n"
-        f"❤️ Ты: {state['character_hp']}/{character.max_hp}\n"
-        f"👾 {mob.name}: {state['mob_hp']}",
+        body,
         reply_markup=combat_keyboard(is_channeling=False, stance=state.get("stance", "balanced")),
         image_url=_mob_image(mob),
     )

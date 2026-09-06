@@ -16,6 +16,7 @@
 гасит in-memory-дедупликация (как и сами вызовы дуэлей): рестарт — новый
 раунд напоминаний, что правильно после простоя.
 """
+import json
 import logging
 import time
 from datetime import timedelta
@@ -23,9 +24,35 @@ from datetime import timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from core import notify as notify_common
 from core.models import AuctionLot, AuctionStatus, Character, DungeonTemplate, User
 
 logger = logging.getLogger(__name__)
+
+
+def _prefs_of(raw):
+    """JSON-поле `prefs` → нормализованные настройки (дефолты из engine)."""
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw or "{}")
+        except Exception:
+            raw = {}
+    return notify_common.normalized(raw)
+
+
+async def _prefs_by_tg(session) -> dict[int, dict]:
+    """Настройки вестей по telegram_id всех, у кого есть герой."""
+    result = await session.execute(
+        select(User.telegram_id, Character.prefs)
+        .join(Character, Character.user_id == User.id)
+    )
+    return {int(tg): _prefs_of(raw) for tg, raw in result.all()}
+
+
+def _allowed(prefs: dict, channel: str) -> bool:
+    """Канал включён и сейчас не тихие часы."""
+    return (notify_common.enabled(prefs, channel)
+            and not notify_common.in_quiet_hours(prefs))
 
 AUCTION_WARN_BEFORE = timedelta(minutes=10)     # «скоро истечёт»
 PORTAL_WARN_BEFORE = timedelta(minutes=15)      # «портал закрывается»
@@ -92,6 +119,7 @@ async def collect_due_reminders(session, now: float | None = None) -> list[dict]
               else utcnow())
     now_ts = now_dt.timestamp()
     out: list[dict] = []
+    prefs_map = await _prefs_by_tg(session)
 
     # ── аукцион: скоро финиш ─────────────────────────────────
     lots = (await session.execute(
@@ -122,11 +150,12 @@ async def collect_due_reminders(session, now: float | None = None) -> list[dict]
                         f"«{name}» за {lot.price}🟤 никто не купил — "
                         f"после истечения вещь вернётся к тебе.")
                 key = f"auc:sale:{lot.id}"
-            if _once(key):
+            if _allowed(prefs_map.get(int(seller_tg), {}), "auction") and _once(key):
                 out.append({"tg_id": seller_tg, "text": text})
         # Лидеру торгов — отдельная весточка: он может и не продавец.
         bidder_tg = await _telegram_of(session, lot.current_bidder_id)
-        if bidding and bidder_tg and bidder_tg != seller_tg:
+        if (bidding and bidder_tg and bidder_tg != seller_tg
+                and _allowed(prefs_map.get(int(bidder_tg), {}), "auction")):
             if _once(f"auc:leader:{lot.id}"):
                 out.append({"tg_id": bidder_tg, "text":
                             f"⏳ <b>Твоя ставка лидирует недолго.</b>\n\n"
@@ -149,11 +178,16 @@ async def collect_due_reminders(session, now: float | None = None) -> list[dict]
         if left <= timedelta(0) or left > PORTAL_WARN_BEFORE:
             continue
         mins = max(1, int(left.total_seconds() // 60))
+        muted = {int(tg) for tg, prefs in prefs_map.items()
+                 if not _allowed(prefs, "portal")}
         if _once(f"portal:{tpl.id}:{int(_aware(tpl.portal_opened_at).timestamp())}"):
-            out.append({"broadcast": True, "text":
-                        f"🌀 <b>Портал закрывается</b> через ~{mins} мин: "
-                        f"«{tpl.name}». Успей зайти — потом придётся ждать"
-                        f" нового открытия."})
+            entry = {"broadcast": True, "text":
+                     f"🌀 <b>Портал закрывается</b> через ~{mins} мин: "
+                     f"«{tpl.name}». Успей зайти — потом придётся ждать"
+                     f" нового открытия."}
+            if muted:
+                entry["exclude"] = sorted(muted)
+            out.append(entry)
 
     # ── дуэли: вызов всё ещё висит ───────────────────────────
     # duel_invites ключуется id ПЕРСОНАЖА вызванного (bot/handlers/
@@ -168,6 +202,8 @@ async def collect_due_reminders(session, now: float | None = None) -> list[dict]
             if _once(f"duel:{target_id}:{int(inv[2] if len(inv) > 2 else 0)}"):
                 target_tg = await _telegram_of(session, target_id)
                 if not target_tg:
+                    continue
+                if not _allowed(prefs_map.get(int(target_tg), {}), "duel"):
                     continue
                 wager = inv[1]
                 stake = f" со ставкой {wager}🟤" if wager else ""

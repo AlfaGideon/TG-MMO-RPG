@@ -429,7 +429,8 @@ class BotRunner:
                 for msg in due:
                     try:
                         if msg.get("broadcast"):
-                            await broadcast_to_all(self.bot, msg["text"])
+                            await broadcast_to_all(self.bot, msg["text"],
+                                                   exclude=msg.get("exclude"))
                         elif self.bot is not None and msg.get("tg_id"):
                             await self.bot.send_message(msg["tg_id"], msg["text"],
                                                          parse_mode="HTML")

@@ -4,7 +4,7 @@ from aiogram.types import CallbackQuery
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from core import auction, history
+from core import auction, durability, history
 from core.database import async_session
 from core.models import AuctionLot, Character, InventoryItem, User
 from bot.keyboards.inline import (
@@ -143,8 +143,11 @@ async def auction_lot_view(callback: CallbackQuery):
         f"{inst.badge()} <i>{inst.source_title()}</i>",
         f"⚖️ Качество: <b>{inst.quality}%</b>"
         + (f" | 🔨 +{inst.upgrade_level}" if inst.upgrade_level else ""),
-        "",
     ]
+    wear = durability.card_line(inst, item)
+    if wear:
+        lines.append(wear)
+    lines.append("")
     if summary:
         lines += [summary, ""]
 

@@ -301,6 +301,11 @@ def action(p, what, world, store=None):
         st["mob_hp"] -= dmg
         st["log"].append(f"⚔️ {'КРИТ! ' if crit else ''}Ты наносишь {dmg} урона.")
 
+    if what in ("skill", "hit"):
+        from engine import durability
+        for warn in durability.decay(store, p, "attack"):
+            st["log"].append(warn)
+
     if st["mob_hp"] <= 0:
         return _slay(p, world, store)
 
@@ -315,6 +320,10 @@ def action(p, what, world, store=None):
         st["defend"] = False
     p.hp -= mdmg
     st["log"].append("💨 Ты уклонился!" if dodged else f"👾 {m[0]} бьёт на {mdmg}.")
+    if not dodged and store is not None:
+        from engine import durability
+        for warn in durability.decay(store, p, "taken"):
+            st["log"].append(warn)
 
     if p.hp <= 0 and _blessing_saves(p, st):
         return view(p)

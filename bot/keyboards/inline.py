@@ -10,6 +10,8 @@ def main_menu_keyboard(has_character: bool = False, is_admin: bool = False,
     if not has_character:
         builder.button(text="⚔️ Создать героя", callback_data="create_character")
     else:
+        builder.button(text="🩸 Пульс", callback_data="pulse")
+        builder.button(text="🔕 Вести", callback_data="notify")
         builder.button(text="🧙 Профиль", callback_data="profile")
         builder.button(text="🎒 Инвентарь", callback_data="inventory")
         # Кнопка «В путь» теперь ведет сразу на экран перемещения (стрелки).
@@ -139,6 +141,38 @@ def reroll_keyboard(char_id: int, rerolls_left: int):
 def back_to_main_keyboard():
     builder = InlineKeyboardBuilder()
     builder.button(text="◀️ В главное меню", callback_data="main_menu")
+    return builder.as_markup()
+
+
+def notify_keyboard(prefs: dict):
+    """Центр вестей: тумблеры каналов и тихие часы."""
+    from engine.notify import CHANNELS
+
+    builder = InlineKeyboardBuilder()
+    for key, label in CHANNELS:
+        state = "✅ вкл" if prefs.get(key, True) else "⛔ выкл"
+        builder.button(text=f"{label}: {state}", callback_data=f"notify_toggle:{key}")
+    quiet = prefs.get("quiet_enabled", False)
+    builder.button(text=f"🌙 Тихие часы: {'вкл' if quiet else 'выкл'}",
+                   callback_data="notify_quiet")
+    builder.button(text="🔕 В пульс", callback_data="pulse")
+    builder.button(text="◀️ Меню", callback_data="main_menu")
+    builder.adjust(1, 1, 2)
+    return builder.as_markup()
+
+
+def pulse_keyboard(has_boss: bool = False, has_siege: bool = False):
+    """Кнопки «Пульса героя»: быстрые переходы к событиям и меню."""
+    builder = InlineKeyboardBuilder()
+    if has_boss:
+        builder.button(text="🏰 Идти к боссу", callback_data="world_boss")
+    if has_siege:
+        builder.button(text="🔥 Осада", callback_data="siege_menu")
+    builder.button(text="📜 Задания", callback_data="quests_menu")
+    builder.button(text="🧭 В мир", callback_data="back_to_cell")
+    builder.button(text="🧙 Профиль", callback_data="profile")
+    builder.button(text="◀️ Меню", callback_data="main_menu")
+    builder.adjust(1 if (has_boss or has_siege) else 2, 2)
     return builder.as_markup()
 
 
@@ -886,6 +920,7 @@ def craft_menu_keyboard(station: str = "any"):
     builder.button(text="📜 Рецепты", callback_data=f"craft_list:{station}:0")
     builder.button(text="📋 Стол заказов игроков", callback_data="craft_orders_menu")
     builder.button(text="🔨 Заточить предмет", callback_data="upgrade_list:0")
+    builder.button(text="🔩 Починить снаряжение", callback_data="repair_list:0")
     builder.button(text="◀️ Назад", callback_data="back_to_cell")
     builder.adjust(1)
     return builder.as_markup()
@@ -967,6 +1002,48 @@ def upgrade_item_keyboard(inv_item_id: int, can_upgrade: bool, station: str):
     if can_upgrade:
         builder.button(text="🟢 ⚡ Заточить", callback_data=f"upgrade_do:{inv_item_id}")
     builder.button(text="◀️ К списку", callback_data="upgrade_list:0")
+    builder.button(text="🏠 К мастеру", callback_data="craft_menu")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def repair_list_keyboard(items: list, station: str, page: int = 0,
+                         per_page: int = 6):
+    """Список изношенного снаряжения на починку."""
+    builder = InlineKeyboardBuilder()
+    start = page * per_page
+    chunk = items[start:start + per_page]
+
+    for inv in chunk:
+        eq = "✅ " if inv.is_equipped else ""
+        icon = inv.item.icon if inv.item else "❔"
+        builder.button(
+            text=f"{eq}{icon} {inv.display_name()}",
+            callback_data=f"repair_view:{inv.id}",
+        )
+    rows = [1] * len(chunk)
+
+    nav = 0
+    if page > 0:
+        builder.button(text="⬅️", callback_data=f"repair_list:{page - 1}")
+        nav += 1
+    if start + per_page < len(items):
+        builder.button(text="➡️", callback_data=f"repair_list:{page + 1}")
+        nav += 1
+    if nav:
+        rows.append(nav)
+
+    builder.button(text="◀️ К мастеру", callback_data="craft_menu")
+    rows.append(1)
+    builder.adjust(*rows)
+    return builder.as_markup()
+
+
+def repair_item_keyboard(inv_item_id: int, can_repair: bool, station: str):
+    builder = InlineKeyboardBuilder()
+    if can_repair:
+        builder.button(text="🟢 🔩 Починить", callback_data=f"repair_do:{inv_item_id}")
+    builder.button(text="◀️ К списку", callback_data="repair_list:0")
     builder.button(text="🏠 К мастеру", callback_data="craft_menu")
     builder.adjust(1)
     return builder.as_markup()

@@ -7,6 +7,7 @@
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from core import durability
 from core.models import InventoryItem, ItemInstance
 
 STAT_KEYS = ("strength", "agility", "intelligence", "endurance", "luck")
@@ -43,6 +44,9 @@ def sum_bonuses(inv_items) -> dict:
         "luck": 0, "max_hp": 0, "max_mp": 0, "damage": 0, "defense": 0,
     }
     for inv in inv_items:
+        inst = inv.instance if inv.instance_id else None
+        if inst is not None and durability.is_gear(inst, inv.item) and durability.broken(inst):
+            continue                       # сломано — слот не усиливает
         bonuses = inv.bonuses()
         for field, value in bonuses.items():
             if not value:

@@ -9,7 +9,7 @@
 `worn` никто не заполнял, и в бою всегда считались статы шаблона —
 паритет с серверным стеком восстановлен (AUDIT-BUGS.md, пункт B).
 """
-from engine import combat, currency, homestead, itemui, rules, slots, stash
+from engine import combat, currency, durability, homestead, itemui, items, rules, slots, stash
 from engine.models import Reply
 
 
@@ -55,6 +55,13 @@ def card(p, arg, store=None):
     extra = f"💰 Продать за <b>{currency.short(itemui.resale_of(idx))}</b>"
     if equipped:
         extra = "✅ <b>Надето на герое</b>\n\n" + extra
+    if equipped and store is not None:
+        uid = (getattr(p, "worn", None) or {}).get(it["type"])
+        wearing = items.get(store, uid) if uid else None
+        if wearing is not None:
+            wear = durability.card_line(wearing)
+            if wear:
+                extra = f"{extra}\n\n{wear}"
     text = "🎒 <b>Инвентарь</b>\n\n" + itemui.card(idx, extra)
 
     act = []
@@ -89,9 +96,11 @@ def equip(p, arg, store=None):
     # именного экземпляра должны работать в бою (rules.stats со store).
     uid = None
     if store is not None:
-        from engine import items
+        from engine import durability, items
         inst = items.resolve_owned(store, p, idx)
         if inst is not None:
+            if durability.broken(inst):
+                return Reply(alert="🔩 Эта вещь сломана. Почини её в кузнице!")
             uid = inst["uid"]
     slots.equip_at(p, pos, it["type"], uid)
     r = card(p, pos, store)

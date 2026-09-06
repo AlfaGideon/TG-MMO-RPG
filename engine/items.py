@@ -119,6 +119,8 @@ def create(store, idx, source="mob", owner=0, luck=0, detail="", quality=None):
     tpl = rules.item(idx)
     q = roll_quality(0.15, luck) if quality is None else int(quality)
     rarity = roll_rarity(tpl["rarity"], luck)
+    from engine import durability
+    gear = durability.is_gear(tpl)
     inst = {
         "uid": new_uid(),
         "idx": idx,
@@ -137,6 +139,9 @@ def create(store, idx, source="mob", owner=0, luck=0, detail="", quality=None):
         "unique": source == "unique",
         "ts": int(time.time()),
         "log": [],
+        # Прочность (IDEAS-new-2026, 2.2): есть только у носимых вещей.
+        "durability": int(durability.RULES["max"]) if gear else -1,
+        "durability_max": int(durability.RULES["max"]) if gear else -1,
     }
     reg = registry(store)
     reg[inst["uid"]] = inst

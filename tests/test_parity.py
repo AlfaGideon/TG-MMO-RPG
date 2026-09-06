@@ -219,6 +219,27 @@ REGISTRY = [
     Feature("Дом героя",
             browser=["engine/homestead.py", "engine/stash.py"],
             server=["core/homestead.py", "bot/handlers/inventory.py"]),
+
+    Feature("Пульс героя",
+            browser=["engine/pulse.py"],
+            server=["bot/handlers/pulse.py", "bot/keyboards/inline.py"]),
+
+    Feature("Настройки вестей",
+            browser=["engine/notify.py", "engine/notify_ui.py",
+                    "engine/progress.py"],
+            server=["core/notify.py", "bot/handlers/notify.py",
+                    "bot/reminders.py"]),
+
+    Feature("Прочность снаряжения",
+            browser=["engine/durability.py", "engine/items.py",
+                     "engine/craft.py", "engine/combat.py",
+                     "engine/death.py", "engine/inventory.py",
+                     "engine/trade.py", "engine/auction.py"],
+            server=["core/durability.py", "core/loot.py",
+                    "core/crafting.py", "core/stats.py", "core/models.py",
+                    "bot/handlers/craft.py", "bot/handlers/battle.py",
+                    "bot/handlers/inventory.py", "bot/handlers/auction.py",
+                    "bot/keyboards/inline.py", "bot/utils/texts.py"]),
 ]
 
 
@@ -300,6 +321,13 @@ def test_shared_numbers_match():
     except ImportError as e:                      # нет sqlalchemy — не беда
         check(True, f"серверный стек недоступен, пропуск ({e})")
         return
+
+    from core import durability as c_durability
+    from engine import durability as e_durability
+    check(c_durability.RULES == e_durability.RULES,
+          "прочность: числа общие")
+    check(c_durability.GEAR_TYPES == e_durability.GEAR_TYPES,
+          "прочность: типы снаряжения общие")
 
     pairs = [
         ("размер кармана", engine_stash.SLOTS, core_stash.SLOTS),

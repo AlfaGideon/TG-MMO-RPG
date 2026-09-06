@@ -200,6 +200,9 @@ def defeat(store, p, mob_name):
     was_deep = dungeon.inside(p)
     dungeon.bail_out(store, p)            # из подземелья выносит наружу
     wound(p)
+    if store is not None:
+        from engine import durability
+        _wear_warnings = durability.decay(store, p, "death")
     p.hp = max(1, rules.stats(p)["max_hp"] // 4)
     p.loc, p.x, p.y = 0, W.SPAWN[0], W.SPAWN[1]
     p.combat = {}
@@ -217,6 +220,8 @@ def defeat(store, p, mob_name):
         lines.append(f"\n🔒 В защищённом кармане уцелело: <b>{kept}</b>")
     if was_deep:
         lines.append("\n🕳 <i>Подземелье выплюнуло тебя наружу.</i>")
+    if store is not None and _wear_warnings:
+        lines.append("\n🔩 " + "\n🔩 ".join(_wear_warnings))
     lines.append(f"\n{note(p)}")
 
     rows = [[("🧭 В мир", "world")]]

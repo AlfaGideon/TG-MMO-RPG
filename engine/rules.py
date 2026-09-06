@@ -26,9 +26,11 @@ def bonuses(player, store=None):
     for slot, idx in player.equipped.items():
         stats_src = None
         if store is not None and worn.get(slot):
-            from engine import items
+            from engine import durability, items
             inst = items.get(store, worn[slot])
             if inst is not None and int(inst.get("idx", -1)) == int(idx):
+                if durability.broken(inst):
+                    continue                 # сломано — слот не усиливает
                 stats_src = inst.get("stats") or {}
         if stats_src is None:
             stats_src = data.ITEMS[idx][5]

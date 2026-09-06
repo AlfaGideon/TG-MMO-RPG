@@ -14,7 +14,7 @@ import random
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from core import history
+from core import durability, history
 from core.enums import CraftStation, ItemSource
 from core.loot import (
     apply_upgrade, create_instance, find_upgrade_rule, is_stackable,
@@ -170,6 +170,53 @@ async def craft(session, character, recipe: CraftRecipe) -> dict:
 
     await session.flush()
     return {"ok": True, "instances": [m for m in made if m], "item": item}
+
+
+async def repair_cost(session, instance: ItemInstance, item: Item) -> int:
+    """Цена ремонта в бронзе (общие правила 2.2)."""
+    return durability.repair_cost(instance)
+
+
+async def repair(session, character, inv_item: InventoryItem) -> dict:
+    """Чинит изношенное снаряжение за бронзу и ржавый лом."""
+    instance = inv_item.instance
+    item = inv_item.item
+    if instance is None or item is None:
+        return {"ok": False, "reason": "Этот предмет нельзя чинить."}
+    if not durability.is_gear(instance, item):
+        return {"ok": False, "reason": "У этой вещи нет прочности."}
+    now = durability.cur(instance)
+    cap = durability.max_of(instance)
+    if now >= cap:
+        return {"ok": False, "reason": "Вещь уже в исправности."}
+
+    cost = durability.repair_cost(instance)
+    material = await durability.find_repair_material(session)
+    if material is None:
+        return {"ok": False,
+                "reason": f"Нет материала «{durability.REPAIR_MATERIAL_NAME}»."}
+    have = await _count_material(session, character.id, material.id)
+    if have < 1:
+        return {"ok": False,
+                "reason": f"Нужен {material.name} ×1 (есть {have})."}
+
+    from engine.currency import total_in_bronze, deduct_currency
+    if total_in_bronze(character) < cost:
+        return {"ok": False,
+                "reason": f"Не хватает {cost - total_in_bronze(character)} бронзы."}
+
+    await _consume_material(session, character.id, material.id, 1)
+    deduct_currency(character, cost)
+    was = now
+    durability.repair(instance)
+    await history.record(
+        session, instance, "repaired", character,
+        detail=f"{was}→{durability.cur(instance)} прочность", price=cost,
+    )
+    await session.flush()
+    return {
+        "ok": True, "was": was, "now": durability.cur(instance), "cost": cost,
+    }
 
 
 async def upgrade_cost(session, instance: ItemInstance, item: Item) -> dict | None:

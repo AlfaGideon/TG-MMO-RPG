@@ -8,7 +8,7 @@
 import secrets
 import time
 
-from engine import currency, items
+from engine import currency, durability, items
 from engine.models import Reply
 
 KEY = "auction"                 # список лотов в store.settings
@@ -248,6 +248,7 @@ def lot_card(store, p, lot_id):
             f"<code>{items.tag(inst)}</code>\n"
             f"{it[0]} {it[1]} · качество {inst.get('quality', 100)} %\n\n"
             f"{items.stats_line(inst)}\n\n"
+            f"{durability.card_line(inst)}\n"
             f"💵 Цена: <b>{lot['price']}</b> 🪙\n"
             f"👛 У тебя: <b>{p.gold}</b> 🪙\n"
             f"🧾 Продавец: {lot['seller_name']}\n\n"

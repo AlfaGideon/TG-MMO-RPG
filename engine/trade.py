@@ -7,7 +7,7 @@
 from engine import auction, craft
 
 # Действия, которые обрабатывает этот модуль
-ACTIONS = ("craft", "mk", "sharpen", "shrp",
+ACTIONS = ("craft", "mk", "sharpen", "shrp", "repair", "repairing",
            "auc", "auclot", "aucbuy", "aucmine", "aucnew", "aucput",
            "aucoff", "aucnpc")
 
@@ -45,6 +45,17 @@ def _upgrade(store, p, arg):
     ok, msg = craft.upgrade(store, p, arg)
     r = craft.sharpen_view(store, p, 0)
     r.alert = ("⚡ " + msg) if ok else msg
+    return r
+
+
+def _repair(store, p, arg):
+    return craft.repair_view(store, p, arg or 0)
+
+
+def _repair_do(store, p, arg):
+    ok, msg = craft.repair(store, p, arg)
+    r = craft.repair_view(store, p, 0)
+    r.alert = ("🔩 " + msg) if ok else msg
     return r
 
 
@@ -97,6 +108,7 @@ def _npc(store, p, arg):
 
 _ROUTES = {
     "craft": _craft, "mk": _make, "sharpen": _sharpen, "shrp": _upgrade,
+    "repair": _repair, "repairing": _repair_do,
     "auc": _board, "auclot": _lot, "aucbuy": _buy, "aucmine": _mine,
     "aucnew": _new, "aucput": _put, "aucoff": _off, "aucnpc": _npc,
 }

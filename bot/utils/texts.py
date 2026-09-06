@@ -586,6 +586,10 @@ def item_detail_text(inv_item, history_rows=None) -> str:
         lines.append(f"⚖️ Качество: <b>{inst.quality}%</b>"
                      + (f" | 🔨 Заточка: <b>+{inst.upgrade_level}</b>"
                         if inst.upgrade_level else ""))
+        from core import durability as dur
+        wear = dur.card_line(inst, item)
+        if wear:
+            lines.append(wear)
         if inst.is_one_of_a_kind:
             lines.append("🌟 <b>Единственный в мире экземпляр</b>")
         if inst.is_festive:

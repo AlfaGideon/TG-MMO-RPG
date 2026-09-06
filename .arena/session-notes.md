@@ -568,3 +568,29 @@ updates ... TelegramUnauthorizedError: Telegram server says - Unauthorized`.
   старой БД, работают в серверном и браузерном бою и не затирают ручной арт.
 - Регрессии: `tests/test_pets_admin.py` и `tests/test_monster_images.py`,
   подключены к run_all.
+
+## 2026-09-06 — 🔩 Прочность и ремонт снаряжения (2.2)
+
+Реализована идея 2.2 из `IDEAS-new-2026.md` в обоих стеках с общими
+правилами.
+
+- Новый `engine/durability.py` — единственный источник правды: 5 типов
+  носимой экипировки, max 100, износ `attack_hit=1`, `taken_hit=1`,
+  `death=7`, ремонт `cost_per=2` бронзы за единицу нехватки × множитель
+  редкости ×1…×7 + 1 материал (индекс 0, «Железный лом»). `core/durability.py`
+  реэкспортирует правила и адаптирует их к SQLAlchemy-объектам.
+- Браузерный стек: `engine/items.create` кладёт `durability`/`durability_max`;
+  `engine/combat.py` стачивает оружие за удар и защиту за полученный;
+  `engine/death.defeat` дополнительно тратит 7 на всё надетое; `engine/rules.stats`
+  не усиливает сломанным; `engine/inventory.equip` блокирует поломку;
+  починка — экран `repair:*` в `engine/craft.py` + маршрут в
+  `engine/trade.py`; карточка — `durability.card_line` в `itemui`/инвентаре/аукционе.
+- Серверный стек: `ItemInstance` получил `durability`/`durability_max`;
+  `core/loot.create_instance` заполняет их; `core/crafting.repair` чинит за
+  «Ржавый лом» + бронзу; `core/stats.sum_bonuses` пропускает сломанные
+  вещи; `bot/handlers/battle.py` зовёт `core.durability.decay` на удары и
+  смерть; `bot/handlers/craft.py` добавлены экраны `repair_list/view/do`;
+  карточки вещей и аукциона показывают прочность.
+- Тесты: `tests/test_engine_durability.py`; `tests/test_parity.py`
+  перечисляет «Прочность снаряжения» (55/55); `tests/test_wiring.py` зелёный.
+  `modules.json`/`index.html`/`webapp/bundle.json` пересобраны (114 модулей).

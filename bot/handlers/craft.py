@@ -4,8 +4,10 @@ from aiogram.types import CallbackQuery
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from core import durability
 from core.crafting import (
-    check_recipe, craft, recipes_for_station, upgrade, upgrade_cost,
+    check_recipe, craft, recipes_for_station, repair, repair_cost, upgrade,
+    upgrade_cost,
 )
 from core.database import async_session
 from core.enums import CraftStation, ItemType
@@ -14,6 +16,7 @@ from core.models import (
 )
 from bot.keyboards.inline import (
     craft_menu_keyboard, craft_recipe_keyboard, craft_recipes_keyboard,
+    repair_item_keyboard, repair_list_keyboard,
     upgrade_list_keyboard, upgrade_item_keyboard,
 )
 from bot.utils.photos import send_or_edit_photo
@@ -438,6 +441,160 @@ async def upgrade_do(callback: CallbackQuery):
         f"{name} теперь <b>+{outcome['level']}</b>\n"
         f"Прирост: {gains}",
         reply_markup=upgrade_item_keyboard(inv_id, True, station),
+        parse_mode="HTML",
+    )
+
+
+# ── Починка ────────────────────────────────────────────────
+
+@router.callback_query(F.data.startswith("repair_list"))
+async def repair_list(callback: CallbackQuery):
+    parts = callback.data.split(":")
+    page = int(parts[1]) if len(parts) > 1 and parts[1] else 0
+
+    async with async_session() as session:
+        character = await _character(session, callback.from_user.id)
+        if not character:
+            await callback.answer("Сначала создай персонажа!", show_alert=True)
+            return
+
+        result = await session.execute(
+            select(InventoryItem)
+            .where(InventoryItem.character_id == character.id)
+            .where(InventoryItem.instance_id.isnot(None))
+            .options(
+                selectinload(InventoryItem.item),
+                selectinload(InventoryItem.instance),
+            )
+            .order_by(InventoryItem.is_equipped.desc(), InventoryItem.id)
+        )
+        worn = [i for i in result.scalars().all()
+                if i.item and durability.is_gear(i.instance, i.item)
+                and durability.cur(i.instance) < durability.max_of(i.instance)]
+        station = await _station_of(session, callback.from_user.id)
+
+    if not worn:
+        await callback.answer(
+            "Нечего чинить — снаряжение в порядке.", show_alert=True
+        )
+        return
+
+    await safe_edit_text(
+        callback,
+        "🔩 <b>Починка</b>\n\n"
+        "Прочность тратится в бою и при смерти. Сломанная вещь "
+        "не усиливает героя, пока её не починить.\n\n"
+        "<i>Нужны бронза и ржавый лом.</i>",
+        reply_markup=repair_list_keyboard(worn, station, page),
+        parse_mode="HTML",
+    )
+
+
+def _repair_text(inv_item, cost: int, material, character) -> str:
+    inst = inv_item.instance
+    item = inv_item.item
+    lines = [
+        f"🔩 <b>{inv_item.display_name()}</b>",
+        f"🆔 <code>{inst.uid}</code> | ⚖️ Качество {inst.quality}%",
+        durability.card_line(inst, item),
+        "",
+    ]
+    if cost is None:
+        lines.append("✅ <b>Вещь в исправности.</b>")
+        return "\n".join(lines)
+
+    from engine.currency import total_in_bronze, currency_str, CONVERSION
+    def fmt_b(val):
+        g_v = val // (CONVERSION * CONVERSION)
+        rem = val % (CONVERSION * CONVERSION)
+        s_v = rem // CONVERSION
+        b_v = rem % CONVERSION
+        parts = []
+        if g_v > 0:
+            parts.append(f"{g_v}🟡")
+        if s_v > 0:
+            parts.append(f"{s_v}⚪")
+        if b_v > 0 or not parts:
+            parts.append(f"{b_v}🟤")
+        return " ".join(parts)
+
+    gold_ok = "✅" if total_in_bronze(character) >= cost else "❌"
+    lines += [
+        "<b>Починить:</b>",
+        f"{gold_ok} 💰 Стоимость — {currency_str(character)}/{fmt_b(cost)}",
+    ]
+    if material is not None:
+        from core import durability as dur
+        lines.append(f"🧰 {material.icon} {material.name} ×1 — "
+                     f"материал ремонта ({dur.REPAIR_MATERIAL_NAME})")
+    return "\n".join(lines)
+
+
+@router.callback_query(F.data.startswith("repair_view:"))
+async def repair_view(callback: CallbackQuery):
+    inv_id = int(callback.data.split(":")[1])
+    async with async_session() as session:
+        character = await _character(session, callback.from_user.id)
+        result = await session.execute(
+            select(InventoryItem)
+            .where(InventoryItem.id == inv_id)
+            .options(selectinload(InventoryItem.item),
+                     selectinload(InventoryItem.instance))
+        )
+        inv_item = result.scalar_one_or_none()
+        if not inv_item or not inv_item.instance or not character:
+            await callback.answer("Предмет не найден.", show_alert=True)
+            return
+        cost = (await repair_cost(session, inv_item.instance, inv_item.item)
+                if durability.is_gear(inv_item.instance, inv_item.item) else None)
+        material = await durability.find_repair_material(session)
+        text = _repair_text(inv_item, cost, material, character)
+        image = inv_item.item.image_url
+        station = await _station_of(session, callback.from_user.id)
+
+    await send_or_edit_photo(
+        callback,
+        text,
+        reply_markup=repair_item_keyboard(
+            inv_id, cost is not None and durability.cur(inv_item.instance) <
+            durability.max_of(inv_item.instance), station
+        ),
+        image_url=image,
+    )
+
+
+@router.callback_query(F.data.startswith("repair_do:"))
+async def repair_do(callback: CallbackQuery):
+    inv_id = int(callback.data.split(":")[1])
+    async with async_session() as session:
+        character = await _character(session, callback.from_user.id)
+        result = await session.execute(
+            select(InventoryItem)
+            .where(InventoryItem.id == inv_id)
+            .options(selectinload(InventoryItem.item),
+                     selectinload(InventoryItem.instance))
+        )
+        inv_item = result.scalar_one_or_none()
+        if not inv_item or not character:
+            await callback.answer("Предмет не найден.", show_alert=True)
+            return
+
+        outcome = await repair(session, character, inv_item)
+        await session.commit()
+        name = inv_item.display_name()
+        station = await _station_of(session, callback.from_user.id)
+
+    if not outcome["ok"]:
+        await callback.answer(outcome["reason"], show_alert=True)
+        return
+
+    await safe_edit_text(
+        callback,
+        f"🔩 <b>Починено!</b>\n\n"
+        f"{name}: прочность {outcome['was']}→{outcome['now']} "
+        f"· −{outcome['cost']}🟤\n\n"
+        f"<i>Лязг молота — и сталь снова держит удар.</i>",
+        reply_markup=repair_item_keyboard(inv_id, False, station),
         parse_mode="HTML",
     )
 

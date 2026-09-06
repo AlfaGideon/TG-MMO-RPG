@@ -13,17 +13,21 @@ from core.models import User, Character, Cell, DungeonRun, MobSpawn
 logger = logging.getLogger(__name__)
 
 
-async def broadcast_to_all(bot, text: str, image_path: str | None = None, reply_markup=None):
+async def broadcast_to_all(bot, text: str, image_path: str | None = None,
+                           reply_markup=None, exclude: set | None = None):
     """Sends a text (optionally with a photo) to every known Telegram user.
     `image_path` may be a local workspace path or an http(s) URL. Failures for
     individual users (blocked bot, etc) are swallowed so one bad chat doesn't
-    stop the rest of the broadcast."""
+    stop the rest of the broadcast. `exclude` — telegram_id, которым это
+    сообщение не предназначено (настройки вестей)."""
     if bot is None:
         return 0
+    exclude = set(exclude or ())
 
     async with async_session() as session:
         result = await session.execute(select(User.telegram_id))
-        telegram_ids = [row[0] for row in result.all()]
+        telegram_ids = [row[0] for row in result.all()
+                        if int(row[0]) not in exclude]
 
     sent = 0
     # Один резолвер путей для обычных экранов и рассылок: не зависим от
