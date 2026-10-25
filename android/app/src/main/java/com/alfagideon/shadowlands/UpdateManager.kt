@@ -124,16 +124,26 @@ class UpdateManager(private val activity: MainActivity) {
             val json = JSONObject(stream.bufferedReader().readText())
             val tag = json.optString("tag_name").ifBlank { return null }
             var apkUrl: String? = null
+            var fallbackUrl: String? = null
             val assets = json.optJSONArray("assets")
             if (assets != null) {
                 for (i in 0 until assets.length()) {
                     val asset = assets.getJSONObject(i)
-                    if (asset.optString("name").endsWith(".apk", ignoreCase = true)) {
+                    val name = asset.optString("name")
+                    if (!name.endsWith(".apk", ignoreCase = true)) continue
+                    // Приоритет — ассет именно этого издания (admin/player),
+                    // первый попавшийся .apk оставляем запасным вариантом
+                    // для совместимости со старыми релизами.
+                    if (name.equals(BuildConfig.RELEASE_ASSET, ignoreCase = true)) {
                         apkUrl = asset.optString("browser_download_url")
                         break
                     }
+                    if (fallbackUrl == null) {
+                        fallbackUrl = asset.optString("browser_download_url")
+                    }
                 }
             }
+            if (apkUrl == null) apkUrl = fallbackUrl
             return Release(
                 tag = tag,
                 apkUrl = apkUrl,
@@ -177,7 +187,10 @@ class UpdateManager(private val activity: MainActivity) {
         val dir = activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
             ?: activity.filesDir
         dir.mkdirs()
-        val target = File(dir, "shadow-lands-${normalize(release.tag)}.apk")
+        // Имя файла наследуем от ассета издания: shadow-lands.apk /
+        // shadow-lands-player.apk (+ нормализованный тег версии).
+        val base = BuildConfig.RELEASE_ASSET.removeSuffix(".apk")
+        val target = File(dir, "$base-${normalize(release.tag)}.apk")
         if (target.exists()) target.delete()
         pendingInstall = target
 

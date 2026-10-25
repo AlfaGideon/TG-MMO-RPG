@@ -73,11 +73,12 @@ jobs:
           keytool -list -keystore android/keystore/release.p12 \
             -storetype PKCS12 -storepass shadowlands | head -10
 
-      - name: Build release APK
+      - name: Build release APKs (admin + player)
         working-directory: android
         run: |
           set -o pipefail
-          ./gradlew assembleRelease --no-daemon --stacktrace \
+          # Два издания: панель (admin) и игровой клиент (player).
+          ./gradlew assembleAdminRelease assemblePlayerRelease --no-daemon --stacktrace \
             -PappVersion=${{ steps.ver.outputs.version }} \
             -PappVersionCode=${{ steps.ver.outputs.versionCode }} \
             -PkeystoreFile="$GITHUB_WORKSPACE/android/keystore/release.p12" \
@@ -110,15 +111,18 @@ jobs:
           } > /tmp/failure.md
           gh issue create --title "Android build failed (run ${{ github.run_id }})" --body-file /tmp/failure.md || true
 
-      - name: Stage and verify APK
+      - name: Stage and verify APKs
         run: |
           set -eo pipefail
           echo "--- собранные APK:"
           find android/app/build/outputs -name "*.apk" -ls || true
-          APK=$(find android/app/build/outputs/apk/release -name "*.apk" | head -1)
-          test -n "$APK" || { echo "APK не найден в outputs"; exit 2; }
+          ADMIN_APK=$(find android/app/build/outputs/apk/admin/release -name "*.apk" | head -1)
+          PLAYER_APK=$(find android/app/build/outputs/apk/player/release -name "*.apk" | head -1)
+          test -n "$ADMIN_APK"  || { echo "admin APK не найден в outputs"; exit 2; }
+          test -n "$PLAYER_APK" || { echo "player APK не найден в outputs"; exit 2; }
           mkdir -p build
-          cp "$APK" build/shadow-lands.apk
+          cp "$ADMIN_APK"  build/shadow-lands.apk
+          cp "$PLAYER_APK" build/shadow-lands-player.apk
           ls -la build/
           # Верификация подписи, если apksigner вообще доступен на раннере
           # (пути build-tools меняются между образами — шаг не должен падать из-за этого).
@@ -130,26 +134,33 @@ jobs:
           done
           if [ -n "$APKSIGNER" ]; then
             "$APKSIGNER" verify --verbose --print-certs build/shadow-lands.apk
+            "$APKSIGNER" verify --verbose --print-certs build/shadow-lands-player.apk
           else
-            echo "apksigner не найден — верификация пропущена (APK уже подписан Gradle)"
+            echo "apksigner не найден — верификация пропущена (APK уже подписаны Gradle)"
           fi
 
-      - name: Upload build artifact
+      - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: shadow-lands-apk
-          path: build/shadow-lands.apk
+          name: shadow-lands-apks
+          path: |
+            build/shadow-lands.apk
+            build/shadow-lands-player.apk
           retention-days: 30
 
-      - name: Attach APK to GitHub release
+      - name: Attach APKs to GitHub release
         if: steps.ver.outputs.tag != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${{ steps.ver.outputs.tag }}" build/shadow-lands.apk --clobber
+        run: |
+          # Каждый UpdateManager матчит ассет по имени своего издания:
+          # shadow-lands.apk — админка, shadow-lands-player.apk — игра.
+          gh release upload "${{ steps.ver.outputs.tag }}" \
+            build/shadow-lands.apk build/shadow-lands-player.apk --clobber
 
-      # APK также кладётся файлом прямо в репозиторий (android/dist/shadow-lands.apk),
-      # чтобы его можно было скачать из дерева проекта без захода в Releases.
-      - name: Commit APK into repository
+      # APK также кладутся файлами прямо в репозиторий (android/dist/),
+      # чтобы их можно было скачать из дерева проекта без захода в Releases.
+      - name: Commit APKs into repository
         if: github.event_name == 'release'
         run: |
           set -euo pipefail
@@ -158,7 +169,8 @@ jobs:
           git fetch origin main
           git checkout main
           mkdir -p android/dist
-          cp build/shadow-lands.apk android/dist/shadow-lands.apk
-          git add -f android/dist/shadow-lands.apk
-          git commit -m "Build shadow-lands.apk for ${{ github.event.release.tag_name }}"
+          cp build/shadow-lands.apk        android/dist/shadow-lands.apk
+          cp build/shadow-lands-player.apk android/dist/shadow-lands-player.apk
+          git add -f android/dist/shadow-lands.apk android/dist/shadow-lands-player.apk
+          git commit -m "Build admin+player APK for ${{ github.event.release.tag_name }}"
           git push origin main

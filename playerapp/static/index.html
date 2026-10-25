@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Теневые Земли</title>
+<link rel="icon" type="image/png" href="/static/branding/start_ru.png">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="stylesheet" href="/player-static/player.css">
+</head>
+<body>
+
+<!-- Экран входа -->
+<div id="login" class="screen login-screen">
+  <div class="login-card">
+    <img class="login-logo" src="/static/branding/start_ru.png" alt="Теневые Земли">
+    <h1>Теневые Земли</h1>
+    <p class="muted">Один герой — в Telegram и в приложении. Прогресс общий.</p>
+    <div id="loginForm">
+      <label for="codeInput">Код входа из бота</label>
+      <input id="codeInput" inputmode="numeric" maxlength="6" placeholder="• • • • • •"
+             autocomplete="one-time-code">
+      <button class="btn primary big" id="loginBtn">Войти в игру</button>
+      <p class="hint">Открой бота и отправь команду <b>/app</b> — он пришлёт
+         одноразовый код. Внутри Telegram вход происходит автоматически.</p>
+    </div>
+    <div id="loginStatus" class="login-status" hidden></div>
+  </div>
+</div>
+
+<!-- Игровые экраны -->
+<div id="game" class="screen game-shell" hidden>
+
+  <header class="topbar">
+    <div class="hero-pill">
+      <span id="heroName">—</span>
+      <span class="lvl" id="heroLevel">ур. 1</span>
+    </div>
+    <div class="hp-pill">
+      <span>❤️</span>
+      <div class="bar"><div class="bar-fill hp" id="hpBar"></div></div>
+      <span id="hpText">0/0</span>
+    </div>
+  </header>
+
+  <main class="content">
+
+    <!-- Профиль -->
+    <section class="tab" id="tab-profile">
+      <div class="card" id="profileCard">
+        <div class="loading">Загрузка героя…</div>
+      </div>
+    </section>
+
+    <!-- Карта -->
+    <section class="tab" id="tab-map" hidden>
+      <div class="card location-card">
+        <div class="loc-head">
+          <h2 id="locName">—</h2>
+          <span class="coords" id="locCoords"></span>
+        </div>
+        <p class="loc-desc" id="cellDesc">—</p>
+        <div class="cell-tags" id="cellTags"></div>
+      </div>
+
+      <div class="card">
+        <h3>Перемещение</h3>
+        <div class="dpad">
+          <button class="dpad-btn" data-dir="nw">↖</button>
+          <button class="dpad-btn" data-dir="n">↑</button>
+          <button class="dpad-btn" data-dir="ne">↗</button>
+          <button class="dpad-btn" data-dir="w">←</button>
+          <div class="dpad-center">🧭</div>
+          <button class="dpad-btn" data-dir="e">→</button>
+          <button class="dpad-btn" data-dir="sw">↙</button>
+          <button class="dpad-btn" data-dir="s">↓</button>
+          <button class="dpad-btn" data-dir="se">↘</button>
+        </div>
+        <div class="actions-row">
+          <button class="btn" id="inspectBtn">👁 Осмотреть</button>
+          <button class="btn" id="restBtn">🔥 Отдых</button>
+        </div>
+      </div>
+
+      <div class="card" id="mobCard" hidden>
+        <h3>Враг на клетке</h3>
+        <div id="mobInfo"></div>
+        <button class="btn danger big" id="startBattleBtn">⚔️ Атаковать</button>
+      </div>
+    </section>
+
+    <!-- Бой -->
+    <section class="tab" id="tab-battle" hidden>
+      <div class="card battle-card">
+        <div class="battle-mob">
+          <h2 id="battleMobName">—</h2>
+          <div class="bar big"><div class="bar-fill mob" id="mobHpBar"></div></div>
+          <span id="mobHpText">0/0</span>
+        </div>
+        <div class="battle-log" id="battleLog"></div>
+        <div class="battle-actions">
+          <button class="btn danger big" id="attackBtn">⚔️ Удар</button>
+          <button class="btn" id="fleeBtn">🏃 Бежать</button>
+        </div>
+        <button class="btn ghost" id="leaveBattleBtn" hidden>Вернуться в мир</button>
+      </div>
+    </section>
+
+    <!-- Инвентарь -->
+    <section class="tab" id="tab-inventory" hidden>
+      <div class="card">
+        <h3>🛡 Экипировка</h3>
+        <div id="equippedList" class="item-list"><div class="loading">…</div></div>
+      </div>
+      <div class="card">
+        <h3>🎒 Сумка</h3>
+        <div id="bagList" class="item-list"><div class="loading">…</div></div>
+      </div>
+    </section>
+
+  </main>
+
+  <nav class="bottom-nav">
+    <button class="nav-btn active" data-tab="profile"><span>🧙</span>Профиль</button>
+    <button class="nav-btn" data-tab="map"><span>🗺</span>Мир</button>
+    <button class="nav-btn" data-tab="battle"><span>⚔️</span>Бой</button>
+    <button class="nav-btn" data-tab="inventory"><span>🎒</span>Вещи</button>
+  </nav>
+</div>
+
+<div id="toast" class="toast"></div>
+<script src="/player-static/app.js"></script>
+</body>
+</html>
