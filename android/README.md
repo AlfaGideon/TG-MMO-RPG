@@ -93,17 +93,26 @@ build-tools 34.0.0):
 
 ```bash
 cd android
-./gradlew assembleRelease
-# неподписанный APK:
-# app/build/outputs/apk/release/app-release-unsigned.apk
 
-# подпись тем же ключом, что и в CI:
-$ANDROID_HOME/build-tools/34.0.0/zipalign -p -f 4 \
-  app/build/outputs/apk/release/app-release-unsigned.apk aligned.apk
-$ANDROID_HOME/build-tools/34.0.0/apksigner sign \
-  --key keystore/release.key.pem --cert keystore/release.cert.pem \
-  --out shadow-lands.apk aligned.apk
+# 1. собираем PKCS12-keystore из PEM-пары (пароль: shadowlands)
+openssl pkcs12 -export \
+  -inkey keystore/release.key.pem \
+  -in keystore/release.cert.pem \
+  -out keystore/release.p12 \
+  -name shadowlands -password pass:shadowlands
+
+# 2. Gradle сам подпишет APK и сделает zipalign
+./gradlew assembleRelease \
+  -PkeystoreFile="$PWD/keystore/release.p12" \
+  -PkeystorePassword=shadowlands \
+  -PkeyAlias=shadowlands \
+  -PkeyPassword=shadowlands
+# готовый APK:
+# app/build/outputs/apk/release/app-release.apk
 ```
+
+Без `-PkeystoreFile` собирается неподписанный `app-release-unsigned.apk`
+(так делает только CI до шага конвертации ключа).
 
 Для отладки на телефоне удобнее `./gradlew installDebug` — отладочная сборка
 подписывается автоматически, но **на неё нельзя накатывать релизные обновления**:

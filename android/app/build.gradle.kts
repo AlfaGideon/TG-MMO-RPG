@@ -9,6 +9,13 @@ val appVersion: String = (project.findProperty("appVersion") as String?) ?: "1.0
 val appVersionCode: Int =
     (project.findProperty("appVersionCode") as String?)?.toIntOrNull() ?: 1
 
+// Подпись релиза: в CI путь к PKCS12-keystore передаётся через -PkeystoreFile.
+// Без этих свойств (локальная сборка без ключа) release остаётся неподписанным.
+val keystoreFilePath = project.findProperty("keystoreFile") as String?
+val keystorePassword = (project.findProperty("keystorePassword") as String?) ?: ""
+val keyAlias = (project.findProperty("keyAlias") as String?) ?: "shadowlands"
+val keyPassword = (project.findProperty("keyPassword") as String?) ?: keystorePassword
+
 android {
     namespace = "com.alfagideon.shadowlands"
     compileSdk = 34
@@ -22,10 +29,23 @@ android {
         vectorDrawables.useSupportLibrary = true
     }
 
+    signingConfigs {
+        if (keystoreFilePath != null) {
+            create("release") {
+                storeFile = file(keystoreFilePath)
+                storePassword = keystorePassword
+                this.keyAlias = keyAlias
+                keyPassword = keyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // Подпись выполняется в CI через apksigner (PEM-ключ в keystore/),
-            // поэтому здесь сборка остаётся без встроенного signingConfig.
+            // Gradle сам подпишет APK и сделает zipalign, если передан keystore.
+            if (keystoreFilePath != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

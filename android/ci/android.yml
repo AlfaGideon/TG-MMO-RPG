@@ -55,42 +55,53 @@ jobs:
           echo "versionCode=${{ github.run_number }}" >> "$GITHUB_OUTPUT"
           echo "Собираю версию $VERSION (versionCode ${{ github.run_number }})"
 
+      - name: Convert PEM key to PKCS12 keystore
+        run: |
+          set -eo pipefail
+          # Gradle/AGP умеет работать с PKCS12, но не с голым PEM —
+          # собираем keystore из закоммиченной пары ключ+сертификат.
+          openssl pkcs12 -export \
+            -inkey android/keystore/release.key.pem \
+            -in android/keystore/release.cert.pem \
+            -out android/keystore/release.p12 \
+            -name shadowlands \
+            -password pass:shadowlands
+          ls -la android/keystore/
+
       - name: Build release APK
         working-directory: android
         run: >
           ./gradlew assembleRelease --no-daemon --stacktrace
           -PappVersion=${{ steps.ver.outputs.version }}
           -PappVersionCode=${{ steps.ver.outputs.versionCode }}
+          -PkeystoreFile=$GITHUB_WORKSPACE/android/keystore/release.p12
+          -PkeystorePassword=shadowlands
+          -PkeyAlias=shadowlands
+          -PkeyPassword=shadowlands
 
-      - name: Align and sign APK
+      - name: Stage and verify APK
         run: |
           set -eo pipefail
-          echo "ANDROID_HOME=${ANDROID_HOME:-<unset>}  ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-<unset>}"
-          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
-          echo "SDK=$SDK"
-          ls -la "$SDK/build-tools/" || true
-          BT="$SDK/build-tools/34.0.0"
-          test -x "$BT/zipalign" || { echo "zipalign не найден в $BT"; exit 2; }
-          test -x "$BT/apksigner" || { echo "apksigner не найден в $BT"; exit 2; }
-
           echo "--- собранные APK:"
           find android/app/build/outputs -name "*.apk" -ls || true
           APK=$(find android/app/build/outputs/apk/release -name "*.apk" | head -1)
           test -n "$APK" || { echo "APK не найден в outputs"; exit 2; }
-
           mkdir -p build
-          "$BT/zipalign" -p -f 4 "$APK" build/shadow-lands-aligned.apk
-
-          echo "--- ключ подписи:"
-          ls -la android/keystore/
-          head -1 android/keystore/release.key.pem android/keystore/release.cert.pem
-          "$BT/apksigner" sign \
-            --min-sdk-version 24 \
-            --key android/keystore/release.key.pem \
-            --cert android/keystore/release.cert.pem \
-            --out build/shadow-lands.apk build/shadow-lands-aligned.apk
-          "$BT/apksigner" verify --verbose --print-certs build/shadow-lands.apk
+          cp "$APK" build/shadow-lands.apk
           ls -la build/
+          # Верификация подписи, если apksigner вообще доступен на раннере
+          # (пути build-tools меняются между образами — шаг не должен падать из-за этого).
+          APKSIGNER=""
+          for d in "$ANDROID_HOME" "$ANDROID_SDK_ROOT" /usr/local/lib/android/sdk /opt/android-sdk; do
+            [ -d "$d/build-tools" ] || continue
+            APKSIGNER=$(ls "$d"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1)
+            [ -n "$APKSIGNER" ] && break
+          done
+          if [ -n "$APKSIGNER" ]; then
+            "$APKSIGNER" verify --verbose --print-certs build/shadow-lands.apk
+          else
+            echo "apksigner не найден — верификация пропущена (APK уже подписан Gradle)"
+          fi
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
