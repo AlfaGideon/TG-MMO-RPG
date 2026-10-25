@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Shadow Lands</string>
+
+    <!-- Меню -->
+    <string name="action_back">Назад</string>
+    <string name="action_refresh">Обновить страницу</string>
+    <string name="action_home">На главную</string>
+    <string name="action_check_update">Проверить обновления</string>
+    <string name="action_server_url">Адрес сервера</string>
+    <string name="action_about">О приложении</string>
+
+    <!-- Автообновление -->
+    <string name="check_update">Проверить обновления</string>
+    <string name="update_available">Доступно обновление</string>
+    <string name="update_install">Скачать и установить</string>
+    <string name="update_later">Позже</string>
+    <string name="update_open_page">Страница релиза</string>
+    <string name="update_downloading">Загрузка обновления…</string>
+    <string name="update_download_started">Загрузка начата — прогресс виден в шторке уведомлений</string>
+    <string name="update_allow_unknown">Разрешите установку из этого источника — она продолжится автоматически</string>
+    <string name="update_check_failed">Не удалось проверить обновления</string>
+    <string name="update_up_to_date">У вас последняя версия (%1$s)</string>
+    <string name="update_download_failed">Не удалось скачать APK (код %1$d)</string>
+
+    <!-- Адрес сервера -->
+    <string name="server_url_title">Адрес сервера</string>
+    <string name="server_url_hint">https://example.com/</string>
+    <string name="server_url_invalid">Некорректный URL — нужен http(s)-адрес</string>
+    <string name="server_url_reset">Сбросить</string>
+
+    <!-- Диалоги -->
+    <string name="save">Сохранить</string>
+    <string name="cancel">Отмена</string>
+    <string name="close">Закрыть</string>
+    <string name="about_text">Версия %1$s\n\nWebView-обёртка над веб-панелью Shadow Lands. APK обновляется автоматически через релизы GitHub.</string>
+    <string name="about_github">Релизы на GitHub</string>
+    <string name="external_link_error">Нет приложения, чтобы открыть ссылку (%1$s)</string>
+
+    <!-- Ошибка загрузки -->
+    <string name="error_text">Не удалось загрузить страницу.\nПроверьте подключение к интернету или смените адрес сервера в меню.</string>
+    <string name="retry">Повторить</string>
+</resources>
