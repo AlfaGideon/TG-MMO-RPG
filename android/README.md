@@ -8,10 +8,17 @@
 Один код и одна WebView-обёртка собираются в два независимых приложения —
 они ставятся рядом, у них разные package и точки входа:
 
-| Издание  | package                              | Стартовый путь        | APK в релизе                | Для кого |
-|----------|--------------------------------------|-----------------------|-----------------------------|----------|
-| `admin`  | `com.alfagideon.shadowlands`         | `/` (панель)          | `shadow-lands.apk`          | Администрация |
-| `player` | `com.alfagideon.shadowlands.player`  | `/player/ (игра)      | `shadow-lands-player.apk`   | Игроки |
+| Издание  | package                              | Хост по умолчанию                | APK в релизе                | Для кого |
+|----------|--------------------------------------|----------------------------------|-----------------------------|----------|
+| `admin`  | `com.alfagideon.shadowlands`         | GitHub Pages, `/` (статическая панель) | `shadow-lands.apk`     | Администрация |
+| `player` | `com.alfagideon.shadowlands.player`  | Python-бэкенд Render, `/player/` (живой игровой SPA) | `shadow-lands-player.apk` | Игроки |
+
+**Хосты у изданий разные, и это принципиально.** GitHub Pages — статический
+хостинг, на нём лежит только админ-панель; любой неизвестный путь там
+попадает в `404.html`, который редиректит в панель. Игровой SPA
+(`playerapp/`) отдаёт Python-бэкенд на Render (`https://shadow-lands.onrender.com/player/`),
+он же обслуживает API `/api/player/*`. Поэтому в player flavor зашит адрес
+бэкенда, а не Pages.
 
 Игровое издание не содержит админ-разделов: оно открывает только мобильный
 SPA (`playerapp/`), вход в него — по коду из бота (`/app`) или автоматически
@@ -208,5 +215,7 @@ android/
 ```
 
 Различия изданий заданы в `productFlavors` (`app/build.gradle.kts`):
-`applicationId`, `BuildConfig.DEFAULT_URL` (корень панели или `/player/`)
-и `BuildConfig.RELEASE_ASSET` (имя APK, который ищет автообновление).
+`applicationId`, `BuildConfig.DEFAULT_URL` (для admin — Pages с панелью,
+для player — бэкенд Render с `/player/`), `BuildConfig.ENTRY_PATH`
+(авто-дописывание `/player/` к любому введённому адресу) и
+`BuildConfig.RELEASE_ASSET` (имя APK, который ищет автообновление).
