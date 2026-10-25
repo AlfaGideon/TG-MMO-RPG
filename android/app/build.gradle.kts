@@ -51,11 +51,14 @@ android {
         create("player") {
             dimension = "edition"
             applicationId = "com.alfagideon.shadowlands.player"
-            // Тот же хост, что у админ-издания, но игровой раздел SPA.
             // Боевой адрес сервера игрок может сменить в меню «Адрес сервера».
+            // ВАЖНО: игровой SPA /player/ отдаёт Python-бэкенд (FastAPI),
+            // а НЕ GitHub Pages — на Pages есть только статическая админка,
+            // а любой неизвестный путь там уводит в 404.html → панель.
+            // Имя сервиса Render — shadow-lands (см. render.yaml).
             buildConfigField(
                 "String", "DEFAULT_URL",
-                "\"https://alfagideon.github.io/TG-MMO-RPG/player/\""
+                "\"https://shadow-lands.onrender.com/player/\""
             )
             // Точка входа издания: при любом введённом адресе сервера игрок
             // всегда попадает в игровой SPA, а не в корень админ-панели.
