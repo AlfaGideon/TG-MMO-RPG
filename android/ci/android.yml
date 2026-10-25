@@ -18,6 +18,7 @@ on:
 
 permissions:
   contents: write
+  issues: write
 
 jobs:
   build:
@@ -67,17 +68,47 @@ jobs:
             -name shadowlands \
             -password pass:shadowlands
           ls -la android/keystore/
+          # Сразу проверяем, что JVM раннера читает этот keystore
+          # (ловит несовместимость OpenSSL 3 / Java до запуска Gradle).
+          keytool -list -keystore android/keystore/release.p12 \
+            -storetype PKCS12 -storepass shadowlands | head -10
 
       - name: Build release APK
         working-directory: android
-        run: >
-          ./gradlew assembleRelease --no-daemon --stacktrace
-          -PappVersion=${{ steps.ver.outputs.version }}
-          -PappVersionCode=${{ steps.ver.outputs.versionCode }}
-          -PkeystoreFile=$GITHUB_WORKSPACE/android/keystore/release.p12
-          -PkeystorePassword=shadowlands
-          -PkeyAlias=shadowlands
-          -PkeyPassword=shadowlands
+        run: |
+          set -o pipefail
+          ./gradlew assembleRelease --no-daemon --stacktrace \
+            -PappVersion=${{ steps.ver.outputs.version }} \
+            -PappVersionCode=${{ steps.ver.outputs.versionCode }} \
+            -PkeystoreFile="$GITHUB_WORKSPACE/android/keystore/release.p12" \
+            -PkeystorePassword=shadowlands \
+            -PkeyAlias=shadowlands \
+            -PkeyPassword=shadowlands 2>&1 | tee gradle-build.log
+
+      # Логи Actions недоступны из агентской песочницы, поэтому при падении
+      # создаём issue с диагностикой и хвостом лога Gradle.
+      - name: Report failure as GitHub issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          {
+            echo "## Сборка ${{ github.run_id }} (${{ github.event_name }}) упала"
+            echo
+            echo "### Окружение"
+            echo '```'
+            echo "ANDROID_HOME=${ANDROID_HOME:-<unset>} ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-<unset>}"
+            SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+            ls -la "$SDK/build-tools/" 2>&1 || true
+            find "$SDK" -name apksigner 2>/dev/null || true
+            keytool -list -keystore android/keystore/release.p12 -storetype PKCS12 -storepass shadowlands 2>&1 | head -10 || true
+            echo '```'
+            echo "### Хвост лога Gradle"
+            echo '```'
+            tail -200 android/gradle-build.log 2>/dev/null || echo "лог gradle-build.log не найден"
+            echo '```'
+          } > /tmp/failure.md
+          gh issue create --title "Android build failed (run ${{ github.run_id }})" --body-file /tmp/failure.md || true
 
       - name: Stage and verify APK
         run: |
