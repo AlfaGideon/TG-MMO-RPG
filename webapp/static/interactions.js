@@ -119,6 +119,33 @@
 
   document.addEventListener("mouseup", function () { painting = false; });
 
+  // ── Тач-поддержка рисования по карте ───────────────────────────────
+  // Mousedown/mouseover на телефоне не дают drag-рисования: браузер
+  // синтезирует только тап. Pointer Events покрывают мышь, касание и стилус
+  // единообразно; touch-action: none у .mapgrid .c отключает скролл страницы
+  // во время рисования (см. admin.css).
+  if ("PointerEvent" in window) {
+    document.addEventListener("pointerdown", function (e) {
+      const grid = e.target.closest("#locMapGrid");
+      if (!grid || e.button === 2) return;
+      const cell = e.target.closest(".c");
+      if (!cell) return;
+      e.preventDefault();
+      if (gridMode(grid) !== "paint") { editCell(cell.dataset.key); return; }
+      painting = true;
+      paintCell(cell.dataset.key);
+    });
+    document.addEventListener("pointerover", function (e) {
+      if (!painting || e.pointerType === "mouse" && e.buttons === 0) return;
+      const grid = e.target.closest("#locMapGrid");
+      if (!grid || gridMode(grid) !== "paint") return;
+      const cell = e.target.closest(".c");
+      if (cell) paintCell(cell.dataset.key);
+    });
+    document.addEventListener("pointerup", function () { painting = false; });
+    document.addEventListener("pointercancel", function () { painting = false; });
+  }
+
   document.addEventListener("contextmenu", function (e) {
     const grid = e.target.closest("#locMapGrid");
     if (!grid) return;
@@ -302,6 +329,43 @@
       if (value !== undefined && value !== null) console.log(value);
     }).join("\n");
   }
+
+  // ── Мобильные карточки из таблиц: авто-подстановка data-label ──────
+  // CSS на ширине ≤768px превращает строки таблиц в карточки и берёт
+  // подпись поля из атрибута data-label ячейки. Разметка части страниц
+  // его не проставляет — здесь подписи собираются из <thead> автоматически,
+  // чтобы ни одна таблица на телефоне не осталась с пустыми ярлычками.
+  function enableMobileTables(root) {
+    const scope = root || document;
+    scope.querySelectorAll("table").forEach(function (table) {
+      if (table.dataset.mobileLabels) return;
+      // Заголовки берём из thead, а если его нет — из первого tr (audit.py)
+      const headerSource = table.querySelector("thead th")
+        ? table.querySelector("thead")
+        : table.querySelector("tr");
+      if (!headerSource) return;
+      const headers = Array.prototype.slice
+        .call(headerSource.querySelectorAll("th"))
+        .map(function (th) { return (th.textContent || "").trim(); });
+      if (!headers.length) return;
+      table.dataset.mobileLabels = "1";
+      Array.prototype.slice.call(table.querySelectorAll("tr")).forEach(function (tr) {
+        if (tr.querySelector("th")) return; // строка-заголовок
+        const cells = tr.children;
+        for (let i = 0; i < cells.length; i++) {
+          const td = cells[i];
+          if (td.tagName !== "TD" || td.hasAttribute("data-label") ||
+              td.hasAttribute("colspan")) continue;
+          if (headers[i]) td.setAttribute("data-label", headers[i]);
+        }
+      });
+    });
+  }
+  enableMobileTables(document);
+  // Python перерисовывает #view и #modalBox через innerHTML — слушатели
+  // document это переживают, а атрибуты на новых ячейках надо проставить заново.
+  new MutationObserver(function () { enableMobileTables(document); })
+    .observe(document.body, { childList: true, subtree: true });
 
   window.__runCode = function (lang, code) {
     if (lang === "javascript") {

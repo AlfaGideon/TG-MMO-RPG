@@ -105,7 +105,10 @@ class App:
                 out += (f"<div class='nav-section-label' onclick='toggleNavSection(this)' style='cursor:pointer;display:flex;align-items:center;gap:.35rem;user-select:none;transition:opacity .15s;letter-spacing:0.04em;' aria-expanded='true'>"
                         f"<span style='font-size:.65rem;opacity:.5;transform:rotate(90deg);transition:transform .2s;display:inline-block;flex-shrink:0;' aria-hidden='true'>▶</span>"
                         f"<span style='font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;font-weight:600;color:var(--text-muted);'>{label}</span></div>")
-            wrapper_class = f"nav-section-group{' nav-section-collapsed' if is_collapsible else ''}"
+            # Разделы по умолчанию РАЗВЁРНУТЫ: на телефоне свёрнутое меню
+            # заставляло тапать в каждый заголовок, прежде чем найти раздел.
+            # Свернуть секцию можно вручную через toggleNavSection.
+            wrapper_class = "nav-section-group"
             out += f"<div class='{wrapper_class}' data-label='{label or ''}'>" if is_collapsible else ""
             for key in keys:
                 icon, _, text = pages[key].TITLE.partition(" ")

@@ -9,4 +9,9 @@
         <item name="android:statusBarColor">@color/app_background</item>
         <item name="android:windowBackground">@color/app_background</item>
     </style>
+
+    <!-- Тема заставки: тот же фон, но с логотипом в windowBackground -->
+    <style name="Theme.ShadowLands.Splash" parent="Theme.ShadowLands">
+        <item name="android:windowBackground">@drawable/splash_screen</item>
+    </style>
 </resources>
