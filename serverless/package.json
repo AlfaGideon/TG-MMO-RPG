@@ -1,0 +1,17 @@
+{
+  "name": "shadow-lands-serverless",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shadow Lands — игровой срез на Telegram Serverless (tgcloud): Mini App + endpoints + SQLite",
+  "type": "module",
+  "scripts": {
+    "test": "node --test 'test/*.test.mjs'",
+    "deploy": "tgcloud push",
+    "migrate": "tgcloud migrate",
+    "status": "tgcloud status",
+    "logs": "tgcloud logs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

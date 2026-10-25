@@ -1,0 +1,8 @@
+{
+  // Конфиг Telegram Serverless. CLI: npx tgcloud push / migrate / status.
+  // Папка web/ отдаётся как статика Mini App на https://app<id>.tgcloud.ai/
+  "static": {
+    "source": "web",
+    "spa": true
+  }
+}

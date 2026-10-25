@@ -35,12 +35,30 @@ object Prefs {
         return url
     }
 
-    fun getUrl(context: Context): String =
-        canonicalize(prefs(context).getString(KEY_URL, DEFAULT_URL) ?: DEFAULT_URL)
+    fun getUrl(context: Context): String {
+        val stored = prefs(context).getString(KEY_URL, null)
+        // Миграция со старых сборок: игровое издание раньше по умолчанию
+        // вело на GitHub Pages, где игры нет (404.html уводит в админку).
+        // Переустановка APK сохраняет SharedPreferences, поэтому такой адрес
+        // нужно молча выкинуть и вернуть новый дефолт с бэкенда.
+        if (ENTRY_PATH.isNotEmpty() && stored != null && isPagesUrl(stored)) {
+            prefs(context).edit().remove(KEY_URL).apply()
+            return canonicalize(DEFAULT_URL)
+        }
+        return canonicalize(stored ?: DEFAULT_URL)
+    }
 
     fun setUrl(context: Context, url: String) {
         prefs(context).edit().putString(KEY_URL, canonicalize(url)).apply()
     }
+
+    /** Был ли адрес сервера сохранён вручную (для диалога первого запуска). */
+    fun hasCustomUrl(context: Context): Boolean =
+        prefs(context).contains(KEY_URL)
+
+    private fun isPagesUrl(url: String): Boolean =
+        url.contains("github.io", ignoreCase = true) ||
+            url.contains("githubusercontent", ignoreCase = true)
 
     fun lastCheck(context: Context): Long =
         prefs(context).getLong(KEY_LAST_CHECK, 0L)

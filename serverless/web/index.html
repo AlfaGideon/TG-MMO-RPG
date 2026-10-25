@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Shadow Lands</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="stylesheet" href="player.css">
+</head>
+<body>
+
+<!-- Экран загрузки / ошибки -->
+<div id="loginScreen" class="screen login-screen">
+  <div class="login-card">
+    <img class="login-logo" src="branding/start_ru.png" alt="Shadow Lands">
+    <h1>Shadow Lands</h1>
+    <p class="muted" id="loginText">Подключение к облаку Telegram…</p>
+    <div id="loginStatus" class="login-status" hidden></div>
+  </div>
+</div>
+
+<!-- Игровой экран -->
+<div id="gameShell" class="screen game-shell" hidden>
+  <header class="topbar">
+    <div class="hero-pill">
+      <span id="heroName">—</span>
+      <span class="lvl" id="heroLevel">ур. 1</span>
+    </div>
+    <div class="hp-pill">
+      <div class="bar"><div class="bar-fill hp" id="hpFill" style="width:100%"></div></div>
+      <span id="hpText">HP</span>
+    </div>
+  </header>
+
+  <main class="content">
+    <!-- Герой -->
+    <section class="tab" id="tab-profile">
+      <div class="card">
+        <div class="profile-head">
+          <img class="profile-avatar" src="branding/start_ru.png" alt="">
+          <div>
+            <div class="profile-name" id="profileName">—</div>
+            <div class="profile-class" id="profileClass">—</div>
+          </div>
+        </div>
+        <div class="stat-grid" id="statGrid"></div>
+        <div class="xp-row">
+          <div class="xp-label"><span>Опыт</span><span id="xpText">0 / 100</span></div>
+          <div class="bar big"><div class="bar-fill xp" id="xpFill" style="width:0%"></div></div>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Кошель</h2>
+        <div class="stat-grid" id="walletGrid"></div>
+      </div>
+      <div class="card">
+        <h2>Боевые характеристики</h2>
+        <div class="stat-grid" id="combatGrid"></div>
+      </div>
+    </section>
+
+    <!-- Карта -->
+    <section class="tab" id="tab-map" hidden>
+      <div class="card">
+        <div class="loc-head">
+          <h2 id="locName">Сумеречные руины</h2>
+          <span class="coords" id="coords">0,0</span>
+        </div>
+        <p class="loc-desc" id="locDesc"></p>
+        <div class="cell-tags" id="cellTags"></div>
+      </div>
+
+      <div class="card" id="mobCard" hidden>
+        <div id="mobInfo"></div>
+        <div class="actions-row">
+          <button class="btn primary" id="btnFight">⚔️ Атаковать</button>
+          <button class="btn" id="btnInspect">🔍 Осмотреть</button>
+          <button class="btn" id="btnRest" hidden>🔥 Отдых</button>
+        </div>
+      </div>
+
+      <div class="card" id="battleCard" hidden>
+        <div class="battle-mob">
+          <h2 id="battleMobName">—</h2>
+          <div class="bar big"><div class="bar-fill mob" id="mobHpFill" style="width:100%"></div></div>
+          <span id="mobHpText">—</span>
+        </div>
+        <div class="battle-log" id="battleLog"></div>
+        <div class="battle-actions">
+          <button class="btn danger" id="btnAttack">⚔️ Удар</button>
+          <button class="btn ghost" id="btnFlee">🏃 Бежать</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="dpad">
+          <span></span>
+          <button class="dpad-btn" data-dir="N">▲</button>
+          <span></span>
+          <button class="dpad-btn" data-dir="W">◀</button>
+          <div class="dpad-center">✦</div>
+          <button class="dpad-btn" data-dir="E">▶</button>
+          <span></span>
+          <button class="dpad-btn" data-dir="S">▼</button>
+          <span></span>
+        </div>
+        <p class="muted" id="mapHint" style="text-align:center">Туман скрывает неразведанные клетки.</p>
+      </div>
+    </section>
+
+    <!-- Инвентарь -->
+    <section class="tab" id="tab-inventory" hidden>
+      <div class="card">
+        <h2>Инвентарь</h2>
+        <div class="item-list" id="itemList"></div>
+      </div>
+    </section>
+  </main>
+
+  <nav class="bottom-nav">
+    <button class="nav-btn active" data-tab="profile"><span>🧙</span>Герой</button>
+    <button class="nav-btn" data-tab="map"><span>🗺️</span>Карта</button>
+    <button class="nav-btn" data-tab="inventory"><span>🎒</span>Сундук</button>
+  </nav>
+</div>
+
+<div class="toast" id="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>
