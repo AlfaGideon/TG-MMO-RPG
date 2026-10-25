@@ -100,6 +100,20 @@ android {
     }
 }
 
+// ── Совместимость с исходным CI (.github/workflows/android.yml) ────────
+// Первый workflow не меняем: он запускает assembleRelease и ищет APK в
+// outputs/apk/release/. С появлением flavor'ов варианты переезжают в
+// outputs/apk/<flavor>/release/, поэтому дублируем admin-APK по старому
+// пути. Новый workflow игрока читает свой путь outputs/apk/player/release/.
+tasks.register<Copy>("stageLegacyAdminApk") {
+    val root = layout.buildDirectory.get().asFile
+    from("$root/outputs/apk/admin/release") { include("*.apk") }
+    into("$root/outputs/apk/release")
+}
+tasks.matching { it.name == "assembleAdminRelease" }.configureEach {
+    finalizedBy("stageLegacyAdminApk")
+}
+
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")

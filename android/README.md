@@ -57,14 +57,18 @@ AndroidX + Material 3, package `com.alfagideon.shadowlands`.
          └─ версия та же ──► молча (или тост при ручной проверке)
 ```
 
-Сборку, выравнивание (`zipalign`) и подпись (`apksigner`) выполняет
-GitHub Actions — шаблон workflow лежит в [`ci/android.yml`](ci/android.yml).
-Локально Android SDK не требуется, чтобы получить рабочий APK.
+Сборку, выравнивание (`zipalign`) и подпись (`apksigner`) выполняют
+GitHub Actions — два независимых workflow под два издания:
+[`ci/android.yml`](ci/android.yml) (админский, уже активен) и
+[`ci/android-player.yml`](ci/android-player.yml) (игровой, активируется
+один раз). Локально Android SDK не требуется, чтобы получить рабочий APK.
 
-> ⚠️ **Одноразовая активация CI.** Агент Arena не имеет права создавать
-> файлы в `.github/workflows/`, поэтому workflow нужно один раз скопировать
-> туда через веб-интерфейс GitHub — пошагово это описано в
-> [`ci/README.md`](ci/README.md). Без этого шага автосборка релизов не работает.
+> ⚠️ **Одноразовая активация workflow игрока.** Существующий
+> `.github/workflows/android.yml` менять не нужно — благодаря Gradle-мостику
+> `stageLegacyAdminApk` он по-прежнему собирает админский APK без правок.
+> Нужно лишь создать НОВЫЙ файл `.github/workflows/android-player.yml`
+> из шаблона [`ci/android-player.yml`](ci/android-player.yml) — пошагово
+> это описано в [`ci/README.md`](ci/README.md).
 
 ## Как выпустить новую версию (для пользователя приложения)
 
@@ -75,17 +79,19 @@ GitHub Actions — шаблон workflow лежит в [`ci/android.yml`](ci/and
    gh release create v1.0.1 --title "Shadow Lands 1.0.1" \
      --notes "Что нового в этой версии"
    ```
-3. Workflow **Android APK** запустится автоматически (после одноразовой
-   активации из [`ci/README.md`](ci/README.md)), соберёт **сразу два APK**
-   (админский и игровой) и прикрепит их к релизу файлами
-   `shadow-lands.apk` и `shadow-lands-player.apk` (10–15 минут, статус —
-   вкладка Actions). Те же два файла лягут в `android/dist/`.
+3. На релиз автоматически запустятся **два независимых workflow**:
+   **Android APK** (уже активен) соберёт админский `shadow-lands.apk`,
+   **Android APK Player** (после одноразовой активации из
+   [`ci/README.md`](ci/README.md)) — игровой `shadow-lands-player.apk`.
+   Оба файла прикрепятся к релизу и лягут в `android/dist/` (10–15 минут,
+   статус — вкладка Actions).
 4. У всех пользователей при следующем запуске приложение само предложит
    обновиться — каждое издание матчит свой ассет. Версия берётся из тега:
    `v1.0.1` → `versionName 1.0.1`, `versionCode` — номер прогона workflow
    (всегда растёт, поэтому Android принимает обновление).
 
-Собрать APK без релиза можно вручную: **Actions → Android APK → Run workflow**.
+Собрать APK без релиза можно вручную: **Actions → Android APK Player →
+Run workflow** (для игрока) или **Android APK → Run workflow** (для админки).
 APK появится в артефактах прогона; если в поле `release_tag` указать тег
 существующего релиза, APK будет прикреплён и к нему.
 
@@ -187,9 +193,13 @@ android/
 │       │   └── res/                  # тема, иконка, общие строки (RU), меню
 │       ├── admin/res/values/strings.xml  # app_name/about_text издания admin
 │       └── player/res/values/strings.xml # app_name/about_text издания player
+├── ci/
+│   ├── android.yml                  # шаблон активного workflow admin (НЕ меняем)
+│   ├── android-player.yml           # шаблон нового workflow player (активация в README)
+│   └── README.md                    # пошаговая активация второго workflow
 ├── keystore/                        # PEM-ключ подписи — см. keystore/README.md
 ├── gradle/wrapper/                  # Gradle 8.9 wrapper
-├── build.gradle.kts                 # AGP 8.5.2 + Kotlin 1.9.24
+├── build.gradle.kts                 # AGP 8.5.2 + Kotlin 1.9.24 + мостик stageLegacyAdminApk
 └── settings.gradle.kts
 ```
 
