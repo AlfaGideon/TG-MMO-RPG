@@ -6,3 +6,5 @@ local.properties
 .idea/
 *.apk
 captures/
+# PKCS12-keystore генерируется из PEM-пары в CI, в репозиторий не коммитится
+keystore/*.p12
