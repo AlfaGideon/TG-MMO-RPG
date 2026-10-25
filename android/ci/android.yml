@@ -1,0 +1,90 @@
+# ВНИМАНИЕ: это шаблон workflow. Он лежит здесь, потому что агент Arena
+# не может создавать файлы в .github/workflows/ через API.
+# Одноразовая активация описана в android/ci/README.md:
+# скопируйте этот файл в .github/workflows/android.yml через веб-интерфейс GitHub.
+name: Android APK
+
+on:
+  # Автосборка и публикация APK при создании релиза на GitHub
+  release:
+    types: [published]
+  # Ручной запуск: Actions → Android APK → Run workflow
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Тег существующего релиза, к которому прикрепить APK (необязательно)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-34 build-tools;34.0.0'
+
+      - name: Determine version
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            TAG="${{ github.event.release.tag_name }}"
+          else
+            TAG="${{ github.event.inputs.release_tag }}"
+          fi
+          VERSION="${TAG#v}"
+          if [ -z "$VERSION" ]; then
+            VERSION="0.0.0-dev.${{ github.run_number }}"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "versionCode=${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          echo "Собираю версию $VERSION (versionCode ${{ github.run_number }})"
+
+      - name: Build release APK
+        working-directory: android
+        run: >
+          ./gradlew assembleRelease --no-daemon --stacktrace
+          -PappVersion=${{ steps.ver.outputs.version }}
+          -PappVersionCode=${{ steps.ver.outputs.versionCode }}
+
+      - name: Align and sign APK
+        run: |
+          set -euo pipefail
+          UNSIGNED="android/app/build/outputs/apk/release/app-release-unsigned.apk"
+          ALIGNED="build/shadow-lands-aligned.apk"
+          FINAL="build/shadow-lands.apk"
+          mkdir -p build
+          "$ANDROID_HOME/build-tools/34.0.0/zipalign" -p -f 4 "$UNSIGNED" "$ALIGNED"
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" sign \
+            --key android/keystore/release.key.pem \
+            --cert android/keystore/release.cert.pem \
+            --out "$FINAL" "$ALIGNED"
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose "$FINAL"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: shadow-lands-apk
+          path: build/shadow-lands.apk
+          retention-days: 30
+
+      - name: Attach APK to GitHub release
+        if: steps.ver.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ steps.ver.outputs.tag }}" build/shadow-lands.apk --clobber
