@@ -88,3 +88,19 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "${{ steps.ver.outputs.tag }}" build/shadow-lands.apk --clobber
+
+      # APK также кладётся файлом прямо в репозиторий (android/dist/shadow-lands.apk),
+      # чтобы его можно было скачать из дерева проекта без захода в Releases.
+      - name: Commit APK into repository
+        if: github.event_name == 'release'
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git checkout main
+          mkdir -p android/dist
+          cp build/shadow-lands.apk android/dist/shadow-lands.apk
+          git add -f android/dist/shadow-lands.apk
+          git commit -m "Build shadow-lands.apk for ${{ github.event.release.tag_name }}"
+          git push origin main
