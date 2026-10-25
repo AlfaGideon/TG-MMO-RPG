@@ -49,14 +49,23 @@ async def cmd_app(message: Message):
         # Mini App-кнопка возможна только на обычной клавиатуре (ограничение
         # Telegram: inline web_app тоже поддерживается, но в личных чатах
         # надёжнее reply-клавиатура).
-        web_app = WebAppInfo(url=f"{panel_url}/player/")
+        player_url = f"{panel_url}/player/"
+        web_app = WebAppInfo(url=player_url)
         reply_kb = ReplyKeyboardMarkup(
             keyboard=[[KeyboardButton(
                 text="🎮 Открыть Mini App", web_app=web_app
             )]],
             resize_keyboard=True,
         )
-        lines += ["", "Нажми кнопку ниже, чтобы играть прямо в Telegram."]
+        lines += [
+            "",
+            "Нажми кнопку ниже, чтобы играть прямо в Telegram.",
+            "",
+            "📲 <b>В приложении на телефоне:</b> если игра не открылась "
+            "сама, открой меню «Адрес сервера» и вставь этот адрес "
+            "(путь допишется автоматически):",
+            f"<code>{panel_url}</code>",
+        ]
         await message.answer(
             "\n".join(lines), reply_markup=builder, parse_mode="HTML"
         )

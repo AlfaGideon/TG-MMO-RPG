@@ -38,6 +38,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var updates: UpdateManager
     private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
     private lateinit var fileChooserLauncher: ActivityResultLauncher<String>
+    private var serverDialogOpen = false
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -101,7 +102,12 @@ class MainActivity : AppCompatActivity() {
                 request: WebResourceRequest?,
                 error: WebResourceError?
             ) {
-                if (request?.isForMainFrame == true) showError()
+                // Главный фрейм не загрузился (нет такого хоста/сервер спит) —
+                // сразу предлагаем сменить адрес сервера, а не только ошибку.
+                if (request?.isForMainFrame == true) {
+                    showError()
+                    showUrlDialog()
+                }
             }
 
             override fun onReceivedSslError(
@@ -140,6 +146,12 @@ class MainActivity : AppCompatActivity() {
 
         loadHome()
         updates.autoCheck()
+
+        // Игровое издание без сохранённого адреса: дефолтный хост может не
+        // существовать у конкретного игрока — сразу спрашиваем его сервер.
+        if (Prefs.ENTRY_PATH.isNotEmpty() && !Prefs.hasCustomUrl(this)) {
+            showUrlDialog()
+        }
     }
 
     private fun loadHome() {
@@ -200,12 +212,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showUrlDialog() {
+        // Ошибка загрузки может прийти несколько раз подряд — не плодим диалоги.
+        if (serverDialogOpen) return
         val input = EditText(this).apply {
             setText(Prefs.getUrl(this@MainActivity))
             setSelection(text.length)
             hint = getString(R.string.server_url_hint)
         }
-        AlertDialog.Builder(this)
+        val dialog = AlertDialog.Builder(this)
             .setTitle(R.string.server_url_title)
             .setView(input)
             .setPositiveButton(R.string.save) { _, _ ->
@@ -223,7 +237,10 @@ class MainActivity : AppCompatActivity() {
                 Prefs.setUrl(this, Prefs.DEFAULT_URL)
                 loadHome()
             }
-            .show()
+            .create()
+        dialog.setOnShowListener { serverDialogOpen = true }
+        dialog.setOnDismissListener { serverDialogOpen = false }
+        dialog.show()
     }
 
     private fun showAboutDialog() {

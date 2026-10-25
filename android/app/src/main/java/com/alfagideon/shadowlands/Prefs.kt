@@ -52,6 +52,10 @@ object Prefs {
         prefs(context).edit().putString(KEY_URL, canonicalize(url)).apply()
     }
 
+    /** Был ли адрес сервера сохранён вручную (для диалога первого запуска). */
+    fun hasCustomUrl(context: Context): Boolean =
+        prefs(context).contains(KEY_URL)
+
     private fun isPagesUrl(url: String): Boolean =
         url.contains("github.io", ignoreCase = true) ||
             url.contains("githubusercontent", ignoreCase = true)
