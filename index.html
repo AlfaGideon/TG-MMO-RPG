@@ -2,9 +2,12 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>🌑 Shadow Lands — Admin</title>
-<link rel="stylesheet" href="webapp/static/admin.css?v=97316ff5fd1f">
+<link rel="icon" type="image/png" sizes="32x32" href="webapp/static/favicon-32.png">
+<link rel="icon" type="image/png" sizes="192x192" href="webapp/static/favicon-192.png">
+<link rel="apple-touch-icon" href="webapp/static/favicon-180.png">
+<link rel="stylesheet" href="webapp/static/admin.css?v=9d618269edde">
 <!--
   Интерактив карты/сетки/таймеров живёт в настоящем статическом JS-файле,
   а не в <script> внутри HTML, который Python вставляет через innerHTML —
@@ -12,7 +15,7 @@
   карте, drag-and-drop локаций и таймер порталов из-за этого не работали.
   Подключается один раз при загрузке страницы, до и независимо от Pyodide.
 -->
-<script src="webapp/static/interactions.js?v=6e94bb399048" defer></script>
+<script src="webapp/static/interactions.js?v=9c2ec3d87daf" defer></script>
 <style>
 #boot{max-width:780px;margin:2rem auto;padding:1.2rem;background:#1a1a24;
       border:1px solid #2e2e3e;border-radius:12px}
@@ -28,11 +31,12 @@
   <div class="sidebar-overlay" onclick="sidebar(false)"></div>
   <aside class="sidebar">
     <div class="sidebar-brand">
-      <span class="brand-icon">🌑</span>
+      <img class="brand-logo" src="webapp/static/brand-logo.png" alt="Shadow Lands" width="42" height="42">
       <div>
         <div class="brand-title">Shadow Lands</div>
-        <div class="brand-sub">Admin panel</div>
+        <div class="brand-sub">Админ-панель</div>
       </div>
+      <button class="sidebar-close" onclick="sidebar(false)" aria-label="Закрыть меню">✕</button>
     </div>
     <nav class="sidebar-nav" id="nav"></nav>
     <div class="sidebar-footer">
@@ -53,7 +57,7 @@
       <button class="menu-toggle" onclick="sidebar()">☰</button>
       <div class="page-title" id="pageTitle">Панель управления</div>
       <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Переключить тему">🌙</button>
-      <button class="btn" onclick="openSearch()" title="Поиск (Ctrl/Cmd+K)">🔍 Поиск</button>
+      <button class="btn search-btn" onclick="openSearch()" title="Поиск (Ctrl/Cmd+K)">🔍<span class="search-label">Поиск</span></button>
     </header>
     <div class="breadcrumbs" id="breadcrumbs"></div>
     <div class="container" id="view">
