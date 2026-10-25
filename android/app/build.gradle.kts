@@ -11,10 +11,14 @@ val appVersionCode: Int =
 
 // Подпись релиза: в CI путь к PKCS12-keystore передаётся через -PkeystoreFile.
 // Без этих свойств (локальная сборка без ключа) release остаётся неподписанным.
-val keystoreFilePath = project.findProperty("keystoreFile") as String?
-val keystorePassword = (project.findProperty("keystorePassword") as String?) ?: ""
-val keyAlias = (project.findProperty("keyAlias") as String?) ?: "shadowlands"
-val keyPassword = (project.findProperty("keyPassword") as String?) ?: keystorePassword
+// ВАЖНО: имена внешних переменных не должны совпадать со свойствами
+// SigningConfig (keyPassword/keyAlias/storePassword) — иначе внутри
+// create("release") { ... } правое имя резолвится в собственный геттер
+// конфига (null), а не во внешнюю val, и AGP падает с NPE на packageRelease.
+val ksFile = project.findProperty("keystoreFile") as String?
+val ksStorePassword = (project.findProperty("keystorePassword") as String?) ?: ""
+val ksKeyAlias = (project.findProperty("keyAlias") as String?) ?: "shadowlands"
+val ksKeyPassword = (project.findProperty("keyPassword") as String?) ?: ksStorePassword
 
 android {
     namespace = "com.alfagideon.shadowlands"
@@ -30,13 +34,13 @@ android {
     }
 
     signingConfigs {
-        if (keystoreFilePath != null) {
+        if (ksFile != null) {
             create("release") {
-                storeFile = file(keystoreFilePath)
+                storeFile = file(ksFile)
                 storeType = "PKCS12"
-                storePassword = keystorePassword
-                this.keyAlias = keyAlias
-                keyPassword = keyPassword
+                storePassword = ksStorePassword
+                keyAlias = ksKeyAlias
+                keyPassword = ksKeyPassword
             }
         }
     }
@@ -44,7 +48,7 @@ android {
     buildTypes {
         release {
             // Gradle сам подпишет APK и сделает zipalign, если передан keystore.
-            if (keystoreFilePath != null) {
+            if (ksFile != null) {
                 signingConfig = signingConfigs.getByName("release")
             }
             isMinifyEnabled = false
