@@ -55,9 +55,9 @@ serverless/
 
 ### Шаг 1. BotFather
 
-1. Открыть [@BotFather](https://t.me/BotFather) → выбрать бота →
-   **Bot Settings → Serverless** → включить.
-2. Запомнить имя бота (`@username`) — оно нужно для `BOT_USERNAME`.
+1. Открыть [@BotFather](https://t.me/BotFather) → выбрать бота
+   **@Shadow_Land_bot** → **Bot Settings → Serverless** → включить
+   (кнопка появляется после одобрения из листа ожидания).
 
 ### Шаг 2. Привязка проекта и первый деплой
 
@@ -76,13 +76,13 @@ CLI напечатает адрес Mini App вида `https://app1234567890.tgc
 npx tgcloud@latest migrate
 ```
 
-### Шаг 3. Прописать адрес и имя бота
+### Шаг 3. Прописать адрес Mini App
 
-Открыть `tgcloud/lib/config.js` и заменить две константы на свои значения:
+Имя бота уже прописано в коде (`BOT_USERNAME = 'Shadow_Land_bot'`). Открыть
+`tgcloud/lib/config.js` и заменить только адрес на тот, что напечатал CLI:
 
 ```js
 export const MINI_APP_URL = 'https://app1234567890.tgcloud.ai/';
-export const BOT_USERNAME = 'ваш_бот_без_собачки';
 ```
 
 После этого запушить ещё раз — кнопка Web App в `/start` заработает:

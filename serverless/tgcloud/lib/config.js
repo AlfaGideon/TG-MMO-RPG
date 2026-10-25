@@ -5,7 +5,7 @@
 export const MINI_APP_URL = 'https://APP_ID.tgcloud.ai/';
 
 // Имя бота для deep-link (используется в /start и APK-лаунчером): t.me/<username>
-export const BOT_USERNAME = 'ShadowLandsBot';
+export const BOT_USERNAME = 'Shadow_Land_bot';
 
 // Игровые константы
 export const GAME = {
