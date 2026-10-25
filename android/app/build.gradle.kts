@@ -45,6 +45,7 @@ android {
                 "String", "DEFAULT_URL",
                 "\"https://alfagideon.github.io/TG-MMO-RPG/\""
             )
+            buildConfigField("String", "ENTRY_PATH", "\"\"")
             buildConfigField("String", "RELEASE_ASSET", "\"shadow-lands.apk\"")
         }
         create("player") {
@@ -56,6 +57,9 @@ android {
                 "String", "DEFAULT_URL",
                 "\"https://alfagideon.github.io/TG-MMO-RPG/player/\""
             )
+            // Точка входа издания: при любом введённом адресе сервера игрок
+            // всегда попадает в игровой SPA, а не в корень админ-панели.
+            buildConfigField("String", "ENTRY_PATH", "\"/player/\"")
             buildConfigField("String", "RELEASE_ASSET", "\"shadow-lands-player.apk\"")
         }
     }
