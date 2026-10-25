@@ -28,7 +28,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -64,17 +64,33 @@ jobs:
 
       - name: Align and sign APK
         run: |
-          set -euo pipefail
-          UNSIGNED="android/app/build/outputs/apk/release/app-release-unsigned.apk"
-          ALIGNED="build/shadow-lands-aligned.apk"
-          FINAL="build/shadow-lands.apk"
+          set -eo pipefail
+          echo "ANDROID_HOME=${ANDROID_HOME:-<unset>}  ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-<unset>}"
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          echo "SDK=$SDK"
+          ls -la "$SDK/build-tools/" || true
+          BT="$SDK/build-tools/34.0.0"
+          test -x "$BT/zipalign" || { echo "zipalign не найден в $BT"; exit 2; }
+          test -x "$BT/apksigner" || { echo "apksigner не найден в $BT"; exit 2; }
+
+          echo "--- собранные APK:"
+          find android/app/build/outputs -name "*.apk" -ls || true
+          APK=$(find android/app/build/outputs/apk/release -name "*.apk" | head -1)
+          test -n "$APK" || { echo "APK не найден в outputs"; exit 2; }
+
           mkdir -p build
-          "$ANDROID_HOME/build-tools/34.0.0/zipalign" -p -f 4 "$UNSIGNED" "$ALIGNED"
-          "$ANDROID_HOME/build-tools/34.0.0/apksigner" sign \
+          "$BT/zipalign" -p -f 4 "$APK" build/shadow-lands-aligned.apk
+
+          echo "--- ключ подписи:"
+          ls -la android/keystore/
+          head -1 android/keystore/release.key.pem android/keystore/release.cert.pem
+          "$BT/apksigner" sign \
+            --min-sdk-version 24 \
             --key android/keystore/release.key.pem \
             --cert android/keystore/release.cert.pem \
-            --out "$FINAL" "$ALIGNED"
-          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose "$FINAL"
+            --out build/shadow-lands.apk build/shadow-lands-aligned.apk
+          "$BT/apksigner" verify --verbose --print-certs build/shadow-lands.apk
+          ls -la build/
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
