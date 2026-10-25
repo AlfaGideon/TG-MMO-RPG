@@ -16,11 +16,30 @@ object Prefs {
      */
     val DEFAULT_URL: String = BuildConfig.DEFAULT_URL
 
+    /** Путь точки входа издания: "" — корень (admin), "/player/" — игра (player). */
+    val ENTRY_PATH: String = BuildConfig.ENTRY_PATH
+
+    /**
+     * Приводит адрес к точке входа издания:
+     *  * player — любой сохранённый/введённый адрес дополняется /player/
+     *    (игрок физически не может попасть в корень админ-панели);
+     *  * admin  — остаётся как есть, лишь убирается хвостовой слэш не ломаем.
+     */
+    fun canonicalize(raw: String): String {
+        val url = raw.trim().trimEnd('/')
+        if (url.isEmpty()) return DEFAULT_URL
+        val path = ENTRY_PATH.trimEnd('/')
+        if (path.isNotEmpty() && !url.endsWith(path)) {
+            return url + path
+        }
+        return url
+    }
+
     fun getUrl(context: Context): String =
-        prefs(context).getString(KEY_URL, DEFAULT_URL) ?: DEFAULT_URL
+        canonicalize(prefs(context).getString(KEY_URL, DEFAULT_URL) ?: DEFAULT_URL)
 
     fun setUrl(context: Context, url: String) {
-        prefs(context).edit().putString(KEY_URL, url).apply()
+        prefs(context).edit().putString(KEY_URL, canonicalize(url)).apply()
     }
 
     fun lastCheck(context: Context): Long =
