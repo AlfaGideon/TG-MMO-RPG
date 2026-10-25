@@ -1,1 +1,162 @@
 
+name: Android APK Player
+
+on:
+  # Автосборка игрового APK при создании релиза на GitHub
+  release:
+    types: [published]
+  # Ручной запуск: Actions → Android APK Player → Run workflow
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Тег существующего релиза, к которому прикрепить APK (необязательно)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-34 build-tools;34.0.0'
+
+      - name: Determine version
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            TAG="${{ github.event.release.tag_name }}"
+          else
+            TAG="${{ github.inputs.release_tag }}"
+          fi
+          VERSION="${TAG#v}"
+          if [ -z "$VERSION" ]; then
+            VERSION="0.0.0-dev.${{ github.run_number }}"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "versionCode=${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          echo "Собираю игровое издание версии $VERSION (versionCode ${{ github.run_number }})"
+
+      - name: Convert PEM key to PKCS12 keystore
+        run: |
+          set -eo pipefail
+          openssl pkcs12 -export \
+            -inkey android/keystore/release.key.pem \
+            -in android/keystore/release.cert.pem \
+            -out android/keystore/release.p12 \
+            -name shadowlands \
+            -password pass:shadowlands
+          keytool -list -keystore android/keystore/release.p12 \
+            -storetype PKCS12 -storepass shadowlands | head -10
+
+      - name: Build player release APK
+        working-directory: android
+        run: |
+          set -o pipefail
+          ./gradlew assemblePlayerRelease --no-daemon --stacktrace \
+            -PappVersion=${{ steps.ver.outputs.version }} \
+            -PappVersionCode=${{ steps.ver.outputs.versionCode }} \
+            -PkeystoreFile="$GITHUB_WORKSPACE/android/keystore/release.p12" \
+            -PkeystorePassword=shadowlands \
+            -PkeyAlias=shadowlands \
+            -PkeyPassword=shadowlands 2>&1 | tee gradle-build-player.log
+
+      - name: Report failure as GitHub issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          {
+            echo "## Игровая сборка ${{ github.run_id }} (${{ github.event_name }}) упала"
+            echo
+            echo "### Окружение"
+            echo '```'
+            echo "ANDROID_HOME=${ANDROID_HOME:-<unset>} ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-<unset>}"
+            SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+            ls -la "$SDK/build-tools/" 2>&1 || true
+            find "$SDK" -name apksigner 2>/dev/null || true
+            keytool -list -keystore android/keystore/release.p12 -storetype PKCS12 -storepass shadowlands 2>&1 | head -10 || true
+            echo '```'
+            echo "### Хвост лога Gradle"
+            echo '```'
+            tail -200 android/gradle-build-player.log 2>/dev/null || echo "лог gradle-build-player.log не найден"
+            echo '```'
+          } > /tmp/failure-player.md
+          gh issue create --title "Android player build failed (run ${{ github.run_id }})" --body-file /tmp/failure-player.md || true
+
+      - name: Stage and verify player APK
+        run: |
+          set -eo pipefail
+          echo "--- собранные APK:"
+          find android/app/build/outputs -name "*.apk" -ls || true
+          PLAYER_APK=$(find android/app/build/outputs/apk/player/release -name "*.apk" | head -1)
+          test -n "$PLAYER_APK" || { echo "player APK не найден в outputs"; exit 2; }
+          mkdir -p build
+          cp "$PLAYER_APK" build/shadow-lands-player.apk
+          ls -la build/
+          APKSIGNER=""
+          for d in "$ANDROID_HOME" "$ANDROID_SDK_ROOT" /usr/local/lib/android/sdk /opt/android-sdk; do
+            [ -d "$d/build-tools" ] || continue
+            APKSIGNER=$(ls "$d"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1)
+            [ -n "$APKSIGNER" ] && break
+          done
+          if [ -n "$APKSIGNER" ]; then
+            "$APKSIGNER" verify --verbose --print-certs build/shadow-lands-player.apk
+          else
+            echo "apksigner не найден — верификация пропущена (APK уже подписан Gradle)"
+          fi
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: shadow-lands-player-apk
+          path: build/shadow-lands-player.apk
+          retention-days: 30
+
+      - name: Attach player APK to GitHub release
+        if: steps.ver.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ steps.ver.outputs.tag }}" \
+            build/shadow-lands-player.apk --clobber
+
+      - name: Commit player APK into repository
+        if: github.event_name == 'release'
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git checkout main
+          git pull --rebase origin main || true
+          mkdir -p android/dist
+          cp build/shadow-lands-player.apk android/dist/shadow-lands-player.apk
+          git add -f android/dist/shadow-lands-player.apk
+          git commit -m "Build shadow-lands-player.apk for ${{ github.event.release.tag_name }}"
+          for attempt in 1 2 3; do
+            if git pull --rebase origin main && git push origin main; then
+              echo "Push выполнен с попытки $attempt"
+              exit 0
+            fi
+            echo "Push отклонён, повтор $attempt/3..."
+            sleep 5
+          done
+          echo "Не удалось запушить APK после 3 попыток — ассет релиза уже загружен"
+          exit 1
