@@ -14,6 +14,8 @@ from core import guilds as _guilds_models  # noqa: F401
 # То же самое для каналов сообщества (core/community.py: Channel,
 # CommunityMessage) — без импорта create_all их не увидит.
 from core import community as _community_models  # noqa: F401
+# Таблицы кодов входа и Bearer-сессий мобильного игрового приложения.
+from playerapp import models as _playerapp_models  # noqa: F401
 
 logger = logging.getLogger("migrations")
 

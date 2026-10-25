@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Издание admin: панель управления (исходное приложение). -->
+<resources>
+    <string name="app_name">Shadow Lands</string>
+    <string name="about_text">Версия %1$s\n\nWebView-обёртка над веб-панелью Shadow Lands. APK обновляется автоматически через релизы GitHub.</string>
+</resources>

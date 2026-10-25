@@ -25,12 +25,43 @@ android {
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.alfagideon.shadowlands"
         minSdk = 24
         targetSdk = 34
         versionCode = appVersionCode
         versionName = appVersion
         vectorDrawables.useSupportLibrary = true
+    }
+
+    // Два издания одного WebView-клиента:
+    //  * admin  — панель управления (исходное приложение, пакет ...shadowlands);
+    //  * player — игровой клиент без админ-разделов: грузит /player/, имеет
+    //             отдельный package (ставится рядом) и свой APK-ассет в релизе.
+    flavorDimensions += "edition"
+    productFlavors {
+        create("admin") {
+            dimension = "edition"
+            applicationId = "com.alfagideon.shadowlands"
+            buildConfigField(
+                "String", "DEFAULT_URL",
+                "\"https://alfagideon.github.io/TG-MMO-RPG/\""
+            )
+            buildConfigField("String", "RELEASE_ASSET", "\"shadow-lands.apk\"")
+        }
+        create("player") {
+            dimension = "edition"
+            applicationId = "com.alfagideon.shadowlands.player"
+            // Тот же хост, что у админ-издания, но игровой раздел SPA.
+            // Боевой адрес сервера игрок может сменить в меню «Адрес сервера».
+            buildConfigField(
+                "String", "DEFAULT_URL",
+                "\"https://alfagideon.github.io/TG-MMO-RPG/player/\""
+            )
+            buildConfigField("String", "RELEASE_ASSET", "\"shadow-lands-player.apk\"")
+        }
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     signingConfigs {
@@ -67,6 +98,20 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+}
+
+// ── Совместимость с исходным CI (.github/workflows/android.yml) ────────
+// Первый workflow не меняем: он запускает assembleRelease и ищет APK в
+// outputs/apk/release/. С появлением flavor'ов варианты переезжают в
+// outputs/apk/<flavor>/release/, поэтому дублируем admin-APK по старому
+// пути. Новый workflow игрока читает свой путь outputs/apk/player/release/.
+tasks.register<Copy>("stageLegacyAdminApk") {
+    val root = layout.buildDirectory.get().asFile
+    from("$root/outputs/apk/admin/release") { include("*.apk") }
+    into("$root/outputs/apk/release")
+}
+tasks.matching { it.name == "assembleAdminRelease" }.configureEach {
+    finalizedBy("stageLegacyAdminApk")
 }
 
 dependencies {

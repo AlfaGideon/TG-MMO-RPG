@@ -19,8 +19,10 @@ from .guilds import router as guilds_router
 from .quests import router as quests_router
 from .community import router as community_router
 from .community_group import router as community_group_router
+from .player_app import router as player_app_router
 
 routers = [
+    player_app_router,
     start_router,
     help_book_router,
     updates_book_router,

@@ -138,6 +138,30 @@ templates.env.globals["has_capability"] = webauth.has_capability
 from admin.tgapp import router as tgapp_router  # noqa: E402
 app.include_router(tgapp_router)
 
+# Игровое мобильное приложение: API /api/player/* и SPA на /player.
+# Тот же процесс и та же БД, что у бота, — прогресс игрока общий.
+from playerapp.api import router as player_router, STATIC_DIR as PLAYER_STATIC_DIR  # noqa: E402
+app.include_router(player_router)
+app.mount(
+    "/player-static",
+    StaticFiles(directory=PLAYER_STATIC_DIR),
+    name="player_static",
+)
+
+
+@app.get("/player", include_in_schema=False)
+async def player_spa_entry():
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/player/")
+
+
+@app.get("/player/", include_in_schema=False)
+async def player_spa_index():
+    # Точка входа Mini App из бота (WebAppInfo ведёт на {panel_url}/player/)
+    # и APK-WebView: отдаём тот же SPA, что и /api/player/ в роутере.
+    from fastapi.responses import FileResponse
+    return FileResponse(os.path.join(PLAYER_STATIC_DIR, "index.html"))
+
 PUBLIC_PATHS = {"/admin-login", "/admin-logout", "/tgapp", "/tgapp/auth"}
 
 # Подписи слотов экипировки и бонусов — используются шаблонами редактора

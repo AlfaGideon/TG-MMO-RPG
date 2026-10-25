@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Издание player: игровой клиент. Тот же бренд, отдельный package,
+     экран /player/ без админ-разделов. -->
+<resources>
+    <string name="app_name">Shadow Lands — Игра</string>
+    <string name="about_text">Версия %1$s\n\nИгровой клиент Shadow Lands: герой, инвентарь, бои и движение общие с Telegram-ботом. APK обновляется автоматически через релизы GitHub.</string>
+</resources>

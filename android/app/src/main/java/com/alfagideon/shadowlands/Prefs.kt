@@ -8,8 +8,13 @@ object Prefs {
     private const val KEY_URL = "server_url"
     private const val KEY_LAST_CHECK = "last_update_check"
 
-    /** По умолчанию — статическая сборка на GitHub Pages этого репозитория. */
-    const val DEFAULT_URL = "https://alfagideon.github.io/TG-MMO-RPG/"
+    /**
+     * Стартовый адрес зависит от издания (BuildConfig задан flavor'ом):
+     * admin — корень панели, player — игровой раздел /player/.
+     * Песочницы приложений раздельны (разные package → разные UID),
+     * поэтому одинаковое имя файла префов не конфликтует.
+     */
+    val DEFAULT_URL: String = BuildConfig.DEFAULT_URL
 
     fun getUrl(context: Context): String =
         prefs(context).getString(KEY_URL, DEFAULT_URL) ?: DEFAULT_URL
